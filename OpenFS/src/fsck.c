@@ -2,9 +2,11 @@
 #include "openfs/bitmap.h"
 #include "openfs/extent.h"
 #include "openfs/file.h"
+#include "openfs/dir.h"
 #include "openfs/crc32c.h"
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
 static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
