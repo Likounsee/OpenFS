@@ -19,24 +19,26 @@ static int add_overflow(uint64_t a,uint64_t b,uint64_t*out){if(b>UINT64_MAX-a)re
 static int mul_overflow(uint64_t a,uint64_t b,uint64_t*out){if(a!=0U&&b>UINT64_MAX/a)return 1;*out=a*b;return 0;}
 static int div_ceil(uint64_t a,uint64_t b,uint64_t*out){if(b==0U||a>UINT64_MAX-(b-1U))return 1;*out=(a+(b-1U))/b;return 0;}
 
-static int calculate_layout(uint64_t total,uint32_t block_size,uint64_t*bitmap_blocks,uint64_t*inode_table_blocks,uint64_t*journal_blocks){
-    if(total<32U||bitmap_blocks==NULL||inode_table_blocks==NULL||journal_blocks==NULL)return 0;
-    const uint64_t metadata_blocks=total-3U;
-    if(metadata_blocks<=5U)return 0;
-    const uint64_t bits_per_inode_block=((uint64_t)block_size*8U)/OPENFS_INODE_SIZE;
-    if(bits_per_inode_block==0U)return 0;
-    uint64_t it=(metadata_blocks-5U)/2U;
-    for(unsigned i=0U;i<32U;++i){
-        uint64_t bb=0U;
-        if(div_ceil(it,bits_per_inode_block,&bb)||bb==0U)return 0;
-        if(bb>metadata_blocks-5U||it>metadata_blocks-5U-bb)return 0;
-        uint64_t remaining=metadata_blocks-1U-bb-it;
-        if(remaining<4U)return 0;
-        uint64_t next_it=remaining/2U;
-        if(next_it==it){
-            *bitmap_blocks=bb;*inode_table_blocks=it;*journal_blocks=remaining;
-            return 1;
-        }
+static int calculate_layout(uint64_t total,uint32_t block_size,uint64_t*block_bitmap_blocks,uint64_t*inode_bitmap_blocks,uint64_t*inode_table_blocks,uint64_t*journal_blocks){
+    if(total<64U||block_size==0U||block_bitmap_blocks==NULL||inode_bitmap_blocks==NULL||inode_table_blocks==NULL||journal_blocks==NULL)return 0;
+    const uint64_t metadata=total-3U;
+    uint64_t bb=0U;
+    uint64_t bits=(uint64_t)block_size*8U;
+    if(div_ceil(total,bits,&bb)||bb==0U)return 0;
+    uint64_t journal=total/16U;if(journal<8U)journal=8U;
+    uint64_t data=total/4U;if(data<8U)data=8U;
+    if(bb+1U+journal+data+4U>metadata)return 0;
+    uint64_t it=metadata-bb-1U-journal-data;
+    if(it<4U)return 0;
+    for(unsigned i=0U;i<16U;++i){
+        uint64_t inode_capacity=(uint64_t)block_size*8U;
+        uint64_t ib=0U;
+        uint64_t inode_count=(it*(uint64_t)block_size)/OPENFS_INODE_SIZE;
+        if(div_ceil(inode_count,inode_capacity,&ib)||ib==0U)return 0;
+        uint64_t fixed=bb+ib+journal+data;
+        if(fixed>=metadata)return 0;
+        uint64_t next_it=metadata-fixed;
+        if(next_it==it){*block_bitmap_blocks=bb;*inode_bitmap_blocks=ib;*inode_table_blocks=it;*journal_blocks=journal;return 1;}
         it=next_it;
     }
     return 0;
@@ -93,14 +95,14 @@ openfs_format_result_t openfs_read_superblock(openfs_block_device_t*d,openfs_sup
 openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[16]){
     if(!openfs_block_device_is_valid(d)||uuid==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE||!power_of_two(d->block_size)||d->block_count<64U)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
-    uint64_t bb=0U,it=0U,jb=0U;
-    if(!calculate_layout(d->block_count,d->block_size,&bb,&it,&jb))return OPENFS_FORMAT_TOO_SMALL;
+    uint64_t bb=0U,ib=0U,it=0U,jb=0U;
+    if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb))return OPENFS_FORMAT_TOO_SMALL;
     uint64_t data_blocks=0U;uint64_t metadata= d->block_count-3U;
-    if(bb>metadata||it>metadata-bb||jb>metadata-bb-it-1U)return OPENFS_FORMAT_TOO_SMALL;
-    data_blocks=metadata-1U-bb-it-jb;if(data_blocks<8U)return OPENFS_FORMAT_TOO_SMALL;
+    if(bb>metadata||ib>metadata-bb||it>metadata-bb-ib||jb>metadata-bb-ib-it-1U)return OPENFS_FORMAT_TOO_SMALL;
+    data_blocks=metadata-1U-bb-ib-it-jb;if(data_blocks<8U)return OPENFS_FORMAT_TOO_SMALL;
     openfs_superblock_t sb;memset(&sb,0,sizeof(sb));sb.version_major=OPENFS_FORMAT_VERSION_MAJOR;sb.version_minor=OPENFS_FORMAT_VERSION_MINOR;
     sb.block_size=d->block_size;sb.total_blocks=d->block_count;sb.metadata_start=2U;sb.metadata_blocks=metadata;
-    sb.block_bitmap_start=3U;sb.block_bitmap_blocks=bb;sb.inode_bitmap_start=3U+bb;sb.inode_bitmap_blocks=1U;
+    sb.block_bitmap_start=3U;sb.block_bitmap_blocks=bb;sb.inode_bitmap_start=3U+bb;sb.inode_bitmap_blocks=ib;
     sb.inode_table_start=sb.inode_bitmap_start+sb.inode_bitmap_blocks;sb.inode_table_blocks=it;
     sb.journal_start=sb.inode_table_start+it;sb.journal_blocks=jb;sb.data_start=sb.journal_start+jb;sb.data_blocks=data_blocks;
     sb.root_inode=1U;sb.generation=1U;memcpy(sb.uuid,uuid,16U);
