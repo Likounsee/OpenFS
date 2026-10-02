@@ -22,7 +22,10 @@ Already implemented:
 - first-fit data block allocation and freeing;
 - extent-backed file read/write/truncate;
 - inode allocation and freeing;
-- fixed-size checksummed directory entries with lookup/add/remove;
+- fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
+- absolute path traversal and namespace create/mkdir/unlink/rename operations;
+- hard links and basic symbolic-link storage/readlink operations;
+- initial read-only filesystem consistency checking (`fsck` core);
 - mount/unmount with primary/backup superblock fallback;
 - inode table;
 - checksummed inodes;
@@ -31,9 +34,7 @@ Already implemented:
 - CMake build and automated CI with sanitizers.
 
 Still to build:
-- higher-level create/mkdir/path lookup operations;
-- unlink and rename with complete link-count handling;
-- hard links and symbolic links;
+- complete symlink path resolution and loop handling;
 - permissions and timestamps;
 - journal and crash recovery;
 - complete journal-backed crash consistency;
