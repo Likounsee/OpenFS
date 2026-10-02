@@ -1,48 +1,79 @@
 # OpenFS
 
-OpenFS (Open File System) is a portable, modern filesystem designed as an
-independent core with OS-specific adapters.
+OpenFS (Open File System) is a portable filesystem designed to work on different
+operating systems through small OS-specific adapters.
 
-ArchiaOS is the first planned integration. The core does not depend on ArchiaOS,
-Linux, Windows, BSD, or a CPU architecture.
+ArchiaOS is the first planned integration, but the filesystem core itself does
+not depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
-## Current status
+## Where we are
 
-**Foundation phase — on-disk superblock and block-device contract implemented.**
+We are building the real filesystem core step by step. It is **not yet ready to
+be used as a normal everyday filesystem**.
 
-Implemented and tested:
+Already implemented:
 - portable block-device API;
-- explicit little-endian superblock serialization;
+- versioned on-disk format;
 - primary and backup superblocks;
-- CRC32C metadata integrity checking;
-- version and geometry validation;
-- overflow-safe range validation;
-- formatter/remount regression tests;
-- corruption rejection tests;
-- CMake build;
-- GitHub Actions build, tests and ASan/UBSan checks.
+- CRC32C checks for metadata;
+- strong geometry and overflow checks;
+- automatic initial inode bitmap;
+- inode table;
+- checksummed inodes;
+- root directory inode creation;
+- bitmap and inode regression tests;
+- CMake build and automated CI with sanitizers.
 
-Not implemented yet:
-- allocation bitmaps;
-- inodes;
-- directories and namespace operations;
-- file extents/data mapping;
-- journal transactions and crash recovery;
-- permissions/links/timestamps;
-- fsck and recovery tooling;
-- OS adapters.
+Still to build:
+- real block allocation and freeing;
+- file data storage and extents;
+- directories and path lookup;
+- create, read, write, truncate, unlink and rename;
+- hard links and symbolic links;
+- permissions and timestamps;
+- journal and crash recovery;
+- mount/unmount;
+- fsck and recovery tools;
+- Linux, Windows and ArchiaOS adapters.
 
-These features will be added only after their on-disk format and invariants are
-specified and covered by regression tests.
+## Project structure
 
-## Design
+Everything belonging to the filesystem is inside `OpenFS/`:
 
-See:
-- docs/architecture.md
-- docs/format.md
+- `OpenFS/include/` — public API;
+- `OpenFS/src/` — filesystem implementation;
+- `OpenFS/tests/` — automated tests;
+- `OpenFS/docs/` — technical documentation.
 
-The intended stack is:
+The GitHub Actions configuration stays in `.github/` because GitHub requires
+workflows to be stored there.
 
-OpenFS Core -> Block Device API -> OS adapter
+## Architecture
 
-The OpenFS core never calls an OS-specific API.
+The planned structure is:
+
+```text
+Operating System
+      |
+      v
+OpenFS adapter
+      |
+      v
+OpenFS core
+      |
+      v
+Block device API
+      |
+      v
+Disk / SSD / image / virtual disk
+```
+
+The core must never call an OS-specific API directly.
+
+## Development rule
+
+We first define how data is stored on disk, then implement the code, then add
+tests for normal cases and corrupted data. A bug found later should become a
+regression test whenever possible.
+
+See `OpenFS/docs/architecture.md` and `OpenFS/docs/format.md`.
