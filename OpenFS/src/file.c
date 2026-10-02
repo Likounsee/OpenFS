@@ -498,3 +498,6 @@ openfs_file_result_t openfs_file_write(
     }
     return device->flush(device->context) == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
 }
+
+openfs_file_result_t openfs_file_write_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t o,const void*b,size_t n){openfs_block_device_t*d=openfs_transaction_device(t);return d==NULL?OPENFS_FILE_INVALID_ARGUMENT:openfs_file_write(d,s,i,o,b,n);}
+openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n){openfs_block_device_t*d=openfs_transaction_device(t);return d==NULL?OPENFS_FILE_INVALID_ARGUMENT:openfs_file_truncate(d,s,i,n);}
