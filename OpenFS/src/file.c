@@ -53,9 +53,10 @@ static openfs_file_result_t validate_file(
         sb->data_start + sb->data_blocks > device->block_count) {
         return OPENFS_FILE_CORRUPT;
     }
-    if (inode->mode != OPENFS_INODE_MODE_REGULAR &&
-        inode->mode != OPENFS_INODE_MODE_DIRECTORY &&
-        inode->mode != OPENFS_INODE_MODE_SYMLINK) {
+    uint32_t type = inode->mode & 0170000U;
+    if (type != OPENFS_INODE_MODE_REGULAR &&
+        type != OPENFS_INODE_MODE_DIRECTORY &&
+        type != OPENFS_INODE_MODE_SYMLINK) {
         return OPENFS_FILE_INVALID_ARGUMENT;
     }
     if (inode->extent_count > OPENFS_EXTENT_MAX) {
