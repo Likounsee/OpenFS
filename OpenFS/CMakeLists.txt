@@ -13,6 +13,7 @@ add_library(openfs STATIC
     src/inode.c
     src/inode_alloc.c
     src/dir.c
+    src/mount.c
     src/bitmap.c
     src/allocator.c
     src/extent.c
