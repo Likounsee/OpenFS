@@ -111,6 +111,6 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     if(openfs_inode_write(d,sb.inode_table_start,inode_count,&root)!=OPENFS_INODE_OK)return OPENFS_FORMAT_IO_ERROR;
     uint8_t*buf=calloc(1U,d->block_size);if(buf==NULL)return OPENFS_FORMAT_IO_ERROR;encode(&sb,buf);
-    int ok=d->write(d->context,0U,1U,buf)==OPENFS_IO_OK&&d->write(d->context,d->block_count-1U,1U,buf)==OPENFS_IO_OK&&d->flush(d->context)==OPENFS_IO_OK;free(buf);
+    int ok=d->write(d->context,0U,1U,buf)==OPENFS_IO_OK&&d->write(d->context,d->block_count-1U,1U,buf)==OPENFS_IO_OK; if(ok)ok=d->flush(d->context)==OPENFS_IO_OK; free(buf);
     return ok?OPENFS_FORMAT_OK:OPENFS_FORMAT_IO_ERROR;
 }
