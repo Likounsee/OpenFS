@@ -12,6 +12,7 @@ add_library(openfs STATIC
     src/format.c
     src/inode.c
     src/bitmap.c
+    src/allocator.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -30,4 +31,8 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-inode-test PRIVATE openfs)
     target_compile_options(openfs-inode-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
     add_test(NAME openfs-inode COMMAND openfs-inode-test)
+    add_executable(openfs-allocator-test tests/test_allocator.c)
+    target_link_libraries(openfs-allocator-test PRIVATE openfs)
+    target_compile_options(openfs-allocator-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+    add_test(NAME openfs-allocator COMMAND openfs-allocator-test)
 endif()
