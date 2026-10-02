@@ -2,7 +2,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include "openfs/crc32c.h"
 #include "openfs/journal.h"
 
@@ -36,7 +35,7 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
 }
 
 
-static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){(void)tx;openfs_mount_t*m=(openfs_mount_t*)ctx;if(m==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(len<24U)return OPENFS_JOURNAL_OK;if(memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_OK;uint64_t target=get64(data+8U),offset=get64(data+16U);uint32_t count=get32(data+24U-4U);if(target>=m->device->block_count||offset>(uint64_t)m->device->block_size||count>(uint32_t)((uint64_t)m->device->block_size-offset)||count>len-24U){fprintf(stderr,"replay target=%llu offset=%llu count=%u len=%u bs=%u\\n",(unsigned long long)target,(unsigned long long)offset,count,len,m->device->block_size);return OPENFS_JOURNAL_CORRUPT;}uint8_t*b=malloc(m->device->block_size);if(b==NULL)return OPENFS_JOURNAL_IO_ERROR;if(m->device->read(m->device->context,target,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}memcpy(b+(size_t)offset,data+24U,count);openfs_io_result_t io=m->device->write(m->device->context,target,1U,b);free(b);return io==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}
+static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){(void)tx;openfs_mount_t*m=(openfs_mount_t*)ctx;if(m==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(len<24U)return OPENFS_JOURNAL_OK;if(memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_OK;uint64_t target=get64(data+8U),offset=(uint64_t)get32(data+16U);uint32_t count=get32(data+20U);if(target>=m->device->block_count||offset>(uint64_t)m->device->block_size||count>(uint32_t)((uint64_t)m->device->block_size-offset)||count>len-24U)return OPENFS_JOURNAL_CORRUPT;uint8_t*b=malloc(m->device->block_size);if(b==NULL)return OPENFS_JOURNAL_IO_ERROR;if(m->device->read(m->device->context,target,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}memcpy(b+(size_t)offset,data+24U,count);openfs_io_result_t io=m->device->write(m->device->context,target,1U,b);free(b);return io==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}
 
 openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *device)
 {
