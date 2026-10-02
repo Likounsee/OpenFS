@@ -54,7 +54,8 @@ static openfs_file_result_t validate_file(
         return OPENFS_FILE_CORRUPT;
     }
     if (inode->mode != OPENFS_INODE_MODE_REGULAR &&
-        inode->mode != OPENFS_INODE_MODE_DIRECTORY) {
+        inode->mode != OPENFS_INODE_MODE_DIRECTORY &&
+        inode->mode != OPENFS_INODE_MODE_SYMLINK) {
         return OPENFS_FILE_INVALID_ARGUMENT;
     }
     if (inode->extent_count > OPENFS_EXTENT_MAX) {
