@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 #define OPENFS_FORMAT_VERSION_MAJOR 1U
-#define OPENFS_FORMAT_VERSION_MINOR 0U
+#define OPENFS_FORMAT_VERSION_MINOR 1U
 #define OPENFS_SUPERBLOCK_SIZE 4096U
 #define OPENFS_MIN_BLOCK_SIZE 4096U
 #define OPENFS_MAX_BLOCK_SIZE 65536U
@@ -27,12 +27,16 @@ typedef struct openfs_superblock {
     uint64_t total_blocks;
     uint64_t metadata_start;
     uint64_t metadata_blocks;
+    uint64_t block_bitmap_start;
+    uint64_t block_bitmap_blocks;
     uint64_t inode_bitmap_start;
     uint64_t inode_bitmap_blocks;
     uint64_t inode_table_start;
     uint64_t inode_table_blocks;
     uint64_t journal_start;
     uint64_t journal_blocks;
+    uint64_t data_start;
+    uint64_t data_blocks;
     uint64_t root_inode;
     uint64_t generation;
     uint8_t uuid[16];
