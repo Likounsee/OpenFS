@@ -26,7 +26,7 @@ The inode bitmap size is calculated from the inode table size, so large filesyst
 
 The inode table uses 256-byte inode records. Up to five 24-byte extents are currently stored directly in the inode reserved area; larger files will require the future extent-tree format. Every inode has a magic value and CRC32C checksum. The root inode is inode 1 and starts as a directory with itself as parent.
 
-The journal area is reserved by the formatter, but its transaction record format is **not stable yet**. No metadata operation will be considered durable until the journal ordering and recovery rules are defined.
+The journal area stores one checksummed record per filesystem block. A record has a 32-byte little-endian header: magic `OJNL1`, type, transaction id, sequence, payload length and CRC32C. `BEGIN`, `DATA` and `COMMIT` records define transactions; only transactions with a valid commit record are replayed. Block-write DATA payloads use the `OJBD1` marker, target block number, 32-bit block offset, chunk length and chunk bytes. A committed transaction is applied to its final blocks only after the commit record is durable. After final writes are flushed, the journal is checkpointed and reclaimed. Mount replays committed records before making the filesystem available. The transaction wrapper buffers final-block writes in memory, journals them first, commits the journal, then writes the final blocks; aborted transactions never alter the final device blocks.
 
 ## Superblock fields
 
