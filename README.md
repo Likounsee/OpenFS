@@ -36,7 +36,7 @@ Already implemented:
 
 Still to build:
 - complete symlink path resolution and loop handling;
-- permissions and timestamps;
+- complete permission enforcement and automatic timestamp semantics;
 - integrate the journal into every metadata transaction and mount-time crash recovery;
 - complete crash-consistency ordering and interrupted-write recovery tests;
 - fsck and recovery tools;
