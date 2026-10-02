@@ -26,7 +26,7 @@ Already implemented:
 - absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
 - initial read-only filesystem consistency checking (`fsck` core);\n- basic inode permission-bit and timestamp update APIs;
-- checksummed journal records with committed-transaction replay primitives;
+- checksummed journal records with committed-transaction replay primitives and transaction ownership checks;
 - mount/unmount with primary/backup superblock fallback;
 - inode table;
 - checksummed inodes;
