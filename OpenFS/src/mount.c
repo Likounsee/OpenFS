@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
+#include "openfs/journal.h"
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
@@ -48,7 +49,10 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
     }
-    mount->device=device;mount->mounted=1;
+    mount->device=device;
+    openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
+    if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
+    mount->mounted=1;
     return OPENFS_MOUNT_OK;
 }
 openfs_mount_result_t openfs_sync(openfs_mount_t *mount)
