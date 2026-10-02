@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/fsck.h"
+#include "openfs/bitmap.h"
 #include "openfs/file.h"
 #include "openfs/extent.h"
 #include "openfs/path.h"
