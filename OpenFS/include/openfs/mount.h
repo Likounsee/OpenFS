@@ -2,6 +2,7 @@
 #define OPENFS_MOUNT_H
 
 #include "openfs/format.h"
+#include "openfs/journal.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,7 @@ typedef struct {
     openfs_block_device_t *device;
     openfs_superblock_t superblock;
     int mounted;
+    openfs_journal_t journal;
 } openfs_mount_t;
 
 openfs_mount_result_t openfs_mount(openfs_mount_t *, openfs_block_device_t *);
