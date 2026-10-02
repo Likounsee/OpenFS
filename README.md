@@ -20,6 +20,10 @@ Already implemented:
 - automatic initial inode bitmap;
 - block allocation bitmap and reserved data area;
 - first-fit data block allocation and freeing;
+- extent-backed file read/write/truncate;
+- inode allocation and freeing;
+- fixed-size checksummed directory entries with lookup/add/remove;
+- mount/unmount with primary/backup superblock fallback;
 - inode table;
 - checksummed inodes;
 - root directory inode creation;
@@ -27,14 +31,12 @@ Already implemented:
 - CMake build and automated CI with sanitizers.
 
 Still to build:
-- extent-based file data mapping;
-- file data storage and extents;
-- directories and path lookup;
-- create, read, write, truncate, unlink and rename;
+- higher-level create/mkdir/path lookup operations;
+- unlink and rename with complete link-count handling;
 - hard links and symbolic links;
 - permissions and timestamps;
 - journal and crash recovery;
-- mount/unmount;
+- complete journal-backed crash consistency;
 - fsck and recovery tools;
 - Linux, Windows and ArchiaOS adapters.
 
