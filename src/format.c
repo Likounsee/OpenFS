@@ -1,6 +1,5 @@
 #include "openfs/format.h"
 
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
@@ -96,6 +95,12 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t *d
         return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
     if (sb->total_blocks != device->block_count || sb->total_blocks < 32U || sb->root_inode == 0U)
         return OPENFS_FORMAT_CORRUPT;
+    if (sb->metadata_start != 2U || sb->metadata_blocks != sb->total_blocks - 3U ||
+        sb->inode_bitmap_start != 3U || sb->inode_bitmap_blocks != 1U ||
+        sb->inode_table_start != 4U || sb->inode_table_blocks == 0U ||
+        sb->journal_start != sb->inode_table_start + sb->inode_table_blocks ||
+        sb->journal_blocks < 4U)
+        return OPENFS_FORMAT_CORRUPT;
 
     const uint64_t ranges[][2] = {
         {sb->metadata_start, sb->metadata_blocks},
@@ -109,7 +114,18 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t *d
             ranges[i][0] < 2U || end > sb->total_blocks - 1U)
             return OPENFS_FORMAT_CORRUPT;
     }
-    if (sb->inode_table_start < sb->inode_bitmap_start || sb->journal_start < sb->inode_table_start)
+    uint64_t metadata_end = 0U;
+    uint64_t inode_bitmap_end = 0U;
+    uint64_t inode_table_end = 0U;
+    uint64_t journal_end = 0U;
+    if (add_overflow(sb->metadata_start, sb->metadata_blocks, &metadata_end) ||
+        add_overflow(sb->inode_bitmap_start, sb->inode_bitmap_blocks, &inode_bitmap_end) ||
+        add_overflow(sb->inode_table_start, sb->inode_table_blocks, &inode_table_end) ||
+        add_overflow(sb->journal_start, sb->journal_blocks, &journal_end) ||
+        metadata_end != sb->total_blocks - 1U ||
+        inode_bitmap_end != sb->inode_table_start ||
+        inode_table_end != sb->journal_start ||
+        journal_end != sb->total_blocks - 1U)
         return OPENFS_FORMAT_CORRUPT;
     uint64_t inode_bytes = 0U;
     if (mul_overflow(sb->inode_table_blocks, sb->block_size, &inode_bytes) ||
@@ -147,7 +163,7 @@ openfs_format_result_t openfs_format(openfs_block_device_t *device, const uint8_
     const uint64_t inode_table_blocks = metadata_blocks / 2U;
     const uint64_t journal_start = inode_table_start + inode_table_blocks;
     const uint64_t journal_blocks = metadata_blocks - 1U - inode_table_blocks;
-    if (journal_blocks < 4U || journal_start + journal_blocks > total - 1U)
+    if (journal_blocks < 4U || journal_start > total - 1U || journal_blocks > (total - 1U) - journal_start)
         return OPENFS_FORMAT_TOO_SMALL;
 
     openfs_superblock_t sb;
