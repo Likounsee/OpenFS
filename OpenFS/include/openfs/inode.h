@@ -18,7 +18,6 @@ typedef struct openfs_inode {
     uint64_t atime_ns, mtime_ns, ctime_ns;
     uint32_t mode, flags, uid, gid, extent_count, reserved0;
     uint8_t inline_data[80];
-    uint8_t reserved[48];
     uint8_t reserved[128];
 } openfs_inode_t;
 openfs_inode_result_t openfs_inode_read(const openfs_block_device_t *, uint64_t, uint64_t, uint64_t, openfs_inode_t *);
