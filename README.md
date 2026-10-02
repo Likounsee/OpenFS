@@ -25,9 +25,9 @@ Already implemented:
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
 - absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
-- initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;\n- basic inode permission-bit and timestamp update APIs;
-- checksummed journal records with committed-transaction replay primitives and transaction ownership checks;
-- mount/unmount with primary/backup superblock fallback;
+- initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;- basic inode permission-bit and timestamp update APIs;
+- checksummed journal records with committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
+- mount/unmount with primary/backup superblock fallback and committed-journal replay;
 - inode table;
 - checksummed inodes;
 - root directory inode creation;
@@ -37,8 +37,8 @@ Already implemented:
 Still to build:
 - complete symlink path resolution and loop handling;
 - complete permission enforcement and automatic timestamp semantics;
-- integrate the journal into every metadata transaction and mount-time crash recovery;
-- complete crash-consistency ordering and interrupted-write recovery tests;
+- integrate transaction-aware APIs into every mutation path and complete journal reservation/space management;
+- expand crash-consistency ordering and interrupted-write recovery tests;
 - fsck and recovery tools;
 - Linux, Windows and ArchiaOS adapters.
 
