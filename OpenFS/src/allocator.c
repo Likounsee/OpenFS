@@ -13,7 +13,8 @@ static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_supe
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out){
     if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->data_start>UINT64_MAX-sb->data_blocks)return OPENFS_ALLOC_CORRUPT;
-    for(uint64_t b=sb->data_start;b<sb->data_start+sb->data_blocks;++b){
+    const uint64_t data_end=sb->data_start+sb->data_blocks;
+    for(uint64_t b=sb->data_start;b<data_end;++b){
         int used=0;
         if(openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;
         if(!used){
