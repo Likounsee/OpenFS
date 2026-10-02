@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/fsck.h"
 #include "openfs/file.h"
+#include "openfs/extent.h"
 #include "openfs/path.h"
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
