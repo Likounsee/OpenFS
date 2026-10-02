@@ -1,4 +1,5 @@
 #include "openfs/inode.h"
+#include "openfs/extent.h"
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
