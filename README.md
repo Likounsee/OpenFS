@@ -23,7 +23,7 @@ Already implemented:
 - extent-backed file read/write/truncate;
 - inode allocation and freeing;
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
-- absolute path traversal and namespace create/mkdir/unlink/rename operations;
+- absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
 - initial read-only filesystem consistency checking (`fsck` core);
 - checksummed journal records with committed-transaction replay primitives;
