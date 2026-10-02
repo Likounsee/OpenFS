@@ -5,7 +5,7 @@ blocks unless stated otherwise.
 
 ## Device requirements
 
-Block size is a power of two from 512 through 65536 bytes. The current core
+Block size is a power of two from 4096 through 65536 bytes. The current core
 requires the device block size to equal the filesystem block size and requires
 at least 32 blocks.
 
