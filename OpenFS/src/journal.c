@@ -34,3 +34,5 @@ uint64_t tx=g64(b+8U);int committed=0;for(uint64_t i=0U;i<commit_count;i++)if(co
 openfs_journal_result_t r=cb(ctx,tx,b+OPENFS_JOURNAL_HEADER_SIZE,len);if(r!=OPENFS_JOURNAL_OK){free(commits);free(b);return r;}
 }
 free(commits);free(b);return OPENFS_JOURNAL_OK;}
+
+openfs_journal_result_t openfs_journal_write_block(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx,uint64_t target,const void*data){if(j==NULL||d==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(target>=d->block_count||d->block_size<OPENFS_JOURNAL_BLOCK_DATA_HEADER)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(d->block_size-OPENFS_JOURNAL_BLOCK_DATA_HEADER>UINT32_MAX)return OPENFS_JOURNAL_INVALID_ARGUMENT;uint32_t payload=d->block_size-OPENFS_JOURNAL_BLOCK_DATA_HEADER;uint8_t*b=malloc(d->block_size-OPENFS_JOURNAL_BLOCK_DATA_HEADER);if(b==NULL)return OPENFS_JOURNAL_IO_ERROR;memset(b,0,payload);memcpy(b,"OJBD1",5U);p64(b+8U,target);memcpy(b+OPENFS_JOURNAL_BLOCK_DATA_HEADER,data,payload-OPENFS_JOURNAL_BLOCK_DATA_HEADER);openfs_journal_result_t r=openfs_journal_write(j,d,tx,b,payload);free(b);return r;}
