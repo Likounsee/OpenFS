@@ -14,6 +14,7 @@ add_library(openfs STATIC
     src/bitmap.c
     src/allocator.c
     src/extent.c
+    src/file.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -40,4 +41,8 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-extent-test PRIVATE openfs)
     target_compile_options(openfs-extent-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
     add_test(NAME openfs-extent COMMAND openfs-extent-test)
+    add_executable(openfs-file-test tests/test_file.c)
+    target_link_libraries(openfs-file-test PRIVATE openfs)
+    target_compile_options(openfs-file-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+    add_test(NAME openfs-file COMMAND openfs-file-test)
 endif()
