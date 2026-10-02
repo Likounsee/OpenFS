@@ -20,28 +20,27 @@ static int mul_overflow(uint64_t a,uint64_t b,uint64_t*out){if(a!=0U&&b>UINT64_M
 static int div_ceil(uint64_t a,uint64_t b,uint64_t*out){if(b==0U||a>UINT64_MAX-(b-1U))return 1;*out=(a+(b-1U))/b;return 0;}
 
 static int calculate_layout(uint64_t total,uint32_t block_size,uint64_t*bitmap_blocks,uint64_t*inode_table_blocks,uint64_t*journal_blocks){
-    if(total<32U)return 0;
+    if(total<32U||bitmap_blocks==NULL||inode_table_blocks==NULL||journal_blocks==NULL)return 0;
     const uint64_t metadata_blocks=total-3U;
     if(metadata_blocks<=5U)return 0;
+    const uint64_t bits_per_inode_block=((uint64_t)block_size*8U)/OPENFS_INODE_SIZE;
+    if(bits_per_inode_block==0U)return 0;
     uint64_t it=(metadata_blocks-5U)/2U;
-    for(unsigned i=0U;i<8U;++i){
-        uint64_t bits_per_block=(uint64_t)block_size*8U;
-        uint64_t inode_capacity=bits_per_block/OPENFS_INODE_SIZE;
-        if(inode_capacity==0U)return 0;
+    for(unsigned i=0U;i<32U;++i){
         uint64_t bb=0U;
-        if(div_ceil(it,inode_capacity,&bb))return 0;
-        if(bb==0U)bb=1U;
-        uint64_t used=0U;
-        if(add_overflow(bb,it,&used))return 0;
-        if(used+4U>=metadata_blocks)return 0;
-        uint64_t next=(metadata_blocks-bb-4U)/1U;
-        next/=2U;
-        if(next==it){*bitmap_blocks=bb;*inode_table_blocks=it;*journal_blocks=metadata_blocks-1U-bb-it;return *journal_blocks>=4U;}
-        it=next;
+        if(div_ceil(it,bits_per_inode_block,&bb)||bb==0U)return 0;
+        if(bb>metadata_blocks-5U||it>metadata_blocks-5U-bb)return 0;
+        uint64_t remaining=metadata_blocks-1U-bb-it;
+        if(remaining<4U)return 0;
+        uint64_t next_it=remaining/2U;
+        if(next_it==it){
+            *bitmap_blocks=bb;*inode_table_blocks=it;*journal_blocks=remaining;
+            return 1;
+        }
+        it=next_it;
     }
     return 0;
 }
-
 static void encode(const openfs_superblock_t*sb,uint8_t*buf){
     memset(buf,0,OPENFS_SUPERBLOCK_SIZE);
     memcpy(buf,"OPENFS\0\0",8U);
