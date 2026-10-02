@@ -37,15 +37,19 @@ The journal area is reserved by the formatter, but its transaction record format
 | 28 | 8 | Total blocks |
 | 36 | 8 | Metadata start |
 | 44 | 8 | Metadata blocks |
-| 52 | 8 | Inode bitmap start |
-| 60 | 8 | Inode bitmap blocks |
-| 68 | 8 | Inode table start |
-| 76 | 8 | Inode table blocks |
-| 84 | 8 | Journal start |
-| 92 | 8 | Journal blocks |
-| 100 | 8 | Root inode |
-| 108 | 8 | Superblock generation |
-| 116 | 16 | UUID |
+| 52 | 8 | Block bitmap start |
+| 60 | 8 | Block bitmap blocks |
+| 68 | 8 | Inode bitmap start |
+| 76 | 8 | Inode bitmap blocks |
+| 84 | 8 | Inode table start |
+| 92 | 8 | Inode table blocks |
+| 100 | 8 | Journal start |
+| 108 | 8 | Journal blocks |
+| 116 | 8 | Data start |
+| 124 | 8 | Data blocks |
+| 132 | 8 | Root inode |
+| 140 | 8 | Superblock generation |
+| 148 | 16 | UUID |
 | 4088 | 4 | CRC32C |
 
 Unused bytes are reserved and written as zero.
