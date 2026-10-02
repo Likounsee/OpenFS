@@ -53,7 +53,8 @@ static openfs_file_result_t validate_file(
         sb->data_start + sb->data_blocks > device->block_count) {
         return OPENFS_FILE_CORRUPT;
     }
-    if (inode->mode != OPENFS_INODE_MODE_REGULAR) {
+    if (inode->mode != OPENFS_INODE_MODE_REGULAR &&
+        inode->mode != OPENFS_INODE_MODE_DIRECTORY) {
         return OPENFS_FILE_INVALID_ARGUMENT;
     }
     if (inode->extent_count > OPENFS_EXTENT_MAX) {
