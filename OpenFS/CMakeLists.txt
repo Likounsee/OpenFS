@@ -18,6 +18,7 @@ add_library(openfs STATIC
     src/allocator.c
     src/extent.c
     src/file.c
+    src/path.c
 )
 
 target_include_directories(openfs PUBLIC
