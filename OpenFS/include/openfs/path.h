@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "openfs/dir.h"
 #include "openfs/inode_alloc.h"
+#include "openfs/transaction.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
