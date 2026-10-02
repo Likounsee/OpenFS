@@ -22,6 +22,7 @@ add_library(openfs STATIC
     src/link.c
     src/fsck.c
     src/journal.c
+    src/transaction.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -48,6 +49,10 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-extent-test PRIVATE openfs)
     target_compile_options(openfs-extent-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
     add_test(NAME openfs-extent COMMAND openfs-extent-test)
+    add_executable(openfs-transaction-test tests/test_transaction.c)
+    target_link_libraries(openfs-transaction-test PRIVATE openfs)
+    target_compile_options(openfs-transaction-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+    add_test(NAME openfs-transaction COMMAND openfs-transaction-test)
     add_executable(openfs-journal-test tests/test_journal.c)
     target_link_libraries(openfs-journal-test PRIVATE openfs)
     target_compile_options(openfs-journal-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
