@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include "openfs/mount.h"
 
@@ -15,7 +14,7 @@ int main(void){
  assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
  openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK&&m.mounted);
  assert(m.superblock.root_inode==1U);
- uint64_t target=m.superblock.data_start;uint8_t pattern[4096];for(size_t i=0U;i<sizeof(pattern);++i)pattern[i]=(uint8_t)(i^0x5AU);openfs_journal_t j;uint64_t tx=0U;assert(openfs_journal_open(&j,&v,&m.superblock)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&j,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);unsigned replay_hits=0U;assert(openfs_journal_replay(&v,&m.superblock,replay_probe,&replay_hits)==OPENFS_JOURNAL_OK&&replay_hits==2U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);openfs_mount_t replayed;openfs_mount_result_t mr=openfs_mount(&replayed,&v);if(mr!=OPENFS_MOUNT_OK){fprintf(stderr,"replay mount result=%d\\n",(int)mr);abort();}assert(memcmp(d.bytes+(size_t)(target*d.block_size),pattern,sizeof(pattern))==0);assert(openfs_unmount(&replayed)==OPENFS_MOUNT_OK);d.bytes[64]^=0x55U;
+ uint64_t target=m.superblock.data_start;uint8_t pattern[4096];for(size_t i=0U;i<sizeof(pattern);++i)pattern[i]=(uint8_t)(i^0x5AU);openfs_journal_t j;uint64_t tx=0U;assert(openfs_journal_open(&j,&v,&m.superblock)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&j,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);unsigned replay_hits=0U;assert(openfs_journal_replay(&v,&m.superblock,replay_probe,&replay_hits)==OPENFS_JOURNAL_OK&&replay_hits==2U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);openfs_mount_t replayed;assert(openfs_mount(&replayed,&v)==OPENFS_MOUNT_OK);assert(memcmp(d.bytes+(size_t)(target*d.block_size),pattern,sizeof(pattern))==0);assert(openfs_unmount(&replayed)==OPENFS_MOUNT_OK);d.bytes[64]^=0x55U;
  openfs_mount_t fallback;assert(openfs_mount(&fallback,&v)==OPENFS_MOUNT_OK);
  assert(fallback.superblock.root_inode==1U&&memcmp(fallback.superblock.uuid,uuid,16U)==0);
  assert(openfs_unmount(&fallback)==OPENFS_MOUNT_OK);
