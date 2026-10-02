@@ -21,6 +21,7 @@ add_library(openfs STATIC
     src/path.c
     src/link.c
     src/fsck.c
+    src/journal.c
 )
 
 target_include_directories(openfs PUBLIC
