@@ -18,7 +18,7 @@ static size_t name_length(const char *name)
 static openfs_dir_result_t validate_dir(const openfs_inode_t *inode, const char *name)
 {
     if (inode == NULL || name == NULL) return OPENFS_DIR_INVALID_ARGUMENT;
-    if (inode->mode != OPENFS_INODE_MODE_DIRECTORY) return OPENFS_DIR_INVALID_ARGUMENT;
+    if ((inode->mode & 0170000U) != OPENFS_INODE_MODE_DIRECTORY) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name[0] == '\0' || strchr(name, '/') != NULL) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name_length(name) == SIZE_MAX) return OPENFS_DIR_NAME_TOO_LONG;
     return OPENFS_DIR_OK;
