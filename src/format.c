@@ -162,7 +162,7 @@ openfs_format_result_t openfs_format(openfs_block_device_t *device, const uint8_
     const uint64_t inode_table_start = 4U;
     const uint64_t inode_table_blocks = metadata_blocks / 2U;
     const uint64_t journal_start = inode_table_start + inode_table_blocks;
-    const uint64_t journal_blocks = metadata_blocks - 1U - inode_table_blocks;
+    const uint64_t journal_blocks = metadata_blocks - 2U - inode_table_blocks;
     if (journal_blocks < 4U || journal_start > total - 1U || journal_blocks > (total - 1U) - journal_start)
         return OPENFS_FORMAT_TOO_SMALL;
 
