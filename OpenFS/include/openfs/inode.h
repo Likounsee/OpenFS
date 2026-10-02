@@ -5,6 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define OPENFS_INODE_SIZE 256U
 #define OPENFS_INODE_MODE_FREE 0U
 #define OPENFS_INODE_MODE_REGULAR 0100000U
 #define OPENFS_INODE_MODE_DIRECTORY 0040000U
