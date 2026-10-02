@@ -1,6 +1,7 @@
 #include "openfs/dir.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
 
