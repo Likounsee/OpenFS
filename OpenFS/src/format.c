@@ -112,6 +112,7 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     free(zero);
     if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,0U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
     for(uint64_t b=0U;b<sb.data_start;++b){if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;}
+    if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,d->block_count-1U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
     if(openfs_bitmap_set(d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
     openfs_inode_t root;memset(&root,0,sizeof(root));root.inode_number=1U;root.generation=1U;root.parent_inode=1U;root.link_count=1U;root.mode=OPENFS_INODE_MODE_DIRECTORY;
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
