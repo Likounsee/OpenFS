@@ -24,8 +24,13 @@ static void checksum(void){
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
  d.bytes[32]^=0x80U; openfs_superblock_t s; assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_CORRUPT); free(d.bytes);
 }
+static void layout_validation(void){
+ disk_t d={.block_size=4096U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
+ openfs_block_device_t v=dev(&d); openfs_superblock_t s={0}; s.version_major=OPENFS_FORMAT_VERSION_MAJOR; s.version_minor=0U; s.block_size=4096U; s.total_blocks=64U; s.metadata_start=2U; s.metadata_blocks=61U; s.inode_bitmap_start=3U; s.inode_bitmap_blocks=1U; s.inode_table_start=4U; s.inode_table_blocks=20U; s.journal_start=25U; s.journal_blocks=39U; s.root_inode=1U;
+ assert(openfs_validate_superblock(&v,&s)==OPENFS_FORMAT_CORRUPT); free(d.bytes);
+}
 static void geometry(void){
  disk_t d={.block_size=3000U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_UNSUPPORTED_DEVICE); free(d.bytes);
 }
-int main(void){format_remount();checksum();geometry();return 0;}
+int main(void){format_remount();checksum();layout_validation();geometry();return 0;}
