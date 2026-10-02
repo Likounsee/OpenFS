@@ -4,7 +4,7 @@ All integers are little-endian. Offsets and lengths are measured in filesystem b
 
 ## Device requirements
 
-Block size is a power of two from 4096 through 65536 bytes. The device block size must equal the filesystem block size and the filesystem currently requires at least 32 blocks.
+Block size is a power of two from 4096 through 65536 bytes. The device block size must equal the filesystem block size and the filesystem currently requires at least 64 blocks.
 
 ## Superblocks
 
@@ -12,15 +12,19 @@ Block 0 is the primary superblock. The final block is a backup superblock. The h
 
 ## Metadata layout
 
-Block 1 is reserved. Block 2 is also reserved for future metadata. The remaining metadata area is split into three parts:
+Block 1 is reserved. Block 2 is also reserved for future metadata. The metadata area starts at block 2. Block 3 onward is split into:
 
-1. inode bitmap;
-2. inode table;
-3. journal area.
+1. block bitmap;
+2. inode bitmap;
+3. inode table;
+4. journal area;
+5. data area.
+
+The final block is reserved for the backup superblock. The block bitmap marks every reserved block as used during formatting.
 
 The inode bitmap size is calculated from the inode table size, so large filesystems can have more than one bitmap block. The bitmap has one bit per inode. Bit 0 is reserved for the root inode and is set during formatting.
 
-The inode table uses 256-byte inode records. Every inode has a magic value and CRC32C checksum. The root inode is inode 1 and starts as a directory with itself as parent.
+The inode table uses 256-byte inode records. Up to five 24-byte extents are currently stored directly in the inode reserved area; larger files will require the future extent-tree format. Every inode has a magic value and CRC32C checksum. The root inode is inode 1 and starts as a directory with itself as parent.
 
 The journal area is reserved by the formatter, but its transaction record format is **not stable yet**. No metadata operation will be considered durable until the journal ordering and recovery rules are defined.
 
