@@ -19,3 +19,6 @@ char combined[1024];size_t cut=pl;while(cut>0U&&p[cut-1U]!='/')--cut;if(cut==0U)
 if(cut==1U){combined[0]='/';memcpy(combined+1U,target,tl+1U);}else{memcpy(combined,p,cut);memcpy(combined+cut,target,tl+1U);}
 return openfs_resolve_symlink(d,s,combined,out,cap,depth+1U);
 }
+
+openfs_path_result_t openfs_link_tx(openfs_transaction_t*t,const openfs_superblock_t*s,const char*a,const char*b){openfs_block_device_t*d=openfs_transaction_device(t);return d==NULL?OPENFS_PATH_INVALID_ARGUMENT:openfs_link(d,s,a,b);}
+openfs_path_result_t openfs_symlink_tx(openfs_transaction_t*t,const openfs_superblock_t*s,const char*a,const char*b){openfs_block_device_t*d=openfs_transaction_device(t);return d==NULL?OPENFS_PATH_INVALID_ARGUMENT:openfs_symlink(d,s,a,b);}
