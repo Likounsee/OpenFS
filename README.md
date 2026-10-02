@@ -13,7 +13,7 @@ be used as a normal everyday filesystem**.
 
 Already implemented:
 - portable block-device API;
-- versioned on-disk format;
+- versioned on-disk format (v1.2);
 - primary and backup superblocks;
 - CRC32C checks for metadata;
 - strong geometry and overflow checks;
@@ -26,18 +26,20 @@ Already implemented:
 - absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
 - initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;- basic inode permission-bit and timestamp update APIs;
-- checksummed journal records with committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
+- checksummed journal records with begin/commit validation, committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
 - mount/unmount with primary/backup superblock fallback and committed-journal replay;
 - inode table;
 - checksummed inodes;
 - root directory inode creation;
 - bitmap and inode regression tests;
-- CMake build and automated CI with sanitizers.
+- CMake build and automated CI with sanitizers;
+- transaction-aware mutation wrappers with journal-full failure handling and journal reclamation on abort;
+- persistent five-extent inode storage in the v1.2 on-disk format;
 
 Still to build:
-- complete symlink path resolution and loop handling;
+- extent-tree/indirect extent storage for files requiring more than five fragmented extents;
 - complete permission enforcement and automatic timestamp semantics;
-- integrate transaction-aware APIs into every mutation path and complete journal reservation/space management;
+- complete journal reservation/space management and broaden crash/fault-injection coverage;
 - expand crash-consistency ordering and interrupted-write recovery tests;
 - fsck and recovery tools;
 - Linux, Windows and ArchiaOS adapters.
