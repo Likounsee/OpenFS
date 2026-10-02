@@ -102,7 +102,9 @@ openfs_dir_result_t openfs_dir_add(
         return vr != OPENFS_DIR_OK ? vr : OPENFS_DIR_INVALID_ARGUMENT;
     }
     openfs_dir_entry_t found;
-    if (openfs_dir_lookup(d, sb, dir, name, &found) == OPENFS_DIR_OK) return OPENFS_DIR_EXISTS;
+    openfs_dir_result_t lookup = openfs_dir_lookup(d, sb, dir, name, &found);
+    if (lookup == OPENFS_DIR_OK) return OPENFS_DIR_EXISTS;
+    if (lookup != OPENFS_DIR_NOT_FOUND) return lookup;
 
     uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
     encode_entry(raw, name, entry);
@@ -143,7 +145,8 @@ openfs_dir_result_t openfs_dir_remove(
             memset(block + within, 0, OPENFS_DIR_ENTRY_SIZE);
             openfs_io_result_t io = d->write(d->context, physical, 1U, block);
             free(block);
-            return io == OPENFS_IO_OK ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
+            if (io != OPENFS_IO_OK) return OPENFS_DIR_IO_ERROR;
+            return d->flush(d->context) == OPENFS_IO_OK ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
         }
     }
     return OPENFS_DIR_NOT_FOUND;
