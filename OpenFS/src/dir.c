@@ -108,6 +108,24 @@ openfs_dir_result_t openfs_dir_add(
 
     uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
     encode_entry(raw, name, entry);
+
+    /* Reuse a deleted slot before growing the directory. */
+    uint64_t entries = dir->size / OPENFS_DIR_ENTRY_SIZE;
+    uint8_t existing[OPENFS_DIR_ENTRY_SIZE];
+    for (uint64_t n = 0U; n < entries; ++n) {
+        size_t got = 0U;
+        openfs_file_result_t rr = openfs_file_read(
+            d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, existing, sizeof(existing), &got);
+        if (rr != OPENFS_FILE_OK || got != sizeof(existing)) {
+            return OPENFS_DIR_IO_ERROR;
+        }
+        if (memcmp(existing, "\0\0\0\0\0", 5U) == 0) {
+            return openfs_file_write(
+                d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw)) == OPENFS_FILE_OK
+                ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
+        }
+    }
+
     uint64_t offset = dir->size;
     if (offset > UINT64_MAX - OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_NO_SPACE;
     return openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)) == OPENFS_FILE_OK
