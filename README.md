@@ -18,6 +18,8 @@ Already implemented:
 - CRC32C checks for metadata;
 - strong geometry and overflow checks;
 - automatic initial inode bitmap;
+- block allocation bitmap and reserved data area;
+- first-fit data block allocation and freeing;
 - inode table;
 - checksummed inodes;
 - root directory inode creation;
@@ -25,7 +27,7 @@ Already implemented:
 - CMake build and automated CI with sanitizers.
 
 Still to build:
-- real block allocation and freeing;
+- extent-based file data mapping;
 - file data storage and extents;
 - directories and path lookup;
 - create, read, write, truncate, unlink and rename;
