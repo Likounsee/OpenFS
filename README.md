@@ -26,6 +26,7 @@ Already implemented:
 - absolute path traversal and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
 - initial read-only filesystem consistency checking (`fsck` core);
+- checksummed journal records with committed-transaction replay primitives;
 - mount/unmount with primary/backup superblock fallback;
 - inode table;
 - checksummed inodes;
@@ -36,8 +37,8 @@ Already implemented:
 Still to build:
 - complete symlink path resolution and loop handling;
 - permissions and timestamps;
-- journal and crash recovery;
-- complete journal-backed crash consistency;
+- integrate the journal into every metadata transaction and mount-time crash recovery;
+- complete crash-consistency ordering and interrupted-write recovery tests;
 - fsck and recovery tools;
 - Linux, Windows and ArchiaOS adapters.
 
