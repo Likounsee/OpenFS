@@ -198,6 +198,36 @@ static openfs_file_result_t allocate_blocks(
     return OPENFS_FILE_OK;
 }
 
+static openfs_file_result_t rollback_blocks(
+    openfs_block_device_t *device,
+    const openfs_superblock_t *sb,
+    openfs_inode_t *inode,
+    uint64_t target_blocks)
+{
+    while (inode->blocks > target_blocks) {
+        if (inode->extent_count == 0U) return OPENFS_FILE_CORRUPT;
+        openfs_extent_t last;
+        if (openfs_inode_get_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK ||
+            last.block_count == 0U) return OPENFS_FILE_CORRUPT;
+        uint64_t physical = 0U;
+        if (last.physical_start > UINT64_MAX - last.block_count + 1U) return OPENFS_FILE_CORRUPT;
+        physical = last.physical_start + last.block_count - 1U;
+        if (openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) return OPENFS_FILE_CORRUPT;
+        last.block_count--;
+        inode->blocks--;
+        if (last.block_count == 0U) {
+            inode->extent_count--;
+        } else if (openfs_inode_set_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
+            return OPENFS_FILE_CORRUPT;
+        }
+    }
+    if (inode->blocks == 0U) {
+        inode->extent_count = 0U;
+        inode->flags &= ~OPENFS_INODE_FLAG_HAS_EXTENTS;
+    }
+    return OPENFS_FILE_OK;
+}
+
 static openfs_file_result_t zero_block(
     openfs_block_device_t *device,
     uint64_t physical)
@@ -390,6 +420,7 @@ openfs_file_result_t openfs_file_write(
 
     uint64_t end = offset + (uint64_t)length;
     uint64_t target_blocks = ceil_div_u64(end, device->block_size);
+    openfs_inode_t original = *inode;
     uint64_t old_blocks = inode->blocks;
     uint64_t old_size = inode->size;
     r = allocate_blocks(device, sb, inode, target_blocks);
@@ -399,6 +430,8 @@ openfs_file_result_t openfs_file_write(
 
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) {
+        (void)rollback_blocks(device, sb, inode, old_blocks);
+        *inode = original;
         return OPENFS_FILE_IO_ERROR;
     }
 
@@ -411,6 +444,8 @@ openfs_file_result_t openfs_file_write(
         r = openfs_file_map_block(inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
             free(block);
+            (void)rollback_blocks(device, sb, inode, old_blocks);
+            *inode = original;
             return r == OPENFS_FILE_OK ? OPENFS_FILE_CORRUPT : r;
         }
 
@@ -423,6 +458,8 @@ openfs_file_result_t openfs_file_write(
             if (logical < old_blocks) {
                 if (device->read(device->context, physical, 1U, block) != OPENFS_IO_OK) {
                     free(block);
+                    (void)rollback_blocks(device, sb, inode, old_blocks);
+                    *inode = original;
                     return OPENFS_FILE_IO_ERROR;
                 }
             } else {
@@ -440,6 +477,8 @@ openfs_file_result_t openfs_file_write(
         }
         if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
             free(block);
+            (void)rollback_blocks(device, sb, inode, old_blocks);
+            *inode = original;
             return OPENFS_FILE_IO_ERROR;
         }
         done += chunk;
@@ -451,6 +490,8 @@ openfs_file_result_t openfs_file_write(
     }
     r = write_inode(device, sb, inode);
     if (r != OPENFS_FILE_OK) {
+        (void)rollback_blocks(device, sb, inode, old_blocks);
+        *inode = original;
         return r;
     }
     return device->flush(device->context) == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
