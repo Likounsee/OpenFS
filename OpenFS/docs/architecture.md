@@ -8,7 +8,7 @@ integration, but it is an adapter and must never become a dependency of the core
 1. Format: versioned on-disk structures and validation.
 2. Block I/O: checked 64-bit block addressing and explicit flush semantics.
 3. Metadata: inodes, allocation, directories, links and timestamps.
-4. Transactions: write-ahead journal and crash recovery.
+4. Transactions: write-ahead journal, buffered transaction device and crash recovery.
 5. Filesystem: mount, namespace and file operations.
 6. Tools: formatter, fsck and recovery utilities.
 7. OS adapters: ArchiaOS, Linux, Windows, BSD and others.
