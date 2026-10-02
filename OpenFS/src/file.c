@@ -281,7 +281,7 @@ openfs_file_result_t openfs_file_truncate(
         }
     }
 
-    if (new_size > old_size && new_blocks == old_blocks && old_size != new_size) {
+    if (new_size > old_size && old_size % device->block_size != 0U) {
         uint64_t physical = 0U;
         if (openfs_file_map_block(inode, old_size / device->block_size, &physical) != OPENFS_FILE_OK ||
             validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
@@ -294,9 +294,7 @@ openfs_file_result_t openfs_file_truncate(
             return OPENFS_FILE_IO_ERROR;
         }
         uint32_t from = (uint32_t)(old_size % device->block_size);
-        uint32_t to = (uint32_t)(new_size % device->block_size);
-        if (new_blocks > old_blocks) to = device->block_size;
-        if (to < from) to = device->block_size;
+        uint32_t to = (new_blocks > old_blocks) ? device->block_size : (uint32_t)(new_size % device->block_size);
         memset(block + from, 0, (size_t)(to - from));
         if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
             free(block);
