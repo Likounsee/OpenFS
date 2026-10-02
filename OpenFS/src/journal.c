@@ -13,4 +13,24 @@ openfs_journal_result_t openfs_journal_open(openfs_journal_t*j,const openfs_bloc
 openfs_journal_result_t openfs_journal_begin(openfs_journal_t*j,openfs_block_device_t*d,uint64_t*tx){if(j==NULL||tx==NULL||!openfs_block_device_is_valid(d))return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->next_record>=j->journal_blocks)return OPENFS_JOURNAL_FULL;j->transaction_id++;if(j->transaction_id==0U)j->transaction_id=1U;openfs_superblock_t s={0};s.block_size=j->block_size;s.journal_start=j->journal_start;s.journal_blocks=j->journal_blocks;openfs_journal_result_t r=put(d,&s,j->next_record,j->transaction_id,++j->sequence,OPENFS_JOURNAL_BEGIN,NULL,0U);if(r==OPENFS_JOURNAL_OK){j->next_record++;*tx=j->transaction_id;}return r;}
 openfs_journal_result_t openfs_journal_write(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx,const void*data,uint32_t len){if(j==NULL||data==NULL||!openfs_block_device_is_valid(d))return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->next_record>=j->journal_blocks)return OPENFS_JOURNAL_FULL;openfs_superblock_t s={0};s.block_size=j->block_size;s.journal_start=j->journal_start;s.journal_blocks=j->journal_blocks;openfs_journal_result_t r=put(d,&s,j->next_record,tx,++j->sequence,OPENFS_JOURNAL_DATA,data,len);if(r==OPENFS_JOURNAL_OK)j->next_record++;return r;}
 openfs_journal_result_t openfs_journal_commit(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx){if(j==NULL||!openfs_block_device_is_valid(d))return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->next_record>=j->journal_blocks)return OPENFS_JOURNAL_FULL;openfs_superblock_t s={0};s.block_size=j->block_size;s.journal_start=j->journal_start;s.journal_blocks=j->journal_blocks;openfs_journal_result_t r=put(d,&s,j->next_record,tx,++j->sequence,OPENFS_JOURNAL_COMMIT,NULL,0U);if(r==OPENFS_JOURNAL_OK){j->next_record++;r=d->flush(d->context)==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}return r;}
-openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx){if(!range(d,s)||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;uint8_t*b=malloc(d->block_size);if(!b)return OPENFS_JOURNAL_IO_ERROR;for(uint64_t n=0U;n<s->journal_blocks;n++){if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0)continue;uint32_t stored=g32(b+28U);p32(b+28U,0U);if(stored!=openfs_crc32c(b,d->block_size-4U)){free(b);return OPENFS_JOURNAL_CORRUPT;}p32(b+28U,stored);uint32_t len=g32(b+24U);if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE){free(b);return OPENFS_JOURNAL_CORRUPT;}if(b[5]==OPENFS_JOURNAL_DATA){openfs_journal_result_t r=cb(ctx,g64(b+8U),b+OPENFS_JOURNAL_HEADER_SIZE,len);if(r!=OPENFS_JOURNAL_OK){free(b);return r;}}}free(b);return OPENFS_JOURNAL_OK;}
+openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx){
+if(!range(d,s)||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+uint8_t*b=malloc(d->block_size);if(!b)return OPENFS_JOURNAL_IO_ERROR;
+uint64_t*commits=calloc((size_t)s->journal_blocks,sizeof(*commits));if(!commits){free(b);return OPENFS_JOURNAL_IO_ERROR;}
+uint64_t commit_count=0U;
+for(uint64_t n=0U;n<s->journal_blocks;n++){
+if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(commits);free(b);return OPENFS_JOURNAL_IO_ERROR;}
+if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0)continue;
+uint32_t stored=g32(b+28U);p32(b+28U,0U);if(stored!=openfs_crc32c(b,d->block_size-4U)){free(commits);free(b);return OPENFS_JOURNAL_CORRUPT;}p32(b+28U,stored);
+uint32_t len=g32(b+24U);if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE){free(commits);free(b);return OPENFS_JOURNAL_CORRUPT;}
+if(b[5]==OPENFS_JOURNAL_COMMIT&&commit_count<s->journal_blocks)commits[commit_count++]=g64(b+8U);
+}
+for(uint64_t n=0U;n<s->journal_blocks;n++){
+if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(commits);free(b);return OPENFS_JOURNAL_IO_ERROR;}
+if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0)continue;
+uint32_t stored=g32(b+28U);p32(b+28U,0U);if(stored!=openfs_crc32c(b,d->block_size-4U)){free(commits);free(b);return OPENFS_JOURNAL_CORRUPT;}p32(b+28U,stored);
+uint32_t len=g32(b+24U);if(b[5]!=OPENFS_JOURNAL_DATA)continue;
+uint64_t tx=g64(b+8U);int committed=0;for(uint64_t i=0U;i<commit_count;i++)if(commits[i]==tx){committed=1;break;}if(!committed)continue;
+openfs_journal_result_t r=cb(ctx,tx,b+OPENFS_JOURNAL_HEADER_SIZE,len);if(r!=OPENFS_JOURNAL_OK){free(commits);free(b);return r;}
+}
+free(commits);free(b);return OPENFS_JOURNAL_OK;}
