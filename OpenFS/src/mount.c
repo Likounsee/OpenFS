@@ -58,6 +58,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     if(device->flush(device->context)!=OPENFS_IO_OK)return OPENFS_MOUNT_IO_ERROR;
+    if(openfs_journal_checkpoint(&mount->journal,device)!=OPENFS_JOURNAL_OK)return OPENFS_MOUNT_IO_ERROR;
     mount->mounted=1;
     return OPENFS_MOUNT_OK;
 }
