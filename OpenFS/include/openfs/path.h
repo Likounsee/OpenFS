@@ -12,6 +12,8 @@ openfs_path_result_t openfs_path_create(openfs_block_device_t *,const openfs_sup
 openfs_path_result_t openfs_path_mkdir(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_unlink(openfs_block_device_t *,const openfs_superblock_t *,const char *);
 openfs_path_result_t openfs_path_rename(openfs_block_device_t *,const openfs_superblock_t *,const char *,const char *);
+openfs_path_result_t openfs_path_chmod(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t);
+openfs_path_result_t openfs_path_set_times(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t,uint64_t);
 #ifdef __cplusplus
 }
 #endif
