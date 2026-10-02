@@ -222,7 +222,8 @@ openfs_file_result_t openfs_file_truncate(
         return r;
     }
 
-    uint64_t old_blocks = ceil_div_u64(inode->size, device->block_size);
+    uint64_t old_size = inode->size;
+    uint64_t old_blocks = ceil_div_u64(old_size, device->block_size);
     uint64_t new_blocks = ceil_div_u64(new_size, device->block_size);
 
     if (new_blocks > UINT64_MAX / device->block_size) {
@@ -280,10 +281,31 @@ openfs_file_result_t openfs_file_truncate(
         }
     }
 
-    inode->size = new_size;
-    if (new_size < inode->size && new_blocks == old_blocks && new_size != 0U) {
-        /* Kept for readability; shrinking inside a block does not free that block. */
+    if (new_size > old_size && new_blocks == old_blocks && old_size != new_size) {
+        uint64_t physical = 0U;
+        if (openfs_file_map_block(inode, old_size / device->block_size, &physical) != OPENFS_FILE_OK ||
+            validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
+            return OPENFS_FILE_CORRUPT;
+        }
+        uint8_t *block = calloc(1U, device->block_size);
+        if (block == NULL) return OPENFS_FILE_IO_ERROR;
+        if (device->read(device->context, physical, 1U, block) != OPENFS_IO_OK) {
+            free(block);
+            return OPENFS_FILE_IO_ERROR;
+        }
+        uint32_t from = (uint32_t)(old_size % device->block_size);
+        uint32_t to = (uint32_t)(new_size % device->block_size);
+        if (new_blocks > old_blocks) to = device->block_size;
+        if (to < from) to = device->block_size;
+        memset(block + from, 0, (size_t)(to - from));
+        if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
+            free(block);
+            return OPENFS_FILE_IO_ERROR;
+        }
+        free(block);
     }
+
+    inode->size = new_size;
     return write_inode(device, sb, inode);
 }
 
@@ -371,6 +393,7 @@ openfs_file_result_t openfs_file_write(
     uint64_t end = offset + (uint64_t)length;
     uint64_t target_blocks = ceil_div_u64(end, device->block_size);
     uint64_t old_blocks = inode->blocks;
+    uint64_t old_size = inode->size;
     r = allocate_blocks(device, sb, inode, target_blocks);
     if (r != OPENFS_FILE_OK) {
         return r;
@@ -398,7 +421,7 @@ openfs_file_result_t openfs_file_write(
             chunk = length - done;
         }
 
-        if (within != 0U || chunk != device->block_size) {
+        if (within != 0U || chunk != device->block_size || (offset > old_size && logical == old_size / device->block_size)) {
             if (logical < old_blocks) {
                 if (device->read(device->context, physical, 1U, block) != OPENFS_IO_OK) {
                     free(block);
@@ -407,6 +430,10 @@ openfs_file_result_t openfs_file_write(
             } else {
                 memset(block, 0, device->block_size);
             }
+        }
+        if (offset > old_size && logical == old_size / device->block_size && old_size % device->block_size < within) {
+            uint32_t gap_from = (uint32_t)(old_size % device->block_size);
+            memset(block + gap_from, 0, (size_t)within - gap_from);
         }
         if (within == 0U && chunk == device->block_size) {
             memcpy(block, (const uint8_t *)buffer + done, chunk);
