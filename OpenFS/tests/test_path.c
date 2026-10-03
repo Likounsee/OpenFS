@@ -58,10 +58,11 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     uint64_t unlink_fail_ino=0U;
     assert(openfs_path_create(&v,&s,"/home/test/unlink-fail",OPENFS_INODE_MODE_REGULAR,&unlink_fail_ino)==OPENFS_PATH_OK);
     uint64_t target_block=s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=1;
+    d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=2;
     assert(openfs_path_unlink(&v,&s,"/home/test/unlink-fail")==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
     assert(openfs_path_lookup(&v,&s,"/home/test/unlink-fail",&q)==OPENFS_PATH_OK&&q==unlink_fail_ino);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
 
     openfs_inode_t after_link;
