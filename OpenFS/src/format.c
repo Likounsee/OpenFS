@@ -72,7 +72,7 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t*d,
     if(sb->version_major!=OPENFS_FORMAT_VERSION_MAJOR||sb->version_minor>OPENFS_FORMAT_VERSION_MINOR)return OPENFS_FORMAT_CORRUPT;
     if((sb->feature_flags&~OPENFS_FEATURE_EXTENT_TREE)!=0U)return OPENFS_FORMAT_CORRUPT;
     if((sb->feature_flags&OPENFS_FEATURE_EXTENT_TREE)!=0U&&sb->version_minor<3U)return OPENFS_FORMAT_CORRUPT;
-    if(sb->block_size<OPENFS_MIN_BLOCK_SIZE||sb->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(sb->block_size)||sb->block_size!=d->block_size)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
+    if(sb->block_size<OPENFS_MIN_BLOCK_SIZE||sb->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(sb->block_size)||sb->block_size!=d->block_size)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;if(sb->block_size%OPENFS_INODE_SIZE!=0U)return OPENFS_FORMAT_CORRUPT;
     if(sb->total_blocks!=d->block_count||sb->total_blocks<64U||sb->root_inode==0U||sb->generation==0U)return OPENFS_FORMAT_CORRUPT;
     if(sb->metadata_start!=2U||sb->metadata_blocks!=sb->total_blocks-3U||sb->metadata_blocks==0U||sb->block_bitmap_start!=3U||sb->block_bitmap_blocks==0U||sb->inode_bitmap_blocks==0U||sb->inode_table_blocks==0U)return OPENFS_FORMAT_CORRUPT;
     uint64_t end=0U;
@@ -84,7 +84,7 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t*d,
     if(sb->journal_blocks<8U||sb->data_blocks<8U||sb->journal_start==0U||sb->data_start==0U)return OPENFS_FORMAT_CORRUPT;
     uint64_t meta_end=0U; if(addov(sb->metadata_start,sb->metadata_blocks,&meta_end)||meta_end!=sb->total_blocks-1U)return OPENFS_FORMAT_CORRUPT;
     uint64_t inode_bytes=0U;if(mulov(sb->inode_table_blocks,sb->block_size,&inode_bytes)||inode_bytes<OPENFS_INODE_SIZE)return OPENFS_FORMAT_CORRUPT;
-    uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
+    uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;if(inode_bytes%OPENFS_INODE_SIZE!=0U)return OPENFS_FORMAT_CORRUPT;
     uint64_t inode_cap=0U;if(mulov(sb->inode_bitmap_blocks,(uint64_t)sb->block_size*8U,&inode_cap)||inode_count==0U||inode_count>inode_cap||sb->root_inode>inode_count)return OPENFS_FORMAT_CORRUPT;
     uint64_t block_cap=0U;if(mulov(sb->block_bitmap_blocks,(uint64_t)sb->block_size*8U,&block_cap)||sb->total_blocks>block_cap)return OPENFS_FORMAT_CORRUPT;
     return OPENFS_FORMAT_OK;
@@ -92,7 +92,7 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t*d,
 
 openfs_format_result_t openfs_read_superblock(openfs_block_device_t*d,openfs_superblock_t*out){
     if(!openfs_block_device_is_valid(d)||out==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
-    if(d->block_size<OPENFS_SUPERBLOCK_SIZE)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
+    if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
     uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_FORMAT_IO_ERROR;
     if(d->read(d->context,0U,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_FORMAT_IO_ERROR;}
     openfs_format_result_t r=decode(b,out);free(b);return r==OPENFS_FORMAT_OK?openfs_validate_superblock(d,out):r;
