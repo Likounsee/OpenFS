@@ -9,6 +9,7 @@ option(OPENFS_BUILD_TESTS "Build OpenFS tests" ON)
 
 add_library(openfs STATIC
     src/crc32c.c
+    src/time.c
     src/format.c
     src/inode.c
     src/inode_alloc.c
@@ -40,6 +41,9 @@ openfs_enable_warnings(openfs)
 
 if(OPENFS_BUILD_TESTS)
     enable_testing()
+    add_executable(openfs-timestamp-test tests/test_timestamp.c)
+    target_link_libraries(openfs-timestamp-test PRIVATE openfs)
+    add_test(NAME openfs-timestamp COMMAND openfs-timestamp-test)
     add_executable(openfs-format-test tests/test_format.c)
     target_link_libraries(openfs-format-test PRIVATE openfs)
     target_compile_options(openfs-format-test PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
