@@ -303,7 +303,7 @@ openfs_file_result_t openfs_file_truncate(
         }
         for (uint64_t logical = new_blocks; logical < original.blocks; ++logical) {
             uint64_t physical = 0U;
-            if (openfs_file_map_block(&original, logical, &physical) != OPENFS_FILE_OK ||
+            if (map_block_on_disk(device, sb, &original, logical, &physical) != OPENFS_FILE_OK ||
                 openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) {
                 *inode = reduced;
                 return OPENFS_FILE_IO_ERROR;
@@ -441,7 +441,7 @@ openfs_file_result_t openfs_file_write(
         uint64_t logical = absolute / device->block_size;
         uint32_t within = (uint32_t)(absolute % device->block_size);
         uint64_t physical = 0U;
-        r = openfs_file_map_block(inode, logical, &physical);
+        r = map_block_on_disk(device, sb, inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
             free(block);
             (void)rollback_blocks(device, sb, inode, old_blocks);
