@@ -26,7 +26,7 @@ openfs_path_result_t openfs_link(openfs_block_device_t*d,const openfs_superblock
 if(d->flush(d->context)!=OPENFS_IO_OK){
     int rollback_ok=openfs_inode_write(d,s->inode_table_start,count,&original)==OPENFS_INODE_OK;
     if(openfs_dir_remove(d,s,&pd,nn)!=OPENFS_DIR_OK)rollback_ok=0;
-    if(openfs_inode_write(d,s->inode_table_start,count,&pd)!=OPENFS_INODE_OK)rollback_ok=0;
+    if(!restore_directory_state(d,s,&pd,&original_pd,count))rollback_ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
