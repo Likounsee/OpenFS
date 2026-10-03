@@ -196,6 +196,7 @@ static void write_extent_tree_root_rollback_releases_metadata(void){
     }
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
+    uint64_t baseline_errors=0U;assert(openfs_fsck(&v,&sb,&baseline_errors)==OPENFS_FSCK_OK&&baseline_errors==0U);
     openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
     size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;uint8_t *bitmap_snapshot=malloc(bitmap_bytes);uint8_t *inode_snapshot=malloc(sb.block_size);assert(bitmap_snapshot&&inode_snapshot);memcpy(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);memcpy(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size);
     uint8_t block[4096U];memset(block,0x6CU,sizeof(block));
