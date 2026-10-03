@@ -513,16 +513,11 @@ openfs_file_result_t openfs_file_write(
     return device->flush(device->context) == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
 }
 
-static openfs_file_result_t file_access(const openfs_inode_t *inode,uint32_t uid,uint32_t gid,uint8_t requested)
-{
-    openfs_inode_result_t r=openfs_inode_check_access(inode,uid,gid,requested);
-    return r==OPENFS_INODE_OK?OPENFS_FILE_OK:(r==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT);
-}
 openfs_file_result_t openfs_file_read_as(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,void*b,size_t len,size_t*got)
 {
     openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
     openfs_inode_result_t ar=openfs_inode_check_access(i,uid,gid,4U);
-    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_ACCESS_DENIED:OPENFS_FILE_CORRUPT;
     return openfs_file_read(d,s,i,off,b,len,got);
 }
 openfs_file_result_t openfs_file_write_as(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,const void*b,size_t len)
