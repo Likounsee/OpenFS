@@ -189,19 +189,19 @@ static void extent_tree_large_file(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t block[4096U];memset(block,0xC3U,sizeof(block));
     for(uint64_t n=0U;n<10U;n++) assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+n,1)==OPENFS_BITMAP_OK);
-    for(uint32_t n=0U;n<OPENFS_EXTENT_MAX;n++){
+    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
         openfs_extent_t e={n,sb.data_start+(uint64_t)n*2U,1U};
         assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
         assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
     }
-    i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
+    i.blocks=OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i.size=(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U;
     openfs_inode_t before=i;
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);assert((i.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U);
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);assert((i.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U);
     assert(memcmp(&i,&before,sizeof(i))!=0);
-    assert(i.extent_count==OPENFS_EXTENT_MAX+1U);
-    uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U/4096U,&mapped)==OPENFS_FILE_OK);
+    assert(i.extent_count==OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U);
+    uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX,&mapped)==OPENFS_FILE_OK);
     assert(mapped==sb.data_start+10U);
-    uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0xC3U);
+    uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0xC3U);
     uint64_t tree_root=openfs_inode_get_extent_tree_root(&i);assert(tree_root<d.block_count);uint8_t saved_tree=d.bytes[(size_t)(tree_root*d.block_size)];d.bytes[(size_t)(tree_root*d.block_size)]^=0x5AU;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_CORRUPT);d.bytes[(size_t)(tree_root*d.block_size)]=saved_tree;
     assert(openfs_file_truncate(&v,&sb,&i,3U*4096U)==OPENFS_FILE_OK);assert(i.blocks==3U&&i.size==3U*4096U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     for(uint32_t n=0U;n<3U;n++){
