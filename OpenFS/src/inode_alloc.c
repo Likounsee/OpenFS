@@ -55,7 +55,7 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     r = inode_count(sb, &count);
     if (r != OPENFS_INODE_ALLOC_OK) return r;
     if (parent > count) return OPENFS_INODE_ALLOC_CORRUPT;
-    if (parent != sb->root_inode) {
+    {
         openfs_inode_t parent_inode;
         if (openfs_inode_read(d, sb->inode_table_start, parent, count, &parent_inode) != OPENFS_INODE_OK ||
             (parent_inode.mode & OPENFS_INODE_TYPE_MASK) != OPENFS_INODE_MODE_DIRECTORY) {
