@@ -29,7 +29,14 @@ target_include_directories(openfs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_compile_options(openfs PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+function(openfs_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+    endif()
+endfunction()
+openfs_enable_warnings(openfs)
 
 if(OPENFS_BUILD_TESTS)
     enable_testing()
