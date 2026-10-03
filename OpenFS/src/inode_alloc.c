@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <string.h>
 #include "openfs/bitmap.h"
+#include "openfs/time.h"
 
 static openfs_inode_alloc_result_t inode_count(
     const openfs_superblock_t *sb,
@@ -77,6 +78,12 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         inode.parent_inode = parent;
         inode.link_count = 1U;
         inode.mode = mode;
+        uint64_t now = openfs_time_now_ns();
+        if (now != UINT64_MAX) {
+            inode.atime_ns = now;
+            inode.mtime_ns = now;
+            inode.ctime_ns = now;
+        }
 
         if (openfs_inode_write(d, sb->inode_table_start, count, &inode) != OPENFS_INODE_OK) {
             (void)openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 0);
