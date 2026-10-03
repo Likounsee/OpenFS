@@ -47,7 +47,7 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     }
     uint32_t type = mode & OPENFS_INODE_TYPE_MASK;
     if ((mode & ~(OPENFS_INODE_TYPE_MASK | OPENFS_INODE_PERMISSION_MASK)) != 0U ||
-        type != OPENFS_INODE_MODE_REGULAR && type != OPENFS_INODE_MODE_DIRECTORY && type != OPENFS_INODE_MODE_SYMLINK) {
+        (type != OPENFS_INODE_MODE_REGULAR && type != OPENFS_INODE_MODE_DIRECTORY && type != OPENFS_INODE_MODE_SYMLINK)) {
         return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
 
