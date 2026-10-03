@@ -19,10 +19,11 @@ if(s->journal_blocks>SIZE_MAX/sizeof(uint64_t)||s->journal_blocks>SIZE_MAX)retur
 uint8_t*b=malloc(d->block_size);if(!b)return OPENFS_JOURNAL_IO_ERROR;
 uint64_t*txids=calloc((size_t)s->journal_blocks,sizeof(*txids));uint8_t*states=calloc((size_t)s->journal_blocks,sizeof(*states));
 if(!txids||!states){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
-uint64_t tx_count=0U,last_sequence=0U;int have_sequence=0;
+uint64_t tx_count=0U,last_sequence=0U;int have_sequence=0;int journal_gap=0;
 for(uint64_t n=0U;n<s->journal_blocks;n++){
 if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
-if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0)continue;
+if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0){if(have_sequence)journal_gap=1;continue;}
+if(journal_gap){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 uint32_t stored=g32(b+28U);p32(b+28U,0U);
 if(stored!=openfs_crc32c(b,d->block_size-4U)){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}p32(b+28U,stored);
 uint32_t len=g32(b+24U);uint64_t tx=g64(b+8U),seq=g64(b+16U);
