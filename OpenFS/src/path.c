@@ -80,6 +80,10 @@ if(target.link_count==1U){
     target.mode=OPENFS_INODE_MODE_FREE;
     target.link_count=0U;
     target.parent_inode=0U;
+    target.flags=0U;
+    target.extent_count=0U;
+    memset(target.inline_data,0,sizeof(target.inline_data));
+    memset(target.reserved,0,sizeof(target.reserved));
     target.uid=0U;
     target.gid=0U;
     target.atime_ns=0U;
