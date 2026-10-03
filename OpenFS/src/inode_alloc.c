@@ -156,14 +156,13 @@ openfs_inode_alloc_result_t openfs_inode_free(
     if (inode.link_count != 0U || inode.mode != OPENFS_INODE_MODE_FREE) {
         return OPENFS_INODE_ALLOC_CORRUPT;
     }
+    openfs_inode_t original = inode;
     inode.parent_inode = 0U;
     inode.uid = 0U;
     inode.gid = 0U;
     inode.atime_ns = 0U;
     inode.mtime_ns = 0U;
     inode.ctime_ns = 0U;
-
-    openfs_inode_t original = inode;
     int original_used = 0;
     if (openfs_bitmap_test(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks,
             n - 1U, &original_used) != OPENFS_BITMAP_OK || !original_used) {
