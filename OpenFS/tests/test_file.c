@@ -87,6 +87,20 @@ static void truncate_zero_failure_rolls_back(void){
     assert(openfs_free_block(&v,&sb,allocated)==OPENFS_ALLOC_OK);
     free(d.bytes);
 }
+static void truncate_shrink_inode_write_failure_keeps_blocks(void){
+    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t data[4096U*3U];memset(data,0xA5U,sizeof(data));
+    assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    openfs_inode_t before=i;openfs_extent_t last={0};assert(openfs_inode_get_extent(&i,i.extent_count-1U,&last)==OPENFS_EXTENT_OK);
+    uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
+    d.fail_block=inode_block;d.fail_block_enabled=1;
+    assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);
+    d.fail_block_enabled=0;assert(memcmp(&i,&before,sizeof(i))==0);
+    uint64_t allocated=0U;assert(openfs_alloc_block(&v,&sb,&allocated)==OPENFS_ALLOC_OK);
+    assert(allocated!=last.physical_start+last.block_count-1U);
+    assert(openfs_free_block(&v,&sb,allocated)==OPENFS_ALLOC_OK);
+    free(d.bytes);
+}
 static void map_bounds(void){
     openfs_inode_t i=new_file();uint64_t p=0U;
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
@@ -94,4 +108,4 @@ static void map_bounds(void){
     assert(openfs_file_map_block(&i,1U,&p)==OPENFS_FILE_OK&&p==43U);
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OUT_OF_RANGE);
 }
-int main(void){basic_rw();multi_block_and_truncate();truncate_zero_failure_rolls_back();map_bounds();return 0;}
+int main(void){basic_rw();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();map_bounds();return 0;}
