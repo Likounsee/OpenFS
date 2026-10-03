@@ -524,7 +524,7 @@ openfs_file_result_t openfs_file_write_as(openfs_block_device_t*d,const openfs_s
 {
     openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
     openfs_inode_result_t ar=openfs_inode_check_access(i,uid,gid,2U);
-    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_ACCESS_DENIED:OPENFS_FILE_CORRUPT;
     return openfs_file_write(d,s,i,off,b,len);
 }
 openfs_file_result_t openfs_file_truncate_as(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t size)
