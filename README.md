@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the
 **robustness, crash-consistency, permissions, and scalability phase**. It is
 **not yet ready to be used as a normal everyday filesystem**.
 
-Current overall progress is approximately **82% of the planned project scope**.
+Current overall progress is approximately **85% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -47,6 +47,7 @@ This is an engineering estimate, not a release-readiness metric.
 - recovery tests verifying committed transactions remain recoverable after final-write failures;
 - `fsck` consistency checking with allocation, extent, alias, inode, directory,
   generation, and link-count invariants;
+- CMake build with GCC/Clang warning flags and MSVC-compatible warning configuration;
 - CMake build and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan.
 
 ### In active development
@@ -58,7 +59,7 @@ This is an engineering estimate, not a release-readiness metric.
 - atomicity of create/mkdir/unlink/rename/link/symlink operations;
 - stronger file/truncate overflow and partial-I/O handling;
 - larger files and extent-tree/indirect extent storage beyond five fragmented extents;
-- additional fsck repair/recovery capabilities;
+- additional fsck repair/recovery capabilities (the current fsck remains deliberately read-only);
 - Linux, Windows, and ArchiaOS adapters;
 - expanded documentation and compatibility guarantees.
 
