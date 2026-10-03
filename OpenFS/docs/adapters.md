@@ -54,3 +54,47 @@ Every adapter should provide fault injection for:
 The core test suite uses an in-memory block device for deterministic testing.
 Platform adapters should add their own integration tests without changing core
 on-disk semantics.
+
+## Reference implementations
+
+The repository now contains platform glue under `OpenFS/adapters/`:
+
+- `linux/` — file-backed adapter using `pread`/`pwrite` and `fsync`;
+- `windows/` — Win32 file-backed adapter using overlapped `ReadFile`/`WriteFile` and `FlushFileBuffers`;
+- `archiaos/` — callback bridge for the ArchiaOS storage subsystem.
+
+The Linux and ArchiaOS adapters have deterministic contract tests in
+`OpenFS/adapters/tests/`. The Windows implementation is compiled only on a
+Windows host and still requires a Windows CI/integration environment before it
+can be considered verified.
+
+The adapters deliberately expose only a block device to the core. They do not
+translate filesystem paths, permissions, directory operations, journal policy,
+or on-disk structures.
+
+## Durability boundary
+
+`flush` is not merely a cache flush hint. It is the adapter's acknowledgement
+that writes issued before it satisfy the durability guarantee required by the
+OpenFS transaction layer. If the underlying storage API cannot provide that
+guarantee, the adapter must return `OPENFS_IO_IO_ERROR` rather than claiming
+success.
+
+The Linux and Windows file adapters reject zero-length/out-of-range requests
+and reject successful short transfers. The ArchiaOS bridge validates bounds
+before delegating to the supplied storage callbacks; the ArchiaOS subsystem
+must provide the same no-partial-success and durability guarantees.
+
+## Concurrency
+
+An adapter must serialize access when its backing object is not intrinsically
+thread-safe. The Linux and Windows implementations use position-explicit I/O
+so they do not depend on a mutable shared file position for ordinary block
+requests. ArchiaOS callback implementations are responsible for their own
+concurrency policy.
+
+## Read-only mode
+
+A read-only adapter may expose `OPENFS_IO_READ_ONLY` from `write`. OpenFS mount
+and read paths can use such a device for inspection, while mutation APIs must
+surface the write failure instead of silently changing semantics.
