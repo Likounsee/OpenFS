@@ -65,6 +65,10 @@ static openfs_file_result_t validate_file(
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) {
         return OPENFS_FILE_CORRUPT;
     }
+    if ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U &&
+        (inode->extent_count <= OPENFS_INODE_TREE_INLINE_EXTENT_MAX || openfs_inode_get_extent_tree_root(inode) == 0U)) {
+        return OPENFS_FILE_CORRUPT;
+    }
     return OPENFS_FILE_OK;
 }
 
@@ -100,8 +104,7 @@ static openfs_file_result_t write_inode(
     if (r != OPENFS_FILE_OK) {
         return r;
     }
-    return openfs_inode_write(device, sb->inode_table_start, count, inode) ==
-        OPENFS_INODE_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
+    openfs_inode_result_t ir=openfs_inode_write(device, sb->inode_table_start, count, inode);return ir==OPENFS_INODE_OK?OPENFS_FILE_OK:(ir==OPENFS_INODE_CORRUPT?OPENFS_FILE_CORRUPT:OPENFS_FILE_IO_ERROR);
 }
 
 static uint32_t inline_extent_count(const openfs_inode_t *inode)
@@ -119,7 +122,7 @@ static openfs_file_result_t load_all_extents(const openfs_block_device_t *d,cons
     #endif
     openfs_extent_t*a=calloc((size_t)n,sizeof(*a));if(a==NULL)return OPENFS_FILE_IO_ERROR;
     uint32_t inline_max=inline_extent_count(inode);uint32_t inline_n=n<inline_max?n:inline_max;
-    for(uint32_t i=0U;i<inline_n;i++)if(openfs_inode_get_extent(inode,i,&a[i])!=OPENFS_EXTENT_OK){free(a);return OPENFS_FILE_CORRUPT;}
+    for(uint32_t i=0U;i<inline_n;i++){openfs_extent_result_t er=openfs_inode_get_extent(inode,i,&a[i]);if(er!=OPENFS_EXTENT_OK){free(a);return OPENFS_FILE_CORRUPT;}}
     for(uint32_t i=inline_max;i<n;i++){openfs_extent_result_t er=openfs_extent_tree_read(d,inode,i-inline_max,&a[i]);if(er!=OPENFS_EXTENT_OK){free(a);return er==OPENFS_EXTENT_IO_ERROR?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;}}
     *out=a;*count=n;return OPENFS_FILE_OK;
 }
