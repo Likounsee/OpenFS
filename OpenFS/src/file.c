@@ -425,7 +425,7 @@ openfs_file_result_t openfs_file_truncate(
         r=write_inode(device,sb,&reduced);
         if(r!=OPENFS_FILE_OK){
             int ok=1;
-            if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(old_tree_block!=NULL){if(device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;else if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;}
             free(old_tree_block);free(freed);free(tail_backup);*inode=original;
             return ok?r:OPENFS_FILE_CORRUPT;
         }
