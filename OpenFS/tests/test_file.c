@@ -106,6 +106,6 @@ static void map_bounds(void){
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
     assert(openfs_file_map_block(&i,0U,&p)==OPENFS_FILE_OK&&p==42U);
     assert(openfs_file_map_block(&i,1U,&p)==OPENFS_FILE_OK&&p==43U);
-    assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OUT_OF_RANGE);
+    assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OUT_OF_RANGE);\n    openfs_extent_t e2={2U,10U,1U};\n    assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;\n    assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
 int main(void){basic_rw();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();map_bounds();return 0;}
