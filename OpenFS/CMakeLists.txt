@@ -39,6 +39,8 @@ function(openfs_enable_warnings target)
 endfunction()
 openfs_enable_warnings(openfs)
 
+add_subdirectory(adapters)
+
 if(OPENFS_BUILD_TESTS)
     enable_testing()
     add_executable(openfs-timestamp-test tests/test_timestamp.c)
