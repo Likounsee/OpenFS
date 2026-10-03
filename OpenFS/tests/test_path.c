@@ -67,9 +67,10 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(after_link.link_count==before_link.link_count);
 }
 assert(openfs_symlink(&v,&s,"/home/test","/alias")==OPENFS_PATH_OK);{
-    uint64_t symlink_fail_ino=0U;
-    assert(openfs_path_create(&v,&s,"/home/test/symlink-fail",OPENFS_INODE_MODE_SYMLINK,&symlink_fail_ino)==OPENFS_PATH_OK);
-    uint64_t symlink_block=s.inode_table_start+((symlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    uint64_t next_ino=0U;uint64_t inode_cap=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;
+    for(uint64_t candidate=2U;candidate<=inode_cap;candidate++){int used=0;assert(openfs_bitmap_test(&v,s.inode_bitmap_start,s.inode_bitmap_blocks,candidate-1U,&used)==OPENFS_BITMAP_OK);if(!used){next_ino=candidate;break;}}
+    assert(next_ino!=0U);
+    uint64_t symlink_block=s.inode_table_start+((next_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=symlink_block;d.fail_write_enabled=1;d.fail_write_count=1;
     assert(openfs_symlink(&v,&s,"/home/test","/home/test/symlink-rollback")==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
