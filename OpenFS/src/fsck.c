@@ -60,7 +60,7 @@ if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
         if(ref_test(refs,rel))bad++;
         else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
     }
-    if(in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX)bad++;
+    if(in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)bad++;
 }else if(in.extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)bad++;
 for(uint32_t i=0U;i<in.extent_count;i++){
     openfs_extent_t e;openfs_extent_result_t er;
@@ -94,7 +94,8 @@ if(extent_total!=in.blocks)bad++;
     }
 else{
 if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U||in.blocks!=0U||in.extent_count!=0U||
-   in.flags!=0U||in.size!=0U)bad++;
+   in.flags!=0U||in.size!=0U||in.parent_inode!=0U||in.uid!=0U||in.gid!=0U||
+   in.atime_ns!=0U||in.mtime_ns!=0U||in.ctime_ns!=0U)bad++;
 }}
 for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
@@ -102,7 +103,7 @@ if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)continue;
 if(in.size%OPENFS_DIR_ENTRY_SIZE!=0U){bad++;continue;}
 uint64_t entries=in.size/OPENFS_DIR_ENTRY_SIZE;uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
 for(uint64_t e=0U;e<entries;e++){
-size_t got=0U;if(openfs_file_read(d,s,&in,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got)!=OPENFS_FILE_OK||got!=sizeof(raw)){result=OPENFS_FSCK_IO_ERROR;goto done;}
+size_t got=0U;if(e>UINT64_MAX/OPENFS_DIR_ENTRY_SIZE){bad++;continue;}if(openfs_file_read(d,s,&in,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got)!=OPENFS_FILE_OK||got!=sizeof(raw)){result=OPENFS_FSCK_IO_ERROR;goto done;}
 uint64_t target_ino=0U,generation=0U;uint8_t type=0U;int decoded=decode_dir_entry(raw,&target_ino,&generation,&type);
 if(decoded==0){int empty=1;for(size_t z=0U;z<sizeof(raw);z++){if(raw[z]!=0U){empty=0;break;}}if(!empty)bad++;continue;}
 if(decoded<0){bad++;continue;}
