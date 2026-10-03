@@ -55,11 +55,12 @@ static openfs_inode_t new_file(void){
 
 static void write_flush_failure_rolls_back_media(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();
+    uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/write-flush-rollback",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,inode_count,&i)==OPENFS_INODE_OK);
     uint8_t initial[4096U],update[5000U];memset(initial,0x31U,sizeof(initial));memset(update,0xE7U,sizeof(update));
     assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
     openfs_inode_t before=i;
-    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     uint64_t inode_block=sb.inode_table_start+((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size;
     uint8_t *before_inode=malloc(sb.block_size);uint8_t *before_data=malloc(sb.block_size);
     assert(before_inode&&before_data);
