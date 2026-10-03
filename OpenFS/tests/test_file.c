@@ -51,6 +51,30 @@ static openfs_inode_t new_file(void){
     return i;
 }
 
+static void write_flush_failure_rolls_back_media(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();
+    uint8_t initial[4096U],update[5000U];memset(initial,0x31U,sizeof(initial));memset(update,0xE7U,sizeof(update));
+    assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
+    openfs_inode_t before=i;
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    uint64_t inode_block=sb.inode_table_start+((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size;
+    uint8_t *before_inode=malloc(sb.block_size);uint8_t *before_data=malloc(sb.block_size);
+    assert(before_inode&&before_data);
+    assert(v.read(v.context,inode_block,1U,before_inode)==OPENFS_IO_OK);
+    uint64_t physical=0U;assert(openfs_file_map_block_device(&v,&sb,&i,0U,&physical)==OPENFS_FILE_OK);
+    assert(v.read(v.context,physical,1U,before_data)==OPENFS_IO_OK);
+    d.fail_flush=1;d.fail_flush_once=1;
+    assert(openfs_file_write(&v,&sb,&i,100U,update,sizeof(update))==OPENFS_FILE_IO_ERROR);
+    assert(memcmp(&i,&before,sizeof(i))==0);
+    assert(memcmp(d.bytes+(size_t)(inode_block*d.block_size),before_inode,sb.block_size)==0);
+    assert(memcmp(d.bytes+(size_t)(physical*d.block_size),before_data,sb.block_size)==0);
+    openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,i.inode_number,inode_count,&persisted)==OPENFS_INODE_OK);
+    assert(memcmp(&persisted,&before,sizeof(before))==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(before_inode);free(before_data);free(d.bytes);
+}
+
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -234,4 +258,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){write_flush_failure_rolls_back_media();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
