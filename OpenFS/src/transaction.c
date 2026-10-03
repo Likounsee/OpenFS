@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 struct openfs_transaction_pending { uint64_t block; uint8_t *data; };
-static openfs_io_result_t tx_read(void *ctx,uint64_t first,uint32_t count,void*out){openfs_transaction_t*t=ctx;if(t==NULL||t->base==NULL||t->base->block_size==0U||out==NULL||count==0U||first>=t->base->block_count||(uint64_t)count>t->base->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
+static openfs_io_result_t tx_read(void *ctx,uint64_t first,uint32_t count,void*out){openfs_transaction_t*t=ctx;if(t==NULL||t->base==NULL||!t->active||t->base->block_size==0U||out==NULL||count==0U||first>=t->base->block_count||(uint64_t)count>t->base->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
 if((uint64_t)count>SIZE_MAX/t->base->block_size)return OPENFS_IO_OUT_OF_RANGE;for(uint32_t i=0U;i<count;i++){uint64_t b=first+(uint64_t)i;uint8_t*dst=(uint8_t*)out+(size_t)((uint64_t)i*t->base->block_size);int found=0;for(uint64_t n=0U;n<t->pending_count;n++)if(t->pending[n].block==b){memcpy(dst,t->pending[n].data,t->base->block_size);found=1;break;}if(!found&&t->base->read(t->base->context,b,1U,dst)!=OPENFS_IO_OK)return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static openfs_io_result_t tx_write(void *ctx,uint64_t first,uint32_t count,const void*in){openfs_transaction_t*t=ctx;if(t==NULL||t->base==NULL||!t->active||t->base->block_size==0U||in==NULL||count==0U)return OPENFS_IO_OUT_OF_RANGE;if(t->failed||t->commit_started)return OPENFS_IO_IO_ERROR;if(first>=t->base->block_count||(uint64_t)count>t->base->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
 if((uint64_t)count>SIZE_MAX/t->base->block_size)return OPENFS_IO_OUT_OF_RANGE;
