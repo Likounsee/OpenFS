@@ -1,4 +1,14 @@
 #include <assert.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "openfs/journal.h"
+#include "openfs/crc32c.h"
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;}D;
+static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
+static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
+static openfs_io_result_t f(void*c){(void)c;return OPENFS_IO_OK;}
+static openfs_journal_result_t cb(void*c,uint64_t tx,const uint8_t*p,uint32_t n){uint32_t *hits=c;if(hits==NULL)return OPENFS_JOURNAL_OK;assert(tx==1U&&n==3U&&memcmp(p,"abc",3U)==0);(*hits)++;return OPENFS_JOURNAL_OK;}
 static void write_raw(uint8_t *b,uint32_t type,uint64_t tx,uint64_t seq,uint32_t len,int valid_crc){
     memset(b,0,4096U);memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=(uint8_t)type;
     for(unsigned k=0;k<8U;k++){b[8U+k]=(uint8_t)(tx>>(8U*k));b[16U+k]=(uint8_t)(seq>>(8U*k));}
