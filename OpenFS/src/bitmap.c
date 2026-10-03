@@ -1,11 +1,11 @@
 #include "openfs/bitmap.h"
 #include <stdlib.h>
 static openfs_bitmap_result_t access_bit(const openfs_block_device_t*d,uint64_t start,uint64_t blocks,uint64_t bit,int set,int*out){
-    if(!openfs_block_device_is_valid(d)||blocks==0U||out==NULL)return OPENFS_BITMAP_INVALID_ARGUMENT;
+    if(!openfs_block_device_is_valid(d)||blocks==0U||out==NULL||d->block_size==0U)return OPENFS_BITMAP_INVALID_ARGUMENT;
     if(set<-1||set>1)return OPENFS_BITMAP_INVALID_ARGUMENT;
     if(start>=d->block_count||blocks>d->block_count-start)return OPENFS_BITMAP_OUT_OF_RANGE;
-    if(blocks>UINT64_MAX/d->block_size)return OPENFS_BITMAP_OUT_OF_RANGE;
-    uint64_t bytes=blocks*(uint64_t)d->block_size;
+    if(blocks>UINT64_MAX/d->block_size||blocks>(uint64_t)SIZE_MAX/d->block_size)return OPENFS_BITMAP_OUT_OF_RANGE;
+    uint64_t bytes=blocks*(uint64_t)d->block_size;if(bytes==0U)return OPENFS_BITMAP_OUT_OF_RANGE;
     if(bit/8U>=bytes)return OPENFS_BITMAP_OUT_OF_RANGE;
     uint64_t byte=bit/8U,block=byte/d->block_size;
     if(start>UINT64_MAX-block||start+block>=d->block_count)return OPENFS_BITMAP_OUT_OF_RANGE;
