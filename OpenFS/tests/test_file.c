@@ -313,7 +313,7 @@ static void shrink_preserves_live_extent_tree_root(void){
     openfs_extent_t tree_gap[2]={{5U,blocks[4],1U},{6U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree_gap,2U)==OPENFS_EXTENT_CORRUPT);
     openfs_extent_t tree[2]={{4U,blocks[4],1U},{5U,blocks[5],1U}};
-    assert(openfs_extent_tree_write(&v,&i,tree,2U)==OPENFS_EXTENT_OK);
+    openfs_extent_result_t trr=openfs_extent_tree_write(&v,&i,tree,2U);fprintf(stderr,"fragmented-tree write=%d root=%llu count=%u\\n",(int)trr,(unsigned long long)root,i.extent_count);assert(trr==OPENFS_EXTENT_OK);
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
     assert(openfs_file_truncate(&v,&sb,&i,5U*sb.block_size)==OPENFS_FILE_OK);
     assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==5U&&i.blocks==5U);
