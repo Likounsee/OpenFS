@@ -151,9 +151,10 @@ static void truncate_tree_shrink_free_failure_restores_root(void){
 
 static void sparse_write_zeroes_intermediate_blocks(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t one=0x5AU,tail=0xA7U;
+    openfs_inode_t i=new_file();uint8_t one=0x5AU,tail=0xA7U;uint64_t poisoned[3];
     assert(openfs_file_write(&v,&sb,&i,0U,&one,1U)==OPENFS_FILE_OK);
-    for(uint64_t b=1U;b<4U;b++){uint64_t p=0U;assert(openfs_alloc_block(&v,&sb,&p)==OPENFS_ALLOC_OK);assert(p==sb.data_start+b);memset(d.bytes+(size_t)(p*d.block_size),0xCCU,d.block_size);assert(openfs_free_block(&v,&sb,p)==OPENFS_ALLOC_OK);}
+    for(unsigned n=0U;n<3U;n++){assert(openfs_alloc_block(&v,&sb,&poisoned[n])==OPENFS_ALLOC_OK);assert(poisoned[n]==sb.data_start+1U+n);memset(d.bytes+(size_t)(poisoned[n]*d.block_size),0xCCU,d.block_size);}
+    for(unsigned n=0U;n<3U;n++)assert(openfs_free_block(&v,&sb,poisoned[n])==OPENFS_ALLOC_OK);
     assert(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_OK);
     uint8_t *gap=calloc(3U,4096U);assert(gap);size_t got=0U;assert(openfs_file_read(&v,&sb,&i,4096U,gap,3U*4096U,&got)==OPENFS_FILE_OK&&got==3U*4096U);
     for(size_t n=0;n<3U*4096U;n++)assert(gap[n]==0U);
