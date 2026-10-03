@@ -24,11 +24,16 @@ static void patch_flags(openfs_block_device_t *v,const openfs_superblock_t *s,ui
     raw[within+76U]=(uint8_t)flags;raw[within+77U]=(uint8_t)(flags>>8U);raw[within+78U]=(uint8_t)(flags>>16U);raw[within+79U]=(uint8_t)(flags>>24U);memset(raw+within+124U,0,4U);uint32_t crc=openfs_crc32c(raw+within,124U);
     raw[within+124U]=(uint8_t)crc;raw[within+125U]=(uint8_t)(crc>>8U);raw[within+126U]=(uint8_t)(crc>>16U);raw[within+127U]=(uint8_t)(crc>>24U);assert(v->write(v->context,blk,1U,raw)==OPENFS_IO_OK);
 }
+static void patch_link_count(openfs_block_device_t *v,const openfs_superblock_t *s,uint64_t ino,uint64_t links){
+    uint64_t off=(ino-1U)*(uint64_t)OPENFS_INODE_SIZE,blk=s->inode_table_start+off/s->block_size;uint32_t within=(uint32_t)(off%s->block_size);uint8_t raw[4096U];assert(v->read(v->context,blk,1U,raw)==OPENFS_IO_OK);
+    for(unsigned k=0;k<8U;k++)raw[within+40U+k]=(uint8_t)(links>>(8U*k));memset(raw+within+124U,0,4U);uint32_t crc=openfs_crc32c(raw+within,124U);
+    raw[within+124U]=(uint8_t)crc;raw[within+125U]=(uint8_t)(crc>>8U);raw[within+126U]=(uint8_t)(crc>>16U);raw[within+127U]=(uint8_t)(crc>>24U);assert(v->write(v->context,blk,1U,raw)==OPENFS_IO_OK);
+}
 static void combined_corruption_cases(void){
     D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={31U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
     uint64_t ic=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,ino_a=0U,ino_b=0U;assert(openfs_path_create(&v,&s,"/a",OPENFS_INODE_MODE_REGULAR,&ino_a)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/b",OPENFS_INODE_MODE_REGULAR,&ino_b)==OPENFS_PATH_OK);
     openfs_inode_t a,b;assert(openfs_inode_read(&v,s.inode_table_start,ino_a,ic,&a)==OPENFS_INODE_OK);assert(openfs_inode_read(&v,s.inode_table_start,ino_b,ic,&b)==OPENFS_INODE_OK);uint8_t data[4096U];memset(data,0x3DU,sizeof(data));assert(openfs_file_write(&v,&s,&a,0U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,s.inode_table_start,ino_a,ic,&a)==OPENFS_INODE_OK);
-    openfs_extent_t ex;assert(openfs_inode_get_extent(&a,0U,&ex)==OPENFS_EXTENT_OK);b.blocks=1U;b.size=4096U;b.extent_count=0U;assert(openfs_inode_set_extent(&b,0U,&ex)==OPENFS_EXTENT_OK);b.link_count=0U;assert(openfs_inode_write(&v,s.inode_table_start,ic,&b)==OPENFS_INODE_OK);
+    openfs_extent_t ex;assert(openfs_inode_get_extent(&a,0U,&ex)==OPENFS_EXTENT_OK);b.blocks=1U;b.size=4096U;b.extent_count=0U;assert(openfs_inode_set_extent(&b,0U,&ex)==OPENFS_EXTENT_OK);assert(openfs_inode_write(&v,s.inode_table_start,ic,&b)==OPENFS_INODE_OK);patch_link_count(&v,&s,ino_b,0U);
     assert(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,ex.physical_start,0)==OPENFS_BITMAP_OK);uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);uint8_t bad_journal[4096U]={0};bad_journal[0]='X';assert(v.write(v.context,s.journal_start,1U,bad_journal)==OPENFS_IO_OK);
     errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);free(d.b);
 }
