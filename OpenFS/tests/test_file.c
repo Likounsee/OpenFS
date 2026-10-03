@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include "openfs/file.h"
 #include "openfs/format.h"
@@ -308,12 +307,12 @@ static void shrink_preserves_live_extent_tree_root(void){
     uint64_t root=0U,blocks[6];assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
     for(unsigned n=0U;n<6U;n++)assert(openfs_alloc_block(&v,&sb,&blocks[n])==OPENFS_ALLOC_OK);
     i.blocks=6U;i.size=6U*sb.block_size;i.extent_count=0U;
-    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};openfs_extent_result_t er=openfs_inode_set_extent(&i,n,&e);fprintf(stderr,"shrink-root set n=%u result=%d physical=%llu count=%u flags=%u\\n",n,(int)er,(unsigned long long)e.physical_start,i.extent_count,i.flags);assert(er==OPENFS_EXTENT_OK);}
+    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
     assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);i.extent_count=6U;
     openfs_extent_t tree_gap[2]={{5U,blocks[4],1U},{6U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree_gap,2U)==OPENFS_EXTENT_CORRUPT);
     openfs_extent_t tree[2]={{4U,blocks[4],1U},{5U,blocks[5],1U}};
-    openfs_extent_result_t trr=openfs_extent_tree_write(&v,&i,tree,2U);fprintf(stderr,"fragmented-tree write=%d root=%llu count=%u\\n",(int)trr,(unsigned long long)root,i.extent_count);assert(trr==OPENFS_EXTENT_OK);
+    assert(openfs_extent_tree_write(&v,&i,tree,2U)==OPENFS_EXTENT_OK);
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
     assert(openfs_file_truncate(&v,&sb,&i,5U*sb.block_size)==OPENFS_FILE_OK);
     assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==5U&&i.blocks==5U);
@@ -382,7 +381,7 @@ static void extent_tree_partial_write_rollback_failure_is_corruption(void){
     uint8_t data[4096U];memset(data,0x66U,sizeof(data));uint64_t spacers[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]={0U};uint64_t physical[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]={0U};
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,(uint64_t)n*4096U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);assert(openfs_file_map_block_device(&v,&sb,&i,n,&physical[n])==OPENFS_FILE_OK);if(n>0U)assert(physical[n]!=physical[n-1U]+1U);{assert(openfs_alloc_block(&v,&sb,&spacers[n])==OPENFS_ALLOC_OK);assert(spacers[n]!=physical[n]);}}
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root==0U);
-    openfs_file_result_t tree_grow_result=openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data));assert(tree_grow_result==OPENFS_FILE_OK);openfs_inode_t tree_persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&tree_persisted)==OPENFS_INODE_OK);root=openfs_inode_get_extent_tree_root(&i);uint64_t persisted_root=openfs_inode_get_extent_tree_root(&tree_persisted);fprintf(stderr,"tree-grow root=%llu persisted=%llu blocks=%llu extents=%u flags=%u size=%llu\\n",(unsigned long long)root,(unsigned long long)persisted_root,(unsigned long long)i.blocks,i.extent_count,i.flags,(unsigned long long)i.size);assert(root!=0U&&persisted_root==root);
+    openfs_file_result_t tree_grow_result=openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data));assert(tree_grow_result==OPENFS_FILE_OK);openfs_inode_t tree_persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&tree_persisted)==OPENFS_INODE_OK);root=openfs_inode_get_extent_tree_root(&i);uint64_t persisted_root=openfs_inode_get_extent_tree_root(&tree_persisted);assert(root!=0U&&persisted_root==root);
     d.fail_block=root;d.fail_block_enabled=1;d.fail_after_write=1;d.partial_write_bytes=1024U;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)(OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)*4096U,data,sizeof(data))==OPENFS_FILE_CORRUPT);
     d.fail_block_enabled=0;
