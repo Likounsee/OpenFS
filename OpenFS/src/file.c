@@ -131,11 +131,20 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
         if(cap==0U||n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX>cap)return OPENFS_FILE_TOO_MANY_EXTENTS;
         uint64_t root=oldroot;int newroot=0;
         if(root==0U){if(openfs_alloc_block(d,sb,&root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_NO_SPACE;newroot=1;}
-        openfs_inode_t tmp=*inode;if(openfs_inode_set_extent_tree_root(&tmp,root)!=OPENFS_EXTENT_OK){if(newroot)(void)openfs_free_block(d,sb,root);return OPENFS_FILE_CORRUPT;}
+        openfs_inode_t tmp=*inode;if(openfs_inode_set_extent_tree_root(&tmp,root)!=OPENFS_EXTENT_OK){
+            if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
+            return OPENFS_FILE_CORRUPT;
+        }
         memset(tmp.reserved,0U,112U);
-        for(uint32_t i=0U;i<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i++)if(openfs_inode_set_extent(&tmp,i,&a[i])!=OPENFS_EXTENT_OK){if(newroot)(void)openfs_free_block(d,sb,root);return OPENFS_FILE_CORRUPT;}
+        for(uint32_t i=0U;i<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i++)if(openfs_inode_set_extent(&tmp,i,&a[i])!=OPENFS_EXTENT_OK){
+            if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
+            return OPENFS_FILE_CORRUPT;
+        }
         tmp.extent_count=n;tmp.flags|=OPENFS_INODE_FLAG_EXTENT_TREE|OPENFS_INODE_FLAG_HAS_EXTENTS;
-        if(openfs_extent_tree_write(d,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX)!=OPENFS_EXTENT_OK){if(newroot)(void)openfs_free_block(d,sb,root);return OPENFS_FILE_IO_ERROR;}
+        if(openfs_extent_tree_write(d,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX)!=OPENFS_EXTENT_OK){
+            if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
+            return OPENFS_FILE_IO_ERROR;
+        }
         *inode=tmp;return OPENFS_FILE_OK;
     }
     memset(inode->reserved,0U,120U);inode->extent_count=n;
@@ -189,7 +198,9 @@ static openfs_file_result_t allocate_blocks(
         }
         openfs_file_result_t r = append_block_to_inode(device, sb, inode, physical);
         if (r != OPENFS_FILE_OK) {
-            (void)openfs_free_block(device, sb, physical);
+            if (openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) {
+                return OPENFS_FILE_CORRUPT;
+            }
             return r;
         }
         inode->blocks++;
