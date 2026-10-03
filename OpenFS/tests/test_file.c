@@ -45,7 +45,7 @@ static openfs_inode_t new_file(void){
 }
 
 static void basic_rw(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
     const char msg[]="hello OpenFS";
     assert(openfs_file_write(&v,&sb,&i,123U,msg,sizeof(msg))==OPENFS_FILE_OK);
@@ -58,7 +58,7 @@ static void basic_rw(void){
     free(d.bytes);
 }
 static void multi_block_and_truncate(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
     size_t len=4096U*2U+17U;uint8_t *src=malloc(len);uint8_t *dst=malloc(len);assert(src&&dst);
     for(size_t n=0;n<len;++n)src[n]=(uint8_t)(n*17U);
@@ -73,7 +73,7 @@ static void multi_block_and_truncate(void){
     free(src);free(dst);free(d.bytes);
 }
 static void truncate_zero_failure_rolls_back(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
     const uint64_t before_blocks=i.blocks,before_size=i.size,before_extents=i.extent_count;
     d.fail_block=sb.data_start;
@@ -88,7 +88,7 @@ static void truncate_zero_failure_rolls_back(void){
     free(d.bytes);
 }
 static void truncate_shrink_inode_write_failure_keeps_blocks(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t data[4096U*3U];memset(data,0xA5U,sizeof(data));
     assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
     openfs_inode_t before=i;openfs_extent_t last={0};assert(openfs_inode_get_extent(&i,i.extent_count-1U,&last)==OPENFS_EXTENT_OK);
