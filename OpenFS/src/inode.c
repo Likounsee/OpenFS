@@ -19,7 +19,6 @@ if(i->mode!=OPENFS_INODE_MODE_FREE&&type!=OPENFS_INODE_MODE_REGULAR&&type!=OPENF
 if((i->flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&i->link_count==0U)return OPENFS_INODE_CORRUPT;
 if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;
-if(type==OPENFS_INODE_MODE_FREE&&i->parent_inode!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode==OPENFS_INODE_MODE_FREE&&(i->link_count!=0U||i->size!=0U||i->blocks!=0U||i->extent_count!=0U||i->flags!=0U))return OPENFS_INODE_CORRUPT;
 
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U))return OPENFS_INODE_CORRUPT;
@@ -28,7 +27,9 @@ if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
 if(i->extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U||openfs_inode_get_extent_tree_root(i)==0U)return OPENFS_INODE_CORRUPT;
 }else if(i->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)return OPENFS_INODE_CORRUPT;
 if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i->extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)return OPENFS_INODE_CORRUPT;
+if(i->extent_count!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U))return OPENFS_INODE_CORRUPT;
 if(i->blocks!=0U&&i->extent_count==0U)return OPENFS_INODE_CORRUPT;
+if(i->blocks==0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))return OPENFS_INODE_CORRUPT;
     return OPENFS_INODE_OK;
 }
 openfs_inode_result_t openfs_inode_read(const openfs_block_device_t*d,uint64_t start,uint64_t inode_number,uint64_t count,openfs_inode_t*out){if(!openfs_block_device_is_valid(d)||out==NULL)return OPENFS_INODE_INVALID_ARGUMENT;uint64_t block=0U;uint32_t within=0U;if(!locate(d,start,inode_number,count,&block,&within))return OPENFS_INODE_OUT_OF_RANGE;uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_INODE_IO_ERROR;if(d->read(d->context,start+block,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_INODE_IO_ERROR;}int ok=decode(b+within,out);if(!ok&&all_zero(b+within)){memset(out,0,sizeof(*out));out->inode_number=inode_number;out->generation=1U;ok=1;}free(b);return ok?openfs_inode_validate(out,count):OPENFS_INODE_CORRUPT;}
