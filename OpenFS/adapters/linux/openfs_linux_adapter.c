@@ -12,11 +12,13 @@ static openfs_io_result_t linux_read(void *context,uint64_t first,uint32_t count
     if(a==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    if(bytes64>SIZE_MAX)return OPENFS_IO_OUT_OF_RANGE;
+    uint64_t offset64=first*(uint64_t)a->device.block_size;
+    off_t offset=(off_t)offset64;
+    if(bytes64>SIZE_MAX||offset<0||(uint64_t)offset!=offset64)return OPENFS_IO_OUT_OF_RANGE;
     size_t done=0U;
     uint8_t *dst=buffer;
     while(done<(size_t)bytes64){
-        ssize_t n=pread(a->fd,dst+done,(size_t)bytes64-done,(off_t)((uint64_t)first*a->device.block_size+done));
+        ssize_t n=pread(a->fd,dst+done,(size_t)bytes64-done,offset+(off_t)done);
         if(n<=0)return OPENFS_IO_IO_ERROR;
         done+=(size_t)n;
     }
@@ -30,11 +32,13 @@ static openfs_io_result_t linux_write(void *context,uint64_t first,uint32_t coun
     if(!a->writable)return OPENFS_IO_READ_ONLY;
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    if(bytes64>SIZE_MAX)return OPENFS_IO_OUT_OF_RANGE;
+    uint64_t offset64=first*(uint64_t)a->device.block_size;
+    off_t offset=(off_t)offset64;
+    if(bytes64>SIZE_MAX||offset<0||(uint64_t)offset!=offset64)return OPENFS_IO_OUT_OF_RANGE;
     size_t done=0U;
     const uint8_t *src=buffer;
     while(done<(size_t)bytes64){
-        ssize_t n=pwrite(a->fd,src+done,(size_t)bytes64-done,(off_t)((uint64_t)first*a->device.block_size+done));
+        ssize_t n=pwrite(a->fd,src+done,(size_t)bytes64-done,offset+(off_t)done);
         if(n<=0)return OPENFS_IO_IO_ERROR;
         done+=(size_t)n;
     }
@@ -60,7 +64,7 @@ openfs_linux_adapter_result_t openfs_linux_adapter_open(
         close(fd);return OPENFS_LINUX_ADAPTER_IO_ERROR;
     }
     uint64_t size=(uint64_t)st.st_size;
-    if(size<block_size||size%block_size!=0U||size/block_size>UINT64_MAX){
+    if(size<(uint64_t)block_size||size%(uint64_t)block_size!=0U){
         close(fd);return OPENFS_LINUX_ADAPTER_UNSUPPORTED;
     }
     adapter->fd=fd;adapter->writable=writable?1:0;
