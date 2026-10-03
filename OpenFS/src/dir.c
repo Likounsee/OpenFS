@@ -28,6 +28,7 @@ static openfs_dir_result_t validate_entry(const openfs_dir_entry_t *entry)
 static openfs_dir_result_t validate_dir(const openfs_inode_t *inode, const char *name)
 {
     if (inode == NULL || name == NULL) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (inode->size > UINT64_MAX - (OPENFS_DIR_ENTRY_SIZE - 1U)) return OPENFS_DIR_CORRUPT;
     if ((inode->mode & 0170000U) != OPENFS_INODE_MODE_DIRECTORY) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name[0] == '\0' || strchr(name, '/') != NULL) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name_length(name) == SIZE_MAX) return OPENFS_DIR_NAME_TOO_LONG;
@@ -72,6 +73,7 @@ static int decode_entry(const uint8_t *raw, openfs_dir_entry_t *entry, char *nam
     entry->type = raw[6U];
     if (entry->generation == 0U || entry->inode_number == 0U ||
         (entry->type != 1U && entry->type != 2U && entry->type != 3U)) return -1;
+    for (size_t z = 24U + len; z < 252U; ++z) if (raw[z] != 0U) return -1;
     memcpy(name, raw + 24U, len);
     name[len] = '\0';
     return 1;
@@ -95,6 +97,7 @@ openfs_dir_result_t openfs_dir_lookup(
 
     for (uint64_t n = 0U; n < entries; ++n) {
         size_t got = 0U;
+        if (n > UINT64_MAX / OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_CORRUPT;
         openfs_file_result_t r = openfs_file_read(d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw), &got);
         if (r != OPENFS_FILE_OK || got != sizeof(raw)) return OPENFS_DIR_IO_ERROR;
         int decoded = decode_entry(raw, out, current);
@@ -129,6 +132,7 @@ openfs_dir_result_t openfs_dir_add(
     uint8_t existing[OPENFS_DIR_ENTRY_SIZE];
     for (uint64_t n = 0U; n < entries; ++n) {
         size_t got = 0U;
+        if (n > UINT64_MAX / OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_CORRUPT;
         openfs_file_result_t rr = openfs_file_read(
             d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, existing, sizeof(existing), &got);
         if (rr != OPENFS_FILE_OK || got != sizeof(existing)) {
@@ -194,8 +198,9 @@ openfs_dir_result_t openfs_dir_remove(
         if (decoded == 1 && strcmp(current, name) == 0) {
             memset(raw, 0, sizeof(raw));
             uint64_t physical = 0U;
-            if (openfs_file_map_block_device(d, sb, dir, (n * OPENFS_DIR_ENTRY_SIZE) / d->block_size, &physical) != OPENFS_FILE_OK) return OPENFS_DIR_CORRUPT;
+            if (d->block_size == 0U || n > UINT64_MAX / OPENFS_DIR_ENTRY_SIZE || openfs_file_map_block_device(d, sb, dir, (n * OPENFS_DIR_ENTRY_SIZE) / d->block_size, &physical) != OPENFS_FILE_OK) return OPENFS_DIR_CORRUPT;
             uint32_t within = (uint32_t)((n * OPENFS_DIR_ENTRY_SIZE) % d->block_size);
+            if ((uint64_t)within + OPENFS_DIR_ENTRY_SIZE > d->block_size) return OPENFS_DIR_CORRUPT;
             uint8_t *block = (uint8_t *)malloc(d->block_size);
             uint8_t *original_block = (uint8_t *)malloc(d->block_size);
             if (block == NULL || original_block == NULL) { free(block); free(original_block); return OPENFS_DIR_IO_ERROR; }
