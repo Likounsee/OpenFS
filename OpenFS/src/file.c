@@ -325,9 +325,18 @@ openfs_file_result_t openfs_file_truncate(
                 return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
             }
         }
-        free(old_tree_block);free(freed);*inode=reduced;
-        if(device->flush(device->context)!=OPENFS_IO_OK)return OPENFS_FILE_IO_ERROR;
-        free(tail_backup);return OPENFS_FILE_OK;
+        *inode=reduced;
+        if(device->flush(device->context)!=OPENFS_IO_OK){
+            int ok=1;
+            for(uint64_t k=0U;k<removed;k++)if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
+            if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
+            if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+            *inode=original;
+            free(old_tree_block);free(freed);free(tail_backup);
+            return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+        }
+        free(old_tree_block);free(freed);free(tail_backup);return OPENFS_FILE_OK;
     }
 
     if(tail_saved){
