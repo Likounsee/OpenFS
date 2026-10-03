@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the
 **robustness, crash-consistency, permissions, and scalability phase**. It is
 **not yet ready to be used as a normal everyday filesystem**.
 
-Current overall progress is approximately **80% of the planned project scope**.
+Current overall progress is approximately **82% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -41,6 +41,8 @@ This is an engineering estimate, not a release-readiness metric.
 - journal-full handling without partial transaction publication;
 - transaction fault-injection coverage for journal/data/flush/checkpoint failures;
 - namespace transaction coverage for link/symlink commit and abort paths;
+- transaction poisoning after failed transactional namespace/file mutations;
+- extent-limit allocation rollback coverage when the five-inline-extent limit is reached;
 - truncate-shrink ordering that preserves inode/block consistency when inode persistence fails;
 - recovery tests verifying committed transactions remain recoverable after final-write failures;
 - `fsck` consistency checking with allocation, extent, alias, inode, directory,
