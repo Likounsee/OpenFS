@@ -180,6 +180,28 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&after_link_parent)==OPENFS_INODE_OK);
     assert(after_link_parent.mtime_ns==before_link_parent.mtime_ns&&after_link_parent.ctime_ns==before_link_parent.ctime_ns);
 }
+{
+    uint64_t full_link_dir=0U;
+    assert(openfs_path_mkdir(&v,&s,"/home/test/full-link-dir",&full_link_dir)==OPENFS_PATH_OK);
+    for(unsigned i=0U;i<16U;i++){char p[64];(void)snprintf(p,sizeof(p),"/home/test/full-link-dir/f%u",i);uint64_t ino=0U;assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
+    openfs_inode_t full_before;
+    assert(openfs_inode_read(&v,s.inode_table_start,full_link_dir,ic,&full_before)==OPENFS_INODE_OK&&full_before.size==s.block_size&&full_before.blocks==1U);
+    size_t bitmap_bytes=(size_t)(s.block_bitmap_blocks*s.block_size);
+    uint8_t *bitmap_before=malloc(bitmap_bytes);uint8_t *bitmap_after=malloc(bitmap_bytes);assert(bitmap_before&&bitmap_after);
+    memcpy(bitmap_before,d.b+(size_t)(s.block_bitmap_start*d.block_size),bitmap_bytes);
+    uint64_t target_block=s.inode_table_start+((x-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    d.fail_write_block=target_block;d.fail_write_enabled=1;d.fail_write_count=1;
+    assert(openfs_link(&v,&s,"/home/test/file","/home/test/full-link-dir/alias")==OPENFS_PATH_IO_ERROR);
+    d.fail_write_enabled=0;
+    openfs_inode_t full_after;
+    assert(openfs_inode_read(&v,s.inode_table_start,full_link_dir,ic,&full_after)==OPENFS_INODE_OK);
+    assert(full_after.size==full_before.size&&full_after.blocks==full_before.blocks);
+    memcpy(bitmap_after,d.b+(size_t)(s.block_bitmap_start*d.block_size),bitmap_bytes);
+    assert(memcmp(bitmap_before,bitmap_after,bitmap_bytes)==0);
+    assert(openfs_path_lookup(&v,&s,"/home/test/full-link-dir/alias",&q)==OPENFS_PATH_NOT_FOUND);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+    free(bitmap_before);free(bitmap_after);
+}
 assert(openfs_symlink(&v,&s,"/home/test","/alias")==OPENFS_PATH_OK);{
     openfs_inode_t home_test_inode;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_test_inode)==OPENFS_INODE_OK);
     uint64_t home_test_block=0U;assert(openfs_file_map_block_device(&v,&s,&home_test_inode,0U,&home_test_block)==OPENFS_FILE_OK);
