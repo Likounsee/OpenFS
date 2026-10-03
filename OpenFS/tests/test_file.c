@@ -113,7 +113,7 @@ static void extent_limit_rollback(void){
     }
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     openfs_inode_t before=i;
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_TOO_MANY_EXTENTS);
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     assert(memcmp(&i,&before,sizeof(i))==0);
     uint64_t reclaimed=0U;assert(openfs_alloc_block(&v,&sb,&reclaimed)==OPENFS_ALLOC_OK);
     assert(reclaimed==sb.data_start+(uint64_t)OPENFS_EXTENT_MAX*2U);
