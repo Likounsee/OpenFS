@@ -59,7 +59,7 @@ static openfs_file_result_t validate_file(
         type != OPENFS_INODE_MODE_SYMLINK) {
         return OPENFS_FILE_INVALID_ARGUMENT;
     }
-    if (inode->extent_count > OPENFS_EXTENT_INLINE_EXTENT_MAX &&
+    if (inode->extent_count > OPENFS_INODE_INLINE_EXTENT_MAX &&
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) {
         return OPENFS_FILE_CORRUPT;
     }
