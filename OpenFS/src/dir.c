@@ -201,8 +201,10 @@ openfs_dir_result_t openfs_dir_remove(
             openfs_inode_result_t ir=openfs_inode_write(d,sb->inode_table_start,inode_count,dir);
             if(ir!=OPENFS_INODE_OK){
                 dir->mtime_ns=old_mtime;dir->ctime_ns=old_ctime;
-                (void)d->write(d->context, physical, 1U, original_block);
-                free(block); free(original_block); return OPENFS_DIR_IO_ERROR;
+                int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(block); free(original_block);
+                return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
             if (d->flush(d->context) == OPENFS_IO_OK) {
                 free(block);
