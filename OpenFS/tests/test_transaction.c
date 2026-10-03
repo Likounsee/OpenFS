@@ -7,7 +7,7 @@
 #include "openfs/format.h"
 #include "openfs/mount.h"
 #include "openfs/path.h"
-#define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed: %s\n", #x); return 1; } } while (0)
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; } } while (0)
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
