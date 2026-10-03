@@ -212,7 +212,7 @@ openfs_dir_result_t openfs_dir_remove(
             if (d->block_size!=0U && sb->inode_table_blocks>UINT64_MAX/d->block_size) {
                 int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-                free(block); free(original_block); return OPENFS_DIR_CORRUPT;
+                free(block); free(original_block); return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
             inode_bytes=sb->inode_table_blocks*(uint64_t)d->block_size;
             uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
