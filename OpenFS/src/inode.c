@@ -18,8 +18,8 @@ uint32_t type=i->mode&OPENFS_INODE_TYPE_MASK;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&type!=OPENFS_INODE_MODE_REGULAR&&type!=OPENFS_INODE_MODE_DIRECTORY&&type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_INODE_CORRUPT;if((i->flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&i->link_count==0U)return OPENFS_INODE_CORRUPT;
 if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;
-if(i->mode==OPENFS_INODE_MODE_FREE&&(i->link_count!=0U||i->size!=0U||i->blocks!=0U||i->extent_count!=0U||i->flags!=0U||i->parent_inode!=0U))return OPENFS_INODE_CORRUPT;
-if(i->mode!=OPENFS_INODE_MODE_FREE&&i->parent_inode==0U)return OPENFS_INODE_CORRUPT;
+if(i->mode==OPENFS_INODE_MODE_FREE&&(i->link_count!=0U||i->size!=0U||i->blocks!=0U||i->extent_count!=0U||i->flags!=0U))return OPENFS_INODE_CORRUPT;
+
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U))return OPENFS_INODE_CORRUPT;
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||i->blocks!=0U||i->extent_count!=0U||i->size>sizeof(i->inline_data)))return OPENFS_INODE_CORRUPT;
 if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
