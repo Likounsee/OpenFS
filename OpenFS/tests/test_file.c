@@ -5,6 +5,7 @@
 #include "openfs/file.h"
 #include "openfs/format.h"
 #include "openfs/bitmap.h"
+#include "openfs/fsck.h"
 
 typedef struct {
     uint8_t *bytes;
@@ -129,6 +130,20 @@ static void extent_tree_large_file(void){
     }
     free(d.bytes);
 }
+static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t value=0x5AU;
+    for(uint64_t n=0U;n<5U;n++)assert(openfs_file_write(&v,&sb,&i,n*8192U,&value,1U)==OPENFS_FILE_OK);
+    assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==5U);
+    openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
+    d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
+    assert(openfs_file_truncate(&v,&sb,&i,1U)==OPENFS_FILE_IO_ERROR);
+    openfs_inode_t persisted;uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_read(&v,sb.inode_table_start,i.inode_number,inode_count,&persisted)==OPENFS_INODE_OK);
+    assert(memcmp(&persisted,&before,sizeof(before))==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
 static void partial_existing_write_rolls_back(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t initial[8192U],replacement[8192U];memset(initial,0x11U,sizeof(initial));memset(replacement,0xE2U,sizeof(replacement));
@@ -166,4 +181,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){basic_rw();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){basic_rw();truncate_tree_inode_write_failure_is_persistent_atomic();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
