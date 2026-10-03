@@ -1,50 +1,71 @@
 # OpenFS
 
-OpenFS (Open File System) is a portable filesystem designed to work on different
-operating systems through small OS-specific adapters.
+OpenFS (Open File System) is a portable, OS-independent filesystem designed to
+work across operating systems through small OS-specific adapters.
 
-ArchiaOS is the first planned integration, but the filesystem core itself does
-not depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
+ArchiaOS is a planned integration, but the filesystem core itself does not
+depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
 ## Where we are
 
-We are building the real filesystem core step by step. It is **not yet ready to
-be used as a normal everyday filesystem**.
+OpenFS has a substantial filesystem core implemented and is currently in the
+**robustness, crash-consistency, permissions, and scalability phase**. It is
+**not yet ready to be used as a normal everyday filesystem**.
 
-Already implemented:
+Current overall progress is approximately **70–75% of the planned project scope**.
+This is an engineering estimate, not a release-readiness metric.
+
+### Implemented
+
 - portable block-device API;
-- versioned on-disk format (v1.2);
+- versioned v1.2 on-disk format;
 - primary and backup superblocks;
 - CRC32C checks for metadata;
-- strong geometry and overflow checks;
-- automatic initial inode bitmap;
-- block allocation bitmap and reserved data area;
-- first-fit data block allocation and freeing;
-- extent-backed file read/write/truncate;
-- inode allocation and freeing;
-- fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
-- absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
-- hard links and basic symbolic-link storage/readlink operations;
-- initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;
-- inode generation reuse protection;
-- inode permission-bit access checks and timestamp update APIs;\n- inode generation advancement across inode reuse;\n- parent-path symlink following for namespace mutations;
-- checksummed journal records with begin/commit validation, committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
-- mount/unmount with primary/backup superblock fallback and committed-journal replay;
-- inode table;
+- geometry, bounds, and overflow validation;
+- block and inode allocation bitmaps;
+- first-fit data block allocation/freeing;
+- inode allocation/freeing with generation reuse protection;
 - checksummed inodes;
-- root directory inode creation;
-- bitmap and inode regression tests;
-- CMake build and automated CI with sanitizers;
-- transaction-aware mutation wrappers with journal-full failure handling and journal reclamation on abort;
-- persistent five-extent inode storage in the v1.2 on-disk format;
+- persistent five-extent inode storage in the v1.2 format;
+- extent-backed file read/write/truncate;
+- fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
+- absolute path traversal with `.`, `..`, and symlink handling;
+- create, mkdir, unlink, rename, hard links, and symbolic links;
+- parent-path symlink following for namespace mutations;
+- inode permission-bit access checks and timestamp update APIs;
+- filesystem mount/unmount with primary/backup superblock fallback;
+- checksummed journal records;
+- transaction ownership, BEGIN/DATA/COMMIT handling and committed-transaction replay;
+- journal checkpoint/reclamation;
+- transaction-aware mutation support;
+- journal-full handling without partial transaction publication;
+- transaction fault-injection coverage for journal/data/flush/checkpoint failures;
+- recovery tests verifying committed transactions remain recoverable after final-write failures;
+- `fsck` consistency checking with allocation, extent, alias, inode, directory,
+  generation, and link-count invariants;
+- CMake build and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan.
 
-Still to build:
-- extent-tree/indirect extent storage for files requiring more than five fragmented extents;
+### In active development
+
 - complete permission enforcement and automatic timestamp semantics;
-- complete journal reservation/space management and broader crash/fault-injection coverage;
-- expand crash-consistency ordering and interrupted-write recovery tests;
-- fsck and recovery tools;
-- Linux, Windows and ArchiaOS adapters.
+- stronger transaction poisoning/failed-state handling and crash consistency;
+- broader fault-injection coverage around every WAL phase;
+- atomicity of create/mkdir/unlink/rename/link/symlink operations;
+- stronger file/truncate overflow and partial-I/O handling;
+- larger files and extent-tree/indirect extent storage beyond five fragmented extents;
+- additional fsck repair/recovery capabilities;
+- Linux, Windows, and ArchiaOS adapters;
+- expanded documentation and compatibility guarantees.
+
+### Planned hardening
+
+Before considering the core production-ready, OpenFS still needs extensive
+testing for corrupted media, interrupted writes, power-loss scenarios,
+allocation inconsistencies, malformed metadata, extreme file sizes, and
+adapter-specific behavior.
+
+Any on-disk format evolution must remain versioned and documented so existing
+v1.2 images are not silently broken.
 
 ## Project structure
 
@@ -55,12 +76,9 @@ Everything belonging to the filesystem is inside `OpenFS/`:
 - `OpenFS/tests/` — automated tests;
 - `OpenFS/docs/` — technical documentation.
 
-The GitHub Actions configuration stays in `.github/` because GitHub requires
-workflows to be stored there.
+GitHub Actions configuration is kept in `.github/`.
 
 ## Architecture
-
-The planned structure is:
 
 ```text
 Operating System
@@ -82,8 +100,19 @@ The core must never call an OS-specific API directly.
 
 ## Development rule
 
-We first define how data is stored on disk, then implement the code, then add
-tests for normal cases and corrupted data. A bug found later should become a
-regression test whenever possible.
+Development follows:
+
+**OBSERVE → REPRODUCE/TEST → CORRECT → BUILD → TARGETED TEST → FULL SUITE → CI**
+
+The current implementation must always be inspected before changing it.
+Discovered bugs should become regression tests whenever possible, and existing
+tests must never be removed or weakened.
+
+For transaction durability, the intended WAL ordering is:
+
+**BEGIN/DATA → durable COMMIT → final writes → flush → checkpoint**
+
+A transaction that has reached durable COMMIT must remain recoverable even if a
+later final write, flush, or checkpoint operation fails.
 
 See `OpenFS/docs/architecture.md` and `OpenFS/docs/format.md`.
