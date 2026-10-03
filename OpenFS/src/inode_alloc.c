@@ -138,10 +138,18 @@ openfs_inode_alloc_result_t openfs_inode_free(
     }
 
     openfs_inode_t original = inode;
+    int original_used = 0;
+    if (openfs_bitmap_test(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks,
+            n - 1U, &original_used) != OPENFS_BITMAP_OK || !original_used) {
+        return OPENFS_INODE_ALLOC_CORRUPT;
+    }
     if (inode.generation == UINT64_MAX) inode.generation = 1U; else inode.generation++;
     if (openfs_inode_write(d, sb->inode_table_start, count, &inode) != OPENFS_INODE_OK) return OPENFS_INODE_ALLOC_IO_ERROR;
     if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 0) != OPENFS_BITMAP_OK) {
-        int rollback_ok = openfs_inode_write(d, sb->inode_table_start, count, &original) == OPENFS_INODE_OK;
+        int rollback_ok = 1;
+        if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks,
+                n - 1U, original_used) != OPENFS_BITMAP_OK) rollback_ok = 0;
+        if (openfs_inode_write(d, sb->inode_table_start, count, &original) != OPENFS_INODE_OK) rollback_ok = 0;
         if (d->flush(d->context) != OPENFS_IO_OK) rollback_ok = 0;
         return rollback_ok ? OPENFS_INODE_ALLOC_IO_ERROR : OPENFS_INODE_ALLOC_CORRUPT;
     }
