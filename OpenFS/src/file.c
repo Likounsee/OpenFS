@@ -81,7 +81,7 @@ static openfs_file_result_t validate_physical_block(
     const openfs_superblock_t *sb,
     uint64_t physical)
 {
-    if (sb->data_start > UINT64_MAX - sb->data_blocks) {
+    if (sb==NULL||sb->data_blocks==0U||sb->data_start > UINT64_MAX - sb->data_blocks) {
         return OPENFS_FILE_CORRUPT;
     }
     return (physical >= sb->data_start &&
@@ -239,6 +239,7 @@ static openfs_file_result_t zero_block(
     openfs_block_device_t *device,
     uint64_t physical)
 {
+    if(device==NULL||!openfs_block_device_is_valid(device)||physical>=device->block_count)return OPENFS_FILE_INVALID_ARGUMENT;
     uint8_t *zero = calloc(1U, device->block_size);
     if (zero == NULL) {
         return OPENFS_FILE_IO_ERROR;
@@ -260,7 +261,7 @@ openfs_file_result_t openfs_file_truncate(
     uint64_t old_size=inode->size;
     uint64_t old_blocks=ceil_div_u64(old_size,device->block_size);
     uint64_t new_blocks=ceil_div_u64(new_size,device->block_size);
-    if(new_blocks>UINT64_MAX/device->block_size)return OPENFS_FILE_OUT_OF_RANGE;
+    if(new_blocks>UINT64_MAX/device->block_size||new_blocks>sb->data_blocks)return OPENFS_FILE_OUT_OF_RANGE;
 
     openfs_inode_t original=*inode;
     uint8_t *tail_backup=NULL;
