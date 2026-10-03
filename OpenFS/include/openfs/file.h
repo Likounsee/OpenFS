@@ -19,7 +19,8 @@ typedef enum {
     OPENFS_FILE_NO_SPACE = 3,
     OPENFS_FILE_IO_ERROR = 4,
     OPENFS_FILE_CORRUPT = 5,
-    OPENFS_FILE_TOO_MANY_EXTENTS = 6
+    OPENFS_FILE_TOO_MANY_EXTENTS = 6,
+    OPENFS_FILE_ACCESS_DENIED = 7
 } openfs_file_result_t;
 
 /* Translate one logical file block to its physical filesystem block. */
