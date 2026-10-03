@@ -271,7 +271,7 @@ openfs_file_result_t openfs_file_truncate(
             uint64_t physical=0U;
             if(map_block_on_disk(device,sb,inode,b,&physical)!=OPENFS_FILE_OK||
                zero_block(device,physical)!=OPENFS_FILE_OK){
-                int ok=rollback_blocks(device,sb,inode,before)==OPENFS_FILE_OK;
+                int ok=rollback_blocks(device,sb,inode,before,openfs_inode_get_extent_tree_root(&original))==OPENFS_FILE_OK;
                 *inode=original;
                 if(tail_saved&&device->write(device->context,tail_physical,1U,tail_backup)!=OPENFS_IO_OK)ok=0;
                 free(tail_backup);
@@ -521,7 +521,7 @@ openfs_file_result_t openfs_file_write(
         r = map_block_on_disk(device, sb, inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
             free(block);
-            (void)rollback_blocks(device, sb, inode, old_blocks);
+            (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
             *inode = original;
             free_write_backups(backups,backup_count);
             return r == OPENFS_FILE_OK ? OPENFS_FILE_CORRUPT : r;
