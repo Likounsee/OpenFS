@@ -380,15 +380,12 @@ static void extent_tree_partial_write_rollback_failure_is_corruption(void){
     uint8_t data[4096U];memset(data,0x66U,sizeof(data));
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,(uint64_t)n*4096U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);}
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root==0U);
-    uint64_t physical[4];for(unsigned n=0U;n<4U;n++)assert(openfs_alloc_block(&v,&sb,&physical[n])==OPENFS_ALLOC_OK);
-    openfs_extent_t ext[OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U];for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_inode_get_extent(&i,n,&ext[n])==OPENFS_EXTENT_OK);}
-    ext[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]=(openfs_extent_t){OPENFS_INODE_TREE_INLINE_EXTENT_MAX,physical[0],1U};
-    uint64_t expected_root=0U;assert(openfs_alloc_block(&v,&sb,&expected_root)==OPENFS_ALLOC_OK);assert(openfs_free_block(&v,&sb,expected_root)==OPENFS_ALLOC_OK);
-    d.fail_block=expected_root;d.fail_block_enabled=1;d.fail_after_write=1;d.partial_write_bytes=1024U;
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data))==OPENFS_FILE_OK);
+    root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
+    d.fail_block=root;d.fail_block_enabled=1;d.fail_after_write=1;d.partial_write_bytes=1024U;
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)(OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)*4096U,data,sizeof(data))==OPENFS_FILE_CORRUPT);
     d.fail_block_enabled=0;
-    int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,expected_root,&used)==OPENFS_BITMAP_OK&&!used);
-    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
     free(d.bytes);
 }
 static void write_extent_tree_root_rollback_releases_metadata(void){
