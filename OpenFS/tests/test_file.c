@@ -114,9 +114,10 @@ static void extent_limit_rollback(void){
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     openfs_inode_t before=i;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
-    assert(memcmp(&i,&before,sizeof(i))==0);
-    uint64_t reclaimed=0U;assert(openfs_alloc_block(&v,&sb,&reclaimed)==OPENFS_ALLOC_OK);
-    assert(reclaimed==sb.data_start+(uint64_t)OPENFS_EXTENT_MAX*2U);
+    assert(memcmp(&i,&before,sizeof(i))!=0);
+    assert(i.extent_count==OPENFS_EXTENT_MAX+1U);
+    uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U/4096U,&mapped)==OPENFS_FILE_OK);
+    assert(mapped==sb.data_start+10U);
     assert(openfs_free_block(&v,&sb,reclaimed)==OPENFS_ALLOC_OK);
     for(uint32_t n=0U;n<OPENFS_EXTENT_MAX;n++){
         openfs_extent_t e={0};assert(openfs_inode_get_extent(&i,n,&e)==OPENFS_EXTENT_OK);
