@@ -275,6 +275,28 @@ static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);assert(memcmp(&i,&before,sizeof(i))==0);assert(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);assert(memcmp(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);free(bitmap_snapshot);free(inode_snapshot);free(d.bytes);
 }
+static void shrink_preserves_live_extent_tree_root(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/shrink-tree-root",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint64_t root=0U,blocks[5];assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
+    for(unsigned n=0U;n<5U;n++)assert(openfs_alloc_block(&v,&sb,&blocks[n])==OPENFS_ALLOC_OK);
+    assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);
+    i.blocks=5U;i.size=5U*sb.block_size;i.extent_count=5U;
+    for(uint32_t n=0U;n<3U;n++){openfs_extent_t e={n,blocks[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    openfs_extent_t tree[2]={{3U,blocks[3],1U},{4U,blocks[4],1U}};
+    assert(openfs_extent_tree_write(&v,&i,tree,2U)==OPENFS_EXTENT_OK);
+    assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
+    assert(openfs_file_truncate(&v,&sb,&i,4U*sb.block_size)==OPENFS_FILE_OK);
+    assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==4U&&i.blocks==4U);
+    int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&used);
+    assert(openfs_file_map_block_device(&v,&sb,&i,3U,&blocks[0])==OPENFS_FILE_OK);
+    assert(blocks[0]==blocks[3]);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
+
 static void existing_extent_tree_write_failure_restores_root(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/tree-existing-root",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
@@ -358,4 +380,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
