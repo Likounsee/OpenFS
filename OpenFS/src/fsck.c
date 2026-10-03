@@ -52,7 +52,14 @@ if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
     uint64_t root_block=openfs_inode_get_extent_tree_root(&in);
     uint64_t data_end=0U;
     if(root_block==0U||!add(s->data_start,s->data_blocks,&data_end)||root_block<s->data_start||root_block>=data_end)bad++;
-    else{uint64_t rel=root_block-s->data_start;if(ref_test(refs,rel))bad++;else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}}
+    else{
+        int root_allocated=0;
+        if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,root_block,&root_allocated)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
+        if(!root_allocated)bad++;
+        uint64_t rel=root_block-s->data_start;
+        if(ref_test(refs,rel))bad++;
+        else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
+    }
     if(in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX)bad++;
 }else if(in.extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)bad++;
 for(uint32_t i=0U;i<in.extent_count;i++){
