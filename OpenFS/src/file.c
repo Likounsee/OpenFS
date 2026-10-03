@@ -140,13 +140,14 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
     }
     memset(inode->reserved,0U,120U);inode->extent_count=n;
     for(uint32_t i=0U;i<n;i++)if(openfs_inode_set_extent(inode,i,&a[i])!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;
-    if(oldroot!=0U){
-        inode->flags|=OPENFS_INODE_FLAG_EXTENT_TREE;inode->flags|=OPENFS_INODE_FLAG_HAS_EXTENTS;
-        if(openfs_inode_set_extent_tree_root(inode,oldroot)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;
-        if(openfs_extent_tree_write(d,inode,NULL,0U)!=OPENFS_EXTENT_OK)return OPENFS_FILE_IO_ERROR;
-    }else if(n==0U){
-        inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;
-    }
+    /*
+     * Once the extent set fits inline again, the tree root is no longer part
+     * of the inode's live metadata.  Do not rewrite the old root with an
+     * empty tree: the caller must free the old root only after the new inode
+     * image has been durably published.
+     */
+    inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;
+    if(n==0U)inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;
     return OPENFS_FILE_OK;
 }
 static openfs_file_result_t map_block_on_disk(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*inode,uint64_t logical,uint64_t*physical)
@@ -309,6 +310,14 @@ openfs_file_result_t openfs_file_truncate(
         if(r!=OPENFS_FILE_OK){free(old_tree_block);free(freed);free(tail_backup);*inode=original;return r;}
         reduced.size=new_size;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){reduced.mtime_ns=now;reduced.ctime_ns=now;}
         r=write_inode(device,sb,&reduced);
+        if(r==OPENFS_FILE_OK && old_root!=0U){
+            if(openfs_free_block(device,sb,old_root)!=OPENFS_ALLOC_OK){
+                (void)write_inode(device,sb,&original);
+                *inode=original;
+                free(old_tree_block);free(freed);free(tail_backup);
+                return OPENFS_FILE_CORRUPT;
+            }
+        }
         if(r!=OPENFS_FILE_OK){
             int ok=1;
             if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
