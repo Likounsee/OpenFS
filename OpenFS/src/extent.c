@@ -121,14 +121,19 @@ openfs_extent_result_t openfs_inode_set_extent(
     }
     if (index + 1U < old_count) {
         openfs_extent_t next;
-        if (!decode_extent(slot(inode, index + 1U), &next) ||
-            extent->logical_start > UINT64_MAX - extent->block_count ||
+        if (!decode_extent(slot(inode, index + 1U), &next)) {
+            int empty=1; for(size_t z=0U;z<OPENFS_EXTENT_RECORD_SIZE;z++) if(slot(inode,index+1U)[z]!=0U){empty=0;break;}
+            if(empty) goto skip_next_check;
+            memcpy(p, old_record, sizeof(old_record)); inode->flags = old_flags; inode->extent_count = old_count; return OPENFS_EXTENT_CORRUPT;
+        }
+        if (extent->logical_start > UINT64_MAX - extent->block_count ||
             extent->physical_start > UINT64_MAX - extent->block_count ||
             extent->logical_start + extent->block_count > next.logical_start ||
             extent->physical_start + extent->block_count > next.physical_start) {
             memcpy(p, old_record, sizeof(old_record)); inode->flags = old_flags; inode->extent_count = old_count; return OPENFS_EXTENT_CORRUPT;
         }
     }
+skip_next_check:
     if (index >= inode->extent_count) inode->extent_count = index + 1U;
     inode->flags |= OPENFS_INODE_FLAG_HAS_EXTENTS;
     return OPENFS_EXTENT_OK;
