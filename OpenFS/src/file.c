@@ -349,12 +349,23 @@ openfs_file_result_t openfs_file_truncate(
     r=write_inode(device,sb,inode);
     if(r!=OPENFS_FILE_OK){
         int ok=1;
+        if(new_blocks>original.blocks&&rollback_blocks(device,sb,inode,original.blocks,openfs_inode_get_extent_tree_root(&original))!=OPENFS_FILE_OK)ok=0;
         if(tail_saved&&device->write(device->context,tail_physical,1U,tail_backup)!=OPENFS_IO_OK)ok=0;
         *inode=original;free(tail_backup);
         return ok?r:OPENFS_FILE_CORRUPT;
     }
+    if(device->flush(device->context)!=OPENFS_IO_OK){
+        int ok=1;
+        if(new_blocks>original.blocks&&rollback_blocks(device,sb,inode,original.blocks,openfs_inode_get_extent_tree_root(&original))!=OPENFS_FILE_OK)ok=0;
+        if(tail_saved&&device->write(device->context,tail_physical,1U,tail_backup)!=OPENFS_IO_OK)ok=0;
+        *inode=original;
+        if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
+        if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+        free(tail_backup);
+        return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+    }
     free(tail_backup);
-    return device->flush(device->context)==OPENFS_IO_OK?OPENFS_FILE_OK:OPENFS_FILE_IO_ERROR;
+    return OPENFS_FILE_OK;
 }
 
 openfs_file_result_t openfs_file_read(    const openfs_block_device_t *device,
