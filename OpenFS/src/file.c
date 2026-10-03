@@ -144,10 +144,33 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
             return OPENFS_FILE_CORRUPT;
         }
         tmp.extent_count=n;tmp.flags|=OPENFS_INODE_FLAG_EXTENT_TREE|OPENFS_INODE_FLAG_HAS_EXTENTS;
-        if(openfs_extent_tree_write(d,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX)!=OPENFS_EXTENT_OK){
-            if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
-            return OPENFS_FILE_IO_ERROR;
+        uint8_t *old_tree = NULL;
+        if (!newroot) {
+            old_tree = malloc(d->block_size);
+            if (old_tree == NULL ||
+                d->read(d->context, root, 1U, old_tree) != OPENFS_IO_OK) {
+                free(old_tree);
+                return OPENFS_FILE_IO_ERROR;
+            }
         }
+        openfs_extent_result_t tree_result =
+            openfs_extent_tree_write(d,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,
+                                     n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
+        if (tree_result != OPENFS_EXTENT_OK) {
+            int restored = newroot ||
+                d->write(d->context, root, 1U, old_tree) == OPENFS_IO_OK;
+            if (newroot) {
+                if (openfs_free_block(d,sb,root) != OPENFS_ALLOC_OK) restored = 0;
+            } else if (d->flush(d->context) != OPENFS_IO_OK) {
+                restored = 0;
+            }
+            free(old_tree);
+            return restored
+                ? (tree_result == OPENFS_EXTENT_IO_ERROR
+                    ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT)
+                : OPENFS_FILE_CORRUPT;
+        }
+        free(old_tree);
         *inode=tmp;return OPENFS_FILE_OK;
     }
     memset(inode->reserved,0U,120U);inode->extent_count=n;
