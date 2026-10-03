@@ -280,17 +280,20 @@ static void existing_extent_tree_write_failure_restores_root(void){
     uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/tree-existing-root",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint64_t physical[8];
+    for(unsigned n=0U;n<8U;n++)assert(openfs_alloc_block(&v,&sb,&physical[n])==OPENFS_ALLOC_OK);
+    for(unsigned n=1U;n<8U;n+=2U)assert(openfs_free_block(&v,&sb,physical[n])==OPENFS_ALLOC_OK);
+    memset(i.reserved,0,sizeof(i.reserved));i.flags=0U;i.extent_count=0U;i.blocks=4U;i.size=4U*4096U;
+    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,physical[n*2U],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
     uint8_t data[4096U];memset(data,0x71U,sizeof(data));
-    for(uint64_t n=0U;n<=OPENFS_EXTENT_MAX;n++){
-        assert(openfs_file_write(&v,&sb,&i,n*4096U,data,sizeof(data))==OPENFS_FILE_OK);
-        assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
-    }
+    assert(openfs_file_write(&v,&sb,&i,4U*4096U,data,sizeof(data))==OPENFS_FILE_OK);
     assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
     uint8_t *before=malloc(d.block_size);assert(before);
     memcpy(before,d.bytes+(size_t)(root*d.block_size),d.block_size);
     d.fail_block=root;d.fail_block_enabled=1;d.fail_once=1;d.fail_after_write=1;
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)(OPENFS_EXTENT_MAX+1U)*4096U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
+    assert(openfs_file_write(&v,&sb,&i,5U*4096U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
     d.fail_block_enabled=0;
     openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&persisted)==OPENFS_INODE_OK);
     assert(persisted.blocks==i.blocks&&persisted.extent_count==i.extent_count);
