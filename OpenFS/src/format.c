@@ -30,7 +30,9 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
     uint64_t inode_table=metadata-*bb-1U-journal-data;
     if(inode_table<4U)return 0;
     for(unsigned i=0U;i<16U;i++){
-        uint64_t inode_count=(inode_table*(uint64_t)bs)/OPENFS_INODE_SIZE;
+        uint64_t inode_bytes=0U;
+        if(mulov(inode_table,(uint64_t)bs,&inode_bytes))return 0;
+        uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
         if(ceildiv(inode_count,bits,ib)||*ib==0U)return 0;
         if(*ib>metadata-*bb-journal-data)return 0;
         uint64_t next=metadata-*bb-*ib-journal-data;
