@@ -193,8 +193,9 @@ openfs_extent_result_t openfs_extent_tree_write(
         (count != 0U && extents == NULL)) return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
-    if (root == 0U || root >= device->block_count || cap == 0U || count > cap ||
-        (inode->extent_count >= OPENFS_INODE_INLINE_EXTENT_MAX && count != (inode->extent_count >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX ? inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX : 0U)) ||
+    if (root == 0U || root >= device->block_count || cap == 0U || count > cap || count > UINT16_MAX ||
+        inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
+        count != inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
 
     uint8_t *block = calloc(1U, device->block_size);
