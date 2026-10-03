@@ -122,8 +122,9 @@ openfs_inode_t target;
 if(read_inode(d,s,e.inode_number,&target)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
 openfs_inode_t original_target=target;
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&newparent!=oldparent){
-uint64_t cur=newparent;
+uint64_t cur=newparent,steps=0U,max_steps=0U;if(inode_count(s,&max_steps)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
 while(cur!=s->root_inode){
+if(++steps>max_steps)return OPENFS_PATH_CORRUPT;
 if(cur==e.inode_number)return OPENFS_PATH_INVALID_ARGUMENT;
 openfs_inode_t ci;if(read_inode(d,s,cur,&ci)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
 if(ci.parent_inode==0U||ci.parent_inode==cur)return OPENFS_PATH_CORRUPT;
