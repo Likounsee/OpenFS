@@ -27,7 +27,7 @@ if(journal_gap){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 uint32_t stored=g32(b+28U);p32(b+28U,0U);
 if(stored!=openfs_crc32c(b,d->block_size-4U)){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}p32(b+28U,stored);
 uint32_t len=g32(b+24U);uint64_t tx=g64(b+8U),seq=g64(b+16U);if(b[6U]!=0U||b[7U]!=0U||len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
-if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U||((b[5]==OPENFS_JOURNAL_BEGIN||b[5]==OPENFS_JOURNAL_COMMIT)&&len!=0U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U||((b[5]==OPENFS_JOURNAL_BEGIN||b[5]==OPENFS_JOURNAL_COMMIT)&&len!=0U)){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 if(have_sequence&&seq<=last_sequence){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 last_sequence=seq;have_sequence=1;
 uint64_t idx=0U;while(idx<tx_count&&txids[idx]!=tx)idx++;
