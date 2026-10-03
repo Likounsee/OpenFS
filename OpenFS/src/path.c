@@ -8,17 +8,18 @@
 static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino);
 static int restore_unlinked_inode_storage(openfs_block_device_t *d,const openfs_superblock_t *s,const openfs_inode_t *original)
 {
-    if (d == NULL || s == NULL || original == NULL) return 0;
+    if (d == NULL || s == NULL || original == NULL || s->data_start > UINT64_MAX-s->data_blocks) return 0;
+    uint64_t data_end=s->data_start+s->data_blocks;
     for (uint64_t logical = 0U; logical < original->blocks; ++logical) {
         uint64_t physical = 0U;
-        if (openfs_file_map_block_device(d, s, original, logical, &physical) != OPENFS_FILE_OK ||
+        if (openfs_file_map_block_device(d, s, original, logical, &physical) != OPENFS_FILE_OK || physical < s->data_start || physical >= data_end ||
             openfs_bitmap_set(d, s->block_bitmap_start, s->block_bitmap_blocks, physical, 1) != OPENFS_BITMAP_OK) {
             return 0;
         }
     }
     uint64_t root = openfs_inode_get_extent_tree_root(original);
-    if (root != 0U &&
-        openfs_bitmap_set(d, s->block_bitmap_start, s->block_bitmap_blocks, root, 1) != OPENFS_BITMAP_OK) {
+    if (root != 0U && (root < s->data_start || root >= data_end ||
+        openfs_bitmap_set(d, s->block_bitmap_start, s->block_bitmap_blocks, root, 1) != OPENFS_BITMAP_OK)) {
         return 0;
     }
     return d->flush(d->context) == OPENFS_IO_OK;
