@@ -86,8 +86,17 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         }
 
         if (openfs_inode_write(d, sb->inode_table_start, count, &inode) != OPENFS_INODE_OK) {
-            (void)openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 0);
-            return OPENFS_INODE_ALLOC_IO_ERROR;
+            int rollback_ok = 1;
+            if (openfs_inode_write(d, sb->inode_table_start, count, &previous) != OPENFS_INODE_OK) {
+                rollback_ok = 0;
+            }
+            if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 0) != OPENFS_BITMAP_OK) {
+                rollback_ok = 0;
+            }
+            if (d->flush(d->context) != OPENFS_IO_OK) {
+                rollback_ok = 0;
+            }
+            return rollback_ok ? OPENFS_INODE_ALLOC_IO_ERROR : OPENFS_INODE_ALLOC_CORRUPT;
         }
         *out = n;
         return OPENFS_INODE_ALLOC_OK;
