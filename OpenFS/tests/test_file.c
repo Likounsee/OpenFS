@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/file.h"
 #include "openfs/format.h"
+#include "openfs/bitmap.h"
 
 typedef struct {
     uint8_t *bytes;
