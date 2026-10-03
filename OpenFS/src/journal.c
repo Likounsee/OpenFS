@@ -42,7 +42,7 @@ uint32_t stored=g32(b+28U);p32(b+28U,0U);if(stored!=openfs_crc32c(b,d->block_siz
 uint32_t len=g32(b+24U);if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 if(b[5]!=OPENFS_JOURNAL_DATA)continue;
 uint64_t tx=g64(b+8U);uint64_t idx=0U;while(idx<tx_count&&txids[idx]!=tx)idx++;
-if(idx>=tx_count||states[idx]!=2U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+if(idx>=tx_count){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}if(states[idx]!=2U)continue;
 openfs_journal_result_t r=cb(ctx,tx,b+OPENFS_JOURNAL_HEADER_SIZE,len);if(r!=OPENFS_JOURNAL_OK){free(txids);free(states);free(b);return r;}
 }
 free(txids);free(states);free(b);return OPENFS_JOURNAL_OK;
