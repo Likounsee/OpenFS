@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "openfs/file.h"
 #include "openfs/format.h"
 #include "openfs/bitmap.h"
@@ -202,7 +203,7 @@ static void write_extent_tree_root_rollback_releases_metadata(void){
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
-    assert(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
+    if(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)!=0){for(size_t z=0;z<bitmap_bytes;z++)if(bitmap_snapshot[z]!=d.bytes[(size_t)(sb.block_bitmap_start*d.block_size)+z])fprintf(stderr,"bitmap byte %zu old=%u new=%u\\n",z,(unsigned)bitmap_snapshot[z],(unsigned)d.bytes[(size_t)(sb.block_bitmap_start*d.block_size)+z]);assert(0);}
     assert(memcmp(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(bitmap_snapshot);free(inode_snapshot);free(d.bytes);
