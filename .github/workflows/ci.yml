@@ -6,17 +6,23 @@ on:
 
 jobs:
   build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
     runs-on: ubuntu-latest
+    env:
+      CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S OpenFS -B build -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S OpenFS -B build-${{ matrix.compiler }} -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build-${{ matrix.compiler }} --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build-${{ matrix.compiler }} --output-on-failure
       - name: Sanitizers
         run: |
-          cmake -S OpenFS -B build-asan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          cmake --build build-asan --parallel
-          ctest --test-dir build-asan --output-on-failure
+          cmake -S OpenFS -B build-${{ matrix.compiler }}-asan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-${{ matrix.compiler }}-asan --parallel
+          ctest --test-dir build-${{ matrix.compiler }}-asan --output-on-failure
