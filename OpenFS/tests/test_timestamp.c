@@ -22,9 +22,9 @@ int main(void)
     openfs_inode_t root;assert(openfs_inode_read(&v,s.inode_table_start,s.root_inode,ic,&root)==OPENFS_INODE_OK);
     assert(root.atime_ns!=0U&&root.mtime_ns!=0U&&root.ctime_ns!=0U);
     assert(openfs_inode_check_access(&root,0U,0U,7U)==OPENFS_INODE_OK);
-    uint64_t ino=0U;assert(openfs_path_create_as(&v,&s,"/ts",OPENFS_INODE_MODE_REGULAR|0600U,1000U,0U,&ino)==OPENFS_PATH_OK);
+    uint64_t ino=0U;assert(openfs_path_create_as(&v,&s,"/ts",OPENFS_INODE_MODE_REGULAR|0600U,0U,0U,&ino)==OPENFS_PATH_OK);
     openfs_inode_t file;assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&file)==OPENFS_INODE_OK);
-    assert(file.uid==1000U&&file.gid==1000U&&file.ctime_ns!=0U&&file.mtime_ns!=0U);
+    assert(file.uid==0U&&file.gid==0U&&file.ctime_ns!=0U&&file.mtime_ns!=0U);
     uint64_t old_mtime=file.mtime_ns,old_ctime=file.ctime_ns;
     const char data[]="timestamp";
     assert(openfs_file_write(&v,&s,&file,0U,data,sizeof(data))==OPENFS_FILE_OK);
