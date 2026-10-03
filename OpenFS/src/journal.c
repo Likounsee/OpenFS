@@ -19,7 +19,7 @@ if(s->journal_blocks>SIZE_MAX/sizeof(uint64_t)||s->journal_blocks>SIZE_MAX)retur
 uint8_t*b=malloc(d->block_size);if(!b)return OPENFS_JOURNAL_IO_ERROR;
 uint64_t*txids=calloc((size_t)s->journal_blocks,sizeof(*txids));uint8_t*states=calloc((size_t)s->journal_blocks,sizeof(*states));
 if(!txids||!states){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
-uint64_t tx_count=0U,last_sequence=0U;int have_sequence=0;int journal_gap=0;
+uint64_t tx_count=0U,last_sequence=0U,last_tx=0U,open_tx=0U;int have_sequence=0;int journal_gap=0;
 for(uint64_t n=0U;n<s->journal_blocks;n++){
 if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
 if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0){journal_gap=1;continue;}
@@ -31,11 +31,15 @@ if(len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U){free(txids);fr
 if(have_sequence&&seq<=last_sequence){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 last_sequence=seq;have_sequence=1;
 uint64_t idx=0U;while(idx<tx_count&&txids[idx]!=tx)idx++;
-if(idx==tx_count){if(tx_count>=s->journal_blocks){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}txids[tx_count]=tx;states[tx_count]=0U;idx=tx_count++;}
-if(b[5]==OPENFS_JOURNAL_BEGIN){if(states[idx]!=0U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}states[idx]=1U;}
-else if(b[5]==OPENFS_JOURNAL_DATA){if(states[idx]!=1U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}}
-else if(b[5]==OPENFS_JOURNAL_COMMIT){if(states[idx]!=1U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}states[idx]=2U;}
-else{free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+if(b[5]==OPENFS_JOURNAL_BEGIN){
+    if(tx==0U||tx<=last_tx||open_tx!=0U||idx!=tx_count||tx_count>=s->journal_blocks){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+    txids[tx_count]=tx;states[tx_count]=1U;idx=tx_count++;last_tx=tx;open_tx=tx;
+}else if(b[5]==OPENFS_JOURNAL_DATA){
+    if(idx>=tx_count||states[idx]!=1U||open_tx!=tx){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+}else if(b[5]==OPENFS_JOURNAL_COMMIT){
+    if(idx>=tx_count||states[idx]!=1U||open_tx!=tx){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+    states[idx]=2U;open_tx=0U;
+}else{free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
 }
 for(uint64_t n=0U;n<s->journal_blocks;n++){
 if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
