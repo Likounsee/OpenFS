@@ -195,10 +195,9 @@ static openfs_file_result_t allocate_blocks(
     return OPENFS_FILE_OK;
 }
 
-static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t target_blocks)
+static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t target_blocks,uint64_t original_root)
 {
-    openfs_inode_t original=*inode;
-    uint64_t original_root=openfs_inode_get_extent_tree_root(&original);
+
     while(inode->blocks>target_blocks){
         openfs_extent_t*a=NULL;uint32_t n=0U;openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
         if(n==0U){free(a);return OPENFS_FILE_CORRUPT;}
@@ -262,7 +261,7 @@ openfs_file_result_t openfs_file_truncate(
         uint64_t before=inode->blocks;
         r=allocate_blocks(device,sb,inode,new_blocks);
         if(r!=OPENFS_FILE_OK){
-            int ok=rollback_blocks(device,sb,inode,before)==OPENFS_FILE_OK;
+            int ok=rollback_blocks(device,sb,inode,before,openfs_inode_get_extent_tree_root(&original))==OPENFS_FILE_OK;
             *inode=original;
             if(tail_saved&&device->write(device->context,tail_physical,1U,tail_backup)!=OPENFS_IO_OK)ok=0;
             free(tail_backup);
@@ -507,7 +506,7 @@ openfs_file_result_t openfs_file_write(
 
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) {
-        (void)rollback_blocks(device, sb, inode, old_blocks);
+        (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
         *inode = original;
         free_write_backups(backups,backup_count);
         return OPENFS_FILE_IO_ERROR;
