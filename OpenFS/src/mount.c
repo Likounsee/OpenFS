@@ -10,6 +10,19 @@
 static uint16_t get16(const uint8_t *p){return (uint16_t)p[0]|((uint16_t)p[1]<<8U);}
 static uint32_t get32(const uint8_t *p){return (uint32_t)p[0]|((uint32_t)p[1]<<8U)|((uint32_t)p[2]<<16U)|((uint32_t)p[3]<<24U);}
 static uint64_t get64(const uint8_t *p){uint64_t v=0U;for(unsigned k=0U;k<8U;++k)v|=(uint64_t)p[k]<<(8U*k);return v;}
+static int same_layout(const openfs_superblock_t *a,const openfs_superblock_t *b)
+{
+    return a->version_major==b->version_major && a->version_minor==b->version_minor &&
+        a->feature_flags==b->feature_flags && a->block_size==b->block_size &&
+        a->total_blocks==b->total_blocks && a->metadata_start==b->metadata_start &&
+        a->metadata_blocks==b->metadata_blocks && a->block_bitmap_start==b->block_bitmap_start &&
+        a->block_bitmap_blocks==b->block_bitmap_blocks && a->inode_bitmap_start==b->inode_bitmap_start &&
+        a->inode_bitmap_blocks==b->inode_bitmap_blocks && a->inode_table_start==b->inode_table_start &&
+        a->inode_table_blocks==b->inode_table_blocks && a->journal_start==b->journal_start &&
+        a->journal_blocks==b->journal_blocks && a->data_start==b->data_start &&
+        a->data_blocks==b->data_blocks && a->root_inode==b->root_inode &&
+        memcmp(a->uuid,b->uuid,sizeof(a->uuid))==0;
+}
 
 static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,openfs_superblock_t *out)
 {
@@ -48,7 +61,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
         return (pr==OPENFS_FORMAT_IO_ERROR||br==OPENFS_FORMAT_IO_ERROR)?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     }
     if(pr==OPENFS_FORMAT_OK&&br==OPENFS_FORMAT_OK){
-        if(memcmp(primary.uuid,backup.uuid,sizeof(primary.uuid))!=0)return OPENFS_MOUNT_CORRUPT;
+        if(!same_layout(&primary,&backup))return OPENFS_MOUNT_CORRUPT;
         mount->superblock=(backup.generation>primary.generation)?backup:primary;
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
