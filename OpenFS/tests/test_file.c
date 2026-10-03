@@ -105,6 +105,7 @@ static void truncate_shrink_inode_write_failure_keeps_blocks(void){
 static void extent_limit_rollback(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t block[4096U];memset(block,0xC3U,sizeof(block));
+    for(uint64_t n=0U;n<10U;n++) assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+n,1)==OPENFS_BITMAP_OK);
     for(uint32_t n=0U;n<OPENFS_EXTENT_MAX;n++){
         openfs_extent_t e={n,sb.data_start+(uint64_t)n*2U,1U};
         assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
