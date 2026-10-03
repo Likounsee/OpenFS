@@ -79,7 +79,9 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         uint64_t generation = previous.generation;
         if (generation == 0U) generation = 1U;
         if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 1) != OPENFS_BITMAP_OK) {
-            return OPENFS_INODE_ALLOC_IO_ERROR;
+            int rollback_ok=openfs_bitmap_set(d,sb->inode_bitmap_start,sb->inode_bitmap_blocks,n-1U,0)==OPENFS_BITMAP_OK;
+            if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+            return rollback_ok?OPENFS_INODE_ALLOC_IO_ERROR:OPENFS_INODE_ALLOC_CORRUPT;
         }
 
         openfs_inode_t inode;
