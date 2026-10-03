@@ -45,15 +45,40 @@ d.fail_read_block=0U;d.fail_read_enabled=0;d.arm_on_write=1;d.arm_block=s.inode_
 }
 assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_EXISTS);
 assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/home/renamed",&m)==OPENFS_PATH_OK);{
+    openfs_inode_t rename_parent_before,rename_parent_after;
+    assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_before)==OPENFS_INODE_OK);
     uint64_t target_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=1;
     assert(openfs_path_rename(&v,&s,"/home/renamed","/home/failed")==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
     assert(openfs_path_lookup(&v,&s,"/home/renamed",&q)==OPENFS_PATH_OK&&q==m);
     assert(openfs_path_lookup(&v,&s,"/home/failed",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_after)==OPENFS_INODE_OK);
+    assert(rename_parent_after.mtime_ns==rename_parent_before.mtime_ns&&rename_parent_after.ctime_ns==rename_parent_before.ctime_ns);
 }
-d.fail_flush=1;d.fail_flush_once=1;assert(openfs_path_rename(&v,&s,"/home/renamed","/home/rename-flush-fail")==OPENFS_PATH_IO_ERROR);assert(openfs_path_lookup(&v,&s,"/home/renamed",&q)==OPENFS_PATH_OK&&q==m);assert(openfs_path_lookup(&v,&s,"/home/rename-flush-fail",&q)==OPENFS_PATH_NOT_FOUND);{uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
-assert(openfs_path_rename(&v,&s,"/home/renamed","/home/test")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/..",&x)==OPENFS_PATH_OK&&x==s.root_inode);assert(openfs_path_lookup(&v,&s,"///home//test//",&x)==OPENFS_PATH_OK&&x==m);assert(openfs_path_lookup(&v,&s,"/home/./test/../test",&x)==OPENFS_PATH_OK&&x==m);assert(openfs_path_create(&v,&s,"/home/test/file",OPENFS_INODE_MODE_REGULAR,&x)==OPENFS_PATH_OK);assert(openfs_path_mkdir(&v,&s,"/home/test/nonempty",&q)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/test/nonempty/file",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty")==OPENFS_PATH_NOT_EMPTY);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty/file")==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty")==OPENFS_PATH_OK);
+{
+    openfs_inode_t rename_parent_before,rename_parent_after;
+    assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_before)==OPENFS_INODE_OK);
+    d.fail_flush=1;d.fail_flush_once=1;
+    assert(openfs_path_rename(&v,&s,"/home/renamed","/home/rename-flush-fail")==OPENFS_PATH_IO_ERROR);
+    assert(openfs_path_lookup(&v,&s,"/home/renamed",&q)==OPENFS_PATH_OK&&q==m);
+    assert(openfs_path_lookup(&v,&s,"/home/rename-flush-fail",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_after)==OPENFS_INODE_OK);
+    assert(rename_parent_after.mtime_ns==rename_parent_before.mtime_ns&&rename_parent_after.ctime_ns==rename_parent_before.ctime_ns);
+}{uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+assert(openfs_path_rename(&v,&s,"/home/renamed","/home/test")==OPENFS_PATH_OK);
+assert(openfs_path_mkdir(&v,&s,"/home/other",&q)==OPENFS_PATH_OK);
+assert(openfs_path_create(&v,&s,"/home/test/cross-file",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_OK);
+assert(openfs_path_rename(&v,&s,"/home/test/cross-file","/home/other/cross-file")==OPENFS_PATH_OK);
+assert(openfs_path_lookup(&v,&s,"/home/other/cross-file",&q)==OPENFS_PATH_OK);
+assert(openfs_path_lookup(&v,&s,"/home/test/cross-file",&q)==OPENFS_PATH_NOT_FOUND);
+assert(openfs_path_rename(&v,&s,"/home/other/cross-file","/home/test/cross-file")==OPENFS_PATH_OK);
+assert(openfs_path_mkdir(&v,&s,"/home/test/movedir",&q)==OPENFS_PATH_OK);
+assert(openfs_path_create(&v,&s,"/home/test/movedir/file",OPENFS_INODE_MODE_REGULAR,&x)==OPENFS_PATH_OK);
+assert(openfs_path_rename(&v,&s,"/home/test/movedir","/home/other/movedir")==OPENFS_PATH_OK);
+assert(openfs_path_lookup(&v,&s,"/home/other/movedir/file",&q)==OPENFS_PATH_OK&&q==x);
+assert(openfs_path_rename(&v,&s,"/home/other/movedir","/home/other/movedir/file/sub")==OPENFS_PATH_INVALID_ARGUMENT);
+assert(openfs_path_rename(&v,&s,"/home/other/movedir","/home/test/movedir")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/..",&x)==OPENFS_PATH_OK&&x==s.root_inode);assert(openfs_path_lookup(&v,&s,"///home//test//",&x)==OPENFS_PATH_OK&&x==m);assert(openfs_path_lookup(&v,&s,"/home/./test/../test",&x)==OPENFS_PATH_OK&&x==m);assert(openfs_path_create(&v,&s,"/home/test/file",OPENFS_INODE_MODE_REGULAR,&x)==OPENFS_PATH_OK);assert(openfs_path_mkdir(&v,&s,"/home/test/nonempty",&q)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/test/nonempty/file",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty")==OPENFS_PATH_NOT_EMPTY);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty/file")==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,"/home/test/nonempty")==OPENFS_PATH_OK);
 assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);
 assert(openfs_path_create_as(&v,&s,"/home/test/asuser",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&q)==OPENFS_PATH_OK);
 {openfs_inode_t as_i;assert(openfs_inode_read(&v,s.inode_table_start,q,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&as_i)==OPENFS_INODE_OK);assert(as_i.uid==1000U&&as_i.gid==1000U);}
