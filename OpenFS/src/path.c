@@ -79,7 +79,20 @@ if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK){
 }
 if (target.mode == OPENFS_INODE_MODE_FREE &&
     openfs_inode_free(d, s, e.inode_number) != OPENFS_INODE_ALLOC_OK) {
-    return OPENFS_PATH_IO_ERROR;
+    int rollback_ok = 1;
+    if (original_target.link_count == 1U) {
+        if (!restore_unlinked_inode_storage(d, s, &original_target)) rollback_ok = 0;
+    }
+    if (openfs_inode_write(d, s->inode_table_start, c, &original_target) != OPENFS_INODE_OK) {
+        rollback_ok = 0;
+    }
+    if (openfs_dir_add(d, s, &pi, name, &e) != OPENFS_DIR_OK) {
+        rollback_ok = 0;
+    }
+    if (d->flush(d->context) != OPENFS_IO_OK) {
+        rollback_ok = 0;
+    }
+    return rollback_ok ? OPENFS_PATH_IO_ERROR : OPENFS_PATH_CORRUPT;
 }
 return OPENFS_PATH_OK;}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
