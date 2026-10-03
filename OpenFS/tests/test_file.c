@@ -149,6 +149,16 @@ static void truncate_tree_shrink_free_failure_restores_root(void){
     free(root_before);free(d.bytes);
 }
 
+static void sparse_write_zeroes_intermediate_blocks(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t one=0x5AU,tail=0xA7U;
+    assert(openfs_file_write(&v,&sb,&i,0U,&one,1U)==OPENFS_FILE_OK);
+    for(uint64_t b=1U;b<4U;b++){uint64_t p=0U;assert(openfs_alloc_block(&v,&sb,&p)==OPENFS_ALLOC_OK);assert(p==sb.data_start+b);memset(d.bytes+(size_t)(p*d.block_size),0xCCU,d.block_size);assert(openfs_free_block(&v,&sb,p)==OPENFS_ALLOC_OK);}
+    assert(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_OK);
+    uint8_t *gap=calloc(3U,4096U);assert(gap);size_t got=0U;assert(openfs_file_read(&v,&sb,&i,4096U,gap,3U*4096U,&got)==OPENFS_FILE_OK&&got==3U*4096U);
+    for(size_t n=0;n<3U*4096U;n++)assert(gap[n]==0U);
+    free(gap);free(d.bytes);
+}
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -419,4 +429,5 @@ static void map_bounds(void){
 }
 int main(void){
     new_extent_tree_root_partial_write_rolls_back();
+    sparse_write_zeroes_intermediate_blocks();
 shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();map_bounds();return 0;}
