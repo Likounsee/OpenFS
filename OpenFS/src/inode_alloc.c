@@ -169,5 +169,12 @@ openfs_inode_alloc_result_t openfs_inode_free(
         if (d->flush(d->context) != OPENFS_IO_OK) rollback_ok = 0;
         return rollback_ok ? OPENFS_INODE_ALLOC_IO_ERROR : OPENFS_INODE_ALLOC_CORRUPT;
     }
+    if (d->flush(d->context) != OPENFS_IO_OK) {
+        int rollback_ok = 1;
+        if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 1) != OPENFS_BITMAP_OK) rollback_ok = 0;
+        if (openfs_inode_write(d, sb->inode_table_start, count, &original) != OPENFS_INODE_OK) rollback_ok = 0;
+        if (d->flush(d->context) != OPENFS_IO_OK) rollback_ok = 0;
+        return rollback_ok ? OPENFS_INODE_ALLOC_IO_ERROR : OPENFS_INODE_ALLOC_CORRUPT;
+    }
     return OPENFS_INODE_ALLOC_OK;
 }
