@@ -80,7 +80,7 @@ openfs_file_result_t openfs_file_map_block(const openfs_inode_t *inode,uint64_t 
     if(inode==NULL||physical_block==NULL||inode->blocks==0U||logical_block>=inode->blocks)return OPENFS_FILE_OUT_OF_RANGE;
     if(inode->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)return OPENFS_FILE_OUT_OF_RANGE;
     uint64_t previous=0U;
-    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
+    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;previous_physical=e.physical_start+e.block_count;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
 
@@ -135,18 +135,20 @@ static int validate_extent_set(const openfs_superblock_t *sb,const openfs_extent
        sb->data_start>UINT64_MAX-sb->data_blocks)return 0;
     uint64_t data_end=sb->data_start+sb->data_blocks;
     uint64_t logical_end=0U;
+    uint64_t physical_end_previous=0U;
     for(uint32_t i=0U;i<n;i++){
         if(a[i].block_count==0U||
            a[i].logical_start>UINT64_MAX-a[i].block_count||
            a[i].physical_start>UINT64_MAX-a[i].block_count)return 0;
         if(i==0U){
             if(a[i].logical_start!=0U)return 0;
-        }else if(a[i].logical_start!=logical_end){
+        }else if(a[i].logical_start!=logical_end || a[i].physical_start<physical_end_previous){
             return 0;
         }
         uint64_t physical_end=a[i].physical_start+a[i].block_count;
         if(a[i].physical_start<sb->data_start||physical_end>data_end)return 0;
         logical_end=a[i].logical_start+a[i].block_count;
+        physical_end_previous=physical_end;
     }
     return 1;
 }
@@ -215,10 +217,10 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
 static openfs_file_result_t map_block_on_disk(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*inode,uint64_t logical,uint64_t*physical)
 {
     if(!openfs_block_device_is_valid(d)||d->block_size==0U||sb==NULL||inode==NULL||physical==NULL)return OPENFS_FILE_INVALID_ARGUMENT;
-    uint32_t inline_max=inline_extent_count(inode);uint32_t inline_n=inode->extent_count<inline_max?inode->extent_count:inline_max;uint64_t previous=0U;
-    for(uint32_t n=0U;n<inline_n;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
+    uint32_t inline_max=inline_extent_count(inode);uint32_t inline_n=inode->extent_count<inline_max?inode->extent_count:inline_max;uint64_t previous=0U,previous_physical=0U;
+    for(uint32_t n=0U;n<inline_n;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&(e.logical_start<previous||e.physical_start<previous_physical))return OPENFS_FILE_CORRUPT;if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;previous_physical=e.physical_start+e.block_count;}
     if(inode->extent_count<=inline_max)return OPENFS_FILE_OUT_OF_RANGE;
-    for(uint32_t n=inline_max;n<inode->extent_count;n++){openfs_extent_t e;openfs_extent_result_t er=openfs_extent_tree_read(d,inode,n-inline_max,&e);if(er!=OPENFS_EXTENT_OK)return er==OPENFS_EXTENT_IO_ERROR?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
+    for(uint32_t n=inline_max;n<inode->extent_count;n++){openfs_extent_t e;openfs_extent_result_t er=openfs_extent_tree_read(d,inode,n-inline_max,&e);if(er!=OPENFS_EXTENT_OK)return er==OPENFS_EXTENT_IO_ERROR?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(e.logical_start<previous||e.physical_start<previous_physical)return OPENFS_FILE_CORRUPT;if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
 openfs_file_result_t openfs_file_map_block_device(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*i,uint64_t logical,uint64_t*p){openfs_file_result_t r=map_block_on_disk(d,sb,i,logical,p);if(r!=OPENFS_FILE_OK)return r;if(validate_physical_block(sb,*p)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;return OPENFS_FILE_OK;}
