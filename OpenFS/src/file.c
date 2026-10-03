@@ -113,7 +113,9 @@ static openfs_file_result_t load_all_extents(const openfs_block_device_t *d,cons
     if(d==NULL||inode==NULL||out==NULL||count==NULL)return OPENFS_FILE_INVALID_ARGUMENT;
     if(inode->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX&&(inode->flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U)return OPENFS_FILE_CORRUPT;
     uint32_t n=inode->extent_count;if(n==0U){*out=NULL;*count=0U;return OPENFS_FILE_OK;}
-    if((uint64_t)n>SIZE_MAX/sizeof(openfs_extent_t))return OPENFS_FILE_CORRUPT;
+    #if SIZE_MAX < UINT32_MAX
+    if(n > SIZE_MAX/sizeof(openfs_extent_t))return OPENFS_FILE_CORRUPT;
+    #endif
     openfs_extent_t*a=calloc((size_t)n,sizeof(*a));if(a==NULL)return OPENFS_FILE_IO_ERROR;
     uint32_t inline_max=inline_extent_count(inode);uint32_t inline_n=n<inline_max?n:inline_max;
     for(uint32_t i=0U;i<inline_n;i++)if(openfs_inode_get_extent(inode,i,&a[i])!=OPENFS_EXTENT_OK){free(a);return OPENFS_FILE_CORRUPT;}
