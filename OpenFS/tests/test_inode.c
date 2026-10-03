@@ -19,7 +19,7 @@ int main(void){
  int used=0;assert(openfs_bitmap_test(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,&used)==OPENFS_BITMAP_OK);assert(used==1);
  uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
  openfs_inode_t root;assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);
- assert(root.inode_number==1U&&root.parent_inode==1U&&root.link_count==1U&&root.mode==OPENFS_INODE_MODE_DIRECTORY);
+ assert(root.inode_number==1U&&root.parent_inode==1U&&root.link_count==1U&&root.mode==(OPENFS_INODE_MODE_DIRECTORY|0755U));
  root.size=4096U;root.generation=2U;assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&root)==OPENFS_INODE_OK);
  memset(&root,0,sizeof(root));assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);assert(root.size==4096U&&root.generation==2U);
  assert(openfs_bitmap_set(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,1U,1)==OPENFS_BITMAP_OK);
