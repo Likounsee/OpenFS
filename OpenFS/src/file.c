@@ -394,6 +394,19 @@ openfs_file_result_t openfs_file_truncate(
             free(old_tree_block);free(freed);free(tail_backup);*inode=original;
             return ok?r:OPENFS_FILE_CORRUPT;
         }
+        /*
+         * Publish the reduced inode before releasing any blocks.  free_block()
+         * flushes bitmap changes, so doing it first could leave the old inode
+         * durable while its blocks were already reusable after a crash.
+         */
+        if(device->flush(device->context)!=OPENFS_IO_OK){
+            int ok=1;
+            if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
+            if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+            free(old_tree_block);free(freed);free(tail_backup);*inode=original;
+            return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+        }
         int root_freed=0;
         for(uint64_t n=0U;n<removed;n++){
             if(openfs_free_block(device,sb,freed[n])!=OPENFS_ALLOC_OK){
