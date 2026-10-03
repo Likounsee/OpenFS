@@ -380,13 +380,13 @@ static void extent_tree_partial_write_rollback_failure_is_corruption(void){
     uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/tree-rollback-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
     uint8_t data[4096U];memset(data,0x66U,sizeof(data));uint64_t spacers[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]={0U};uint64_t physical[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]={0U};
-    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,(uint64_t)n*4096U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);assert(openfs_file_map_block_device(&v,&sb,&i,n,&physical[n])==OPENFS_FILE_OK);if(n>0U)assert(physical[n]!=physical[n-1U]+1U);if(n+1U<OPENFS_INODE_TREE_INLINE_EXTENT_MAX){assert(openfs_alloc_block(&v,&sb,&spacers[n])==OPENFS_ALLOC_OK);assert(spacers[n]!=physical[n]);}}
+    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,(uint64_t)n*4096U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);assert(openfs_file_map_block_device(&v,&sb,&i,n,&physical[n])==OPENFS_FILE_OK);if(n>0U)assert(physical[n]!=physical[n-1U]+1U);{assert(openfs_alloc_block(&v,&sb,&spacers[n])==OPENFS_ALLOC_OK);assert(spacers[n]!=physical[n]);}}
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root==0U);
     openfs_file_result_t tree_grow_result=openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data));assert(tree_grow_result==OPENFS_FILE_OK);openfs_inode_t tree_persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&tree_persisted)==OPENFS_INODE_OK);root=openfs_inode_get_extent_tree_root(&i);uint64_t persisted_root=openfs_inode_get_extent_tree_root(&tree_persisted);fprintf(stderr,"tree-grow root=%llu persisted=%llu blocks=%llu extents=%u flags=%u size=%llu\\n",(unsigned long long)root,(unsigned long long)persisted_root,(unsigned long long)i.blocks,i.extent_count,i.flags,(unsigned long long)i.size);assert(root!=0U&&persisted_root==root);
     d.fail_block=root;d.fail_block_enabled=1;d.fail_after_write=1;d.partial_write_bytes=1024U;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)(OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)*4096U,data,sizeof(data))==OPENFS_FILE_CORRUPT);
     d.fail_block_enabled=0;
-    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX-1U;n++)assert(openfs_free_block(&v,&sb,spacers[n])==OPENFS_ALLOC_OK);free(d.bytes);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++)assert(openfs_free_block(&v,&sb,spacers[n])==OPENFS_ALLOC_OK);free(d.bytes);
 }
 static void write_extent_tree_root_rollback_releases_metadata(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
