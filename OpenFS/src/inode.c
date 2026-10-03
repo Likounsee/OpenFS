@@ -13,19 +13,20 @@ static void encode(const openfs_inode_t*i,uint8_t*b){memset(b,0,OPENFS_INODE_SIZ
 static int all_zero(const uint8_t*b){for(size_t n=0U;n<OPENFS_INODE_SIZE;n++)if(b[n]!=0U)return 0;return 1;}
 static int decode(const uint8_t*b,openfs_inode_t*i){if(memcmp(b+INODE_MAGIC_OFFSET,"OINODE1\0",8U)!=0)return 0;uint32_t stored=g32(b+INODE_CHECKSUM_OFFSET);uint8_t c[OPENFS_INODE_SIZE];memcpy(c,b,sizeof(c));p32(c+INODE_CHECKSUM_OFFSET,0U);if(stored!=openfs_crc32c(c,INODE_CHECKSUM_OFFSET))return 0;i->inode_number=g64(b);i->generation=g64(b+8);i->size=g64(b+16);i->blocks=g64(b+24);i->parent_inode=g64(b+32);i->link_count=g64(b+40);i->atime_ns=g64(b+48);i->mtime_ns=g64(b+56);i->ctime_ns=g64(b+64);i->mode=g32(b+72);i->flags=g32(b+76);i->uid=g32(b+80);i->gid=g32(b+84);i->extent_count=g32(b+88);i->reserved0=g32(b+92);memset(i->inline_data,0U,sizeof(i->inline_data));memset(i->reserved,0U,sizeof(i->reserved));if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){memcpy(i->inline_data,b+96,80U);}else{memcpy(i->reserved,b+96,120U);}return 1;}
 static int locate(const openfs_block_device_t*d,uint64_t start,uint64_t inode_number,uint64_t count,uint64_t*block,uint32_t*within){if(inode_number==0U||inode_number>count||inode_number-1U>UINT64_MAX/OPENFS_INODE_SIZE)return 0;uint64_t off=(inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE;*block=off/d->block_size;*within=(uint32_t)(off%d->block_size);if(*within+OPENFS_INODE_SIZE>d->block_size)return 0;if(start>UINT64_MAX-*block)return 0;if(start+*block>=d->block_count)return 0;return 1;}
-openfs_inode_result_t openfs_inode_validate(const openfs_inode_t*i,uint64_t count){if(i==NULL||i->inode_number==0U||i->inode_number>count)return OPENFS_INODE_INVALID_ARGUMENT;if(i->generation==0U)return OPENFS_INODE_CORRUPT;
+openfs_inode_result_t openfs_inode_validate(const openfs_inode_t*i,uint64_t count){if(i==NULL||count==0U||i->inode_number==0U||i->inode_number>count)return OPENFS_INODE_INVALID_ARGUMENT;if(i->generation==0U)return OPENFS_INODE_CORRUPT;
 uint32_t type=i->mode&OPENFS_INODE_TYPE_MASK;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&type!=OPENFS_INODE_MODE_REGULAR&&type!=OPENFS_INODE_MODE_DIRECTORY&&type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_INODE_CORRUPT;if((i->flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&i->link_count==0U)return OPENFS_INODE_CORRUPT;
-if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;
+if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;if(type==OPENFS_INODE_MODE_FREE&&i->parent_inode!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode==OPENFS_INODE_MODE_FREE&&(i->link_count!=0U||i->size!=0U||i->blocks!=0U||i->extent_count!=0U||i->flags!=0U))return OPENFS_INODE_CORRUPT;
 
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U))return OPENFS_INODE_CORRUPT;
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||i->blocks!=0U||i->extent_count!=0U||i->size>sizeof(i->inline_data)))return OPENFS_INODE_CORRUPT;
+if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&(type==OPENFS_INODE_MODE_SYMLINK||type==OPENFS_INODE_MODE_DIRECTORY))return OPENFS_INODE_CORRUPT;
 if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
 if(i->extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U||openfs_inode_get_extent_tree_root(i)==0U)return OPENFS_INODE_CORRUPT;
 }else if(i->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)return OPENFS_INODE_CORRUPT;
-if((i->blocks==0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(i->blocks!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))return OPENFS_INODE_CORRUPT;
+if((i->blocks==0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(i->blocks!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))return OPENFS_INODE_CORRUPT;if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&(i->blocks==0U))return OPENFS_INODE_CORRUPT;
 if(i->blocks==0U&&i->extent_count!=0U)return OPENFS_INODE_CORRUPT;
 if(i->blocks!=0U&&i->extent_count==0U)return OPENFS_INODE_CORRUPT;
     return OPENFS_INODE_OK;
