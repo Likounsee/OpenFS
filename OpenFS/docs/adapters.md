@@ -64,9 +64,8 @@ The repository now contains platform glue under `OpenFS/adapters/`:
 - `archiaos/` — callback bridge for the ArchiaOS storage subsystem.
 
 The Linux and ArchiaOS adapters have deterministic contract tests in
-`OpenFS/adapters/tests/`. The Windows implementation is compiled only on a
-Windows host and still requires a Windows CI/integration environment before it
-can be considered verified.
+`OpenFS/adapters/tests/`. The Windows implementation is compiled and exercised by the GitHub Actions
+`windows-latest` job, including the file-backed adapter integration test.
 
 The adapters deliberately expose only a block device to the core. They do not
 translate filesystem paths, permissions, directory operations, journal policy,
