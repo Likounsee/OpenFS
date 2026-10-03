@@ -15,9 +15,11 @@ static int decode(const uint8_t*b,openfs_inode_t*i){if(memcmp(b+INODE_MAGIC_OFFS
 static int locate(const openfs_block_device_t*d,uint64_t start,uint64_t inode_number,uint64_t count,uint64_t*block,uint32_t*within){if(inode_number==0U||inode_number>count||inode_number-1U>UINT64_MAX/OPENFS_INODE_SIZE)return 0;uint64_t off=(inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE;*block=off/d->block_size;*within=(uint32_t)(off%d->block_size);if(*within+OPENFS_INODE_SIZE>d->block_size)return 0;if(start>UINT64_MAX-*block)return 0;if(start+*block>=d->block_count)return 0;return 1;}
 openfs_inode_result_t openfs_inode_validate(const openfs_inode_t*i,uint64_t count){if(i==NULL||count==0U||i->inode_number==0U||i->inode_number>count)return OPENFS_INODE_INVALID_ARGUMENT;if(i->generation==0U)return OPENFS_INODE_CORRUPT;
 uint32_t type=i->mode&OPENFS_INODE_TYPE_MASK;
-if(i->mode!=OPENFS_INODE_MODE_FREE&&type!=OPENFS_INODE_MODE_REGULAR&&type!=OPENFS_INODE_MODE_DIRECTORY&&type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_INODE_CORRUPT;if((i->flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)return OPENFS_INODE_CORRUPT;
+if(i->mode!=OPENFS_INODE_MODE_FREE&&type!=OPENFS_INODE_MODE_REGULAR&&type!=OPENFS_INODE_MODE_DIRECTORY&&type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_INODE_CORRUPT;
+if((i->flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode!=OPENFS_INODE_MODE_FREE&&i->link_count==0U)return OPENFS_INODE_CORRUPT;
-if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;if(type==OPENFS_INODE_MODE_FREE&&i->parent_inode!=0U)return OPENFS_INODE_CORRUPT;
+if(i->reserved0!=0U)return OPENFS_INODE_CORRUPT;
+if(type==OPENFS_INODE_MODE_FREE&&i->parent_inode!=0U)return OPENFS_INODE_CORRUPT;
 if(i->mode==OPENFS_INODE_MODE_FREE&&(i->link_count!=0U||i->size!=0U||i->blocks!=0U||i->extent_count!=0U||i->flags!=0U))return OPENFS_INODE_CORRUPT;
 
 if((i->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U&&((i->flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U))return OPENFS_INODE_CORRUPT;
