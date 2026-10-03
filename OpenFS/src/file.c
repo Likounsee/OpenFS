@@ -180,33 +180,19 @@ static openfs_file_result_t allocate_blocks(
     return OPENFS_FILE_OK;
 }
 
-static openfs_file_result_t rollback_blocks(
-    openfs_block_device_t *device,
-    const openfs_superblock_t *sb,
-    openfs_inode_t *inode,
-    uint64_t target_blocks)
+static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t target_blocks)
 {
-    while (inode->blocks > target_blocks) {
-        if (inode->extent_count == 0U) return OPENFS_FILE_CORRUPT;
-        openfs_extent_t last;
-        if (openfs_inode_get_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK ||
-            last.block_count == 0U) return OPENFS_FILE_CORRUPT;
-        uint64_t physical = 0U;
-        if (last.physical_start > UINT64_MAX - last.block_count + 1U) return OPENFS_FILE_CORRUPT;
-        physical = last.physical_start + last.block_count - 1U;
-        if (openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) return OPENFS_FILE_CORRUPT;
-        last.block_count--;
-        inode->blocks--;
-        if (last.block_count == 0U) {
-            inode->extent_count--;
-        } else if (openfs_inode_set_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
-            return OPENFS_FILE_CORRUPT;
-        }
+    while(inode->blocks>target_blocks){
+        openfs_extent_t*a=NULL;uint32_t n=0U;openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
+        if(n==0U){free(a);return OPENFS_FILE_CORRUPT;}
+        openfs_extent_t*last=&a[n-1U];if(last->block_count==0U){free(a);return OPENFS_FILE_CORRUPT;}
+        uint64_t physical=last->physical_start+last->block_count-1U;
+        if(openfs_free_block(device,sb,physical)!=OPENFS_ALLOC_OK){free(a);return OPENFS_FILE_CORRUPT;}
+        last->block_count--;inode->blocks--;
+        if(last->block_count==0U)n--;
+        r=store_all_extents(device,sb,inode,a,n);free(a);if(r!=OPENFS_FILE_OK)return r;
     }
-    if (inode->blocks == 0U) {
-        inode->extent_count = 0U;
-        inode->flags &= ~OPENFS_INODE_FLAG_HAS_EXTENTS;
-    }
+    if(inode->blocks==0U){inode->extent_count=0U;inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;}
     return OPENFS_FILE_OK;
 }
 
