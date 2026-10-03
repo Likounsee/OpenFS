@@ -308,7 +308,7 @@ static void shrink_preserves_live_extent_tree_root(void){
     uint64_t root=0U,blocks[6];assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
     for(unsigned n=0U;n<6U;n++)assert(openfs_alloc_block(&v,&sb,&blocks[n])==OPENFS_ALLOC_OK);
     i.blocks=6U;i.size=6U*sb.block_size;i.extent_count=4U;
-    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};openfs_extent_result_t er=openfs_inode_set_extent(&i,n,&e);fprintf(stderr,"shrink-root set n=%u result=%d physical=%llu count=%u flags=%u\\n",n,(int)er,(unsigned long long)e.physical_start,i.extent_count,i.flags);assert(er==OPENFS_EXTENT_OK);}
     assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);i.extent_count=6U;
     openfs_extent_t tree_gap[2]={{5U,blocks[4],1U},{6U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree_gap,2U)==OPENFS_EXTENT_CORRUPT);
