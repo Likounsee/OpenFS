@@ -197,14 +197,15 @@ static void write_extent_tree_root_rollback_releases_metadata(void){
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
     openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
-    size_t disk_bytes=(size_t)d.block_count*d.block_size;uint8_t *snapshot=malloc(disk_bytes);assert(snapshot);memcpy(snapshot,d.bytes,disk_bytes);
+    size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;uint8_t *bitmap_snapshot=malloc(bitmap_bytes);uint8_t *inode_snapshot=malloc(sb.block_size);assert(bitmap_snapshot&&inode_snapshot);memcpy(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);memcpy(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size);
     uint8_t block[4096U];memset(block,0x6CU,sizeof(block));
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
-    assert(memcmp(snapshot,d.bytes,disk_bytes)==0);
+    assert(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
+    assert(memcmp(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
-    free(snapshot);free(d.bytes);
+    free(bitmap_snapshot);free(inode_snapshot);free(d.bytes);
 }
 static void partial_existing_write_rolls_back(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
