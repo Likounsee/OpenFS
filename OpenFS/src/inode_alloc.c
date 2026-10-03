@@ -43,9 +43,10 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     if (r != OPENFS_INODE_ALLOC_OK || out == NULL || parent == 0U) {
         return r != OPENFS_INODE_ALLOC_OK ? r : OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
-    if (mode != OPENFS_INODE_MODE_REGULAR &&
-        mode != OPENFS_INODE_MODE_DIRECTORY &&
-        mode != OPENFS_INODE_MODE_SYMLINK) {
+    uint32_t type = mode & OPENFS_INODE_TYPE_MASK;
+    if (type != OPENFS_INODE_MODE_REGULAR &&
+        type != OPENFS_INODE_MODE_DIRECTORY &&
+        type != OPENFS_INODE_MODE_SYMLINK) {
         return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
 
