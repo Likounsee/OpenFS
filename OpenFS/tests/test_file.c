@@ -2,11 +2,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include "openfs/file.h"
 #include "openfs/format.h"
 #include "openfs/bitmap.h"
 #include "openfs/fsck.h"
+#include "openfs/path.h"
 
 typedef struct {
     uint8_t *bytes;
@@ -188,16 +188,14 @@ static void truncate_shrink_free_failure_rolls_back_persisted_state(void){
 }
 static void write_extent_tree_root_rollback_releases_metadata(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();
+    uint64_t inode_number=0U;assert(openfs_path_create(&v,&sb,"/tree-rollback",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);openfs_inode_t i;uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);
     for(uint32_t n=0U;n<OPENFS_EXTENT_MAX;n++){
         openfs_extent_t e={n,sb.data_start+(uint64_t)n*2U,1U};
         assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
         assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
     }
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
-    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
-    assert(openfs_bitmap_set(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,i.inode_number-1U,1)==OPENFS_BITMAP_OK);
     openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
     uint8_t block[4096U];memset(block,0x6CU,sizeof(block));
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
