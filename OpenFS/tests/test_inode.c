@@ -21,7 +21,7 @@ int main(void){
  uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
  openfs_inode_t root;assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);
  assert(root.inode_number==1U&&root.parent_inode==1U&&root.link_count==1U&&root.mode==(OPENFS_INODE_MODE_DIRECTORY|0755U));
-root.mode=0200000U|0644U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;
+root.mode=0200000U|0644U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;root.flags=0x80000000U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.flags=OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.flags=0U;
  root.size=4096U;root.generation=2U;assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&root)==OPENFS_INODE_OK);
  memset(&root,0,sizeof(root));assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);assert(root.size==4096U&&root.generation==2U);
  assert(openfs_bitmap_set(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,1U,1)==OPENFS_BITMAP_OK);
