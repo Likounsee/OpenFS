@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.20)
+
+if(UNIX AND NOT APPLE)
+    add_library(openfs-linux-adapter STATIC linux/openfs_linux_adapter.c)
+    target_include_directories(openfs-linux-adapter PUBLIC linux ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+    target_link_libraries(openfs-linux-adapter PUBLIC openfs)
+    openfs_enable_warnings(openfs-linux-adapter)
+
+    if(OPENFS_BUILD_TESTS)
+        add_executable(openfs-linux-adapter-test tests/test_linux_adapter.c)
+        target_include_directories(openfs-linux-adapter-test PRIVATE linux)
+        target_link_libraries(openfs-linux-adapter-test PRIVATE openfs-linux-adapter)
+        openfs_enable_warnings(openfs-linux-adapter-test)
+        add_test(NAME openfs-linux-adapter COMMAND openfs-linux-adapter-test)
+    endif()
+endif()
+
+if(WIN32)
+    add_library(openfs-windows-adapter STATIC windows/openfs_windows_adapter.c)
+    target_include_directories(openfs-windows-adapter PUBLIC windows ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+    target_link_libraries(openfs-windows-adapter PUBLIC openfs)
+    openfs_enable_warnings(openfs-windows-adapter)
+endif()
+
+add_library(openfs-archiaos-adapter STATIC archiaos/openfs_archiaos_adapter.c)
+target_include_directories(openfs-archiaos-adapter PUBLIC archiaos ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(openfs-archiaos-adapter PUBLIC openfs)
+openfs_enable_warnings(openfs-archiaos-adapter)
