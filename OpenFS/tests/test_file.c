@@ -21,6 +21,7 @@ typedef struct {
     unsigned fail_after_writes;
     int fail_once;
     int fail_after_write;
+    size_t partial_write_bytes;
     int fail_flush;
     int fail_flush_once;
 } disk_t;
@@ -34,7 +35,7 @@ static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffe
 static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void *buffer){
     disk_t*d=ctx;
     if(count==0U||first>=d->block_count||(uint64_t)count>d->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
-    if(d->fail_block_enabled&&first==d->fail_block){if(d->fail_after_writes!=0U&&--d->fail_after_writes!=0U){}else{if(d->fail_once)d->fail_block_enabled=0;if(d->fail_after_write){memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));d->fail_after_write=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_IO_ERROR;}}
+    if(d->fail_block_enabled&&first==d->fail_block){if(d->fail_after_writes!=0U&&--d->fail_after_writes!=0U){}else{if(d->fail_once)d->fail_block_enabled=0;if(d->fail_after_write){size_t bytes=(size_t)((uint64_t)count*d->block_size);if(d->partial_write_bytes!=0U&&d->partial_write_bytes<bytes)bytes=d->partial_write_bytes;memcpy(d->bytes+(size_t)(first*d->block_size),buffer,bytes);d->fail_after_write=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_IO_ERROR;}}
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
@@ -361,12 +362,13 @@ static void existing_extent_tree_write_failure_restores_root(void){
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
     uint8_t *before=malloc(d.block_size);assert(before);
     memcpy(before,d.bytes+(size_t)(root*d.block_size),d.block_size);
-    d.fail_block=root;d.fail_block_enabled=1;d.fail_once=1;d.fail_after_write=1;
+    d.fail_block=root;d.fail_block_enabled=1;d.fail_once=1;d.fail_after_write=1;d.partial_write_bytes=2048U;
     assert(openfs_file_write(&v,&sb,&i,5U*4096U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
     d.fail_block_enabled=0;
     openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&persisted)==OPENFS_INODE_OK);
     assert(persisted.blocks==i.blocks&&persisted.extent_count==i.extent_count);
     assert(memcmp(before,d.bytes+(size_t)(root*d.block_size),d.block_size)==0);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);openfs_inode_t remounted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&remounted)==OPENFS_INODE_OK);uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&remounted,4U*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0x71U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(before);free(d.bytes);
 }
