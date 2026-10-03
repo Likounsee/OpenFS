@@ -1,4 +1,5 @@
 #include "openfs/file.h"
+#include "openfs/time.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -274,7 +275,7 @@ openfs_file_result_t openfs_file_truncate(
         }
         r=store_all_extents(device,sb,&reduced,extents,extent_count);free(extents);
         if(r!=OPENFS_FILE_OK){free(freed);*inode=original;return r;}
-        reduced.size=new_size;r=write_inode(device,sb,&reduced);
+        reduced.size=new_size;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){reduced.mtime_ns=now;reduced.ctime_ns=now;}r=write_inode(device,sb,&reduced);
         if(r!=OPENFS_FILE_OK){free(freed);*inode=original;return r;}
         for(uint64_t n=0U;n<removed;n++)if(openfs_free_block(device,sb,freed[n])!=OPENFS_ALLOC_OK){free(freed);*inode=reduced;return OPENFS_FILE_IO_ERROR;}
         free(freed);*inode=reduced;return OPENFS_FILE_OK;
@@ -302,6 +303,11 @@ openfs_file_result_t openfs_file_truncate(
         free(block);
     }
     inode->size = new_size;
+    uint64_t now = openfs_time_now_ns();
+    if (now != UINT64_MAX) {
+        inode->mtime_ns = now;
+        inode->ctime_ns = now;
+    }
     return write_inode(device, sb, inode);
 }
 
@@ -454,6 +460,11 @@ openfs_file_result_t openfs_file_write(
 
     if (end > inode->size) {
         inode->size = end;
+    }
+    uint64_t now = openfs_time_now_ns();
+    if (now != UINT64_MAX) {
+        inode->mtime_ns = now;
+        inode->ctime_ns = now;
     }
     r = write_inode(device, sb, inode);
     if (r != OPENFS_FILE_OK) {
