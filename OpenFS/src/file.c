@@ -201,7 +201,7 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
             return OPENFS_FILE_CORRUPT;
         }
         memset(tmp.reserved,0U,112U);
-        tmp.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
+        tmp.extent_count=0U;
         for(uint32_t i=0U;i<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i++)if(openfs_inode_set_extent(&tmp,i,&a[i])!=OPENFS_EXTENT_OK){
             if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
             return OPENFS_FILE_CORRUPT;
