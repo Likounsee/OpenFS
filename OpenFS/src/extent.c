@@ -149,7 +149,7 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (cap == 0U || index >= inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
 
     uint8_t *block = malloc(device->block_size);
-    if (block == NULL) return OPENFS_EXTENT_CORRUPT;
+    if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
     if (device->read(device->context, root, 1U, block) != OPENFS_IO_OK) {
         free(block);
         return OPENFS_EXTENT_CORRUPT;
@@ -199,7 +199,7 @@ openfs_extent_result_t openfs_extent_tree_write(
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
 
     uint8_t *block = calloc(1U, device->block_size);
-    if (block == NULL) return OPENFS_EXTENT_CORRUPT;
+    if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
     memcpy(block, OPENFS_EXTENT_TREE_MAGIC, 8U);
     store16(block + 8U, 0U);
     store16(block + 10U, (uint16_t)count);
@@ -214,5 +214,5 @@ openfs_extent_result_t openfs_extent_tree_write(
     store32(block + 24U, openfs_crc32c(block, device->block_size));
     openfs_io_result_t io = device->write(device->context, root, 1U, block);
     free(block);
-    return io == OPENFS_IO_OK ? OPENFS_EXTENT_OK : OPENFS_EXTENT_CORRUPT;
+    return io == OPENFS_IO_OK ? OPENFS_EXTENT_OK : OPENFS_EXTENT_IO_ERROR;
 }
