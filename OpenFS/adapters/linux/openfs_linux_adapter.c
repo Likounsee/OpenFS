@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "openfs_linux_adapter.h"
 
 #include <errno.h>
