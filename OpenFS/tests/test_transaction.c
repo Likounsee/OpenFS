@@ -8,9 +8,9 @@
 #include "openfs/mount.h"
 #include "openfs/path.h"
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed: %s\n", #x); return 1; } } while (0)
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
-static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if((d->fail_exact_enabled&&f==d->fail_exact)||(d->fail_data&&f>=d->fail_start))return OPENFS_IO_IO_ERROR;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
+static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){D*d=c;if(d->flush_failed||d->fail_flush)return OPENFS_IO_IO_ERROR;return OPENFS_IO_OK;}
 static int commit_full_cleans_active_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
@@ -29,7 +29,7 @@ openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={11U};CHECK(openf
 openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
 openfs_transaction_t t;uint64_t target=s.data_start+12U;uint8_t a[4096];memset(a,0x3CU,sizeof(a));
 CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);openfs_block_device_t *td=openfs_transaction_device(&t);CHECK(td!=NULL);CHECK(td->write(td->context,target,1U,a)==OPENFS_IO_OK);
-d.fail_exact=s.journal_start+1U;d.fail_exact_enabled=1;CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);CHECK(t.active==1&&t.committed==1);
+d.fail_exact=s.journal_start+1U;d.fail_exact_enabled=1;d.fail_exact_once=1;CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);CHECK(t.active==1&&t.committed==1);
 d.fail_exact_enabled=0;CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
 openfs_mount_t recovered;CHECK(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);CHECK(memcmp(d.b+(size_t)(target*d.bs),a,sizeof(a))==0);CHECK(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
 free(d.b);return 0;}
