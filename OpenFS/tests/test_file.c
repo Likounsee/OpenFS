@@ -403,6 +403,16 @@ static void partial_existing_write_rolls_back(void){
     assert(memcmp(saved2,d.bytes+(size_t)(second*d.block_size),4096U)==0);
     free(saved1);free(saved2);free(d.bytes);
 }
+static void partial_write_rollback_failure_is_corruption(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t initial[8192U],replacement[8192U];memset(initial,0x21U,sizeof(initial));memset(replacement,0xD3U,sizeof(replacement));
+    assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
+    uint64_t second=0U;assert(openfs_file_map_block_device(&v,&sb,&i,1U,&second)==OPENFS_FILE_OK);
+    d.fail_block=second;d.fail_block_enabled=1;
+    assert(openfs_file_write(&v,&sb,&i,0U,replacement,sizeof(replacement))==OPENFS_FILE_CORRUPT);
+    d.fail_block_enabled=0;
+    free(d.bytes);
+}
 static void credential_io(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();i.uid=1000U;i.gid=2000U;i.mode=OPENFS_INODE_MODE_REGULAR|0640U;
@@ -431,4 +441,5 @@ static void map_bounds(void){
 int main(void){
     new_extent_tree_root_partial_write_rolls_back();
     sparse_write_zeroes_intermediate_blocks();
+    partial_write_rollback_failure_is_corruption();
 shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();map_bounds();return 0;}
