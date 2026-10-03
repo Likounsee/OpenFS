@@ -536,7 +536,7 @@ openfs_file_result_t openfs_file_write(
             if (logical < old_blocks) {
                 if (device->read(device->context, physical, 1U, block) != OPENFS_IO_OK) {
                     free(block);
-                    (void)rollback_blocks(device, sb, inode, old_blocks);
+                    (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
                     *inode = original;
                     free_write_backups(backups,backup_count);
                     return OPENFS_FILE_IO_ERROR;
@@ -556,7 +556,7 @@ openfs_file_result_t openfs_file_write(
         }
         if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
             int restored=restore_write_backups(device,backups,backup_count);
-            (void)rollback_blocks(device, sb, inode, old_blocks);
+            (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
             *inode = original;
             free(block);
             free_write_backups(backups,backup_count);
@@ -577,7 +577,7 @@ openfs_file_result_t openfs_file_write(
     r = write_inode(device, sb, inode);
     if (r != OPENFS_FILE_OK) {
         int restored=restore_write_backups(device,backups,backup_count);
-        (void)rollback_blocks(device, sb, inode, old_blocks);
+        (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
         *inode = original;
         free_write_backups(backups,backup_count);
         return restored? r : OPENFS_FILE_CORRUPT;
