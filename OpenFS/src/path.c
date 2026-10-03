@@ -89,13 +89,29 @@ openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
-    return openfs_path_create(d,s,p,mode,out);
+    r=openfs_path_create(d,s,p,mode,out);
+    if(r!=OPENFS_PATH_OK)return r;
+    uint64_t count=0U;
+    if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    openfs_inode_t in;
+    if(read_inode(d,s,*out,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
+    in.uid=uid;in.gid=gid;
+    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return OPENFS_PATH_IO_ERROR;
+    return OPENFS_PATH_OK;
 }
 openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
-    return openfs_path_mkdir(d,s,p,out);
+    r=openfs_path_mkdir(d,s,p,out);
+    if(r!=OPENFS_PATH_OK)return r;
+    uint64_t count=0U;
+    if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    openfs_inode_t in;
+    if(read_inode(d,s,*out,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
+    in.uid=uid;in.gid=gid;
+    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return OPENFS_PATH_IO_ERROR;
+    return OPENFS_PATH_OK;
 }
 static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const openfs_inode_t *target,uint32_t uid)
 {
