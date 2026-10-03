@@ -140,12 +140,15 @@ static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
     }
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     uint8_t value=0x5AU;
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
+    assert(openfs_bitmap_set(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,i.inode_number-1U,1)==OPENFS_BITMAP_OK);
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,&value,1U)==OPENFS_FILE_OK);
     assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==OPENFS_EXTENT_MAX+1U);
     openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
     assert(openfs_file_truncate(&v,&sb,&i,1U)==OPENFS_FILE_IO_ERROR);
-    openfs_inode_t persisted;uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t persisted;
     assert(openfs_inode_read(&v,sb.inode_table_start,i.inode_number,inode_count,&persisted)==OPENFS_INODE_OK);
     assert(memcmp(&persisted,&before,sizeof(before))==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
