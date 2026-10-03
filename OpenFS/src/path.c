@@ -85,12 +85,12 @@ static openfs_path_result_t parent_access(openfs_block_device_t *d,const openfs_
     if(r!=OPENFS_PATH_OK)return r;
     return require_access(d,s,*parent,uid,gid,3U);
 }
-static void rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *name,uint64_t ino)
+static void rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *path,uint64_t ino)
 {
+    char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
     openfs_inode_t pi;
-    if(read_inode(d,s,parent,&pi)==OPENFS_PATH_OK){
+    if(split_last(path,pp,sizeof(pp),name,sizeof(name))==OPENFS_PATH_OK&&read_inode(d,s,parent,&pi)==OPENFS_PATH_OK)
         (void)openfs_dir_remove(d,s,&pi,name);
-    }
     (void)openfs_inode_free(d,s,ino);
 }
 openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
