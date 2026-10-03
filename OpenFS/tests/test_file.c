@@ -196,7 +196,7 @@ static void extent_tree_large_file(void){
     }
     i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
     openfs_inode_t before=i;
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_OK);assert(i.extent_count==OPENFS_EXTENT_MAX+1U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);assert((i.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U);
     assert(memcmp(&i,&before,sizeof(i))!=0);
     assert(i.extent_count==OPENFS_EXTENT_MAX+1U);
     uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U/4096U,&mapped)==OPENFS_FILE_OK);
