@@ -103,7 +103,7 @@ openfs_extent_result_t openfs_inode_set_extent(
         extent->physical_start > UINT64_MAX - extent->block_count) {
         return OPENFS_EXTENT_CORRUPT;
     }
-    uint8_t old_record[OPENFS_EXTENT_RECORD_SIZE];uint8_t old_flags=inode->flags;uint32_t old_count=inode->extent_count;uint8_t *p=slot(inode,index);memcpy(old_record,p,sizeof(old_record));encode_extent(p,extent);uint32_t new_count=index>=old_count?index+1U:old_count;openfs_extent_t check[OPENFS_EXTENT_MAX];for(uint32_t n=0U;n<new_count;n++){if(n==index)check[n]=*extent;else if(!decode_extent(slot(inode,n),&check[n])){memcpy(p,old_record,sizeof(old_record));inode->flags=old_flags;inode->extent_count=old_count;return OPENFS_EXTENT_CORRUPT;}}if(!validate_extent_order(check,new_count)){memcpy(p,old_record,sizeof(old_record));inode->flags=old_flags;inode->extent_count=old_count;return OPENFS_EXTENT_CORRUPT;}
+    uint8_t old_record[OPENFS_EXTENT_RECORD_SIZE];uint32_t old_flags=inode->flags;uint32_t old_count=inode->extent_count;uint8_t *p=slot(inode,index);memcpy(old_record,p,sizeof(old_record));encode_extent(p,extent);uint32_t new_count=index>=old_count?index+1U:old_count;openfs_extent_t check[OPENFS_EXTENT_MAX];for(uint32_t n=0U;n<new_count;n++){if(n==index)check[n]=*extent;else if(!decode_extent(slot(inode,n),&check[n])){memcpy(p,old_record,sizeof(old_record));inode->flags=old_flags;inode->extent_count=old_count;return OPENFS_EXTENT_CORRUPT;}}if(!validate_extent_order(check,new_count)){memcpy(p,old_record,sizeof(old_record));inode->flags=old_flags;inode->extent_count=old_count;return OPENFS_EXTENT_CORRUPT;}
     if (index >= inode->extent_count) inode->extent_count = index + 1U;
     inode->flags |= OPENFS_INODE_FLAG_HAS_EXTENTS;
     return OPENFS_EXTENT_OK;
