@@ -25,7 +25,9 @@ Already implemented:
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
 - absolute path traversal with `.`, `..`, and namespace create/mkdir/unlink/rename operations;
 - hard links and basic symbolic-link storage/readlink operations;
-- initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;\n- basic inode permission-bit access checks and timestamp update APIs;
+- initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;
+- inode generation reuse protection;
+- basic inode permission-bit access checks and timestamp update APIs;
 - checksummed journal records with begin/commit validation, committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
 - mount/unmount with primary/backup superblock fallback and committed-journal replay;
 - inode table;
