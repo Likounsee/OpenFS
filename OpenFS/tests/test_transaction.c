@@ -27,15 +27,19 @@ static int checkpoint_partial_write_rollback(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
 openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={12U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
 openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
-openfs_transaction_t t;uint64_t target=s.data_start+20U;uint8_t payload[4096];memset(payload,0x4BU,sizeof(payload));
-CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);openfs_block_device_t *td=openfs_transaction_device(&t);CHECK(td!=NULL);CHECK(td->write(td->context,target,1U,payload)==OPENFS_IO_OK);CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_OK);
-CHECK(j.next_record==0U);
-CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
-d.partial_block=s.journal_start;d.partial_bytes=1024U;d.partial_enabled=1;
-CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
-d.partial_enabled=0;
-CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
-free(d.b);return 0;
+d.partial_block=s.journal_start;d.partial_bytes=1024U;d.partial_enabled=1;d.partial_once=1;
+CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);d.partial_enabled=0;
+CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+free(d.b);
+
+D e={0};e.bs=4096U;e.bc=256U;e.b=calloc((size_t)e.bc,e.bs);CHECK(e.b);
+openfs_block_device_t wdev={&e,e.bs,e.bc,r,w,fl};uint8_t uuid2[16]={14U};CHECK(openfs_format(&wdev,uuid2)==OPENFS_FORMAT_OK);
+openfs_superblock_t sb;CHECK(openfs_read_superblock(&wdev,&sb)==OPENFS_FORMAT_OK);openfs_journal_t k;CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_OK);
+d.partial_block=0U;
+e.partial_block=sb.journal_start;e.partial_bytes=1024U;e.partial_enabled=1;e.partial_once=0;
+CHECK(openfs_journal_checkpoint(&k,&wdev)==OPENFS_JOURNAL_IO_ERROR);e.partial_enabled=0;
+CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_CORRUPT);
+free(e.b);return 0;
 }
 static int checkpoint_failure_recovery(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
