@@ -84,7 +84,7 @@ openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t*d,
     uint64_t inode_bytes=0U;if(mulov(sb->inode_table_blocks,sb->block_size,&inode_bytes)||inode_bytes<OPENFS_INODE_SIZE)return OPENFS_FORMAT_CORRUPT;
     uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
     uint64_t inode_cap=0U;if(mulov(sb->inode_bitmap_blocks,(uint64_t)sb->block_size*8U,&inode_cap)||inode_count==0U||inode_count>inode_cap||sb->root_inode>inode_count)return OPENFS_FORMAT_CORRUPT;
-    uint64_t block_cap=0U;if(mulov(sb->block_bitmap_blocks,(uint64_t)sb->block_size*8U,&block_cap)||sb->data_blocks>block_cap)return OPENFS_FORMAT_CORRUPT;
+    uint64_t block_cap=0U;if(mulov(sb->block_bitmap_blocks,(uint64_t)sb->block_size*8U,&block_cap)||sb->total_blocks>block_cap)return OPENFS_FORMAT_CORRUPT;
     return OPENFS_FORMAT_OK;
 }
 
