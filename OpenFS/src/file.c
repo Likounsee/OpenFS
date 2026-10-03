@@ -236,8 +236,9 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
         free(old_tree);
         *inode=tmp;return OPENFS_FILE_OK;
     }
-    memset(inode->reserved,0U,120U);inode->extent_count=n;
+    memset(inode->reserved,0U,120U);inode->extent_count=0U;
     for(uint32_t i=0U;i<n;i++)if(openfs_inode_set_extent(inode,i,&a[i])!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;
+    inode->extent_count=n;
     /*
      * Once the extent set fits inline again, the tree root is no longer part
      * of the inode's live metadata.  Do not rewrite the old root with an
