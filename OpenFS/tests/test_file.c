@@ -362,13 +362,14 @@ static void existing_extent_tree_write_failure_restores_root(void){
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
     uint8_t *before=malloc(d.block_size);assert(before);
     memcpy(before,d.bytes+(size_t)(root*d.block_size),d.block_size);
+    uint64_t inode_block=sb.inode_table_start+((ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size;uint8_t *inode_before=malloc(sb.block_size);size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;uint8_t *bitmap_before=malloc(bitmap_bytes);assert(inode_before&&bitmap_before);memcpy(inode_before,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size);memcpy(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);
     d.fail_block=root;d.fail_block_enabled=1;d.fail_once=1;d.fail_after_write=1;d.partial_write_bytes=2048U;
     assert(openfs_file_write(&v,&sb,&i,5U*4096U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
     d.fail_block_enabled=0;
     openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&persisted)==OPENFS_INODE_OK);
     assert(persisted.blocks==i.blocks&&persisted.extent_count==i.extent_count);
-    assert(memcmp(before,d.bytes+(size_t)(root*d.block_size),d.block_size)==0);
-    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);openfs_inode_t remounted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&remounted)==OPENFS_INODE_OK);uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&remounted,4U*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0x71U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    assert(memcmp(before,d.bytes+(size_t)(root*d.block_size),d.block_size)==0);assert(memcmp(inode_before,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);assert(memcmp(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);openfs_inode_t remounted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&remounted)==OPENFS_INODE_OK);uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&remounted,4U*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0x71U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(inode_before);free(bitmap_before);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(before);free(d.bytes);
 }
