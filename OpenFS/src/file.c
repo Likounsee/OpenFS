@@ -169,7 +169,7 @@ static openfs_file_result_t map_block_on_disk(const openfs_block_device_t*d,cons
     for(uint32_t n=inline_max;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_extent_tree_read(d,inode,n-inline_max,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
-openfs_file_result_t openfs_file_map_block_device(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*i,uint64_t logical,uint64_t*p){return map_block_on_disk(d,sb,i,logical,p);}
+openfs_file_result_t openfs_file_map_block_device(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*i,uint64_t logical,uint64_t*p){openfs_file_result_t r=map_block_on_disk(d,sb,i,logical,p);if(r!=OPENFS_FILE_OK)return r;if(validate_physical_block(sb,*p)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;return OPENFS_FILE_OK;}
 
 static openfs_file_result_t append_block_to_inode(openfs_block_device_t *d,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t physical)
 {
