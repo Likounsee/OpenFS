@@ -59,6 +59,9 @@ openfs_file_result_t openfs_file_truncate(
     uint64_t new_size);
 openfs_file_result_t openfs_file_write_tx(openfs_transaction_t *,const openfs_superblock_t *,openfs_inode_t *,uint64_t,const void *,size_t);
 openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t *,const openfs_superblock_t *,openfs_inode_t *,uint64_t);
+openfs_file_result_t openfs_file_read_as(openfs_block_device_t *,const openfs_superblock_t *,const openfs_inode_t *,uint32_t,uint32_t,uint64_t,void *,size_t,size_t *);
+openfs_file_result_t openfs_file_write_as(openfs_block_device_t *,const openfs_superblock_t *,openfs_inode_t *,uint32_t,uint32_t,uint64_t,const void *,size_t);
+openfs_file_result_t openfs_file_truncate_as(openfs_block_device_t *,const openfs_superblock_t *,openfs_inode_t *,uint32_t,uint32_t,uint64_t);
 
 #ifdef __cplusplus
 }
