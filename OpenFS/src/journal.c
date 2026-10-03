@@ -15,6 +15,7 @@ openfs_journal_result_t openfs_journal_write(openfs_journal_t*j,openfs_block_dev
 openfs_journal_result_t openfs_journal_commit(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx){if(j==NULL||!openfs_block_device_is_valid(d))return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->active_transaction_id==0U||tx!=j->active_transaction_id)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->sequence==UINT64_MAX)return OPENFS_JOURNAL_FULL;if(j->next_record>=j->journal_blocks)return OPENFS_JOURNAL_FULL;openfs_superblock_t s={0};s.block_size=j->block_size;s.journal_start=j->journal_start;s.journal_blocks=j->journal_blocks;openfs_journal_result_t r=put(d,&s,j->next_record,tx,++j->sequence,OPENFS_JOURNAL_COMMIT,NULL,0U);if(r==OPENFS_JOURNAL_OK){j->next_record++;j->commit_record_written=1U;j->active_transaction_id=0U;r=d->flush(d->context)==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}else if(r==OPENFS_JOURNAL_IO_ERROR){j->active_transaction_id=0U;}return r;}
 openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx){
 if(!range(d,s)||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+if(s->journal_blocks>SIZE_MAX/sizeof(uint64_t)||s->journal_blocks>SIZE_MAX)return OPENFS_JOURNAL_CORRUPT;
 uint8_t*b=malloc(d->block_size);if(!b)return OPENFS_JOURNAL_IO_ERROR;
 uint64_t*txids=calloc((size_t)s->journal_blocks,sizeof(*txids));uint8_t*states=calloc((size_t)s->journal_blocks,sizeof(*states));
 if(!txids||!states){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
