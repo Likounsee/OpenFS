@@ -212,7 +212,6 @@ static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const 
     uint64_t rollback_root=openfs_inode_get_extent_tree_root(inode);
     if(original_root==0U&&rollback_root!=0U){
         if(openfs_free_block(device,sb,rollback_root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
-        *inode=original;
     }
     return OPENFS_FILE_OK;
 }
