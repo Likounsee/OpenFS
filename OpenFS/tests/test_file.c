@@ -133,6 +133,18 @@ static void extent_tree_large_file(void){
     }
     free(d.bytes);
 }
+static void truncate_grow_flush_failure_rolls_back(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t data[4096U];memset(data,0x31U,sizeof(data));
+    assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
+    openfs_inode_t before=i;d.fail_flush=1;d.fail_flush_once=1;
+    assert(openfs_file_truncate(&v,&sb,&i,8192U)==OPENFS_FILE_IO_ERROR);
+    assert(memcmp(&i,&before,sizeof(i))==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
 static void truncate_grow_partial_tail_inode_failure_restores_data(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t initial[100U];memset(initial,0xD4U,sizeof(initial));
