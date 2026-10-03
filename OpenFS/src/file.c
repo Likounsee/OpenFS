@@ -244,24 +244,8 @@ openfs_file_result_t openfs_file_truncate(
         uint64_t before = inode->blocks;
         r = allocate_blocks(device, sb, inode, new_blocks);
         if (r != OPENFS_FILE_OK) {
-            while (inode->blocks > before) {
-                openfs_extent_t last;
-                if (openfs_inode_get_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
-                    return OPENFS_FILE_CORRUPT;
-                }
-                uint64_t physical = last.physical_start + last.block_count - 1U;
-                if (openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) {
-                    return OPENFS_FILE_CORRUPT;
-                }
-                last.block_count--;
-                inode->blocks--;
-                if (last.block_count == 0U) {
-                    inode->extent_count--;
-                } else {
-                    (void)openfs_inode_set_extent(inode, inode->extent_count - 1U, &last);
-                }
-            }
-            return r;
+            if (rollback_blocks(device,sb,inode,before)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;
+            *inode=original;return r;
         }
         for (uint64_t b = before; b < inode->blocks; ++b) {
             uint64_t physical = 0U;
