@@ -553,10 +553,11 @@ openfs_file_result_t openfs_file_write(
 
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) {
-        (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
+        int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
+            openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
         *inode = original;
         free_write_backups(backups,backup_count);
-        return OPENFS_FILE_IO_ERROR;
+        return rollback_ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
     }
 
     size_t done = 0U;
@@ -568,10 +569,11 @@ openfs_file_result_t openfs_file_write(
         r = map_block_on_disk(device, sb, inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
             free(block);
-            (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
+            int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
+                openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
             *inode = original;
             free_write_backups(backups,backup_count);
-            return r == OPENFS_FILE_OK ? OPENFS_FILE_CORRUPT : r;
+            return rollback_ok ? (r == OPENFS_FILE_OK ? OPENFS_FILE_CORRUPT : r) : OPENFS_FILE_CORRUPT;
         }
 
         size_t chunk = device->block_size - within;
@@ -583,10 +585,11 @@ openfs_file_result_t openfs_file_write(
             if (logical < old_blocks) {
                 if (device->read(device->context, physical, 1U, block) != OPENFS_IO_OK) {
                     free(block);
-                    (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
+                    int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
+                        openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
                     *inode = original;
                     free_write_backups(backups,backup_count);
-                    return OPENFS_FILE_IO_ERROR;
+                    return rollback_ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
                 }
             } else {
                 memset(block, 0, device->block_size);
@@ -603,11 +606,12 @@ openfs_file_result_t openfs_file_write(
         }
         if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
             int restored=restore_write_backups(device,backups,backup_count);
-            (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
+            int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
+                openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
             *inode = original;
             free(block);
             free_write_backups(backups,backup_count);
-            return restored?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+            return (restored && rollback_ok) ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
         }
         done += chunk;
     }
@@ -624,10 +628,11 @@ openfs_file_result_t openfs_file_write(
     r = write_inode(device, sb, inode);
     if (r != OPENFS_FILE_OK) {
         int restored=restore_write_backups(device,backups,backup_count);
-        (void)rollback_blocks(device, sb, inode, old_blocks, openfs_inode_get_extent_tree_root(&original));
+        int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
+            openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
         *inode = original;
         free_write_backups(backups,backup_count);
-        return restored? r : OPENFS_FILE_CORRUPT;
+        return (restored && rollback_ok) ? r : OPENFS_FILE_CORRUPT;
     }
     if (device->flush(device->context) != OPENFS_IO_OK) {
         int ok = 1;
