@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/path.h"
 #include "openfs/link.h"
+#include "openfs/bitmap.h"
 #include "openfs/fsck.h"
 #include <stdio.h>
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;}D;
