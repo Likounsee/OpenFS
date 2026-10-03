@@ -132,9 +132,16 @@ static void extent_tree_large_file(void){
 }
 static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t value=0x5AU;
-    for(uint64_t n=0U;n<5U;n++)assert(openfs_file_write(&v,&sb,&i,n*8192U,&value,1U)==OPENFS_FILE_OK);
-    assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==5U);
+    openfs_inode_t i=new_file();
+    for(uint32_t n=0U;n<OPENFS_EXTENT_MAX;n++){
+        openfs_extent_t e={n,sb.data_start+(uint64_t)n*2U,1U};
+        assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
+        assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
+    }
+    i.blocks=OPENFS_EXTENT_MAX;i.size=(uint64_t)OPENFS_EXTENT_MAX*4096U;
+    uint8_t value=0x5AU;
+    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,&value,1U)==OPENFS_FILE_OK);
+    assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==OPENFS_EXTENT_MAX+1U);
     openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
     assert(openfs_file_truncate(&v,&sb,&i,1U)==OPENFS_FILE_IO_ERROR);
