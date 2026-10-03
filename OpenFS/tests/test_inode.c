@@ -6,6 +6,7 @@
 #include "openfs/format.h"
 #include "openfs/inode.h"
 #include "openfs/extent.h"
+#include "openfs/inode_alloc.h"
 
 typedef struct { uint8_t *bytes; uint32_t block_size; uint64_t block_count; uint64_t fail_block; int fail_write_once_after_copy; } disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;uint64_t o=f*d->block_size,l=(uint64_t)n*d->block_size;memcpy(b,d->bytes+(size_t)o,(size_t)l);return OPENFS_IO_OK;}
