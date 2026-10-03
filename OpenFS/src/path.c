@@ -95,6 +95,7 @@ if (target.mode == OPENFS_INODE_MODE_FREE &&
     }
     return rollback_ok ? OPENFS_PATH_IO_ERROR : OPENFS_PATH_CORRUPT;
 }
+if(d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
 return OPENFS_PATH_OK;}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
@@ -136,7 +137,8 @@ if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_st
 return OPENFS_PATH_OK;
 }
 
-openfs_path_result_t openfs_path_chmod(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t permissions){uint64_t ino=0U,count=0U;if(openfs_path_lookup(d,s,p,&ino)!=OPENFS_PATH_OK)return OPENFS_PATH_NOT_FOUND;openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;in.mode=(in.mode&OPENFS_INODE_TYPE_MASK)|(permissions&OPENFS_INODE_PERMISSION_MASK);uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX)in.ctime_ns=now;return openfs_inode_write(d,s->inode_table_start,count,&in)==OPENFS_INODE_OK?OPENFS_PATH_OK:OPENFS_PATH_IO_ERROR;}
+openfs_path_result_t openfs_path_chmod(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t permissions){uint64_t ino=0U,count=0U;if(openfs_path_lookup(d,s,p,&ino)!=OPENFS_PATH_OK)return OPENFS_PATH_NOT_FOUND;openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;in.mode=(in.mode&OPENFS_INODE_TYPE_MASK)|(permissions&OPENFS_INODE_PERMISSION_MASK);uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX)in.ctime_ns=now;if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return OPENFS_PATH_IO_ERROR;
+return d->flush(d->context)==OPENFS_IO_OK?OPENFS_PATH_OK:OPENFS_PATH_IO_ERROR;}
 openfs_path_result_t openfs_path_set_times(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint64_t atime_ns,uint64_t mtime_ns){uint64_t ino=0U,count=0U;if(openfs_path_lookup(d,s,p,&ino)!=OPENFS_PATH_OK)return OPENFS_PATH_NOT_FOUND;openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;in.atime_ns=atime_ns;in.mtime_ns=mtime_ns;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX)in.ctime_ns=now;return openfs_inode_write(d,s->inode_table_start,count,&in)==OPENFS_INODE_OK?OPENFS_PATH_OK:OPENFS_PATH_IO_ERROR;}
 openfs_path_result_t openfs_path_check_access(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint8_t requested){uint64_t ino=0U;if(requested>7U)return OPENFS_PATH_INVALID_ARGUMENT;if(openfs_path_lookup(d,s,p,&ino)!=OPENFS_PATH_OK)return OPENFS_PATH_NOT_FOUND;openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;openfs_inode_result_t r=openfs_inode_check_access(&in,uid,gid,requested);return r==OPENFS_INODE_OK?OPENFS_PATH_OK:(r==OPENFS_INODE_ACCESS_DENIED?OPENFS_PATH_ACCESS_DENIED:OPENFS_PATH_INVALID_ARGUMENT);}
 
