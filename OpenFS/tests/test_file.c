@@ -64,7 +64,7 @@ static void write_allocation_failure_rolls_back_partial_allocations(void){
     memcpy(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);
     openfs_inode_t before=i;
     uint64_t bitmap_block=sb.block_bitmap_start;
-    d.fail_block=bitmap_block;d.fail_block_enabled=1;d.fail_after_writes=2U;
+    d.fail_block=bitmap_block;d.fail_block_enabled=1;d.fail_after_writes=2U;d.fail_once=1;
     uint8_t data[8192U];memset(data,0xA6U,sizeof(data));
     assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
