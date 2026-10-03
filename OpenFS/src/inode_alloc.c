@@ -14,8 +14,7 @@ static openfs_inode_alloc_result_t inode_count(
         sb->inode_table_blocks > UINT64_MAX / sb->block_size) {
         return OPENFS_INODE_ALLOC_CORRUPT;
     }
-    *count = (sb->inode_table_blocks * (uint64_t)sb->block_size) / OPENFS_INODE_SIZE;
-    return *count == 0U ? OPENFS_INODE_ALLOC_CORRUPT : OPENFS_INODE_ALLOC_OK;
+    uint64_t bytes=sb->inode_table_blocks*(uint64_t)sb->block_size;if(bytes<OPENFS_INODE_SIZE||bytes%OPENFS_INODE_SIZE!=0U)return OPENFS_INODE_ALLOC_CORRUPT;*count=bytes/OPENFS_INODE_SIZE;return *count==0U?OPENFS_INODE_ALLOC_CORRUPT:OPENFS_INODE_ALLOC_OK;
 }
 
 static openfs_inode_alloc_result_t valid(
@@ -57,10 +56,7 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     if (parent > count) return OPENFS_INODE_ALLOC_CORRUPT;if (parent==0U) return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     {
         openfs_inode_t parent_inode;
-        if (openfs_inode_read(d, sb->inode_table_start, parent, count, &parent_inode) != OPENFS_INODE_OK ||
-            (parent_inode.mode & OPENFS_INODE_TYPE_MASK) != OPENFS_INODE_MODE_DIRECTORY) {
-            return OPENFS_INODE_ALLOC_CORRUPT;
-        }
+        openfs_inode_result_t pir=openfs_inode_read(d,sb->inode_table_start,parent,count,&parent_inode);if(pir!=OPENFS_INODE_OK)return pir==OPENFS_INODE_IO_ERROR?OPENFS_INODE_ALLOC_IO_ERROR:OPENFS_INODE_ALLOC_CORRUPT;if((parent_inode.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_INODE_ALLOC_CORRUPT;
     }
 
     if (count < 2U) return OPENFS_INODE_ALLOC_OUT_OF_SPACE;
@@ -75,7 +71,7 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         }
 
         openfs_inode_t previous;
-        if (openfs_inode_read(d, sb->inode_table_start, n, count, &previous) != OPENFS_INODE_OK) return OPENFS_INODE_ALLOC_CORRUPT;
+        openfs_inode_result_t pr=openfs_inode_read(d,sb->inode_table_start,n,count,&previous);if(pr!=OPENFS_INODE_OK)return pr==OPENFS_INODE_IO_ERROR?OPENFS_INODE_ALLOC_IO_ERROR:OPENFS_INODE_ALLOC_CORRUPT;
         uint64_t generation = previous.generation;
         if (generation == 0U) generation = 1U;
         if (openfs_bitmap_set(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, 1) != OPENFS_BITMAP_OK) {
@@ -150,9 +146,7 @@ openfs_inode_alloc_result_t openfs_inode_free(
     if (!used) return OPENFS_INODE_ALLOC_CORRUPT;
 
     openfs_inode_t inode;
-    if (openfs_inode_read(d, sb->inode_table_start, n, count, &inode) != OPENFS_INODE_OK) {
-        return OPENFS_INODE_ALLOC_CORRUPT;
-    }
+    openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,n,count,&inode);if(ir!=OPENFS_INODE_OK)return ir==OPENFS_INODE_IO_ERROR?OPENFS_INODE_ALLOC_IO_ERROR:OPENFS_INODE_ALLOC_CORRUPT;
     if (inode.link_count != 0U || inode.mode != OPENFS_INODE_MODE_FREE) {
         return OPENFS_INODE_ALLOC_CORRUPT;
     }
