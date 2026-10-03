@@ -222,12 +222,7 @@ openfs_dir_result_t openfs_dir_remove(
             if (d->write(d->context, physical, 1U, original_block) != OPENFS_IO_OK) {
                 rollback_ok = 0;
             }
-            *dir = (openfs_inode_t){0};
-            /* Re-read the caller's original inode image from the saved state. */
-            /* The caller's inode was modified only in its timestamps above. */
-            /* Reconstruct those fields from the values saved before mutation. */
-            /* Other inode fields are still unchanged in the caller. */
-            /* Restore timestamps and persist the inode again. */
+            /* Restore timestamps and persist the original inode metadata. */
             dir->mtime_ns = old_mtime;
             dir->ctime_ns = old_ctime;
             if (write_inode_for_dir_rollback(d, sb, dir) != OPENFS_INODE_OK) {
