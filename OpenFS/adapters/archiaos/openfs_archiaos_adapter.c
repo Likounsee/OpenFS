@@ -5,7 +5,7 @@
 static openfs_io_result_t archiaos_read(void *context,uint64_t first,uint32_t count,void *buffer)
 {
     openfs_archiaos_adapter_t *a=context;
-    if(a==NULL||a->storage.read==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
+    if(a==NULL||a->storage.context==NULL||a->storage.read==NULL||a->storage.block_size==0U||a->storage.block_count==0U||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
     if(first>=a->storage.block_count||(uint64_t)count>a->storage.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     return a->storage.read(a->storage.context,first,count,buffer);
 }
@@ -13,7 +13,7 @@ static openfs_io_result_t archiaos_read(void *context,uint64_t first,uint32_t co
 static openfs_io_result_t archiaos_write(void *context,uint64_t first,uint32_t count,const void *buffer)
 {
     openfs_archiaos_adapter_t *a=context;
-    if(a==NULL||a->storage.write==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
+    if(a==NULL||a->storage.context==NULL||a->storage.write==NULL||a->storage.block_size==0U||a->storage.block_count==0U||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
     if(first>=a->storage.block_count||(uint64_t)count>a->storage.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     return a->storage.write(a->storage.context,first,count,buffer);
 }
