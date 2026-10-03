@@ -44,7 +44,7 @@ result=OPENFS_FSCK_IO_ERROR;
 goto done;
 }
 if(!root_allocated)bad++;
-for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK){if(used)bad++;continue;}
+for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK){bad++;continue;}
 if(used){if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
 uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
 uint32_t inline_n=(in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U ? (in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX) : (in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_INLINE_EXTENT_MAX);
