@@ -56,7 +56,7 @@ uint64_t entries=in.size/OPENFS_DIR_ENTRY_SIZE;uint8_t raw[OPENFS_DIR_ENTRY_SIZE
 for(uint64_t e=0U;e<entries;e++){
 size_t got=0U;if(openfs_file_read(d,s,&in,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got)!=OPENFS_FILE_OK||got!=sizeof(raw)){result=OPENFS_FSCK_IO_ERROR;goto done;}
 uint64_t target_ino=0U,generation=0U;uint8_t type=0U;int decoded=decode_dir_entry(raw,&target_ino,&generation,&type);
-if(decoded==0) continue;
+if(decoded==0){int empty=1;for(size_t z=0U;z<sizeof(raw);z++){if(raw[z]!=0U){empty=0;break;}}if(!empty)bad++;continue;}
 if(decoded<0){bad++;continue;}
 for(uint64_t prior=0U;prior<e;prior++){uint8_t prev[OPENFS_DIR_ENTRY_SIZE];size_t prev_got=0U;if(openfs_file_read(d,s,&in,prior*OPENFS_DIR_ENTRY_SIZE,prev,sizeof(prev),&prev_got)!=OPENFS_FILE_OK||prev_got!=sizeof(prev)){result=OPENFS_FSCK_IO_ERROR;goto done;}uint64_t pino=0U,pgen=0U;uint8_t ptype=0U;int pd=decode_dir_entry(prev,&pino,&pgen,&ptype);if(pd==1&&same_dir_name(raw,prev)){bad++;break;}}
 if(target_ino==0U||target_ino>count||target_ino==s->root_inode||generation==0U){bad++;continue;}
