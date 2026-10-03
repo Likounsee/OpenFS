@@ -331,7 +331,7 @@ openfs_path_result_t openfs_path_chmod_as(openfs_block_device_t*d,const openfs_s
 openfs_path_result_t openfs_path_set_times_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t atime_ns,uint64_t mtime_ns)
 {
     uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup(d,s,p,&ino);if(lr!=OPENFS_PATH_OK)return lr;
-    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
+    openfs_inode_t in;openfs_path_result_t ir=read_inode(d,s,ino,&in);if(ir!=OPENFS_PATH_OK)return ir;
     if(uid!=in.uid && uid!=0U)return OPENFS_PATH_ACCESS_DENIED;
     (void)gid;
     return openfs_path_set_times(d,s,p,atime_ns,mtime_ns);
