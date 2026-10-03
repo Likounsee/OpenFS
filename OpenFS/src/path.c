@@ -103,7 +103,17 @@ if (target.mode == OPENFS_INODE_MODE_FREE &&
     }
     return rollback_ok ? OPENFS_PATH_IO_ERROR : OPENFS_PATH_CORRUPT;
 }
-if(d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+if(d->flush(d->context)!=OPENFS_IO_OK){
+    int rollback_ok=1;
+    if(target.mode==OPENFS_INODE_MODE_FREE){
+        if(openfs_bitmap_set(d,s->inode_bitmap_start,s->inode_bitmap_blocks,e.inode_number-1U,1)!=OPENFS_BITMAP_OK)rollback_ok=0;
+        if(!restore_unlinked_inode_storage(d,s,&original_target))rollback_ok=0;
+    }
+    if(openfs_inode_write(d,s->inode_table_start,c,&original_target)!=OPENFS_INODE_OK)rollback_ok=0;
+    if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
+    if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+    return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+}
 return OPENFS_PATH_OK;}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
@@ -146,7 +156,14 @@ if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_st
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
-if(d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+if(d->flush(d->context)!=OPENFS_IO_OK){
+    int rollback_ok=1;
+    if(openfs_dir_remove(d,s,&ndir,nn)!=OPENFS_DIR_OK)rollback_ok=0;
+    if(openfs_dir_add(d,s,&odir,on,&e)!=OPENFS_DIR_OK)rollback_ok=0;
+    if(openfs_inode_write(d,s->inode_table_start,count,&original_target)!=OPENFS_INODE_OK)rollback_ok=0;
+    if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+    return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+}
 return OPENFS_PATH_OK;
 }
 
