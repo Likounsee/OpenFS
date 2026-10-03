@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the
 **robustness, crash-consistency, permissions, and scalability phase**. It is
 **not yet ready to be used as a normal everyday filesystem**.
 
-Current overall progress is approximately **85% of the planned project scope**.
+Current overall progress is approximately **88% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -20,6 +20,7 @@ This is an engineering estimate, not a release-readiness metric.
 - portable block-device API;
 - versioned v1.2 on-disk format;
 - primary and backup superblocks;
+- root-directory default traversal permissions (0755);
 - CRC32C checks for metadata;
 - geometry, bounds, and overflow validation;
 - block and inode allocation bitmaps;
@@ -54,7 +55,7 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### In active development
 
-- complete permission enforcement and automatic timestamp semantics (credential-aware core APIs are now present; adapter/open semantics remain);
+- complete permission enforcement and automatic timestamp semantics (credential-aware core APIs and traversal checks are now present; automatic timestamp policy and adapter/open semantics remain);
 - broader authorization-aware namespace checks for mutation operations;
 - stronger transaction poisoning/failed-state handling and crash consistency;
 - broader fault-injection coverage around every WAL phase;
