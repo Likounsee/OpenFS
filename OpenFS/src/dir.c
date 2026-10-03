@@ -16,6 +16,17 @@ static size_t name_length(const char *name)
     return n > OPENFS_DIR_NAME_MAX ? SIZE_MAX : n;
 }
 
+static openfs_dir_result_t map_file_result(openfs_file_result_t r)
+{
+    switch (r) {
+    case OPENFS_FILE_OK: return OPENFS_DIR_OK;
+    case OPENFS_FILE_NO_SPACE: return OPENFS_DIR_NO_SPACE;
+    case OPENFS_FILE_OUT_OF_RANGE: return OPENFS_DIR_NO_SPACE;
+    case OPENFS_FILE_CORRUPT: return OPENFS_DIR_CORRUPT;
+    default: return OPENFS_DIR_IO_ERROR;
+    }
+}
+
 static openfs_dir_result_t validate_entry(const openfs_dir_entry_t *entry)
 {
     if (entry == NULL || entry->inode_number == 0U || entry->generation == 0U ||
@@ -146,16 +157,14 @@ openfs_dir_result_t openfs_dir_add(
             if (existing[z] != 0U) { empty = 0; break; }
         }
         if (empty) {
-            return openfs_file_write(
-                d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw)) == OPENFS_FILE_OK
-                ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
+            return map_file_result(openfs_file_write(
+                d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw)));
         }
     }
 
     uint64_t offset = dir->size;
     if (offset > UINT64_MAX - OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_NO_SPACE;
-    return openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)) == OPENFS_FILE_OK
-        ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
+    return map_file_result(openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)));
 }
 
 static openfs_inode_result_t write_inode_for_dir_rollback(
