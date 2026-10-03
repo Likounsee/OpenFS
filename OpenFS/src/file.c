@@ -601,8 +601,19 @@ openfs_file_result_t openfs_file_write(
         free_write_backups(backups,backup_count);
         return restored? r : OPENFS_FILE_CORRUPT;
     }
-    free_write_backups(backups,backup_count);
-    return device->flush(device->context) == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
+    if (device->flush(device->context) != OPENFS_IO_OK) {
+        int ok = 1;
+        if (!restore_write_backups(device, backups, backup_count)) ok = 0;
+        if (rollback_blocks(device, sb, inode, old_blocks,
+                openfs_inode_get_extent_tree_root(&original)) != OPENFS_FILE_OK) ok = 0;
+        *inode = original;
+        if (write_inode(device, sb, &original) != OPENFS_FILE_OK) ok = 0;
+        if (device->flush(device->context) != OPENFS_IO_OK) ok = 0;
+        free_write_backups(backups, backup_count);
+        return ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
+    }
+    free_write_backups(backups, backup_count);
+    return OPENFS_FILE_OK;
 }
 
 openfs_file_result_t openfs_file_read_as(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,void*b,size_t len,size_t*got)
