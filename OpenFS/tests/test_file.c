@@ -10,6 +10,8 @@ typedef struct {
     uint32_t block_size;
     uint64_t block_count;
     unsigned flushes;
+    uint64_t fail_block;
+    int fail_block_enabled;
 } disk_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffer){
@@ -21,6 +23,7 @@ static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffe
 static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void *buffer){
     disk_t*d=ctx;
     if(count==0U||first>=d->block_count||(uint64_t)count>d->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
+    if(d->fail_block_enabled&&first==d->fail_block)return OPENFS_IO_IO_ERROR;
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
@@ -69,6 +72,21 @@ static void multi_block_and_truncate(void){
     assert(i.size==0U&&i.blocks==0U&&i.extent_count==0U);
     free(src);free(dst);free(d.bytes);
 }
+static void truncate_zero_failure_rolls_back(void){
+    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();
+    const uint64_t before_blocks=i.blocks,before_size=i.size,before_extents=i.extent_count;
+    d.fail_block=sb.data_start;
+    d.fail_block_enabled=1;
+    assert(openfs_file_truncate(&v,&sb,&i,8192U)==OPENFS_FILE_IO_ERROR);
+    assert(i.blocks==before_blocks&&i.size==before_size&&i.extent_count==before_extents);
+    d.fail_block_enabled=0;
+    uint64_t allocated=0U;
+    assert(openfs_alloc_block(&v,&sb,&allocated)==OPENFS_ALLOC_OK);
+    assert(allocated==sb.data_start);
+    assert(openfs_free_block(&v,&sb,allocated)==OPENFS_ALLOC_OK);
+    free(d.bytes);
+}
 static void map_bounds(void){
     openfs_inode_t i=new_file();uint64_t p=0U;
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
@@ -76,4 +94,4 @@ static void map_bounds(void){
     assert(openfs_file_map_block(&i,1U,&p)==OPENFS_FILE_OK&&p==43U);
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OUT_OF_RANGE);
 }
-int main(void){basic_rw();multi_block_and_truncate();map_bounds();return 0;}
+int main(void){basic_rw();multi_block_and_truncate();truncate_zero_failure_rolls_back();map_bounds();return 0;}
