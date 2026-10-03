@@ -98,6 +98,32 @@ static void truncate_tree_shrink_releases_root(void){
     free(d.bytes);
 }
 
+static void truncate_tree_shrink_free_failure_restores_root(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/tree-shrink-free-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;uint8_t block[4096U];memset(block,0x5AU,sizeof(block));
+    for(uint64_t n=0U;n<5U;n++){
+        assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+        assert(openfs_file_write(&v,&sb,&i,n*8192U,block,sizeof(block))==OPENFS_FILE_OK);
+    }
+    assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
+    uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
+    uint8_t *root_before=malloc(sb.block_size);assert(root_before);
+    assert(v.read(v.context,root,1U,root_before)==OPENFS_IO_OK);
+    openfs_extent_t removed_extent;assert(openfs_inode_get_extent(&i,1U,&removed_extent)==OPENFS_EXTENT_OK);
+    uint64_t bitmap_block=sb.block_bitmap_start+(removed_extent.physical_start/8U)/sb.block_size;
+    d.fail_block=bitmap_block;d.fail_block_enabled=1;d.fail_once=1;
+    assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);
+    d.fail_block_enabled=0;
+    openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&persisted)==OPENFS_INODE_OK);
+    assert(memcmp(&persisted,&i,sizeof(i))==0);
+    assert(memcmp(d.bytes+(size_t)(root*d.block_size),root_before,sb.block_size)==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(root_before);free(d.bytes);
+}
+
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -281,4 +307,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){truncate_tree_shrink_releases_root();write_flush_failure_rolls_back_media();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
