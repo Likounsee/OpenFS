@@ -104,12 +104,13 @@ static void truncate_tree_shrink_free_failure_restores_root(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/tree-shrink-free-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
-    openfs_inode_t i;uint8_t block[4096U];memset(block,0x5AU,sizeof(block));
-    for(uint64_t n=0U;n<5U;n++){
-        assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
-        assert(openfs_file_write(&v,&sb,&i,n*8192U,block,sizeof(block))==OPENFS_FILE_OK);
-    }
-    assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint64_t physical[10];for(unsigned n=0U;n<10U;n++)assert(openfs_alloc_block(&v,&sb,&physical[n])==OPENFS_ALLOC_OK);
+    for(unsigned n=1U;n<10U;n+=2U)assert(openfs_free_block(&v,&sb,physical[n])==OPENFS_ALLOC_OK);
+    memset(i.inline_data,0,sizeof(i.inline_data));memset(i.reserved,0,sizeof(i.reserved));i.flags=0U;i.extent_count=0U;i.blocks=5U;i.size=5U*4096U;
+    for(uint32_t n=0U;n<5U;n++){openfs_extent_t e={n,physical[n*2U],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
+    uint8_t value=0x5AU;assert(openfs_file_write(&v,&sb,&i,5U*4096U,&value,1U)==OPENFS_FILE_OK);
     assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
     uint8_t *root_before=malloc(sb.block_size);assert(root_before);
