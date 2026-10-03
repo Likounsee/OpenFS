@@ -123,4 +123,4 @@ For transaction durability, the intended WAL ordering is:
 A transaction that has reached durable COMMIT must remain recoverable even if a
 later final write, flush, or checkpoint operation fails.
 
-See `OpenFS/docs/architecture.md` and `OpenFS/docs/format.md`.
+See `OpenFS/docs/architecture.md`, `OpenFS/docs/format.md`, and `OpenFS/docs/adapters.md`.
