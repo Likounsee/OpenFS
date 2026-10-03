@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "openfs/fsck.h"
 #include "openfs/bitmap.h"
 #include "openfs/file.h"
