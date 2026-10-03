@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the **f
 core remains an integration component rather than a turnkey mounted desktop
 filesystem.
 
-Current overall progress is approximately **96% of the planned project scope**.
+Current overall progress is approximately **98% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -57,11 +57,11 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### Remaining hardening / integration
 
-- complete crash-cut testing for every namespace and file mutation failure point;
+- broader crash-cut testing for less frequently used namespace/error combinations;
 - direct (non-transactional) API partial-I/O rollback hardening where practical; transactional APIs remain the crash-atomic interface;
 - broader corruption/fault-injection matrix and compatibility regression images;
-- Windows adapter build/integration validation on a Windows runner;
-- ArchiaOS adapter integration against the actual ArchiaOS storage subsystem;
+- Windows adapter is verified by the GitHub Actions Windows build and adapter integration test;
+- ArchiaOS adapter integration against the actual ArchiaOS storage subsystem (the repository currently verifies only the documented callback contract);
 - optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
 - additional fsck repair capabilities (fsck remains deliberately read-only);
 
@@ -127,3 +127,22 @@ A transaction that has reached durable COMMIT must remain recoverable even if a
 later final write, flush, or checkpoint operation fails.
 
 See `OpenFS/docs/architecture.md`, `OpenFS/docs/format.md`, `OpenFS/docs/extent-tree-v1.3.md`, and `OpenFS/docs/adapters.md`.
+
+### Verified robustness guarantees
+
+The current CI-verified core includes persistent rollback tests for truncate grow/shrink
+failures, partial-tail zeroing failures, existing-file partial writes, extent-tree
+root allocation rollback, and allocation/free failures. The tests validate persistent
+inode state, allocation bitmaps, remountability, and fsck where the fixture is a
+fully reachable filesystem state.
+
+Journal checkpoint clearing is performed backwards. This is intentional: if a
+checkpoint is interrupted, the remaining journal prefix is still a syntactically
+valid prefix for replay instead of leaving a cleared first block followed by stale
+records. The final filesystem writes are flushed before checkpointing, so replaying
+a surviving committed prefix is safe.
+
+Direct file APIs attempt rollback on write/truncate persistence and flush failures.
+If the underlying device cannot complete the rollback or its final flush, the API
+returns a corruption-class error rather than claiming that the old state is
+durable. Transactional APIs remain the stronger crash-atomic interface.
