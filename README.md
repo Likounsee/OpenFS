@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the
 **robustness, crash-consistency, permissions, and scalability phase**. It is
 **not yet ready to be used as a normal everyday filesystem**.
 
-Current overall progress is approximately **70–75% of the planned project scope**.
+Current overall progress is approximately **80% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
