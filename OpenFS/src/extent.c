@@ -98,9 +98,9 @@ openfs_extent_result_t openfs_extent_result_t openfs_inode_set_extent(openfs_ino
 {
     if(inode==NULL||extent==NULL)return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint32_t inline_limit=(inode->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U?OPENFS_INODE_TREE_INLINE_EXTENT_MAX:OPENFS_EXTENT_MAX;
-    if(index>=inline_limit||index>inode->extent_count||extent->block_count==0U||
-       extent->logical_start>UINT64_MAX-extent->block_count||
-       extent->physical_start>UINT64_MAX-extent->block_count)return OPENFS_EXTENT_OUT_OF_RANGE;
+    if(index>=inline_limit||index>inode->extent_count||extent->block_count==0U)return OPENFS_EXTENT_OUT_OF_RANGE;
+    if(extent->logical_start>UINT64_MAX-extent->block_count||
+       extent->physical_start>UINT64_MAX-extent->block_count)return OPENFS_EXTENT_CORRUPT;
     uint8_t old_record[OPENFS_EXTENT_RECORD_SIZE];uint32_t old_flags=inode->flags,old_count=inode->extent_count;
     uint8_t *p=slot(inode,index);memcpy(old_record,p,sizeof(old_record));encode_extent(p,extent);
     uint32_t stored_count=old_count<inline_limit?old_count:inline_limit;
