@@ -227,6 +227,15 @@ openfs_extent_result_t openfs_extent_tree_write(
         inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         count != inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
+    openfs_extent_t previous_inline;
+    if (openfs_inode_get_extent(inode, OPENFS_INODE_TREE_INLINE_EXTENT_MAX - 1U,
+            &previous_inline) != OPENFS_EXTENT_OK ||
+        previous_inline.logical_start > UINT64_MAX - previous_inline.block_count ||
+        previous_inline.physical_start > UINT64_MAX - previous_inline.block_count ||
+        extents[0].logical_start != previous_inline.logical_start + previous_inline.block_count ||
+        extents[0].physical_start < previous_inline.physical_start + previous_inline.block_count) {
+        return OPENFS_EXTENT_CORRUPT;
+    }
 
     uint8_t *block = calloc(1U, device->block_size);
     if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
