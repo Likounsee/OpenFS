@@ -76,6 +76,7 @@ static int decode_entry(const uint8_t *raw, openfs_dir_entry_t *entry, char *nam
     for (size_t z = 24U + len; z < 252U; ++z) if (raw[z] != 0U) return -1;
     memcpy(name, raw + 24U, len);
     name[len] = '\0';
+    if (memchr(name, '/', len) != NULL) return -1;
     return 1;
 }
 
