@@ -1,5 +1,6 @@
 #ifndef OPENFS_PATH_H
 #define OPENFS_PATH_H
+#define OPENFS_PATH_MAX 4096U
 #include <stdint.h>
 #include "openfs/dir.h"
 #include "openfs/inode_alloc.h"
