@@ -533,8 +533,16 @@ openfs_file_result_t openfs_file_write(
 
     r = allocate_blocks(device, sb, inode, target_blocks);
     if (r != OPENFS_FILE_OK) {
+        int rollback_ok = 1;
+        if (inode->blocks > old_blocks) {
+            if (rollback_blocks(device, sb, inode, old_blocks,
+                    openfs_inode_get_extent_tree_root(&original)) != OPENFS_FILE_OK) {
+                rollback_ok = 0;
+            }
+        }
+        *inode = original;
         free_write_backups(backups,backup_count);
-        return r;
+        return rollback_ok ? r : OPENFS_FILE_CORRUPT;
     }
 
     uint8_t *block = malloc(device->block_size);
