@@ -224,7 +224,11 @@ openfs_extent_result_t openfs_extent_tree_write(
     for(uint32_t n=0U;n<count;n++){
         if(extents[n].physical_start>=device->block_count||
            extents[n].block_count>device->block_count-extents[n].physical_start)return OPENFS_EXTENT_CORRUPT;
-        if(extent_overlap(&extents[n],&previous_inline))return OPENFS_EXTENT_CORRUPT;
+        for(uint32_t i=0U;i<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i++){
+            openfs_extent_t inline_extent;
+            if(openfs_inode_get_extent(inode,i,&inline_extent)!=OPENFS_EXTENT_OK)return OPENFS_EXTENT_CORRUPT;
+            if(extent_overlap(&inline_extent,&extents[n]))return OPENFS_EXTENT_CORRUPT;
+        }
         if(root>=extents[n].physical_start&&root<extents[n].physical_start+extents[n].block_count)return OPENFS_EXTENT_CORRUPT;
     }
 
