@@ -163,11 +163,11 @@ static int validate_extent_set(const openfs_superblock_t *sb,const openfs_extent
         }else if(a[i].logical_start!=logical_end){
             return 0;
         }
+        uint64_t physical_end=a[i].physical_start+a[i].block_count;
         for(uint32_t p=0U;p<i;p++){
             uint64_t prior_end=a[p].physical_start+a[p].block_count;
-            if(a[i].physical_start<prior_end&&a[p].physical_start+a[i].block_count>a[p].physical_start)return 0;
+            if(a[i].physical_start<prior_end&&a[p].physical_start<physical_end)return 0;
         }
-        uint64_t physical_end=a[i].physical_start+a[i].block_count;
         if(a[i].physical_start<sb->data_start||physical_end>data_end)return 0;
         logical_end=a[i].logical_start+a[i].block_count;
     }
