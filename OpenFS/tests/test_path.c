@@ -74,6 +74,16 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     }
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
+{
+    uint64_t free_fail_ino=0U;
+    assert(openfs_path_create(&v,&s,"/home/test/inode-free-fail",OPENFS_INODE_MODE_REGULAR,&free_fail_ino)==OPENFS_PATH_OK);
+    d.fail_write_block=s.inode_bitmap_start; d.fail_write_enabled=1; d.fail_write_count=1;
+    assert(openfs_path_unlink(&v,&s,"/home/test/inode-free-fail")==OPENFS_PATH_IO_ERROR);
+    d.fail_write_enabled=0;
+    assert(openfs_path_lookup(&v,&s,"/home/test/inode-free-fail",&q)==OPENFS_PATH_OK&&q==free_fail_ino);
+    {openfs_inode_t restored;assert(openfs_inode_read(&v,s.inode_table_start,free_fail_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&restored)==OPENFS_INODE_OK);assert(restored.mode==OPENFS_INODE_MODE_REGULAR&&restored.link_count==1U);}
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+}
 
     openfs_inode_t after_link;
     assert(openfs_inode_read(&v,s.inode_table_start,x,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&after_link)==OPENFS_INODE_OK);
