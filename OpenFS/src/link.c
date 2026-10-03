@@ -57,7 +57,7 @@ char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
 openfs_path_result_t r;
 r=OPENFS_PATH_OK;
 if(split_last(linkp,pp,sizeof(pp),name,sizeof(name))!=OPENFS_PATH_OK)return OPENFS_PATH_INVALID_ARGUMENT;
-uint64_t parent=0U;r=openfs_path_lookup(d,s,pp,&parent);if(r!=OPENFS_PATH_OK)return r;
+uint64_t parent=0U;r=openfs_path_lookup_follow(d,s,pp,&parent);if(r!=OPENFS_PATH_OK)return r;
 uint64_t ino=0U;r=openfs_path_create(d,s,linkp,OPENFS_INODE_MODE_SYMLINK,&ino);if(r!=OPENFS_PATH_OK)return r;
 openfs_inode_t in;openfs_path_result_t in_result=ri(d,s,ino,&in);if(in_result!=OPENFS_PATH_OK){if(!symlink_rollback_created(d,s,parent,linkp,ino))return OPENFS_PATH_CORRUPT;return in_result;}
 if(len>UINT64_MAX-1U){if(!symlink_rollback_created(d,s,parent,linkp,ino))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_INVALID_ARGUMENT;}
