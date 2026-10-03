@@ -2,7 +2,13 @@ name: OpenFS CI
 
 on:
   push:
+    branches: [OpenFS]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: openfs-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
