@@ -51,7 +51,7 @@ static void setup(disk_t*d,openfs_block_device_t*v,openfs_superblock_t*sb){
 }
 static openfs_inode_t new_file(void){
     openfs_inode_t i;memset(&i,0,sizeof(i));
-    i.inode_number=2U;i.generation=1U;i.mode=OPENFS_INODE_MODE_REGULAR;i.link_count=1U;
+    i.inode_number=2U;i.generation=1U;i.parent_inode=1U;i.mode=OPENFS_INODE_MODE_REGULAR;i.link_count=1U;
     return i;
 }
 
