@@ -18,7 +18,7 @@ int main(void){long_unlink_path();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_
     assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_inode)==OPENFS_INODE_OK);
     uint64_t home_block=0U;assert(openfs_file_map_block_device(&v,&s,&home_inode,0U,&home_block)==OPENFS_FILE_OK);
     d.arm_on_write=0;d.fail_write_block=home_block;d.fail_write_enabled=1;d.fail_write_count=1;
-    assert(openfs_path_create(&v,&s,"/home/create-write-fail",OPENFS_INODE_MODE_REGULAR,&failed_ino)==OPENFS_PATH_IO_ERROR);
+    uint64_t create_fail_ino=0U;assert(openfs_path_create(&v,&s,"/home/create-write-fail",OPENFS_INODE_MODE_REGULAR,&create_fail_ino)==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
     assert(openfs_path_lookup(&v,&s,"/home/create-write-fail",&x)==OPENFS_PATH_NOT_FOUND);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
