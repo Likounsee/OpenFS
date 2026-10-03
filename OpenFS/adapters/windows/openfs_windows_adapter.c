@@ -1,20 +1,38 @@
 #include "openfs_windows_adapter.h"
 
 #ifdef _WIN32
-#include <limits.h>
+#include <stdint.h>
+
+static openfs_io_result_t transfer(HANDLE handle,uint64_t offset64,void *buffer,DWORD bytes,int write)
+{
+    if(bytes==0U||offset64>INT64_MAX)return OPENFS_IO_OUT_OF_RANGE;
+    OVERLAPPED ov={0};
+    ov.Offset=(DWORD)offset64;
+    ov.OffsetHigh=(DWORD)(offset64>>32U);
+    ov.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);
+    if(ov.hEvent==NULL)return OPENFS_IO_IO_ERROR;
+    DWORD done=0U;
+    BOOL ok=write?WriteFile(handle,buffer,bytes,NULL,&ov):ReadFile(handle,buffer,bytes,NULL,&ov);
+    if(!ok){
+        DWORD error=GetLastError();
+        if(error!=ERROR_IO_PENDING){CloseHandle(ov.hEvent);return OPENFS_IO_IO_ERROR;}
+        ok=GetOverlappedResult(handle,&ov,&done,TRUE);
+    }else{
+        ok=GetOverlappedResult(handle,&ov,&done,TRUE);
+    }
+    CloseHandle(ov.hEvent);
+    return ok&&done==bytes?OPENFS_IO_OK:OPENFS_IO_IO_ERROR;
+}
 
 static openfs_io_result_t windows_read(void *context,uint64_t first,uint32_t count,void *buffer)
 {
     openfs_windows_adapter_t *a=context;
     if(a==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
+    if(first>UINT64_MAX/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    uint64_t offset64=first*(uint64_t)a->device.block_size;
-    if(bytes64>UINT32_MAX||offset64>INT64_MAX-bytes64)return OPENFS_IO_OUT_OF_RANGE;
-    OVERLAPPED ov={0};ov.Offset=(DWORD)offset64;ov.OffsetHigh=(DWORD)(offset64>>32U);
-    DWORD done=0U;
-    if(!ReadFile(a->handle,buffer,(DWORD)bytes64,&done,&ov)||done!=(DWORD)bytes64)return OPENFS_IO_IO_ERROR;
-    return OPENFS_IO_OK;
+    if(bytes64>UINT32_MAX)return OPENFS_IO_OUT_OF_RANGE;
+    return transfer(a->handle,first*(uint64_t)a->device.block_size,buffer,(DWORD)bytes64,0);
 }
 
 static openfs_io_result_t windows_write(void *context,uint64_t first,uint32_t count,const void *buffer)
@@ -23,13 +41,10 @@ static openfs_io_result_t windows_write(void *context,uint64_t first,uint32_t co
     if(a==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
     if(!a->writable)return OPENFS_IO_READ_ONLY;
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
+    if(first>UINT64_MAX/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    uint64_t offset64=first*(uint64_t)a->device.block_size;
-    if(bytes64>UINT32_MAX||offset64>INT64_MAX-bytes64)return OPENFS_IO_OUT_OF_RANGE;
-    OVERLAPPED ov={0};ov.Offset=(DWORD)offset64;ov.OffsetHigh=(DWORD)(offset64>>32U);
-    DWORD done=0U;
-    if(!WriteFile(a->handle,buffer,(DWORD)bytes64,&done,&ov)||done!=(DWORD)bytes64)return OPENFS_IO_IO_ERROR;
-    return OPENFS_IO_OK;
+    if(bytes64>UINT32_MAX)return OPENFS_IO_OUT_OF_RANGE;
+    return transfer(a->handle,first*(uint64_t)a->device.block_size,(void *)buffer,(DWORD)bytes64,1);
 }
 
 static openfs_io_result_t windows_flush(void *context)
