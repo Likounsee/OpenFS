@@ -1,4 +1,5 @@
 #include "openfs/file.h"
+#include "openfs/bitmap.h"
 #include "openfs/time.h"
 
 #include <limits.h>
@@ -275,12 +276,34 @@ openfs_file_result_t openfs_file_truncate(
             reduced.blocks-=last->block_count-keep;
             if(keep==0U)extent_count--;else last->block_count=keep;
         }
+        uint64_t old_root=openfs_inode_get_extent_tree_root(&original);
+        uint8_t *old_tree_block=NULL;
+        if(old_root!=0U){
+            old_tree_block=malloc(device->block_size);
+            if(old_tree_block==NULL||device->read(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK){free(old_tree_block);free(extents);free(freed);return OPENFS_FILE_IO_ERROR;}
+        }
         r=store_all_extents(device,sb,&reduced,extents,extent_count);free(extents);
-        if(r!=OPENFS_FILE_OK){free(freed);*inode=original;return r;}
+        if(r!=OPENFS_FILE_OK){free(old_tree_block);free(freed);*inode=original;return r;}
         reduced.size=new_size;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){reduced.mtime_ns=now;reduced.ctime_ns=now;}r=write_inode(device,sb,&reduced);
-        if(r!=OPENFS_FILE_OK){free(freed);*inode=original;return r;}
-        for(uint64_t n=0U;n<removed;n++)if(openfs_free_block(device,sb,freed[n])!=OPENFS_ALLOC_OK){free(freed);*inode=reduced;return OPENFS_FILE_IO_ERROR;}
-        free(freed);*inode=reduced;return OPENFS_FILE_OK;
+        if(r!=OPENFS_FILE_OK){
+            int restored=1;
+            if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)restored=0;
+            free(old_tree_block);free(freed);*inode=original;
+            return restored?r:OPENFS_FILE_CORRUPT;
+        }
+        for(uint64_t n=0U;n<removed;n++){
+            if(openfs_free_block(device,sb,freed[n])!=OPENFS_ALLOC_OK){
+                int restored=1;
+                for(uint64_t k=0U;k<removed;k++){
+                    if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)restored=0;
+                }
+                if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)restored=0;
+                if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)restored=0;
+                free(old_tree_block);free(freed);*inode=original;
+                return restored?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+            }
+        }
+        free(old_tree_block);free(freed);*inode=reduced;return device->flush(device->context)==OPENFS_IO_OK?OPENFS_FILE_OK:OPENFS_FILE_IO_ERROR;
     }
 
     if (new_size > old_size && old_size % device->block_size != 0U) {
