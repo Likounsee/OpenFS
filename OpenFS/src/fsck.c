@@ -23,7 +23,8 @@ static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
 if (errors != NULL) *errors = 0U;
-if(!openfs_block_device_is_valid(d)||s==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;if(openfs_validate_superblock(d,s)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
+if(!openfs_block_device_is_valid(d)||s==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;
+if(openfs_validate_superblock(d,s)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
 uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK)return OPENFS_FSCK_CORRUPT;
 uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
@@ -73,5 +74,5 @@ if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}else if(dir_re
 for(uint64_t b=0U;b<s->data_start;b++){int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!set)bad++;}
 if(s->data_start>UINT64_MAX-s->data_blocks){result=OPENFS_FSCK_CORRUPT;goto done;}uint64_t data_end=s->data_start+s->data_blocks;for(uint64_t b=s->data_start;b<data_end;b++){int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set&&!ref_test(refs,b-s->data_start))bad++;}
 for(uint64_t b=data_end;b<d->block_count;b++){int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(b==d->block_count-1U){if(!set)bad++;}else if(set)bad++;}
-uint64_t inode_cap=s->inode_bitmap_blocks*(uint64_t)d->block_size*8U;if(inode_cap>count){for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
+if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size)return OPENFS_FSCK_CORRUPT;uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U)return OPENFS_FSCK_CORRUPT;uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
 done:free(dir_refs);free(refs);*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);}
