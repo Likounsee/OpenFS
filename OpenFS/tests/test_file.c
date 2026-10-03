@@ -135,7 +135,7 @@ static void extent_tree_large_file(void){
 }
 static void truncate_grow_flush_failure_rolls_back(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t data[4096U];memset(data,0x31U,sizeof(data));
+    uint64_t inode_number=0U;assert(openfs_path_create(&v,&sb,"/truncate_grow_flush_failure_rolls_back",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);uint8_t data[4096U];memset(data,0x31U,sizeof(data));
     assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
@@ -147,11 +147,8 @@ static void truncate_grow_flush_failure_rolls_back(void){
 }
 static void truncate_grow_partial_tail_inode_failure_restores_data(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t initial[100U];memset(initial,0xD4U,sizeof(initial));
+    uint64_t inode_number=0U;assert(openfs_path_create(&v,&sb,"/truncate_grow_partial_tail_inode_failure_restores_data",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);uint8_t initial[100U];memset(initial,0xD4U,sizeof(initial));
     assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
-    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
-    assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
-    assert(openfs_bitmap_set(&v,sb.inode_bitmap_start,sb.inode_bitmap_blocks,i.inode_number-1U,1)==OPENFS_BITMAP_OK);
     openfs_inode_t before=i;uint64_t physical=0U;assert(openfs_file_map_block_device(&v,&sb,&i,0U,&physical)==OPENFS_FILE_OK);
     uint8_t *saved=malloc(d.block_size);assert(saved);memcpy(saved,d.bytes+(size_t)(physical*d.block_size),d.block_size);
     uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);
@@ -164,7 +161,7 @@ static void truncate_grow_partial_tail_inode_failure_restores_data(void){
 }
 static void truncate_shrink_flush_failure_rolls_back(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t data[12288U];memset(data,0x44U,sizeof(data));
+    uint64_t inode_number=0U;assert(openfs_path_create(&v,&sb,"/truncate_shrink_flush_failure_rolls_back",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);uint8_t data[12288U];memset(data,0x44U,sizeof(data));
     assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
