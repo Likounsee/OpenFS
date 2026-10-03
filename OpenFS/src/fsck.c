@@ -17,7 +17,7 @@ uint32_t stored=(uint32_t)r[252U]|((uint32_t)r[253U]<<8U)|((uint32_t)r[254U]<<16
 if(stored!=openfs_crc32c(r,252U))return -1;
 uint32_t len=r[7U];if(len==0U||len>OPENFS_DIR_NAME_MAX)return -1;
 for(uint32_t i=0U;i<len;i++){if(r[24U+i]=='/'||r[24U+i]=='\0')return -1;}
-*ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];return 1;}
+*ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];for(uint32_t i=len+24U;i<252U;i++)if(r[i]!=0U)return -1;return 1;}
 static int same_dir_name(const uint8_t*a,const uint8_t*b){uint32_t la=a[7U],lb=b[7U];return la==lb&&memcmp(a+24U,b+24U,la)==0;}
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
@@ -44,7 +44,7 @@ result=OPENFS_FSCK_IO_ERROR;
 goto done;
 }
 if(!root_allocated)bad++;
-for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK){bad++;continue;}
+for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(ir!=OPENFS_INODE_OK){if(ir==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
 if(used){if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
 uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
 uint32_t inline_n=(in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U ? (in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX) : (in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_INLINE_EXTENT_MAX);
@@ -66,7 +66,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
     openfs_extent_t e;openfs_extent_result_t er;
     if(i<inline_n)er=openfs_inode_get_extent(&in,i,&e);
     else er=openfs_extent_tree_read(d,&in,i-inline_n,&e);
-    if(er!=OPENFS_EXTENT_OK||e.block_count==0U){bad++;continue;}
+    if(er!=OPENFS_EXTENT_OK||e.block_count==0U){if(er==OPENFS_EXTENT_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
     uint64_t pe=0U,data_end=0U,logical_end=0U;
     if(!add(extent_total,e.block_count,&extent_total)||!add(s->data_start,s->data_blocks,&data_end)||
        !add(e.physical_start,e.block_count,&pe)||!add(e.logical_start,e.block_count,&logical_end)||
@@ -102,11 +102,11 @@ if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)continue;
 if(in.size%OPENFS_DIR_ENTRY_SIZE!=0U){bad++;continue;}
 uint64_t entries=in.size/OPENFS_DIR_ENTRY_SIZE;uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
 for(uint64_t e=0U;e<entries;e++){
-size_t got=0U;if(e>UINT64_MAX/OPENFS_DIR_ENTRY_SIZE){bad++;continue;}if(openfs_file_read(d,s,&in,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got)!=OPENFS_FILE_OK||got!=sizeof(raw)){result=OPENFS_FSCK_IO_ERROR;goto done;}
+size_t got=0U;if(e>UINT64_MAX/OPENFS_DIR_ENTRY_SIZE){bad++;continue;}openfs_file_result_t fr=openfs_file_read(d,s,&in,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got);if(fr!=OPENFS_FILE_OK||got!=sizeof(raw)){if(fr==OPENFS_FILE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
 uint64_t target_ino=0U,generation=0U;uint8_t type=0U;int decoded=decode_dir_entry(raw,&target_ino,&generation,&type);
 if(decoded==0){int empty=1;for(size_t z=0U;z<sizeof(raw);z++){if(raw[z]!=0U){empty=0;break;}}if(!empty)bad++;continue;}
 if(decoded<0){bad++;continue;}
-for(uint64_t prior=0U;prior<e;prior++){uint8_t prev[OPENFS_DIR_ENTRY_SIZE];size_t prev_got=0U;if(openfs_file_read(d,s,&in,prior*OPENFS_DIR_ENTRY_SIZE,prev,sizeof(prev),&prev_got)!=OPENFS_FILE_OK||prev_got!=sizeof(prev)){result=OPENFS_FSCK_IO_ERROR;goto done;}uint64_t pino=0U,pgen=0U;uint8_t ptype=0U;int pd=decode_dir_entry(prev,&pino,&pgen,&ptype);if(pd==1&&same_dir_name(raw,prev)){bad++;break;}}
+for(uint64_t prior=0U;prior<e;prior++){uint8_t prev[OPENFS_DIR_ENTRY_SIZE];size_t prev_got=0U;openfs_file_result_t pfr=openfs_file_read(d,s,&in,prior*OPENFS_DIR_ENTRY_SIZE,prev,sizeof(prev),&prev_got);if(pfr!=OPENFS_FILE_OK||prev_got!=sizeof(prev)){if(pfr==OPENFS_FILE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;break;}uint64_t pino=0U,pgen=0U;uint8_t ptype=0U;int pd=decode_dir_entry(prev,&pino,&pgen,&ptype);if(pd==1&&same_dir_name(raw,prev)){bad++;break;}}
 if(target_ino==0U||target_ino>count||target_ino==s->root_inode||generation==0U){bad++;continue;}
 openfs_inode_t target;if(openfs_inode_read(d,s->inode_table_start,target_ino,count,&target)!=OPENFS_INODE_OK){bad++;continue;}
 if(target.generation!=generation||type!=inode_dir_type(target.mode)){bad++;continue;}
