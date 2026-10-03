@@ -100,7 +100,9 @@ openfs_dir_result_t openfs_dir_lookup(
         size_t got = 0U;
         if (n > UINT64_MAX / OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_CORRUPT;
         openfs_file_result_t r = openfs_file_read(d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw), &got);
-        if (r != OPENFS_FILE_OK || got != sizeof(raw)) return OPENFS_DIR_IO_ERROR;
+        if (r != OPENFS_FILE_OK || got != sizeof(raw)) {
+            return r == OPENFS_FILE_CORRUPT ? OPENFS_DIR_CORRUPT : OPENFS_DIR_IO_ERROR;
+        }
         int decoded = decode_entry(raw, out, current);
         if (decoded < 0) return OPENFS_DIR_CORRUPT;
         if (decoded == 1 && strlen(current) == len && memcmp(current, name, len) == 0) return OPENFS_DIR_OK;
@@ -137,7 +139,7 @@ openfs_dir_result_t openfs_dir_add(
         openfs_file_result_t rr = openfs_file_read(
             d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, existing, sizeof(existing), &got);
         if (rr != OPENFS_FILE_OK || got != sizeof(existing)) {
-            return OPENFS_DIR_IO_ERROR;
+            return rr == OPENFS_FILE_CORRUPT ? OPENFS_DIR_CORRUPT : OPENFS_DIR_IO_ERROR;
         }
         int empty = 1;
         for (size_t z = 0U; z < sizeof(existing); ++z) {
