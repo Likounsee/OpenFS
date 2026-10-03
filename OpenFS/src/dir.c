@@ -27,7 +27,7 @@ static openfs_dir_result_t validate_entry(const openfs_dir_entry_t *entry)
 
 static openfs_dir_result_t validate_dir(const openfs_inode_t *inode, const char *name)
 {
-    if (inode == NULL || name == NULL) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (inode == NULL || name == NULL || inode->size > UINT64_MAX) return OPENFS_DIR_INVALID_ARGUMENT;
     if (inode->size > UINT64_MAX - (OPENFS_DIR_ENTRY_SIZE - 1U)) return OPENFS_DIR_CORRUPT;
     if ((inode->mode & 0170000U) != OPENFS_INODE_MODE_DIRECTORY) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name[0] == '\0' || strchr(name, '/') != NULL) return OPENFS_DIR_INVALID_ARGUMENT;
@@ -190,9 +190,7 @@ openfs_dir_result_t openfs_dir_remove(
 
     for (uint64_t n = 0U; n < entries; ++n) {
         size_t got = 0U;
-        if (openfs_file_read(d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw), &got) != OPENFS_FILE_OK || got != sizeof(raw)) {
-            return OPENFS_DIR_IO_ERROR;
-        }
+        openfs_file_result_t fr=openfs_file_read(d,sb,dir,n*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got);if(fr!=OPENFS_FILE_OK||got!=sizeof(raw))return fr==OPENFS_FILE_CORRUPT?OPENFS_DIR_CORRUPT:OPENFS_DIR_IO_ERROR;
         int decoded = decode_entry(raw, &found, current);
         if (decoded < 0) return OPENFS_DIR_CORRUPT;
         if (decoded == 1 && strcmp(current, name) == 0) {
