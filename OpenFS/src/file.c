@@ -264,9 +264,9 @@ static openfs_file_result_t allocate_blocks(
 
 static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t target_blocks,uint64_t original_root)
 {
-
+    uint64_t rollback_root=openfs_inode_get_extent_tree_root(inode);
     while(inode->blocks>target_blocks){
-        openfs_extent_t*a=NULL;uint32_t n=0U;uint64_t rollback_root=openfs_inode_get_extent_tree_root(inode);openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
+        openfs_extent_t*a=NULL;uint32_t n=0U;openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
         if(n==0U){free(a);return OPENFS_FILE_CORRUPT;}
         openfs_extent_t*last=&a[n-1U];if(last->block_count==0U){free(a);return OPENFS_FILE_CORRUPT;}
         uint64_t physical=0U;
