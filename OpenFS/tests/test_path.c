@@ -6,6 +6,7 @@
 #include "openfs/link.h"
 #include "openfs/bitmap.h"
 #include "openfs/fsck.h"
+#include "openfs/file.h"
 #include <stdio.h>
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
@@ -57,6 +58,10 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_path_lookup(&v,&s,"/home/test/link-fail",&q)==OPENFS_PATH_NOT_FOUND);{
     uint64_t unlink_fail_ino=0U;
     assert(openfs_path_create(&v,&s,"/home/test/unlink-fail",OPENFS_INODE_MODE_REGULAR,&unlink_fail_ino)==OPENFS_PATH_OK);
+    openfs_inode_t unlink_fail_inode;
+    assert(openfs_inode_read(&v,s.inode_table_start,unlink_fail_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_inode)==OPENFS_INODE_OK);
+    uint8_t unlink_payload[4096];memset(unlink_payload,0x6BU,sizeof(unlink_payload));
+    assert(openfs_file_write(&v,&s,&unlink_fail_inode,0U,unlink_payload,sizeof(unlink_payload))==OPENFS_FILE_OK);
     uint64_t target_block=s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=2;
     assert(openfs_path_unlink(&v,&s,"/home/test/unlink-fail")==OPENFS_PATH_IO_ERROR);
