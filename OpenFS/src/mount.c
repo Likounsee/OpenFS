@@ -48,6 +48,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
         return (pr==OPENFS_FORMAT_IO_ERROR||br==OPENFS_FORMAT_IO_ERROR)?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     }
     if(pr==OPENFS_FORMAT_OK&&br==OPENFS_FORMAT_OK){
+        if(memcmp(primary.uuid,backup.uuid,sizeof(primary.uuid))!=0)return OPENFS_MOUNT_CORRUPT;
         mount->superblock=(backup.generation>primary.generation)?backup:primary;
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
