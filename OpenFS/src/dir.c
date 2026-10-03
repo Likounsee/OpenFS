@@ -16,6 +16,15 @@ static size_t name_length(const char *name)
     return n > OPENFS_DIR_NAME_MAX ? SIZE_MAX : n;
 }
 
+static openfs_dir_result_t validate_entry(const openfs_dir_entry_t *entry)
+{
+    if (entry == NULL || entry->inode_number == 0U || entry->generation == 0U ||
+        (entry->type != 1U && entry->type != 2U && entry->type != 3U)) {
+        return OPENFS_DIR_INVALID_ARGUMENT;
+    }
+    return OPENFS_DIR_OK;
+}
+
 static openfs_dir_result_t validate_dir(const openfs_inode_t *inode, const char *name)
 {
     if (inode == NULL || name == NULL) return OPENFS_DIR_INVALID_ARGUMENT;
@@ -61,6 +70,8 @@ static int decode_entry(const uint8_t *raw, openfs_dir_entry_t *entry, char *nam
         entry->generation |= (uint64_t)raw[16U + k] << (8U * k);
     }
     entry->type = raw[6U];
+    if (entry->generation == 0U || entry->inode_number == 0U ||
+        (entry->type != 1U && entry->type != 2U && entry->type != 3U)) return -1;
     memcpy(name, raw + 24U, len);
     name[len] = '\0';
     return 1;
@@ -74,6 +85,8 @@ openfs_dir_result_t openfs_dir_lookup(
     openfs_dir_entry_t *out)
 {
     openfs_dir_result_t vr = validate_dir(dir, name);
+    if (!openfs_block_device_is_valid(d) || sb == NULL || sb->block_size != d->block_size) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (dir != NULL && dir->size % OPENFS_DIR_ENTRY_SIZE != 0U) return OPENFS_DIR_CORRUPT;
     if (vr != OPENFS_DIR_OK || out == NULL) return vr != OPENFS_DIR_OK ? vr : OPENFS_DIR_INVALID_ARGUMENT;
     size_t len = name_length(name);
     uint64_t entries = dir->size / OPENFS_DIR_ENTRY_SIZE;
@@ -99,9 +112,10 @@ openfs_dir_result_t openfs_dir_add(
     const openfs_dir_entry_t *entry)
 {
     openfs_dir_result_t vr = validate_dir(dir, name);
-    if (vr != OPENFS_DIR_OK || entry == NULL || entry->inode_number == 0U) {
-        return vr != OPENFS_DIR_OK ? vr : OPENFS_DIR_INVALID_ARGUMENT;
-    }
+    if (!openfs_block_device_is_valid(d) || sb == NULL || sb->block_size != d->block_size) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (dir != NULL && dir->size % OPENFS_DIR_ENTRY_SIZE != 0U) return OPENFS_DIR_CORRUPT;
+    if (vr != OPENFS_DIR_OK) return vr;
+    if (validate_entry(entry) != OPENFS_DIR_OK) return OPENFS_DIR_INVALID_ARGUMENT;
     openfs_dir_entry_t found;
     openfs_dir_result_t lookup = openfs_dir_lookup(d, sb, dir, name, &found);
     if (lookup == OPENFS_DIR_OK) return OPENFS_DIR_EXISTS;
@@ -159,6 +173,8 @@ openfs_dir_result_t openfs_dir_remove(
 {
     openfs_dir_result_t vr = validate_dir(dir, name);
     if (vr != OPENFS_DIR_OK) return vr;
+    if (!openfs_block_device_is_valid(d) || sb == NULL || sb->block_size != d->block_size) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (dir->size % OPENFS_DIR_ENTRY_SIZE != 0U) return OPENFS_DIR_CORRUPT;
     uint64_t entries = dir->size / OPENFS_DIR_ENTRY_SIZE;
     uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
     char current[OPENFS_DIR_NAME_MAX + 1U];
