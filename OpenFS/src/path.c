@@ -40,7 +40,7 @@ cur=ci.parent_inode;
 if(openfs_dir_remove(d,s,&odir,on)!=OPENFS_DIR_OK)return OPENFS_PATH_IO_ERROR;
 if(openfs_dir_add(d,s,&ndir,nn,&e)!=OPENFS_DIR_OK){(void)openfs_dir_add(d,s,&odir,on,&e);return OPENFS_PATH_IO_ERROR;}
 target.parent_inode=newparent;
-uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_start,count,&target)!=OPENFS_INODE_OK)return OPENFS_PATH_IO_ERROR;
+uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_start,count,&target)!=OPENFS_INODE_OK){(void)openfs_dir_remove(d,s,&ndir,nn);(void)openfs_dir_add(d,s,&odir,on,&e);return OPENFS_PATH_IO_ERROR;}
 return OPENFS_PATH_OK;
 }
 
