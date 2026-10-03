@@ -88,9 +88,7 @@ openfs_file_result_t openfs_file_map_block(
             return OPENFS_FILE_CORRUPT;
         }
         uint64_t logical_end = 0U;
-        uint64_t physical_end = 0U;
-        if (add_overflow_u64(extent.logical_start, extent.block_count, &logical_end) ||
-            add_overflow_u64(extent.physical_start, extent.block_count, &physical_end)) {
+        if (add_overflow_u64(extent.logical_start, extent.block_count, &logical_end)) {
             return OPENFS_FILE_CORRUPT;
         }
         if (logical_block >= extent.logical_start && logical_block < logical_end) {
@@ -177,8 +175,7 @@ static openfs_file_result_t allocate_blocks(
     const openfs_superblock_t *sb,    openfs_inode_t *inode,
     uint64_t target_blocks)
 {
-    while (inode->blocks < target_blocks) {
-        uint64_t physical = 0U;
+    while (inode->blocks < target_blocks) {        uint64_t physical = 0U;
         openfs_alloc_result_t ar = openfs_alloc_block(device, sb, &physical);
         if (ar == OPENFS_ALLOC_OUT_OF_SPACE) {
             return OPENFS_FILE_NO_SPACE;
@@ -357,8 +354,7 @@ openfs_file_result_t openfs_file_truncate(
     return write_inode(device, sb, inode);
 }
 
-openfs_file_result_t openfs_file_read(
-    const openfs_block_device_t *device,
+openfs_file_result_t openfs_file_read(    const openfs_block_device_t *device,
     const openfs_superblock_t *sb,
     const openfs_inode_t *inode,
     uint64_t offset,
