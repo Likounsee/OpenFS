@@ -79,8 +79,8 @@ openfs_file_result_t openfs_file_map_block(const openfs_inode_t *inode,uint64_t 
 {
     if(inode==NULL||physical_block==NULL||inode->blocks==0U||logical_block>=inode->blocks)return OPENFS_FILE_OUT_OF_RANGE;
     if(inode->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)return OPENFS_FILE_OUT_OF_RANGE;
-    uint64_t previous=0U;
-    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&e.logical_start<previous)return OPENFS_FILE_CORRUPT;if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;previous_physical=e.physical_start+e.block_count;}
+    uint64_t previous=0U, previous_physical=0U;
+    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&(e.logical_start<previous||e.physical_start<previous_physical))return OPENFS_FILE_CORRUPT;if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}if(e.physical_start>UINT64_MAX-e.block_count)return OPENFS_FILE_CORRUPT;previous=end;previous_physical=e.physical_start+e.block_count;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
 
@@ -266,7 +266,7 @@ static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const 
 {
 
     while(inode->blocks>target_blocks){
-        openfs_extent_t*a=NULL;uint32_t n=0U;openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
+        openfs_extent_t*a=NULL;uint32_t n=0U;uint64_t rollback_root=openfs_inode_get_extent_tree_root(inode);openfs_file_result_t r=load_all_extents(device,inode,&a,&n);if(r!=OPENFS_FILE_OK)return r;
         if(n==0U){free(a);return OPENFS_FILE_CORRUPT;}
         openfs_extent_t*last=&a[n-1U];if(last->block_count==0U){free(a);return OPENFS_FILE_CORRUPT;}
         uint64_t physical=0U;
@@ -282,7 +282,6 @@ static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const 
         r=store_all_extents(device,sb,inode,a,n);free(a);if(r!=OPENFS_FILE_OK)return r;
     }
     if(inode->blocks==0U){inode->extent_count=0U;inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;}
-    uint64_t rollback_root=openfs_inode_get_extent_tree_root(inode);
     if(original_root==0U&&rollback_root!=0U){
         if(openfs_free_block(device,sb,rollback_root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
     }
