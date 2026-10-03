@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <wchar.h>
+#include <string.h>
 #include <windows.h>
 #include "openfs_windows_adapter.h"
 
