@@ -112,7 +112,7 @@ openfs_extent_result_t openfs_inode_set_extent(
 
 uint64_t openfs_inode_get_extent_tree_root(const openfs_inode_t *inode)
 {
-    if (inode == NULL) return 0U;
+    if (inode == NULL || (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) return 0U;
     return load64(inode->reserved + 112U);
 }
 
