@@ -130,8 +130,14 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
         *inode=tmp;return OPENFS_FILE_OK;
     }
     memset(inode->reserved,0U,120U);inode->extent_count=n;
-    inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;
     for(uint32_t i=0U;i<n;i++)if(openfs_inode_set_extent(inode,i,&a[i])!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;
+    if(oldroot!=0U){
+        inode->flags|=OPENFS_INODE_FLAG_EXTENT_TREE;inode->flags|=OPENFS_INODE_FLAG_HAS_EXTENTS;
+        if(openfs_inode_set_extent_tree_root(inode,oldroot)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;
+        if(openfs_extent_tree_write(d,inode,NULL,0U)!=OPENFS_EXTENT_OK)return OPENFS_FILE_IO_ERROR;
+    }else if(n==0U){
+        inode->flags&=~OPENFS_INODE_FLAG_EXTENT_TREE;inode->flags&=~OPENFS_INODE_FLAG_HAS_EXTENTS;
+    }
     return OPENFS_FILE_OK;
 }
 static openfs_file_result_t map_block_on_disk(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*inode,uint64_t logical,uint64_t*physical)
