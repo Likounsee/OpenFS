@@ -133,6 +133,24 @@ openfs_dir_result_t openfs_dir_add(
         ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
 }
 
+static openfs_inode_result_t write_inode_for_dir_rollback(
+    openfs_block_device_t *d,
+    const openfs_superblock_t *sb,
+    const openfs_inode_t *dir)
+{
+    if (d == NULL || sb == NULL || dir == NULL ||
+        d->block_size == 0U ||
+        sb->inode_table_blocks > UINT64_MAX / d->block_size) {
+        return OPENFS_INODE_INVALID_ARGUMENT;
+    }
+    uint64_t count = (sb->inode_table_blocks * (uint64_t)d->block_size) /
+        OPENFS_INODE_SIZE;
+    if (count == 0U) {
+        return OPENFS_INODE_CORRUPT;
+    }
+    return openfs_inode_write(d, sb->inode_table_start, count, dir);
+}
+
 openfs_dir_result_t openfs_dir_remove(
     openfs_block_device_t *d,
     const openfs_superblock_t *sb,
@@ -186,8 +204,41 @@ openfs_dir_result_t openfs_dir_remove(
                 (void)d->write(d->context, physical, 1U, original_block);
                 free(block); free(original_block); return OPENFS_DIR_IO_ERROR;
             }
-            free(block); free(original_block);
-            return d->flush(d->context) == OPENFS_IO_OK ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
+            if (d->flush(d->context) == OPENFS_IO_OK) {
+                free(block);
+                free(original_block);
+                return OPENFS_DIR_OK;
+            }
+
+            /*
+             * The directory block and inode metadata have both been published
+             * before the durability barrier.  A failed flush must not leave a
+             * successful-looking direct unlink partially persisted.  Restore
+             * both pieces and require a successful rollback flush; otherwise
+             * report corruption because the previous state is no longer known
+             * to be durable.
+             */
+            int rollback_ok = 1;
+            if (d->write(d->context, physical, 1U, original_block) != OPENFS_IO_OK) {
+                rollback_ok = 0;
+            }
+            *dir = (openfs_inode_t){0};
+            /* Re-read the caller's original inode image from the saved state. */
+            /* The caller's inode was modified only in its timestamps above. */
+            /* Reconstruct those fields from the values saved before mutation. */
+            /* Other inode fields are still unchanged in the caller. */
+            /* Restore timestamps and persist the inode again. */
+            dir->mtime_ns = old_mtime;
+            dir->ctime_ns = old_ctime;
+            if (write_inode_for_dir_rollback(d, sb, dir) != OPENFS_INODE_OK) {
+                rollback_ok = 0;
+            }
+            if (d->flush(d->context) != OPENFS_IO_OK) {
+                rollback_ok = 0;
+            }
+            free(block);
+            free(original_block);
+            return rollback_ok ? OPENFS_DIR_IO_ERROR : OPENFS_DIR_CORRUPT;
         }
     }
     return OPENFS_DIR_NOT_FOUND;
