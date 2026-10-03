@@ -513,5 +513,31 @@ openfs_file_result_t openfs_file_write(
     return device->flush(device->context) == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
 }
 
+static openfs_file_result_t file_access(const openfs_inode_t *inode,uint32_t uid,uint32_t gid,uint8_t requested)
+{
+    openfs_inode_result_t r=openfs_inode_check_access(inode,uid,gid,requested);
+    return r==OPENFS_INODE_OK?OPENFS_FILE_OK:(r==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT);
+}
+openfs_file_result_t openfs_file_read_as(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,void*b,size_t len,size_t*got)
+{
+    openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
+    openfs_inode_result_t ar=openfs_inode_check_access(i,uid,gid,4U);
+    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+    return openfs_file_read(d,s,i,off,b,len,got);
+}
+openfs_file_result_t openfs_file_write_as(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,const void*b,size_t len)
+{
+    openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
+    openfs_inode_result_t ar=openfs_inode_check_access(i,uid,gid,2U);
+    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+    return openfs_file_write(d,s,i,off,b,len);
+}
+openfs_file_result_t openfs_file_truncate_as(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t size)
+{
+    openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
+    openfs_inode_result_t ar=openfs_inode_check_access(i,uid,gid,2U);
+    if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+    return openfs_file_truncate(d,s,i,size);
+}
 openfs_file_result_t openfs_file_write_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t o,const void*b,size_t n){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_write(d,s,i,o,b,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
 openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_truncate(d,s,i,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
