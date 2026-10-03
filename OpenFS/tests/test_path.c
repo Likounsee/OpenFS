@@ -8,9 +8,9 @@
 #include "openfs/fsck.h"
 #include "openfs/file.h"
 #include <stdio.h>
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;int mutate_after_write;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
-static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_write_enabled&&f==d->fail_write_block){if(d->fail_write_count>0){if(--d->fail_write_count==0)d->fail_write_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->arm_on_write&&f==d->arm_block)d->armed=1;if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
+static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_write_enabled&&f==d->fail_write_block){if(d->fail_write_count>0){if(--d->fail_write_count==0)d->fail_write_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->arm_on_write&&f==d->arm_block)d->armed=1;if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->mutate_after_write&&d->mutate_sb_after_write&&f==d->mutate_after_write_block){d->mutate_after_write=0;d->mutate_sb_after_write->inode_table_blocks=0U;}return OPENFS_IO_OK;}
 static openfs_io_result_t f(void*c){D*d=c;if(d->fail_flush){if(d->fail_flush_once)d->fail_flush=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static void long_unlink_path(void){
  D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
@@ -26,7 +26,24 @@ int main(void){long_unlink_path();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_
     assert(openfs_path_lookup(&v,&s,"/home/create-write-fail",&x)==OPENFS_PATH_NOT_FOUND);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
-d.fail_read_block=0U;d.fail_read_enabled=0;d.arm_on_write=1;d.arm_block=s.inode_table_start+1U;d.fail_next_read=1;uint64_t failed_ino=0U;assert(openfs_path_create(&v,&s,"/home/readfail",OPENFS_INODE_MODE_REGULAR,&failed_ino)==OPENFS_PATH_IO_ERROR);d.fail_read_enabled=0;assert(openfs_path_lookup(&v,&s,"/home/readfail",&x)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_EXISTS);
+d.fail_read_block=0U;d.fail_read_enabled=0;d.arm_on_write=1;d.arm_block=s.inode_table_start+1U;d.fail_next_read=1;uint64_t failed_ino=0U;assert(openfs_path_create(&v,&s,"/home/readfail",OPENFS_INODE_MODE_REGULAR,&failed_ino)==OPENFS_PATH_IO_ERROR);d.fail_read_enabled=0;assert(openfs_path_lookup(&v,&s,"/home/readfail",&x)==OPENFS_PATH_NOT_FOUND);{
+    uint64_t late_validate_ino=0U;
+    uint64_t original_inode_table_blocks=s.inode_table_blocks;
+    assert(openfs_path_create(&v,&s,"/home/test/late-validate",OPENFS_INODE_MODE_REGULAR,&late_validate_ino)==OPENFS_PATH_OK);
+    openfs_inode_t home_for_fault;
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_for_fault)==OPENFS_INODE_OK);
+    uint64_t home_inode_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    d.mutate_sb_after_write=&s;
+    d.mutate_after_write_block=home_inode_block;
+    d.mutate_after_write=1;
+    assert(openfs_path_unlink(&v,&s,"/home/test/late-validate")==OPENFS_PATH_OK);
+    assert(s.inode_table_blocks==0U);
+    s.inode_table_blocks=original_inode_table_blocks;
+    d.mutate_sb_after_write=NULL;
+    assert(openfs_path_lookup(&v,&s,"/home/test/late-validate",&q)==OPENFS_PATH_NOT_FOUND);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+}
+assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_EXISTS);
 assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/home/renamed",&m)==OPENFS_PATH_OK);{
     uint64_t target_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=1;
