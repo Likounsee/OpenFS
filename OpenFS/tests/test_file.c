@@ -303,21 +303,21 @@ static void shrink_preserves_live_extent_tree_root(void){
     uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/shrink-tree-root",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
-    uint64_t root=0U,blocks[5];assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
-    for(unsigned n=0U;n<5U;n++)assert(openfs_alloc_block(&v,&sb,&blocks[n])==OPENFS_ALLOC_OK);
+    uint64_t root=0U,blocks[6];assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
+    for(unsigned n=0U;n<6U;n++)assert(openfs_alloc_block(&v,&sb,&blocks[n])==OPENFS_ALLOC_OK);
     assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);
-    i.blocks=5U;i.size=5U*sb.block_size;i.extent_count=5U;
-    for(uint32_t n=0U;n<3U;n++){openfs_extent_t e={n,blocks[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
-    openfs_extent_t tree_gap[2]={{4U,blocks[3],1U},{5U,blocks[4],1U}};
+    i.blocks=6U;i.size=6U*sb.block_size;i.extent_count=6U;
+    for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    openfs_extent_t tree_gap[2]={{5U,blocks[4],1U},{6U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree_gap,2U)==OPENFS_EXTENT_CORRUPT);
-    openfs_extent_t tree[2]={{3U,blocks[3],1U},{4U,blocks[4],1U}};
+    openfs_extent_t tree[2]={{4U,blocks[4],1U},{5U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree,2U)==OPENFS_EXTENT_OK);
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
-    assert(openfs_file_truncate(&v,&sb,&i,4U*sb.block_size)==OPENFS_FILE_OK);
-    assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==4U&&i.blocks==4U);
+    assert(openfs_file_truncate(&v,&sb,&i,5U*sb.block_size)==OPENFS_FILE_OK);
+    assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==5U&&i.blocks==5U);
     int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&used);
-    assert(openfs_file_map_block_device(&v,&sb,&i,3U,&blocks[0])==OPENFS_FILE_OK);
-    assert(blocks[0]==blocks[3]);
+    assert(openfs_file_map_block_device(&v,&sb,&i,4U,&blocks[0])==OPENFS_FILE_OK);
+    assert(blocks[0]==blocks[4]);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
