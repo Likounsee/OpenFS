@@ -6,6 +6,24 @@
 #include <limits.h>
 #include "openfs/time.h"
 static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino);
+static int restore_unlinked_inode_storage(openfs_block_device_t *d,const openfs_superblock_t *s,const openfs_inode_t *original)
+{
+    if (d == NULL || s == NULL || original == NULL) return 0;
+    for (uint64_t logical = 0U; logical < original->blocks; ++logical) {
+        uint64_t physical = 0U;
+        if (openfs_file_map_block_device(d, s, original, logical, &physical) != OPENFS_FILE_OK ||
+            openfs_bitmap_set(d, s->block_bitmap_start, s->block_bitmap_blocks, physical, 1) != OPENFS_BITMAP_OK) {
+            return 0;
+        }
+    }
+    uint64_t root = openfs_inode_get_extent_tree_root(original);
+    if (root != 0U &&
+        openfs_bitmap_set(d, s->block_bitmap_start, s->block_bitmap_blocks, root, 1) != OPENFS_BITMAP_OK) {
+        return 0;
+    }
+    return d->flush(d->context) == OPENFS_IO_OK;
+}
+
 static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *path,uint64_t ino);
 static openfs_path_result_t inode_count(const openfs_superblock_t *s,uint64_t *n){if(s->block_size!=0U&&s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_PATH_CORRUPT;*n=(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_PATH_OK:OPENFS_PATH_CORRUPT;}
 static openfs_path_result_t read_inode(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t n,openfs_inode_t*i){uint64_t c=0U;if(inode_count(s,&c)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;return openfs_inode_read(d,s->inode_table_start,n,c,i)==OPENFS_INODE_OK?OPENFS_PATH_OK:OPENFS_PATH_IO_ERROR;}
@@ -47,7 +65,20 @@ if(target.link_count==1U){
     target.link_count=0U;
 }else{
     target.link_count--;
-}uint64_t c=0U;if(inode_count(s,&c)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK)return OPENFS_PATH_IO_ERROR;if(target.mode==OPENFS_INODE_MODE_FREE&&(openfs_inode_free(d,s,e.inode_number)!=OPENFS_INODE_ALLOC_OK))return OPENFS_PATH_IO_ERROR;return OPENFS_PATH_OK;}
+}uint64_t c=0U;if(inode_count(s,&c)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK){
+    int rollback_ok=1;
+    if(target.mode==OPENFS_INODE_MODE_FREE){
+        if(!restore_unlinked_inode_storage(d,s,&target))rollback_ok=0;
+    }
+    if(openfs_inode_write(d,s->inode_table_start,c,&target)==OPENFS_INODE_OK){
+        /* target is already the post-unlink image; restore the original inode below */
+    }
+    if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK)rollback_ok=0;
+    if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
+    return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+}
+if(target.mode==OPENFS_INODE_MODE_FREE&&(openfs_inode_free(d,s,e.inode_number)!=OPENFS_INODE_ALLOC_OK))return OPENFS_PATH_IO_ERROR;return OPENFS_PATH_OK;}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
 if(split_last(oldp,op,sizeof(op),on,sizeof(on))!=OPENFS_PATH_OK||split_last(newp,np,sizeof(np),nn,sizeof(nn))!=OPENFS_PATH_OK)return OPENFS_PATH_INVALID_ARGUMENT;
