@@ -155,7 +155,7 @@ openfs_dir_result_t openfs_dir_remove(
         if (decoded == 1 && strcmp(current, name) == 0) {
             memset(raw, 0, sizeof(raw));
             uint64_t physical = 0U;
-            if (openfs_file_map_block(dir, (n * OPENFS_DIR_ENTRY_SIZE) / d->block_size, &physical) != OPENFS_FILE_OK) return OPENFS_DIR_CORRUPT;
+            if (openfs_file_map_block_device(d, sb, dir, (n * OPENFS_DIR_ENTRY_SIZE) / d->block_size, &physical) != OPENFS_FILE_OK) return OPENFS_DIR_CORRUPT;
             uint32_t within = (uint32_t)((n * OPENFS_DIR_ENTRY_SIZE) % d->block_size);
             uint8_t *block = (uint8_t *)malloc(d->block_size);
             if (block == NULL) return OPENFS_DIR_IO_ERROR;
