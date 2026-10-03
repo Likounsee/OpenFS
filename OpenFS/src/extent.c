@@ -157,7 +157,8 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (memcmp(block, OPENFS_EXTENT_TREE_MAGIC, 8U) != 0 ||
         load16(block + 8U) != 0U ||
         load16(block + 10U) != (uint16_t)(inode->extent_count >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX ? inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX : 0U) ||
-        load16(block + 12U) > cap) {
+        load16(block + 12U) > cap ||
+        load64(block + 16U) != inode->generation) {
         free(block);
         return OPENFS_EXTENT_CORRUPT;
     }
