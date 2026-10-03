@@ -17,6 +17,7 @@ typedef struct {
     int fail_block_enabled;
     int fail_once;
     int fail_after_write;
+    int fail_flush;
 } disk_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffer){
@@ -35,6 +36,7 @@ static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void 
 static openfs_io_result_t fl(void *ctx){((disk_t*)ctx)->flushes++;return OPENFS_IO_OK;}
 static openfs_block_device_t dev(disk_t*d){return (openfs_block_device_t){d,d->block_size,d->block_count,rd,wr,fl};}
 
+static openfs_io_result_t flush(void *ctx){disk_t*d=ctx;d->flushes++;return d->fail_flush?OPENFS_IO_IO_ERROR:OPENFS_IO_OK;}
 static void setup(disk_t*d,openfs_block_device_t*v,openfs_superblock_t*sb){
     d->block_size=4096U;d->block_count=128U;
     d->bytes=calloc((size_t)d->block_count,d->block_size);assert(d->bytes);
