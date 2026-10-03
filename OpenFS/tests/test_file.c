@@ -178,6 +178,25 @@ static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);assert(memcmp(&i,&before,sizeof(i))==0);assert(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);assert(memcmp(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);free(bitmap_snapshot);free(inode_snapshot);free(d.bytes);
 }
+static void write_extent_tree_root_rollback_releases_metadata(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t inode_number=0U,filler_number=0U;assert(openfs_path_create(&v,&sb,"/tree-rollback",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&sb,"/tree-filler",OPENFS_INODE_MODE_REGULAR,&filler_number)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i,filler;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,filler_number,inode_count,&filler)==OPENFS_INODE_OK);
+    uint8_t a[4096U],b[4096U];memset(a,0x6CU,sizeof(a));memset(b,0x19U,sizeof(b));
+    for(uint64_t n=0U;n<OPENFS_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,n*4096U,a,sizeof(a))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);assert(openfs_file_write(&v,&sb,&filler,n*4096U,b,sizeof(b))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,filler_number,inode_count,&filler)==OPENFS_INODE_OK);}
+    assert(i.extent_count==OPENFS_EXTENT_MAX);uint64_t baseline_errors=0U;assert(openfs_fsck(&v,&sb,&baseline_errors)==OPENFS_FSCK_OK&&baseline_errors==0U);
+    openfs_inode_t before=i;uint64_t inode_block=sb.inode_table_start+(((i.inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE)/sb.block_size);size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;uint8_t *bitmap_snapshot=malloc(bitmap_bytes);uint8_t *inode_snapshot=malloc(sb.block_size);assert(bitmap_snapshot&&inode_snapshot);memcpy(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);memcpy(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size);
+    d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,a,sizeof(a))==OPENFS_FILE_IO_ERROR);assert(memcmp(&i,&before,sizeof(i))==0);assert(memcmp(bitmap_snapshot,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);assert(memcmp(inode_snapshot,d.bytes+(size_t)(inode_block*d.block_size),sb.block_size)==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);free(bitmap_snapshot);free(inode_snapshot);free(d.bytes);
+}
+static void truncate_shrink_free_failure_rolls_back_persisted_state(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t inode_number=0U;assert(openfs_path_create(&v,&sb,"/shrink-free-failure",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);
+    uint8_t data[12288U];memset(data,0xA7U,sizeof(data));assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);
+    openfs_inode_t before=i;uint64_t removed=0U;assert(openfs_file_map_block_device(&v,&sb,&i,2U,&removed)==OPENFS_FILE_OK);uint64_t bitmap_block=sb.block_bitmap_start+(removed/8U)/sb.block_size;
+    d.fail_block=bitmap_block;d.fail_block_enabled=1;d.fail_once=1;assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);
+    openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&persisted)==OPENFS_INODE_OK);assert(memcmp(&persisted,&before,sizeof(before))==0);uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);free(d.bytes);
+}
 static void partial_existing_write_rolls_back(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t initial[8192U],replacement[8192U];memset(initial,0x11U,sizeof(initial));memset(replacement,0xE2U,sizeof(replacement));
