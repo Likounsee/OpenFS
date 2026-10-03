@@ -313,7 +313,7 @@ static void shrink_preserves_live_extent_tree_root(void){
     openfs_extent_t tree[2]={{4U,blocks[4],1U},{5U,blocks[5],1U}};
     assert(openfs_extent_tree_write(&v,&i,tree,2U)==OPENFS_EXTENT_OK);
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
-    openfs_file_result_t shrink_result=openfs_file_truncate(&v,&sb,&i,5U*sb.block_size);fprintf(stderr,"tree shrink result=%d blocks=%llu extents=%u flags=%u root=%llu\n",shrink_result,(unsigned long long)i.blocks,i.extent_count,i.flags,(unsigned long long)openfs_inode_get_extent_tree_root(&i));assert(shrink_result==OPENFS_FILE_OK);
+    assert(openfs_file_truncate(&v,&sb,&i,5U*sb.block_size)==OPENFS_FILE_OK);
     assert(openfs_inode_get_extent_tree_root(&i)==root&&i.extent_count==5U&&i.blocks==5U);
     int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&used);
     assert(openfs_file_map_block_device(&v,&sb,&i,4U,&blocks[0])==OPENFS_FILE_OK);
