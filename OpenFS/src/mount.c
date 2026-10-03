@@ -89,6 +89,6 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
     if(mount==NULL||!mount->mounted)return OPENFS_MOUNT_INVALID_ARGUMENT;
     openfs_mount_result_t r=openfs_sync(mount);
     if(r!=OPENFS_MOUNT_OK)return r;
-    mount->mounted=0;mount->device=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
+    mount->mounted=0;mount->device=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));memset(&mount->journal,0,sizeof(mount->journal));
     return OPENFS_MOUNT_OK;
 }
