@@ -113,13 +113,13 @@ openfs_extent_result_t openfs_inode_set_extent(
 uint64_t openfs_inode_get_extent_tree_root(const openfs_inode_t *inode)
 {
     if (inode == NULL) return 0U;
-    return load64(inode->reserved + 120U);
+    return load64(inode->reserved + 112U);
 }
 
 openfs_extent_result_t openfs_inode_set_extent_tree_root(openfs_inode_t *inode, uint64_t root)
 {
     if (inode == NULL || root == 0U) return OPENFS_EXTENT_INVALID_ARGUMENT;
-    store64(inode->reserved + 120U, root);
+    store64(inode->reserved + 112U, root);
     inode->flags |= OPENFS_INODE_FLAG_EXTENT_TREE;
     inode->flags |= OPENFS_INODE_FLAG_HAS_EXTENTS;
     return OPENFS_EXTENT_OK;
@@ -146,7 +146,7 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (inode->extent_count < OPENFS_INODE_INLINE_EXTENT_MAX ||
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) return OPENFS_EXTENT_OUT_OF_RANGE;
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
-    if (cap == 0U || index >= inode->extent_count - OPENFS_INODE_INLINE_EXTENT_MAX || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
+    if (cap == 0U || index >= inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
 
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) return OPENFS_EXTENT_CORRUPT;
@@ -193,7 +193,7 @@ openfs_extent_result_t openfs_extent_tree_write(
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
     if (root == 0U || root >= device->block_count || cap == 0U || count > cap ||
-        (inode->extent_count >= OPENFS_INODE_INLINE_EXTENT_MAX && count != inode->extent_count - OPENFS_INODE_INLINE_EXTENT_MAX) ||
+        (inode->extent_count >= OPENFS_INODE_INLINE_EXTENT_MAX && count != (inode->extent_count >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX ? inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX : 0U)) ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
 
     uint8_t *block = calloc(1U, device->block_size);
