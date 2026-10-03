@@ -14,7 +14,7 @@ extern "C" {
 #define OPENFS_INODE_PERMISSION_MASK 07777U
 #define OPENFS_INODE_FLAG_INLINE_DATA 1U
 #define OPENFS_INODE_FLAG_HAS_EXTENTS 2U
-typedef enum { OPENFS_INODE_OK=0, OPENFS_INODE_INVALID_ARGUMENT=1, OPENFS_INODE_OUT_OF_RANGE=2, OPENFS_INODE_CORRUPT=3, OPENFS_INODE_IO_ERROR=4 } openfs_inode_result_t;
+typedef enum { OPENFS_INODE_OK=0, OPENFS_INODE_INVALID_ARGUMENT=1, OPENFS_INODE_OUT_OF_RANGE=2, OPENFS_INODE_CORRUPT=3, OPENFS_INODE_IO_ERROR=4, OPENFS_INODE_ACCESS_DENIED=5 } openfs_inode_result_t;
 typedef struct openfs_inode {
     uint64_t inode_number, generation, size, blocks, parent_inode, link_count;
     uint64_t atime_ns, mtime_ns, ctime_ns;
