@@ -77,7 +77,11 @@ if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK){
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
-if(target.mode==OPENFS_INODE_MODE_FREE&&(openfs_inode_free(d,s,e.inode_number)!=OPENFS_INODE_ALLOC_OK))return OPENFS_PATH_IO_ERROR;return OPENFS_PATH_OK;}
+if (target.mode == OPENFS_INODE_MODE_FREE &&
+    openfs_inode_free(d, s, e.inode_number) != OPENFS_INODE_ALLOC_OK) {
+    return OPENFS_PATH_IO_ERROR;
+}
+return OPENFS_PATH_OK;}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
 if(split_last(oldp,op,sizeof(op),on,sizeof(on))!=OPENFS_PATH_OK||split_last(newp,np,sizeof(np),nn,sizeof(nn))!=OPENFS_PATH_OK)return OPENFS_PATH_INVALID_ARGUMENT;
