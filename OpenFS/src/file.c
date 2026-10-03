@@ -98,8 +98,8 @@ openfs_file_result_t openfs_file_map_block(const openfs_inode_t *inode,uint64_t 
 {
     if(inode==NULL||physical_block==NULL||inode->blocks==0U||logical_block>=inode->blocks)return OPENFS_FILE_OUT_OF_RANGE;
     if(inode->extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)return OPENFS_FILE_OUT_OF_RANGE;
-    uint64_t previous=0U, previous_physical=0U;
-    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(n>0U&&(e.logical_start<previous||e.physical_start<previous_physical))return OPENFS_FILE_CORRUPT;if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}if(e.physical_start>UINT64_MAX-e.block_count)return OPENFS_FILE_CORRUPT;previous=end;previous_physical=e.physical_start+e.block_count;}
+    uint64_t previous=0U;
+    for(uint32_t n=0U;n<inode->extent_count;n++){openfs_extent_t e;if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return OPENFS_FILE_CORRUPT;if(e.block_count==0U||e.logical_start>UINT64_MAX-e.block_count||e.physical_start>UINT64_MAX-e.block_count)return OPENFS_FILE_CORRUPT;uint64_t end=e.logical_start+e.block_count;if(n>0U&&e.logical_start!=previous)return OPENFS_FILE_CORRUPT;for(uint32_t p=0U;p<n;p++){openfs_extent_t prior;if(openfs_inode_get_extent(inode,p,&prior)!=OPENFS_EXTENT_OK||prior.block_count==0U||prior.physical_start>UINT64_MAX-prior.block_count)return OPENFS_FILE_CORRUPT;uint64_t prior_end=prior.physical_start+prior.block_count;if(e.physical_start<prior_end&&prior.physical_start<e.physical_start+e.block_count)return OPENFS_FILE_CORRUPT;}if(logical_block>=e.logical_start&&logical_block<end){uint64_t delta=logical_block-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical_block=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
 
