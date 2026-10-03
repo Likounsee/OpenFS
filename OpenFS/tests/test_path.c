@@ -67,8 +67,9 @@ assert(openfs_path_chmod_as(&v,&s,"/home/test/file",0600U,0U,0U)==OPENFS_PATH_OK
 assert(openfs_path_set_times_as(&v,&s,"/home/test/file",1000U,1000U,33U,44U)==OPENFS_PATH_ACCESS_DENIED);
 assert(openfs_path_set_times_as(&v,&s,"/home/test/file",0U,0U,33U,44U)==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,"/home/f0")==OPENFS_PATH_OK);assert(openfs_path_mkdir(&v,&s,"/home/sticky",&q)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/sticky",01777U)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/sticky/file",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_OK);{openfs_inode_t si;assert(openfs_inode_read(&v,s.inode_table_start,q,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&si)==OPENFS_INODE_OK);si.uid=2000U;assert(openfs_inode_write(&v,s.inode_table_start,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&si)==OPENFS_INODE_OK);}assert(openfs_path_unlink_as(&v,&s,"/home/sticky/file",1000U,1000U)==OPENFS_PATH_ACCESS_DENIED);assert(openfs_path_unlink_as(&v,&s,"/home/sticky/file",2000U,2000U)==OPENFS_PATH_OK);
 assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/test/file",0644U)==OPENFS_PATH_OK);assert(openfs_path_check_access(&v,&s,"/home/test/file",0U,0U,4U)==OPENFS_PATH_OK);assert(openfs_path_check_access(&v,&s,"/home/test/file",1U,1U,2U)==OPENFS_PATH_ACCESS_DENIED);assert(openfs_path_check_access(&v,&s,"/home/test/file",0U,0U,8U)==OPENFS_PATH_INVALID_ARGUMENT);assert(openfs_path_check_access(&v,&s,"/home/test/file",1000U,1000U,1U)==OPENFS_PATH_ACCESS_DENIED);assert(openfs_path_set_times(&v,&s,"/home/test/file",11U,22U)==OPENFS_PATH_OK);openfs_inode_t fi;uint64_t ic=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;assert(openfs_inode_read(&v,s.inode_table_start,x,ic,&fi)==OPENFS_INODE_OK&&fi.mode==(OPENFS_INODE_MODE_REGULAR|0644U)&&fi.atime_ns==11U&&fi.mtime_ns==22U);assert(openfs_path_lookup(&v,&s,"/home/test/file",&q)==OPENFS_PATH_OK&&q==x);{
-    openfs_inode_t before_link;
+    openfs_inode_t before_link, before_link_parent;
     assert(openfs_inode_read(&v,s.inode_table_start,x,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&before_link)==OPENFS_INODE_OK);
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&before_link_parent)==OPENFS_INODE_OK);
     uint64_t target_block=s.inode_table_start+((x-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=1;
     assert(openfs_link(&v,&s,"/home/test/file","/home/test/link-fail")==OPENFS_PATH_IO_ERROR);
@@ -76,8 +77,9 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_path_lookup(&v,&s,"/home/test/link-fail",&q)==OPENFS_PATH_NOT_FOUND);{
     uint64_t unlink_fail_ino=0U;
     assert(openfs_path_create(&v,&s,"/home/test/unlink-fail",OPENFS_INODE_MODE_REGULAR,&unlink_fail_ino)==OPENFS_PATH_OK);
-    openfs_inode_t unlink_fail_inode;
+    openfs_inode_t unlink_fail_inode, unlink_fail_parent_before;
     assert(openfs_inode_read(&v,s.inode_table_start,unlink_fail_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_inode)==OPENFS_INODE_OK);
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_before)==OPENFS_INODE_OK);
     uint8_t unlink_payload[4096];memset(unlink_payload,0x6BU,sizeof(unlink_payload));
     assert(openfs_file_write(&v,&s,&unlink_fail_inode,0U,unlink_payload,sizeof(unlink_payload))==OPENFS_FILE_OK);
     uint64_t target_block=s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
@@ -91,6 +93,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
         assert(openfs_file_read(&v,&s,&restored,0U,readback,sizeof(readback),&got)==OPENFS_FILE_OK&&got==sizeof(readback)&&memcmp(readback,unlink_payload,sizeof(readback))==0);
     }
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+    {openfs_inode_t unlink_fail_parent_after;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_after)==OPENFS_INODE_OK);assert(unlink_fail_parent_after.mtime_ns==unlink_fail_parent_before.mtime_ns&&unlink_fail_parent_after.ctime_ns==unlink_fail_parent_before.ctime_ns);}
 }
 {
     {
@@ -131,6 +134,9 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     openfs_inode_t after_link;
     assert(openfs_inode_read(&v,s.inode_table_start,x,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&after_link)==OPENFS_INODE_OK);
     assert(after_link.link_count==before_link.link_count);
+    openfs_inode_t after_link_parent;
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&after_link_parent)==OPENFS_INODE_OK);
+    assert(after_link_parent.mtime_ns==before_link_parent.mtime_ns&&after_link_parent.ctime_ns==before_link_parent.ctime_ns);
 }
 assert(openfs_symlink(&v,&s,"/home/test","/alias")==OPENFS_PATH_OK);{
     openfs_inode_t home_test_inode;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_test_inode)==OPENFS_INODE_OK);
