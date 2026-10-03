@@ -137,6 +137,7 @@ if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_st
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
+if(d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
 return OPENFS_PATH_OK;
 }
 
