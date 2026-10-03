@@ -352,7 +352,13 @@ openfs_file_result_t openfs_file_truncate(
             }
         }
         r=store_all_extents(device,sb,&reduced,extents,extent_count);free(extents);
-        if(r!=OPENFS_FILE_OK){free(old_tree_block);free(freed);free(tail_backup);*inode=original;return r;}
+        if(r!=OPENFS_FILE_OK){
+            int ok=1;
+            if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(ok&&device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+            free(old_tree_block);free(freed);free(tail_backup);*inode=original;
+            return ok?r:OPENFS_FILE_CORRUPT;
+        }
         reduced.size=new_size;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){reduced.mtime_ns=now;reduced.ctime_ns=now;}
         r=write_inode(device,sb,&reduced);
         if(r!=OPENFS_FILE_OK){
@@ -372,7 +378,8 @@ openfs_file_result_t openfs_file_truncate(
                 return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
             }
         }
-        if(old_root!=0U){
+        uint64_t new_root=openfs_inode_get_extent_tree_root(&reduced);
+        if(old_root!=0U&&new_root!=old_root){
             if(openfs_free_block(device,sb,old_root)!=OPENFS_ALLOC_OK){
                 int ok=1;
                 if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
@@ -388,6 +395,7 @@ openfs_file_result_t openfs_file_truncate(
             int ok=1;
             for(uint64_t k=0U;k<removed;k++)if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
             if(root_freed&&openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,old_root,1)!=OPENFS_BITMAP_OK)ok=0;
+            if(old_root!=0U&&new_root==old_root&&old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
             if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
             if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
             *inode=original;
