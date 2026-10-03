@@ -372,6 +372,7 @@ static void credential_io(void){
     assert(openfs_file_truncate_as(&v,&sb,&i,1000U,2000U,0U)==OPENFS_FILE_OK);
     free(d.bytes);
 }
+static void overlapping_physical_extents_are_rejected(void){disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);openfs_inode_t i=new_file();openfs_extent_t a={0,sb.data_start,2U},b={2U,sb.data_start+1U,1U};assert(openfs_inode_set_extent(&i,0U,&a)==OPENFS_EXTENT_OK);assert(openfs_inode_set_extent(&i,1U,&b)==OPENFS_EXTENT_CORRUPT);i.extent_count=2U;i.blocks=3U;uint64_t p=0U;assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_CORRUPT);free(d.bytes);}
 static void map_bounds(void){
     openfs_inode_t i=new_file();uint64_t p=0U;
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
@@ -382,4 +383,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();map_bounds();return 0;}
