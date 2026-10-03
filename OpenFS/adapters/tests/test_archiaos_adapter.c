@@ -10,7 +10,7 @@ static openfs_io_result_t fl(void*c){((storage_t*)c)->flushes++;return OPENFS_IO
 
 int main(void)
 {
-    storage_t s={{0},0};openfs_archiaos_storage_t hooks={&s,16U,2U,rd,wr,fl};openfs_archiaos_adapter_t a;
+    storage_t s={0};openfs_archiaos_storage_t hooks={&s,16U,2U,rd,wr,fl};openfs_archiaos_adapter_t a;
     assert(openfs_archiaos_adapter_init(&a,&hooks)==1);
     uint8_t x[16];memset(x,0x7a,sizeof(x));assert(a.device.write(a.device.context,1U,1U,x)==OPENFS_IO_OK);
     memset(x,0,sizeof(x));assert(a.device.read(a.device.context,1U,1U,x)==OPENFS_IO_OK);assert(x[0]==0x7aU);
