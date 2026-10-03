@@ -138,7 +138,7 @@ openfs_extent_result_t openfs_extent_tree_read(
     uint32_t index,
     openfs_extent_t *out)
 {
-    if (!openfs_block_device_is_valid(device) || inode == NULL || out == NULL) {
+    if (!openfs_block_device_is_valid(device) || device->block_size==0U || inode == NULL || out == NULL) {
         return OPENFS_EXTENT_INVALID_ARGUMENT;
     }
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
@@ -153,7 +153,7 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
     if (device->read(device->context, root, 1U, block) != OPENFS_IO_OK) {
         free(block);
-        return OPENFS_EXTENT_CORRUPT;
+        return OPENFS_EXTENT_IO_ERROR;
     }
     if (inode->generation == 0U || memcmp(block, OPENFS_EXTENT_TREE_MAGIC, 8U) != 0 ||
         load16(block + 8U) != 0U ||
@@ -190,7 +190,7 @@ openfs_extent_result_t openfs_extent_tree_write(
     const openfs_extent_t *extents,
     uint32_t count)
 {
-    if (!openfs_block_device_is_valid(device) || inode == NULL ||
+    if (!openfs_block_device_is_valid(device) || device->block_size==0U || inode == NULL ||
         (count != 0U && extents == NULL)) return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
