@@ -14,6 +14,7 @@ typedef struct {
     uint64_t fail_block;
     int fail_block_enabled;
     int fail_once;
+    int fail_after_write;
 } disk_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffer){
@@ -25,7 +26,7 @@ static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffe
 static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void *buffer){
     disk_t*d=ctx;
     if(count==0U||first>=d->block_count||(uint64_t)count>d->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
-    if(d->fail_block_enabled&&first==d->fail_block){if(d->fail_once)d->fail_block_enabled=0;return OPENFS_IO_IO_ERROR;}
+    if(d->fail_block_enabled&&first==d->fail_block){if(d->fail_once)d->fail_block_enabled=0;if(d->fail_after_write){memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));d->fail_after_write=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_IO_ERROR;}
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
@@ -134,7 +135,7 @@ static void partial_existing_write_rolls_back(void){
     assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
     openfs_inode_t before=i;uint64_t first=0U,second=0U;assert(openfs_file_map_block_device(&v,&sb,&i,0U,&first)==OPENFS_FILE_OK);assert(openfs_file_map_block_device(&v,&sb,&i,1U,&second)==OPENFS_FILE_OK);
     uint8_t *saved1=malloc(4096U),*saved2=malloc(4096U);assert(saved1&&saved2);memcpy(saved1,d.bytes+(size_t)(first*d.block_size),4096U);memcpy(saved2,d.bytes+(size_t)(second*d.block_size),4096U);
-    d.fail_block=second;d.fail_block_enabled=1;d.fail_once=1;
+    d.fail_block=second;d.fail_block_enabled=1;d.fail_once=1;d.fail_after_write=1;
     assert(openfs_file_write(&v,&sb,&i,0U,replacement,sizeof(replacement))==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
     assert(memcmp(saved1,d.bytes+(size_t)(first*d.block_size),4096U)==0);
