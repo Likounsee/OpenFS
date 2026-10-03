@@ -13,6 +13,7 @@ typedef struct {
     unsigned flushes;
     uint64_t fail_block;
     int fail_block_enabled;
+    int fail_once;
 } disk_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffer){
@@ -24,7 +25,7 @@ static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffe
 static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void *buffer){
     disk_t*d=ctx;
     if(count==0U||first>=d->block_count||(uint64_t)count>d->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
-    if(d->fail_block_enabled&&first==d->fail_block)return OPENFS_IO_IO_ERROR;
+    if(d->fail_block_enabled&&first==d->fail_block){if(d->fail_once)d->fail_block_enabled=0;return OPENFS_IO_IO_ERROR;}
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
@@ -127,6 +128,19 @@ static void extent_tree_large_file(void){
     }
     free(d.bytes);
 }
+static void partial_existing_write_rolls_back(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t initial[8192U],replacement[8192U];memset(initial,0x11U,sizeof(initial));memset(replacement,0xE2U,sizeof(replacement));
+    assert(openfs_file_write(&v,&sb,&i,0U,initial,sizeof(initial))==OPENFS_FILE_OK);
+    openfs_inode_t before=i;uint64_t first=0U,second=0U;assert(openfs_file_map_block_device(&v,&sb,&i,0U,&first)==OPENFS_FILE_OK);assert(openfs_file_map_block_device(&v,&sb,&i,1U,&second)==OPENFS_FILE_OK);
+    uint8_t *saved1=malloc(4096U),*saved2=malloc(4096U);assert(saved1&&saved2);memcpy(saved1,d.bytes+(size_t)(first*d.block_size),4096U);memcpy(saved2,d.bytes+(size_t)(second*d.block_size),4096U);
+    d.fail_block=second;d.fail_block_enabled=1;d.fail_once=1;
+    assert(openfs_file_write(&v,&sb,&i,0U,replacement,sizeof(replacement))==OPENFS_FILE_IO_ERROR);
+    assert(memcmp(&i,&before,sizeof(i))==0);
+    assert(memcmp(saved1,d.bytes+(size_t)(first*d.block_size),4096U)==0);
+    assert(memcmp(saved2,d.bytes+(size_t)(second*d.block_size),4096U)==0);
+    free(saved1);free(saved2);free(d.bytes);
+}
 static void credential_io(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();i.uid=1000U;i.gid=2000U;i.mode=OPENFS_INODE_MODE_REGULAR|0640U;
@@ -151,4 +165,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){basic_rw();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
+int main(void){basic_rw();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
