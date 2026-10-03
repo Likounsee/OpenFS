@@ -18,6 +18,12 @@ openfs_path_result_t openfs_path_rename(openfs_block_device_t *,const openfs_sup
 openfs_path_result_t openfs_path_chmod(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t);
 openfs_path_result_t openfs_path_set_times(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t,uint64_t);
 openfs_path_result_t openfs_path_check_access(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint8_t);
+openfs_path_result_t openfs_path_create_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint32_t,uint64_t *);
+openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint64_t *);
+openfs_path_result_t openfs_path_unlink_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t);
+openfs_path_result_t openfs_path_rename_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,const char *,uint32_t,uint32_t);
+openfs_path_result_t openfs_path_chmod_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint32_t);
+openfs_path_result_t openfs_path_set_times_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint64_t,uint64_t);
 openfs_path_result_t openfs_path_create_tx(openfs_transaction_t *,const openfs_superblock_t *,const char *,uint32_t,uint64_t *);
 openfs_path_result_t openfs_path_mkdir_tx(openfs_transaction_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_unlink_tx(openfs_transaction_t *,const openfs_superblock_t *,const char *);
