@@ -381,8 +381,7 @@ static void extent_tree_partial_write_rollback_failure_is_corruption(void){
     uint8_t data[4096U];memset(data,0x66U,sizeof(data));
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){assert(openfs_file_write(&v,&sb,&i,(uint64_t)n*4096U,data,sizeof(data))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);}
     uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root==0U);
-    assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data))==OPENFS_FILE_OK);
-    root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
+    openfs_file_result_t tree_grow_result=openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX*4096U,data,sizeof(data));assert(tree_grow_result==OPENFS_FILE_OK);root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
     d.fail_block=root;d.fail_block_enabled=1;d.fail_after_write=1;d.partial_write_bytes=1024U;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)(OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)*4096U,data,sizeof(data))==OPENFS_FILE_CORRUPT);
     d.fail_block_enabled=0;
