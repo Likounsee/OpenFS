@@ -263,6 +263,7 @@ openfs_file_result_t openfs_file_truncate(
     }
 
     if (new_blocks > inode->blocks) {
+        openfs_inode_t original = *inode;
         uint64_t before = inode->blocks;
         r = allocate_blocks(device, sb, inode, new_blocks);
         if (r != OPENFS_FILE_OK) {
@@ -289,6 +290,8 @@ openfs_file_result_t openfs_file_truncate(
             uint64_t physical = 0U;
             if (openfs_file_map_block(inode, b, &physical) != OPENFS_FILE_OK ||
                 zero_block(device, physical) != OPENFS_FILE_OK) {
+                (void)rollback_blocks(device, sb, inode, before);
+                *inode = original;
                 return OPENFS_FILE_IO_ERROR;
             }
         }
