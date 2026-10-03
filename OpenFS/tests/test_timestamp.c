@@ -37,6 +37,13 @@ int main(void)
     assert(openfs_path_set_times_as(&v,&s,"/ts",0U,0U,111U,222U)==OPENFS_PATH_OK);
     assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&file)==OPENFS_INODE_OK);
     assert(file.atime_ns==111U&&file.mtime_ns==222U&&file.ctime_ns>=old_ctime);
+    uint64_t root_before=root.mtime_ns;
+    uint64_t second=0U;assert(openfs_path_create_as(&v,&s,"/ts2",OPENFS_INODE_MODE_REGULAR|0600U,0U,0U,&second)==OPENFS_PATH_OK);
+    assert(openfs_inode_read(&v,s.inode_table_start,s.root_inode,ic,&root)==OPENFS_INODE_OK);
+    assert(root.mtime_ns>=root_before);
+    uint64_t unlink_before=root.mtime_ns;assert(openfs_path_unlink_as(&v,&s,"/ts2",0U,0U)==OPENFS_PATH_OK);
+    assert(openfs_inode_read(&v,s.inode_table_start,s.root_inode,ic,&root)==OPENFS_INODE_OK);
+    assert(root.mtime_ns>=unlink_before);
     assert(openfs_time_now_ns()!=UINT64_MAX);
     free(d.bytes);return 0;
 }
