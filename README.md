@@ -12,7 +12,7 @@ OpenFS has a substantial filesystem core implemented and is currently in the
 **robustness, crash-consistency, permissions, and scalability phase**. It is
 **not yet ready to be used as a normal everyday filesystem**.
 
-Current overall progress is approximately **88% of the planned project scope**.
+Current overall progress is approximately **91% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -28,6 +28,7 @@ This is an engineering estimate, not a release-readiness metric.
 - inode allocation/freeing with generation reuse protection;
 - checksummed inodes;
 - persistent five-extent inode storage in the v1.2 format;
+- versioned v1.3 depth-0 extent-tree leaves with checksummed overflow extents and files beyond five extents;
 - extent-backed file read/write/truncate;
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
 - absolute path traversal with `.`, `..`, and symlink handling;
@@ -61,7 +62,7 @@ This is an engineering estimate, not a release-readiness metric.
 - broader fault-injection coverage around every WAL phase;
 - atomicity of create/mkdir/unlink/rename/link/symlink operations;
 - stronger file/truncate overflow and partial-I/O handling;
-- larger files and extent-tree/indirect extent storage beyond five fragmented extents;
+- deeper multi-level extent-tree nodes for files exceeding the current single-leaf capacity;
 - additional fsck repair/recovery capabilities (the current fsck remains deliberately read-only);
 - Linux, Windows, and ArchiaOS adapters;
 - expanded documentation and compatibility guarantees.
@@ -124,4 +125,4 @@ For transaction durability, the intended WAL ordering is:
 A transaction that has reached durable COMMIT must remain recoverable even if a
 later final write, flush, or checkpoint operation fails.
 
-See `OpenFS/docs/architecture.md`, `OpenFS/docs/format.md`, and `OpenFS/docs/adapters.md`.
+See `OpenFS/docs/architecture.md`, `OpenFS/docs/format.md`, `OpenFS/docs/extent-tree-v1.3.md`, and `OpenFS/docs/adapters.md`.
