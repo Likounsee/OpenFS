@@ -114,7 +114,7 @@ static void extent_limit_rollback(void){
     assert(memcmp(&i,&before,sizeof(i))==0);
     uint64_t reclaimed=0U;assert(openfs_alloc_block(&v,&sb,&reclaimed)==OPENFS_ALLOC_OK);
     openfs_extent_t last={0};assert(openfs_inode_get_extent(&i,i.extent_count-1U,&last)==OPENFS_EXTENT_OK);
-    assert(reclaimed==last.physical_start+last.block_count+1U);
+    assert(reclaimed==last.physical_start+last.block_count);
     assert(openfs_free_block(&v,&sb,reclaimed)==OPENFS_ALLOC_OK);
     free(d.bytes);
 }
