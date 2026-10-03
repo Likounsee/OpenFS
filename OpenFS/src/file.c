@@ -65,6 +65,25 @@ static openfs_file_result_t validate_file(
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) {
         return OPENFS_FILE_CORRUPT;
     }
+    if ((inode->flags & OPENFS_INODE_FLAG_INLINE_DATA) != 0U) {
+        if ((inode->flags & (OPENFS_INODE_FLAG_HAS_EXTENTS | OPENFS_INODE_FLAG_EXTENT_TREE)) != 0U ||
+            (inode->mode & OPENFS_INODE_TYPE_MASK) != OPENFS_INODE_MODE_SYMLINK ||
+            inode->blocks != 0U || inode->extent_count != 0U ||
+            inode->size > sizeof(inode->inline_data)) {
+            return OPENFS_FILE_CORRUPT;
+        }
+    } else {
+        uint64_t required_blocks = inode->size == 0U ? 0U :
+            1U + (inode->size - 1U) / (uint64_t)sb->block_size;
+        if (required_blocks != inode->blocks) {
+            return OPENFS_FILE_CORRUPT;
+        }
+    }
+    if ((inode->blocks == 0U && inode->extent_count != 0U) ||
+        (inode->blocks != 0U && inode->extent_count == 0U) ||
+        ((inode->blocks == 0U) != ((inode->flags & OPENFS_INODE_FLAG_HAS_EXTENTS) == 0U))) {
+        return OPENFS_FILE_CORRUPT;
+    }
     if ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U) {
         uint64_t root = openfs_inode_get_extent_tree_root(inode);
         if (inode->extent_count <= OPENFS_INODE_TREE_INLINE_EXTENT_MAX || root == 0U ||
