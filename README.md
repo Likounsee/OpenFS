@@ -8,11 +8,11 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
 ## Where we are
 
-OpenFS has a substantial filesystem core implemented and is currently in the
-**robustness, crash-consistency, permissions, and scalability phase**. It is
-**not yet ready to be used as a normal everyday filesystem**.
+OpenFS has a substantial filesystem core implemented and is currently in the **final robustness, crash-consistency, and integration phase**. The
+core remains an integration component rather than a turnkey mounted desktop
+filesystem.
 
-Current overall progress is approximately **91% of the planned project scope**.
+Current overall progress is approximately **96% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
 
 ### Implemented
@@ -34,7 +34,7 @@ This is an engineering estimate, not a release-readiness metric.
 - absolute path traversal with `.`, `..`, and symlink handling;
 - create, mkdir, unlink, rename, hard links, and symbolic links;
 - parent-path symlink following for namespace mutations;
-- inode and path-level permission-bit access checks and timestamp update APIs;
+- inode and path-level permission-bit access checks, root/superuser bypass, and automatic creation/content/metadata timestamps;
 - credential-aware namespace mutation APIs (create/mkdir/unlink/rename/chmod/timestamps), including directory execute checks during traversal;
 - credential-aware file read/write/truncate APIs and link/symlink creation APIs;
 - sticky-directory ownership checks for credential-aware unlink/rename;
@@ -53,30 +53,30 @@ This is an engineering estimate, not a release-readiness metric.
 - `fsck` consistency checking with allocation, extent, alias, inode, directory,
   generation, and link-count invariants;
 - CMake build with GCC/Clang warning flags and MSVC-compatible warning configuration;
-- CMake build and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan.
+- CMake build with GCC/Clang warning flags, Linux and ArchiaOS adapter contract tests, and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan;
 
-### In active development
+### Remaining hardening / integration
 
-- complete permission enforcement and automatic timestamp semantics (credential-aware core APIs and traversal checks are now present; automatic timestamp policy and adapter/open semantics remain);
-- broader authorization-aware namespace checks for mutation operations;
-- stronger transaction poisoning/failed-state handling and crash consistency;
-- broader fault-injection coverage around every WAL phase;
-- atomicity of create/mkdir/unlink/rename/link/symlink operations;
-- stronger file/truncate overflow and partial-I/O handling;
-- deeper multi-level extent-tree nodes for files exceeding the current single-leaf capacity;
-- additional fsck repair/recovery capabilities (the current fsck remains deliberately read-only);
-- Linux, Windows, and ArchiaOS adapters;
-- expanded documentation and compatibility guarantees.
+- complete crash-cut testing for every namespace and file mutation failure point;
+- direct (non-transactional) API partial-I/O rollback hardening where practical; transactional APIs remain the crash-atomic interface;
+- broader corruption/fault-injection matrix and compatibility regression images;
+- Windows adapter build/integration validation on a Windows runner;
+- ArchiaOS adapter integration against the actual ArchiaOS storage subsystem;
+- optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
+- additional fsck repair capabilities (fsck remains deliberately read-only);
 
-### Planned hardening
+### Scope boundary
 
-Before considering the core production-ready, OpenFS still needs extensive
-testing for corrupted media, interrupted writes, power-loss scenarios,
-allocation inconsistencies, malformed metadata, extreme file sizes, and
-adapter-specific behavior.
+The filesystem core is intentionally independent of the host OS. Linux and
+ArchiaOS adapters now implement and test the documented block-device contract;
+the Windows adapter is present but requires Windows-host CI/integration to be
+verified. The current extent-tree implementation deliberately stops at one
+checksummed leaf: a single 4 KiB leaf holds 169 overflow extents in addition to
+four inline extents, so deeper nodes are only needed if that documented limit
+is insufficient for a supported workload.
 
-Any on-disk format evolution must remain versioned and documented so existing
-v1.2 images are not silently broken.
+Any on-disk format evolution remains versioned and documented so existing v1.2
+images are not silently broken.
 
 ## Project structure
 
