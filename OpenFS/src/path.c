@@ -110,7 +110,7 @@ if (target.mode == OPENFS_INODE_MODE_FREE &&
     openfs_inode_free(d, s, e.inode_number) != OPENFS_INODE_ALLOC_OK) {
     int rollback_ok = 1;
     if (original_target.link_count == 1U) {
-        if (!restore_unlinked_inode_storage(d, s, &original_target)) rollback_ok = 0;
+        if (!restore_unlinked_inode_storage(d, s, &original_target, root_backup)) rollback_ok = 0;
     }
     if (openfs_inode_write(d, s->inode_table_start, c, &original_target) != OPENFS_INODE_OK) {
         rollback_ok = 0;
