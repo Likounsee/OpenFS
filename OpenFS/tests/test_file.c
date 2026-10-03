@@ -102,7 +102,7 @@ static void truncate_shrink_inode_write_failure_keeps_blocks(void){
     assert(openfs_free_block(&v,&sb,allocated)==OPENFS_ALLOC_OK);
     free(d.bytes);
 }
-static void extent_limit_rollback(void){
+static void extent_tree_large_file(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t block[4096U];memset(block,0xC3U,sizeof(block));
     for(uint64_t n=0U;n<10U;n++) assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+n,1)==OPENFS_BITMAP_OK);
@@ -150,4 +150,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){basic_rw();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_limit_rollback();map_bounds();return 0;}
+int main(void){basic_rw();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();map_bounds();return 0;}
