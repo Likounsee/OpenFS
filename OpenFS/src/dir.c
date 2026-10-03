@@ -134,7 +134,11 @@ openfs_dir_result_t openfs_dir_add(
         if (rr != OPENFS_FILE_OK || got != sizeof(existing)) {
             return OPENFS_DIR_IO_ERROR;
         }
-        if (memcmp(existing, "\0\0\0\0\0", 5U) == 0) {
+        int empty = 1;
+        for (size_t z = 0U; z < sizeof(existing); ++z) {
+            if (existing[z] != 0U) { empty = 0; break; }
+        }
+        if (empty) {
             return openfs_file_write(
                 d, sb, dir, n * OPENFS_DIR_ENTRY_SIZE, raw, sizeof(raw)) == OPENFS_FILE_OK
                 ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
