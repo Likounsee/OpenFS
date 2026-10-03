@@ -48,7 +48,8 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
 }
 
 
-static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){(void)tx;openfs_mount_t*m=(openfs_mount_t*)ctx;if(m==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;uint64_t target=get64(data+8U),offset=(uint64_t)get32(data+16U);uint32_t count=get32(data+20U);if(target>=m->device->block_count||count==0U||offset>=(uint64_t)m->device->block_size||count>(uint32_t)((uint64_t)m->device->block_size-offset)||count>len-24U)return OPENFS_JOURNAL_CORRUPT;uint8_t*b=malloc(m->device->block_size);if(b==NULL)return OPENFS_JOURNAL_IO_ERROR;if(m->device->read(m->device->context,target,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}memcpy(b+(size_t)offset,data+24U,count);openfs_io_result_t io=m->device->write(m->device->context,target,1U,b);free(b);return io==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}
+static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){(void)tx;openfs_mount_t*m=(openfs_mount_t*)ctx;if(m==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;uint64_t target=get64(data+8U),offset=(uint64_t)get32(data+16U);uint32_t count=get32(data+20U);if(target>=m->device->block_count||count==0U||offset>=(uint64_t)m->device->block_size||
+       (m->superblock.journal_start<m->device->block_count&&target>=m->superblock.journal_start&&target-m->superblock.journal_start<m->superblock.journal_blocks)||offset>=(uint64_t)m->device->block_size||count>(uint32_t)((uint64_t)m->device->block_size-offset)||count>len-24U)return OPENFS_JOURNAL_CORRUPT;uint8_t*b=malloc(m->device->block_size);if(b==NULL)return OPENFS_JOURNAL_IO_ERROR;if(m->device->read(m->device->context,target,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}memcpy(b+(size_t)offset,data+24U,count);openfs_io_result_t io=m->device->write(m->device->context,target,1U,b);free(b);return io==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;}
 
 openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *device)
 {
@@ -68,6 +69,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
     }
     mount->device=device;
+    if(openfs_validate_superblock(device,&mount->superblock)!=OPENFS_FORMAT_OK){memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_CORRUPT;}
     openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
@@ -87,6 +89,6 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
     if(mount==NULL||!mount->mounted)return OPENFS_MOUNT_INVALID_ARGUMENT;
     openfs_mount_result_t r=openfs_sync(mount);
     if(r!=OPENFS_MOUNT_OK)return r;
-    mount->mounted=0;mount->device=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));
+    mount->mounted=0;mount->device=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
     return OPENFS_MOUNT_OK;
 }
