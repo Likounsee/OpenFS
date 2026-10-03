@@ -119,7 +119,7 @@ static void extent_tree_large_file(void){
     uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U/4096U,&mapped)==OPENFS_FILE_OK);
     assert(mapped==sb.data_start+10U);
     uint8_t out[4096U]={0};size_t got=0U;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]==0xC3U);
-    uint64_t tree_root=openfs_inode_get_extent_tree_root(&i);assert(tree_root<sb.block_count);uint8_t saved_tree=d.bytes[(size_t)(tree_root*sb.block_size)];d.bytes[(size_t)(tree_root*sb.block_size)]^=0x5AU;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_CORRUPT);d.bytes[(size_t)(tree_root*sb.block_size)]=saved_tree;
+    uint64_t tree_root=openfs_inode_get_extent_tree_root(&i);assert(tree_root<d.block_count);uint8_t saved_tree=d.bytes[(size_t)(tree_root*d.block_size)];d.bytes[(size_t)(tree_root*d.block_size)]^=0x5AU;assert(openfs_file_read(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,out,sizeof(out),&got)==OPENFS_FILE_CORRUPT);d.bytes[(size_t)(tree_root*d.block_size)]=saved_tree;
     assert(openfs_file_truncate(&v,&sb,&i,3U*4096U)==OPENFS_FILE_OK);assert(i.blocks==3U&&i.size==3U*4096U);assert((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     for(uint32_t n=0U;n<3U;n++){
         uint64_t physical=0U;assert(openfs_file_map_block_device(&v,&sb,&i,n,&physical)==OPENFS_FILE_OK);
