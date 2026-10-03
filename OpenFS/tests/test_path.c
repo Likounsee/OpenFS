@@ -8,9 +8,9 @@
 #include "openfs/fsck.h"
 #include "openfs/file.h"
 #include <stdio.h>
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;int mutate_after_write;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
-static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_write_enabled&&f==d->fail_write_block){if(d->fail_write_count>0){if(--d->fail_write_count==0)d->fail_write_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->arm_on_write&&f==d->arm_block)d->armed=1;if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->mutate_after_write&&d->mutate_sb_after_write&&f==d->mutate_after_write_block){d->mutate_after_write=0;d->mutate_sb_after_write->inode_table_blocks=0U;}return OPENFS_IO_OK;}
+static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_write_enabled&&f==d->fail_write_block){if(d->fail_write_count>0){if(--d->fail_write_count==0)d->fail_write_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->arm_on_write&&f==d->arm_block)d->armed=1;if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;if(d->partial_write_once&&f==d->partial_write_block){uint32_t bytes=d->partial_write_bytes<d->bs?d->partial_write_bytes:d->bs;memcpy(d->b+(size_t)(f*d->bs),x,bytes);d->partial_write_once=0;return OPENFS_IO_IO_ERROR;}memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->mutate_after_write&&d->mutate_sb_after_write&&f==d->mutate_after_write_block){d->mutate_after_write=0;d->mutate_sb_after_write->inode_table_blocks=0U;}return OPENFS_IO_OK;}
 static openfs_io_result_t f(void*c){D*d=c;if(d->fail_flush){if(d->fail_flush_once)d->fail_flush=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static void long_unlink_path(void){
  D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
@@ -145,6 +145,23 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
         {openfs_inode_t restored;assert(openfs_inode_read(&v,s.inode_table_start,tree_ino,ic,&restored)==OPENFS_INODE_OK);assert(restored.blocks==5U&&restored.extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX);}
         {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
         free(root_before);free(root_after);
+    }
+    {
+        openfs_inode_t partial_parent;
+        assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&partial_parent)==OPENFS_INODE_OK);
+        uint64_t partial_block=0U;
+        assert(openfs_file_map_block_device(&v,&s,&partial_parent,0U,&partial_block)==OPENFS_FILE_OK);
+        uint8_t *before=malloc(s.block_size);uint8_t *after=malloc(s.block_size);assert(before&&after);
+        assert(v.read(v.context,partial_block,1U,before)==OPENFS_IO_OK);
+        uint64_t partial_ino=0U;
+        assert(openfs_path_create(&v,&s,"/home/test/partial-unlink",OPENFS_INODE_MODE_REGULAR,&partial_ino)==OPENFS_PATH_OK);
+        assert(v.read(v.context,partial_block,1U,before)==OPENFS_IO_OK);
+        d.partial_write_block=partial_block;d.partial_write_bytes=17U;d.partial_write_once=1;
+        assert(openfs_path_unlink(&v,&s,"/home/test/partial-unlink")==OPENFS_PATH_IO_ERROR);
+        assert(v.read(v.context,partial_block,1U,after)==OPENFS_IO_OK&&memcmp(before,after,s.block_size)==0);
+        assert(openfs_path_lookup(&v,&s,"/home/test/partial-unlink",&q)==OPENFS_PATH_OK&&q==partial_ino);
+        {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+        free(before);free(after);
     }
     uint64_t free_fail_ino=0U;
     assert(openfs_path_create(&v,&s,"/home/test/inode-free-fail",OPENFS_INODE_MODE_REGULAR,&free_fail_ino)==OPENFS_PATH_OK);
