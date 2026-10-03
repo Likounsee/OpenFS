@@ -82,7 +82,16 @@ for(uint32_t i=0U;i<in.extent_count;i++){
     }
     previous_logical_end=logical_end;
 }
-if(extent_total!=in.blocks)bad++;if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)bad++;if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;}else{uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;if(required!=in.blocks)bad++;}}
+if(extent_total!=in.blocks)bad++;
+        if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)bad++;
+        if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;
+        if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
+            if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;
+        }else{
+            uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;
+            if(required!=in.blocks)bad++;
+        }
+    }
 else if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U)bad++;}
 for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
