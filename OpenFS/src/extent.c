@@ -221,6 +221,13 @@ openfs_extent_result_t openfs_extent_tree_write(
            inline_extent.block_count==0U||inline_extent.logical_start>UINT64_MAX-inline_extent.block_count||
            inline_extent.physical_start>UINT64_MAX-inline_extent.block_count||extent_overlap(&inline_extent,&extents[0]))return OPENFS_EXTENT_CORRUPT;
     }
+    for(uint32_t n=0U;n<count;n++){
+        if(extents[n].physical_start>=device->block_count||
+           extents[n].block_count>device->block_count-extents[n].physical_start)return OPENFS_EXTENT_CORRUPT;
+        if(extent_overlap(&extents[n],&previous_inline))return OPENFS_EXTENT_CORRUPT;
+        if(extents[n].physical_start==root||extents[n].physical_start+extents[n].block_count>root&&
+           root>=extents[n].physical_start)return OPENFS_EXTENT_CORRUPT;
+    }
 
     uint8_t *block = calloc(1U, device->block_size);
     if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
