@@ -56,12 +56,15 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     if (r != OPENFS_INODE_ALLOC_OK) return r;
 
     if (count < 2U) return OPENFS_INODE_ALLOC_OUT_OF_SPACE;
-    for (uint64_t n = 2U;; ++n) {
+    for (uint64_t n = 2U; n <= count; ++n) {
         int used = 0;
         if (openfs_bitmap_test(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, n - 1U, &used) != OPENFS_BITMAP_OK) {
             return OPENFS_INODE_ALLOC_IO_ERROR;
         }
-        if (used) continue;
+        if (used) {
+            if (n == count) break;
+            continue;
+        }
 
         openfs_inode_t previous;
         if (openfs_inode_read(d, sb->inode_table_start, n, count, &previous) != OPENFS_INODE_OK) return OPENFS_INODE_ALLOC_CORRUPT;
@@ -101,7 +104,6 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         *out = n;
         return OPENFS_INODE_ALLOC_OK;
     }
-        if (n == count) break;
     return OPENFS_INODE_ALLOC_OUT_OF_SPACE;
 }
 
