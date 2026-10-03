@@ -65,9 +65,12 @@ static openfs_file_result_t validate_file(
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) {
         return OPENFS_FILE_CORRUPT;
     }
-    if ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U &&
-        (inode->extent_count <= OPENFS_INODE_TREE_INLINE_EXTENT_MAX || openfs_inode_get_extent_tree_root(inode) == 0U)) {
-        return OPENFS_FILE_CORRUPT;
+    if ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U) {
+        uint64_t root = openfs_inode_get_extent_tree_root(inode);
+        if (inode->extent_count <= OPENFS_INODE_TREE_INLINE_EXTENT_MAX || root == 0U ||
+            root < sb->data_start || root >= sb->data_start + sb->data_blocks) {
+            return OPENFS_FILE_CORRUPT;
+        }
     }
     return OPENFS_FILE_OK;
 }
