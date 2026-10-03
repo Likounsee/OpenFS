@@ -21,8 +21,8 @@ static int symlink_rollback_created(openfs_block_device_t*d,const openfs_superbl
     size_t len=strlen(linkp),slash=len;while(slash>0U&&linkp[slash-1U]!='/')--slash;
     if(slash==0U||slash>=OPENFS_PATH_MAX)return 0;
     char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
-    if(slash==1U){pp[0]='/';pp[1]='\\0';}else{if(slash>sizeof(pp))return 0;memcpy(pp,linkp,slash-1U);pp[slash-1U]='\\0';}
-    size_t nl=len-slash;if(nl==0U||nl>OPENFS_DIR_NAME_MAX)return 0;memcpy(name,linkp+slash,nl);name[nl]='\\0';
+    if(slash==1U){pp[0]='/';pp[1]='\0';}else{if(slash>sizeof(pp))return 0;memcpy(pp,linkp,slash-1U);pp[slash-1U]='\0';}
+    size_t nl=len-slash;if(nl==0U||nl>OPENFS_DIR_NAME_MAX)return 0;memcpy(name,linkp+slash,nl);name[nl]='\0';
     openfs_inode_t dir,original_dir;if(ri(d,s,parent,&dir)!=OPENFS_PATH_OK)return 0;original_dir=dir;
     uint64_t count=0U;if(icount(s,&count)!=OPENFS_PATH_OK)return 0;
     if(openfs_dir_remove(d,s,&dir,name)!=OPENFS_DIR_OK)return 0;
