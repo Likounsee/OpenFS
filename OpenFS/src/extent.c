@@ -94,7 +94,7 @@ openfs_extent_result_t openfs_inode_get_extent(
     return OPENFS_EXTENT_OK;
 }
 
-openfs_extent_result_t openfs_extent_result_t openfs_inode_set_extent(openfs_inode_t *inode,uint32_t index,const openfs_extent_t *extent)
+openfs_extent_result_t openfs_inode_set_extent(openfs_inode_t *inode,uint32_t index,const openfs_extent_t *extent)
 {
     if(inode==NULL||extent==NULL)return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint32_t inline_limit=(inode->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U?OPENFS_INODE_TREE_INLINE_EXTENT_MAX:OPENFS_EXTENT_MAX;
@@ -225,8 +225,8 @@ openfs_extent_result_t openfs_extent_tree_write(
         if(extents[n].physical_start>=device->block_count||
            extents[n].block_count>device->block_count-extents[n].physical_start)return OPENFS_EXTENT_CORRUPT;
         if(extent_overlap(&extents[n],&previous_inline))return OPENFS_EXTENT_CORRUPT;
-        if(extents[n].physical_start==root||extents[n].physical_start+extents[n].block_count>root&&
-           root>=extents[n].physical_start)return OPENFS_EXTENT_CORRUPT;
+        if(extents[n].physical_start==root||
+           (extents[n].physical_start+extents[n].block_count>root&&root>=extents[n].physical_start))return OPENFS_EXTENT_CORRUPT;
     }
 
     uint8_t *block = calloc(1U, device->block_size);
