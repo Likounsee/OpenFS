@@ -55,3 +55,18 @@ Platform adapters live outside `src/` and convert a host storage primitive into
 `openfs_block_device_t`. The core never includes platform headers. Linux and
 ArchiaOS adapter contract tests run with the normal test suite; Windows
 requires a Windows host for build/integration verification.
+
+
+## Crash-boundary hardening
+
+The journal checkpoint clears records from the end toward the beginning. An
+interruption can therefore leave either a shorter valid prefix or an intact
+journal; it cannot erase the first record while leaving stale records after a
+gap. Final transaction writes are flushed before checkpointing.
+
+Direct non-transactional file write/truncate operations also perform best-effort
+persistent rollback when metadata persistence or the final flush fails. If the
+underlying device refuses the rollback itself, OpenFS reports a corruption-class
+failure instead of asserting that the previous state is durable. Transactional
+APIs remain the intended crash-atomic interface for compound namespace/data
+changes.
