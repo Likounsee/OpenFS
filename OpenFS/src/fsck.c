@@ -92,7 +92,10 @@ if(extent_total!=in.blocks)bad++;
             if(required!=in.blocks)bad++;
         }
     }
-else if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U)bad++;}
+else{
+if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U||in.blocks!=0U||in.extent_count!=0U||
+   in.flags!=0U||in.size!=0U)bad++;
+}}
 for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
 if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)continue;
