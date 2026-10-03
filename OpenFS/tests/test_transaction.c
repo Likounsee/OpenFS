@@ -8,9 +8,9 @@
 #include "openfs/mount.h"
 #include "openfs/path.h"
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; } } while (0)
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;uint64_t partial_block;size_t partial_bytes;int partial_enabled;int partial_once;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change_after_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
-static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(d->partial_enabled&&f==d->partial_block){size_t bytes=(size_t)((uint64_t)n*d->bs);if(d->partial_bytes!=0U&&d->partial_bytes<bytes)bytes=d->partial_bytes;memcpy(d->b+(size_t)(f*d->bs),x,bytes);if(d->partial_once)d->partial_enabled=0;return OPENFS_IO_IO_ERROR;}if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
+static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(d->partial_enabled&&f==d->partial_block){size_t bytes=(size_t)((uint64_t)n*d->bs);if(d->partial_bytes!=0U&&d->partial_bytes<bytes)bytes=d->partial_bytes;memcpy(d->b+(size_t)(f*d->bs),x,bytes);if(d->partial_once){if(d->partial_change_after_once)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){D*d=c;if(d->flush_failed||d->fail_flush)return OPENFS_IO_IO_ERROR;return OPENFS_IO_OK;}
 static int commit_full_cleans_active_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
@@ -35,8 +35,8 @@ free(d.b);
 D e={0};e.bs=4096U;e.bc=256U;e.b=calloc((size_t)e.bc,e.bs);CHECK(e.b);
 openfs_block_device_t wdev={&e,e.bs,e.bc,r,w,fl};uint8_t uuid2[16]={14U};CHECK(openfs_format(&wdev,uuid2)==OPENFS_FORMAT_OK);
 openfs_superblock_t sb;CHECK(openfs_read_superblock(&wdev,&sb)==OPENFS_FORMAT_OK);openfs_journal_t k;CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_OK);uint64_t tx2=0U;CHECK(openfs_journal_begin(&k,&wdev,&tx2)==OPENFS_JOURNAL_OK);uint8_t long_seed[2048];memset(long_seed,0xB7U,sizeof(long_seed));CHECK(openfs_journal_write(&k,&wdev,tx2,seed,3U)==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_commit(&k,&wdev,tx2)==OPENFS_JOURNAL_OK);
-e.partial_block=sb.journal_start+4U;e.partial_bytes=1024U;e.partial_enabled=1;e.partial_once=0;
-CHECK(openfs_journal_checkpoint(&k,&wdev)==OPENFS_JOURNAL_IO_ERROR);e.partial_enabled=0;CHECK(e.b[(size_t)((sb.journal_start+4U)*e.bs+32U+500U)]==0U);
+e.partial_block=sb.journal_start+4U;e.partial_bytes=2048U;e.partial_next_bytes=1024U;e.partial_enabled=1;e.partial_once=1;e.partial_change_after_once=1;
+CHECK(openfs_journal_checkpoint(&k,&wdev)==OPENFS_JOURNAL_IO_ERROR);e.partial_enabled=0;CHECK(e.b[(size_t)((sb.journal_start+4U)*e.bs+32U+1500U)]==0U);
 CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_CORRUPT);
 free(e.b);return 0;
 }
