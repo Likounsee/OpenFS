@@ -26,3 +26,14 @@ jobs:
           cmake -S OpenFS -B build-${{ matrix.compiler }}-asan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build build-${{ matrix.compiler }}-asan --parallel
           ctest --test-dir build-${{ matrix.compiler }}-asan --output-on-failure
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S OpenFS -B build-windows -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build-windows --config Debug --parallel
+      - name: Test
+        run: ctest --test-dir build-windows -C Debug --output-on-failure
