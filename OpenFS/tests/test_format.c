@@ -16,7 +16,7 @@ static void format_remount(void){
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
  assert(openfs_format(&v,u)==OPENFS_FORMAT_OK); assert(d.flushes==1U);
  openfs_superblock_t s; assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
- assert(s.block_size==4096U&&s.total_blocks==128U&&s.root_inode==1U); assert(memcmp(s.uuid,u,16U)==0);
+ assert(s.block_size==4096U&&s.total_blocks==128U&&s.root_inode==1U); assert((s.feature_flags&OPENFS_FEATURE_EXTENT_TREE)!=0U); assert(memcmp(s.uuid,u,16U)==0);
  assert(memcmp(d.bytes+((d.block_count-1U)*d.block_size),d.bytes,d.block_size)==0); free(d.bytes);
 }
 static void checksum(void){
