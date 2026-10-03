@@ -36,7 +36,7 @@ D e={0};e.bs=4096U;e.bc=256U;e.b=calloc((size_t)e.bc,e.bs);CHECK(e.b);
 openfs_block_device_t wdev={&e,e.bs,e.bc,r,w,fl};uint8_t uuid2[16]={14U};CHECK(openfs_format(&wdev,uuid2)==OPENFS_FORMAT_OK);
 openfs_superblock_t sb;CHECK(openfs_read_superblock(&wdev,&sb)==OPENFS_FORMAT_OK);openfs_journal_t k;CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_OK);uint64_t tx2=0U;CHECK(openfs_journal_begin(&k,&wdev,&tx2)==OPENFS_JOURNAL_OK);uint8_t long_seed[2048];memset(long_seed,0xB7U,sizeof(long_seed));CHECK(openfs_journal_write(&k,&wdev,tx2,seed,3U)==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&k,&wdev,tx2,long_seed,sizeof(long_seed))==OPENFS_JOURNAL_OK);CHECK(openfs_journal_commit(&k,&wdev,tx2)==OPENFS_JOURNAL_OK);
 e.partial_block=sb.journal_start+4U;e.partial_bytes=1024U;e.partial_enabled=1;e.partial_once=0;
-CHECK(openfs_journal_checkpoint(&k,&wdev)==OPENFS_JOURNAL_IO_ERROR);e.partial_enabled=0;CHECK(e.b[(size_t)((sb.journal_start+2U)*e.bs+32U+1500U)]==0U);
+CHECK(openfs_journal_checkpoint(&k,&wdev)==OPENFS_JOURNAL_IO_ERROR);e.partial_enabled=0;CHECK(e.b[(size_t)((sb.journal_start+4U)*e.bs+32U+500U)]==0U);
 CHECK(openfs_journal_open(&k,&wdev,&sb)==OPENFS_JOURNAL_CORRUPT);
 free(e.b);return 0;
 }
