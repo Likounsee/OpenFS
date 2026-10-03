@@ -18,6 +18,7 @@ typedef struct {
     int fail_once;
     int fail_after_write;
     int fail_flush;
+    int fail_flush_once;
 } disk_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *buffer){
@@ -33,7 +34,7 @@ static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void 
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
-static openfs_io_result_t fl(void *ctx){disk_t*d=ctx;d->flushes++;return d->fail_flush?OPENFS_IO_IO_ERROR:OPENFS_IO_OK;}
+static openfs_io_result_t fl(void *ctx){disk_t*d=ctx;d->flushes++;if(d->fail_flush){if(d->fail_flush_once)d->fail_flush=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static openfs_block_device_t dev(disk_t*d){return (openfs_block_device_t){d,d->block_size,d->block_count,rd,wr,fl};}
 
 static void setup(disk_t*d,openfs_block_device_t*v,openfs_superblock_t*sb){
@@ -148,6 +149,18 @@ static void truncate_grow_partial_tail_inode_failure_restores_data(void){
     assert(memcmp(saved,d.bytes+(size_t)(physical*d.block_size),d.block_size)==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(saved);free(d.bytes);
+}
+static void truncate_shrink_flush_failure_rolls_back(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t data[12288U];memset(data,0x44U,sizeof(data));
+    assert(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
+    openfs_inode_t before=i;d.fail_flush=1;d.fail_flush_once=1;
+    assert(openfs_file_truncate(&v,&sb,&i,4096U)==OPENFS_FILE_IO_ERROR);
+    assert(memcmp(&i,&before,sizeof(i))==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
 }
 static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
