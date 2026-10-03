@@ -145,7 +145,7 @@ static void truncate_grow_partial_tail_inode_failure_restores_data(void){
     assert(openfs_file_truncate(&v,&sb,&i,5000U)==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
     assert(memcmp(saved,d.bytes+(size_t)(physical*d.block_size),d.block_size)==0);
-    uint64_t errors=0U;openfs_fsck_result_t fr=openfs_fsck(&v,&sb,&errors);fprintf(stderr,"tree rollback fsck=%d errors=%llu\\n",(int)fr,(unsigned long long)errors);for(uint64_t q=0U;q<16U;q++){int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+q,&used)==OPENFS_BITMAP_OK);if(used)fprintf(stderr,"used+%llu\\n",(unsigned long long)q);}assert(fr==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(saved);free(d.bytes);
 }
 static void truncate_tree_inode_write_failure_is_persistent_atomic(void){
