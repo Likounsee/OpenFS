@@ -33,7 +33,7 @@ This is an engineering estimate, not a release-readiness metric.
 - create, mkdir, unlink, rename, hard links, and symbolic links;
 - parent-path symlink following for namespace mutations;
 - inode and path-level permission-bit access checks and timestamp update APIs;
-- credential-aware namespace mutation APIs (create/mkdir/unlink/rename/chmod/timestamps);
+- credential-aware namespace mutation APIs (create/mkdir/unlink/rename/chmod/timestamps), including directory execute checks during traversal;
 - credential-aware file read/write/truncate APIs and link/symlink creation APIs;
 - filesystem mount/unmount with primary/backup superblock fallback;
 - checksummed journal records;
