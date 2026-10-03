@@ -155,7 +155,7 @@ openfs_extent_result_t openfs_extent_tree_read(
         free(block);
         return OPENFS_EXTENT_CORRUPT;
     }
-    if (memcmp(block, OPENFS_EXTENT_TREE_MAGIC, 8U) != 0 ||
+    if (inode->generation == 0U || memcmp(block, OPENFS_EXTENT_TREE_MAGIC, 8U) != 0 ||
         load16(block + 8U) != 0U ||
         load16(block + 10U) != (uint16_t)tree_count64 ||
         load16(block + 12U) != (uint16_t)cap ||
