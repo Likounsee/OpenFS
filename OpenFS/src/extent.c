@@ -96,7 +96,7 @@ openfs_extent_result_t openfs_inode_set_extent(
     const openfs_extent_t *extent)
 {
     if (inode == NULL || extent == NULL) return OPENFS_EXTENT_INVALID_ARGUMENT;
-    if (index >= OPENFS_EXTENT_MAX || ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U && index >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX) || extent->block_count == 0U) {
+    if (index >= OPENFS_EXTENT_MAX || index > inode->extent_count || ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U && index >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX) || extent->block_count == 0U) {
         return OPENFS_EXTENT_OUT_OF_RANGE;
     }
     if (extent->logical_start > UINT64_MAX - extent->block_count ||
