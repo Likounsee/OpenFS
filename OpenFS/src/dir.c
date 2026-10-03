@@ -218,7 +218,12 @@ openfs_dir_result_t openfs_dir_remove(
             memcpy(original_block, block, d->block_size);
             memset(block + within, 0, OPENFS_DIR_ENTRY_SIZE);
             openfs_io_result_t io = d->write(d->context, physical, 1U, block);
-            if (io != OPENFS_IO_OK) { free(block); free(original_block); return OPENFS_DIR_IO_ERROR; }
+            if (io != OPENFS_IO_OK) {
+                int rollback_ok=d->write(d->context,physical,1U,original_block)==OPENFS_IO_OK;
+                if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(block); free(original_block);
+                return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
+            }
             uint64_t inode_bytes=0U;
             if (d->block_size!=0U && sb->inode_table_blocks>UINT64_MAX/d->block_size) {
                 int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
@@ -227,9 +232,28 @@ openfs_dir_result_t openfs_dir_remove(
             }
             inode_bytes=sb->inode_table_blocks*(uint64_t)d->block_size;
             uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
-            if (inode_count==0U) {
-                (void)d->write(d->context, physical, 1U, original_block);
-                free(block); free(original_block); return OPENFS_DIR_CORRUPT;
+            if (inode_count==0U || dir->inode_number==0U || dir->inode_number>inode_count ||
+                dir->inode_number-1U>UINT64_MAX/OPENFS_INODE_SIZE) {
+                int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(block); free(original_block); return rollback_ok?OPENFS_DIR_CORRUPT:OPENFS_DIR_CORRUPT;
+            }
+            uint64_t inode_offset=(dir->inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE;
+            uint64_t inode_block=sb->inode_table_start+inode_offset/d->block_size;
+            uint32_t inode_within=(uint32_t)(inode_offset%d->block_size);
+            if (inode_block>=d->block_count ||
+                (uint64_t)inode_within+OPENFS_INODE_SIZE>d->block_size) {
+                int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(block); free(original_block); return rollback_ok?OPENFS_DIR_CORRUPT:OPENFS_DIR_CORRUPT;
+            }
+            uint8_t *original_inode_block=(uint8_t *)malloc(d->block_size);
+            if (original_inode_block==NULL ||
+                d->read(d->context,inode_block,1U,original_inode_block)!=OPENFS_IO_OK) {
+                free(original_inode_block);
+                int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(block); free(original_block); return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
             uint64_t now=openfs_time_now_ns();
             uint64_t old_mtime=dir->mtime_ns, old_ctime=dir->ctime_ns;
@@ -238,11 +262,14 @@ openfs_dir_result_t openfs_dir_remove(
             if(ir!=OPENFS_INODE_OK){
                 dir->mtime_ns=old_mtime;dir->ctime_ns=old_ctime;
                 int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                if(d->write(d->context,inode_block,1U,original_inode_block)!=OPENFS_IO_OK)rollback_ok=0;
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                free(original_inode_block);
                 free(block); free(original_block);
                 return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
             if (d->flush(d->context) == OPENFS_IO_OK) {
+                free(original_inode_block);
                 free(block);
                 free(original_block);
                 return OPENFS_DIR_OK;
@@ -260,15 +287,15 @@ openfs_dir_result_t openfs_dir_remove(
             if (d->write(d->context, physical, 1U, original_block) != OPENFS_IO_OK) {
                 rollback_ok = 0;
             }
-            /* Restore timestamps and persist the original inode metadata. */
             dir->mtime_ns = old_mtime;
             dir->ctime_ns = old_ctime;
-            if (write_inode_for_dir_rollback(d, sb, dir) != OPENFS_INODE_OK) {
+            if (d->write(d->context,inode_block,1U,original_inode_block)!=OPENFS_IO_OK) {
                 rollback_ok = 0;
             }
             if (d->flush(d->context) != OPENFS_IO_OK) {
                 rollback_ok = 0;
             }
+            free(original_inode_block);
             free(block);
             free(original_block);
             return rollback_ok ? OPENFS_DIR_IO_ERROR : OPENFS_DIR_CORRUPT;
