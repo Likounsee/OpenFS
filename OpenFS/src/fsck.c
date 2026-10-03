@@ -94,8 +94,7 @@ if(extent_total!=in.blocks)bad++;
     }
 else{
 if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U||in.blocks!=0U||in.extent_count!=0U||
-   in.flags!=0U||in.size!=0U||in.parent_inode!=0U||in.uid!=0U||in.gid!=0U||
-   in.atime_ns!=0U||in.mtime_ns!=0U||in.ctime_ns!=0U)bad++;
+   in.flags!=0U||in.size!=0U)bad++;
 }}
 for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
