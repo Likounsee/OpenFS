@@ -32,14 +32,16 @@ This is an engineering estimate, not a release-readiness metric.
 - absolute path traversal with `.`, `..`, and symlink handling;
 - create, mkdir, unlink, rename, hard links, and symbolic links;
 - parent-path symlink following for namespace mutations;
-- inode permission-bit access checks and timestamp update APIs;
+- inode and path-level permission-bit access checks and timestamp update APIs;
 - filesystem mount/unmount with primary/backup superblock fallback;
 - checksummed journal records;
 - transaction ownership, BEGIN/DATA/COMMIT handling and committed-transaction replay;
 - journal checkpoint/reclamation;
-- transaction-aware mutation support;
+- transaction-aware namespace and file mutation support;
 - journal-full handling without partial transaction publication;
 - transaction fault-injection coverage for journal/data/flush/checkpoint failures;
+- namespace transaction coverage for link/symlink commit and abort paths;
+- truncate-shrink ordering that preserves inode/block consistency when inode persistence fails;
 - recovery tests verifying committed transactions remain recoverable after final-write failures;
 - `fsck` consistency checking with allocation, extent, alias, inode, directory,
   generation, and link-count invariants;
@@ -48,6 +50,7 @@ This is an engineering estimate, not a release-readiness metric.
 ### In active development
 
 - complete permission enforcement and automatic timestamp semantics;
+- broader authorization-aware namespace checks for mutation operations;
 - stronger transaction poisoning/failed-state handling and crash consistency;
 - broader fault-injection coverage around every WAL phase;
 - atomicity of create/mkdir/unlink/rename/link/symlink operations;
