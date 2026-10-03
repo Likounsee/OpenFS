@@ -8,6 +8,9 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define OPENFS_FSCK_MAX_REF_BYTES (64U * 1024U * 1024U)
+#define OPENFS_FSCK_MAX_DIR_REFS (2U * 1024U * 1024U)
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
 static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
@@ -46,8 +49,10 @@ jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
 uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK)return OPENFS_FSCK_CORRUPT;
 uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
+if(ref_bytes64>OPENFS_FSCK_MAX_REF_BYTES)return OPENFS_FSCK_IO_ERROR;
 uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
 if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
+if(count+1U>OPENFS_FSCK_MAX_DIR_REFS)return OPENFS_FSCK_IO_ERROR;
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t bad=0U;
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
