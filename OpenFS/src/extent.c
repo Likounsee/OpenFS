@@ -61,17 +61,21 @@ static int decode_extent(const uint8_t *p, openfs_extent_t *e)
     return 1;
 }
 
+static int extent_overlap(const openfs_extent_t *a,const openfs_extent_t *b)
+{
+    uint64_t al=a->logical_start+a->block_count,bl=b->logical_start+b->block_count;
+    uint64_t ap=a->physical_start+a->block_count,bp=b->physical_start+b->block_count;
+    return (a->logical_start<bl&&b->logical_start<al)||(a->physical_start<bp&&b->physical_start<ap);
+}
 static int validate_extent_order(const openfs_extent_t *e, uint32_t count)
 {
-    uint64_t previous_end = 0U, previous_physical_end = 0U;
-    for (uint32_t n = 0U; n < count; ++n) {
-        if (e[n].block_count == 0U ||
-            e[n].logical_start > UINT64_MAX - e[n].block_count ||
-            e[n].physical_start > UINT64_MAX - e[n].block_count) {
-            return 0;
-        }
-        if (n != 0U && (e[n].logical_start < previous_end || e[n].physical_start < previous_physical_end)) return 0;
-        previous_end = e[n].logical_start + e[n].block_count;previous_physical_end = e[n].physical_start + e[n].block_count;
+    uint64_t previous_end=0U;
+    for(uint32_t n=0U;n<count;n++){
+        if(e[n].block_count==0U||e[n].logical_start>UINT64_MAX-e[n].block_count||
+           e[n].physical_start>UINT64_MAX-e[n].block_count)return 0;
+        if(n!=0U&&e[n].logical_start!=previous_end)return 0;
+        for(uint32_t p=0U;p<n;p++)if(extent_overlap(&e[p],&e[n]))return 0;
+        previous_end=e[n].logical_start+e[n].block_count;
     }
     return 1;
 }
@@ -90,52 +94,29 @@ openfs_extent_result_t openfs_inode_get_extent(
     return OPENFS_EXTENT_OK;
 }
 
-openfs_extent_result_t openfs_inode_set_extent(
-    openfs_inode_t *inode,
-    uint32_t index,
-    const openfs_extent_t *extent)
+openfs_extent_result_t openfs_extent_result_t openfs_inode_set_extent(openfs_inode_t *inode,uint32_t index,const openfs_extent_t *extent)
 {
-    if (inode == NULL || extent == NULL) return OPENFS_EXTENT_INVALID_ARGUMENT;
-    if (index >= OPENFS_EXTENT_MAX || index > inode->extent_count || ((inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U && index >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX) || extent->block_count == 0U) {
-        return OPENFS_EXTENT_OUT_OF_RANGE;
-    }
-    if (extent->logical_start > UINT64_MAX - extent->block_count ||
-        extent->physical_start > UINT64_MAX - extent->block_count) {
-        return OPENFS_EXTENT_CORRUPT;
-    }
-    uint8_t old_record[OPENFS_EXTENT_RECORD_SIZE];
-    uint32_t old_flags = inode->flags;
-    uint32_t old_count = inode->extent_count;
-    uint8_t *p = slot(inode, index);
-    memcpy(old_record, p, sizeof(old_record));
-    encode_extent(p, extent);
-    if (index > 0U) {
-        openfs_extent_t prev;
-        if (!decode_extent(slot(inode, index - 1U), &prev) ||
-            prev.logical_start > UINT64_MAX - prev.block_count ||
-            prev.physical_start > UINT64_MAX - prev.block_count ||
-            extent->logical_start < prev.logical_start + prev.block_count ||
-            extent->physical_start < prev.physical_start + prev.block_count) {
-            memcpy(p, old_record, sizeof(old_record)); inode->flags = old_flags; inode->extent_count = old_count; return OPENFS_EXTENT_CORRUPT;
+    if(inode==NULL||extent==NULL)return OPENFS_EXTENT_INVALID_ARGUMENT;
+    uint32_t inline_limit=(inode->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U?OPENFS_INODE_TREE_INLINE_EXTENT_MAX:OPENFS_EXTENT_MAX;
+    if(index>=inline_limit||index>inode->extent_count||extent->block_count==0U||
+       extent->logical_start>UINT64_MAX-extent->block_count||
+       extent->physical_start>UINT64_MAX-extent->block_count)return OPENFS_EXTENT_OUT_OF_RANGE;
+    uint8_t old_record[OPENFS_EXTENT_RECORD_SIZE];uint32_t old_flags=inode->flags,old_count=inode->extent_count;
+    uint8_t *p=slot(inode,index);memcpy(old_record,p,sizeof(old_record));encode_extent(p,extent);
+    uint32_t stored_count=old_count<inline_limit?old_count:inline_limit;
+    for(uint32_t n=0U;n<stored_count;n++){
+        if(n==index)continue;
+        openfs_extent_t other;
+        if(!decode_extent(slot(inode,n),&other)||
+           other.block_count==0U||
+           other.logical_start>UINT64_MAX-other.block_count||
+           other.physical_start>UINT64_MAX-other.block_count||
+           extent_overlap(extent,&other)){
+            memcpy(p,old_record,sizeof(old_record));inode->flags=old_flags;inode->extent_count=old_count;return OPENFS_EXTENT_CORRUPT;
         }
     }
-    if (index + 1U < old_count) {
-        openfs_extent_t next;
-        if (!decode_extent(slot(inode, index + 1U), &next)) {
-            int empty=1; for(size_t z=0U;z<OPENFS_EXTENT_RECORD_SIZE;z++) if(slot(inode,index+1U)[z]!=0U){empty=0;break;}
-            if(empty) goto skip_next_check;
-            memcpy(p, old_record, sizeof(old_record)); inode->flags = old_flags; inode->extent_count = old_count; return OPENFS_EXTENT_CORRUPT;
-        }
-        if (extent->logical_start > UINT64_MAX - extent->block_count ||
-            extent->physical_start > UINT64_MAX - extent->block_count ||
-            extent->logical_start + extent->block_count > next.logical_start ||
-            extent->physical_start + extent->block_count > next.physical_start) {
-            memcpy(p, old_record, sizeof(old_record)); inode->flags = old_flags; inode->extent_count = old_count; return OPENFS_EXTENT_CORRUPT;
-        }
-    }
-skip_next_check:
-    if (index >= inode->extent_count) inode->extent_count = index + 1U;
-    inode->flags |= OPENFS_INODE_FLAG_HAS_EXTENTS;
+    if(index>=inode->extent_count)inode->extent_count=index+1U;
+    inode->flags|=OPENFS_INODE_FLAG_HAS_EXTENTS;
     return OPENFS_EXTENT_OK;
 }
 
@@ -232,8 +213,7 @@ openfs_extent_result_t openfs_extent_tree_write(
             &previous_inline) != OPENFS_EXTENT_OK ||
         previous_inline.logical_start > UINT64_MAX - previous_inline.block_count ||
         previous_inline.physical_start > UINT64_MAX - previous_inline.block_count ||
-        extents[0].logical_start != previous_inline.logical_start + previous_inline.block_count ||
-        extents[0].physical_start < previous_inline.physical_start + previous_inline.block_count) {
+        extents[0].logical_start != previous_inline.logical_start + previous_inline.block_count) {
         return OPENFS_EXTENT_CORRUPT;
     }
 
