@@ -33,6 +33,8 @@ This is an engineering estimate, not a release-readiness metric.
 - create, mkdir, unlink, rename, hard links, and symbolic links;
 - parent-path symlink following for namespace mutations;
 - inode and path-level permission-bit access checks and timestamp update APIs;
+- credential-aware namespace mutation APIs (create/mkdir/unlink/rename/chmod/timestamps);
+- credential-aware file read/write/truncate APIs and link/symlink creation APIs;
 - filesystem mount/unmount with primary/backup superblock fallback;
 - checksummed journal records;
 - transaction ownership, BEGIN/DATA/COMMIT handling and committed-transaction replay;
@@ -52,7 +54,7 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### In active development
 
-- complete permission enforcement and automatic timestamp semantics;
+- complete permission enforcement and automatic timestamp semantics (credential-aware core APIs are now present; adapter/open semantics remain);
 - broader authorization-aware namespace checks for mutation operations;
 - stronger transaction poisoning/failed-state handling and crash consistency;
 - broader fault-injection coverage around every WAL phase;
