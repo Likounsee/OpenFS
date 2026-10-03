@@ -146,7 +146,8 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) return OPENFS_EXTENT_OUT_OF_RANGE;
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
-    if (cap == 0U || index >= inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
+    uint64_t tree_count64 = inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
+    if (cap == 0U || tree_count64 > UINT16_MAX || index >= tree_count64 || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
 
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) return OPENFS_EXTENT_IO_ERROR;
@@ -156,8 +157,8 @@ openfs_extent_result_t openfs_extent_tree_read(
     }
     if (memcmp(block, OPENFS_EXTENT_TREE_MAGIC, 8U) != 0 ||
         load16(block + 8U) != 0U ||
-        load16(block + 10U) != (uint16_t)(inode->extent_count >= OPENFS_INODE_TREE_INLINE_EXTENT_MAX ? inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX : 0U) ||
-        load16(block + 12U) > cap ||
+        load16(block + 10U) != (uint16_t)tree_count64 ||
+        load16(block + 12U) != (uint16_t)cap ||
         load64(block + 16U) != inode->generation) {
         free(block);
         return OPENFS_EXTENT_CORRUPT;
