@@ -46,16 +46,15 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         return r != OPENFS_INODE_ALLOC_OK ? r : OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
     uint32_t type = mode & OPENFS_INODE_TYPE_MASK;
-    if (type != OPENFS_INODE_MODE_REGULAR &&
-        type != OPENFS_INODE_MODE_DIRECTORY &&
-        type != OPENFS_INODE_MODE_SYMLINK) {
+    if ((mode & ~(OPENFS_INODE_TYPE_MASK | OPENFS_INODE_PERMISSION_MASK)) != 0U ||
+        type != OPENFS_INODE_MODE_REGULAR && type != OPENFS_INODE_MODE_DIRECTORY && type != OPENFS_INODE_MODE_SYMLINK) {
         return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
 
     uint64_t count = 0U;
     r = inode_count(sb, &count);
     if (r != OPENFS_INODE_ALLOC_OK) return r;
-    if (parent > count) return OPENFS_INODE_ALLOC_CORRUPT;
+    if (parent > count) return OPENFS_INODE_ALLOC_CORRUPT;if (parent==0U) return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     {
         openfs_inode_t parent_inode;
         if (openfs_inode_read(d, sb->inode_table_start, parent, count, &parent_inode) != OPENFS_INODE_OK ||
