@@ -201,7 +201,7 @@ static void write_extent_tree_root_rollback_releases_metadata(void){
     d.fail_block=inode_block;d.fail_block_enabled=1;d.fail_once=1;
     assert(openfs_file_write(&v,&sb,&i,(uint64_t)OPENFS_EXTENT_MAX*4096U,block,sizeof(block))==OPENFS_FILE_IO_ERROR);
     assert(memcmp(&i,&before,sizeof(i))==0);
-    uint64_t errors=0U;openfs_fsck_result_t fr=openfs_fsck(&v,&sb,&errors);fprintf(stderr,"tree rollback fsck=%d errors=%llu\\n",(int)fr,(unsigned long long)errors);assert(fr==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 static void partial_existing_write_rolls_back(void){
