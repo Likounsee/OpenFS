@@ -378,7 +378,9 @@ openfs_file_result_t openfs_file_truncate(
         uint32_t to=(new_blocks>old_blocks)?device->block_size:(uint32_t)(new_size%device->block_size);
         memset(block+from,0,(size_t)(to-from));
         if(device->write(device->context,tail_physical,1U,block)!=OPENFS_IO_OK){
-            free(block);free(tail_backup);return OPENFS_FILE_IO_ERROR;
+            int ok=device->write(device->context,tail_physical,1U,tail_backup)==OPENFS_IO_OK;
+            if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+            free(block);free(tail_backup);return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
         }
         free(block);
     }
