@@ -4,6 +4,7 @@
 #include "openfs/file.h"
 #include "openfs/dir.h"
 #include "openfs/crc32c.h"
+#include "openfs/journal.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,12 +20,30 @@ uint32_t len=r[7U];if(len==0U||len>OPENFS_DIR_NAME_MAX)return -1;
 for(uint32_t i=0U;i<len;i++){if(r[24U+i]=='/'||r[24U+i]=='\0')return -1;}
 *ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];for(uint32_t i=len+24U;i<252U;i++)if(r[i]!=0U)return -1;return 1;}
 static int same_dir_name(const uint8_t*a,const uint8_t*b){uint32_t la=a[7U],lb=b[7U];return la==lb&&memcmp(a+24U,b+24U,la)==0;}
+static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
+{
+    (void)tx;
+    const openfs_superblock_t *s=ctx;
+    if(s==NULL||data==NULL||len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
+    uint64_t target=0U;for(unsigned k=0U;k<8U;k++)target|=(uint64_t)data[8U+k]<<(8U*k);
+    uint32_t offset=(uint32_t)data[16U]|((uint32_t)data[17U]<<8U)|((uint32_t)data[18U]<<16U)|((uint32_t)data[19U]<<24U);
+    uint32_t count=(uint32_t)data[20U]|((uint32_t)data[21U]<<8U)|((uint32_t)data[22U]<<16U)|((uint32_t)data[23U]<<24U);
+    if(target>=s->total_blocks||target==0U||target==s->total_blocks-1U||count==0U||count!=len-24U||
+       offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||
+       (target>=s->journal_start&&target-s->journal_start<s->journal_blocks))return OPENFS_JOURNAL_CORRUPT;
+    return OPENFS_JOURNAL_OK;
+}
+
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
 if (errors != NULL) *errors = 0U;
 if(!openfs_block_device_is_valid(d)||s==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;
 if(openfs_validate_superblock(d,s)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
+openfs_journal_t journal;openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
+if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
+jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
+if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
 uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK)return OPENFS_FSCK_CORRUPT;
 uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
