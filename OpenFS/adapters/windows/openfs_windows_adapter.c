@@ -31,8 +31,8 @@ static openfs_io_result_t windows_read(void *context,uint64_t first,uint32_t cou
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     if(first>UINT64_MAX/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    if(bytes64>UINT32_MAX)return OPENFS_IO_OUT_OF_RANGE;
-    return transfer(a->handle,first*(uint64_t)a->device.block_size,buffer,(DWORD)bytes64,0);
+    if(bytes64>UINT32_MAX||first>(UINT64_MAX-(uint64_t)bytes64)/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
+    uint64_t offset=first*(uint64_t)a->device.block_size;if(offset>INT64_MAX-(uint64_t)bytes64)return OPENFS_IO_OUT_OF_RANGE;return transfer(a->handle,offset,buffer,(DWORD)bytes64,0);
 }
 
 static openfs_io_result_t windows_write(void *context,uint64_t first,uint32_t count,const void *buffer)
@@ -43,8 +43,8 @@ static openfs_io_result_t windows_write(void *context,uint64_t first,uint32_t co
     if(first>=a->device.block_count||(uint64_t)count>a->device.block_count-first)return OPENFS_IO_OUT_OF_RANGE;
     if(first>UINT64_MAX/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
-    if(bytes64>UINT32_MAX)return OPENFS_IO_OUT_OF_RANGE;
-    return transfer(a->handle,first*(uint64_t)a->device.block_size,(void *)buffer,(DWORD)bytes64,1);
+    if(bytes64>UINT32_MAX||first>(UINT64_MAX-(uint64_t)bytes64)/(uint64_t)a->device.block_size)return OPENFS_IO_OUT_OF_RANGE;
+    uint64_t offset=first*(uint64_t)a->device.block_size;if(offset>INT64_MAX-(uint64_t)bytes64)return OPENFS_IO_OUT_OF_RANGE;return transfer(a->handle,offset,(void *)buffer,(DWORD)bytes64,1);
 }
 
 static openfs_io_result_t windows_flush(void *context)
