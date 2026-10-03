@@ -61,3 +61,26 @@ Unused bytes are reserved and written as zero.
 ## Extent tree v1.3\n\nA tree-backed inode points to a checksummed depth-0 leaf block. The block header is 32 bytes followed by 24-byte extent records. With a 4096-byte filesystem block, one leaf stores 169 overflow extents in addition to the four inline extents. The tree root is allocated from the data-area bitmap and is accounted for as metadata by fsck. Tree root bounds, magic, depth, entry count, extent ordering and CRC32C are validated before use.\n\n## Compatibility
 
 Unknown major versions are rejected. A newer minor version is rejected until its compatibility rules are explicitly implemented.
+
+## Inode timestamps
+
+Each 256-byte inode stores UTC nanoseconds in three 64-bit fields:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 48 | 8 | access time (`atime_ns`) |
+| 56 | 8 | modification time (`mtime_ns`) |
+| 64 | 8 | metadata/change time (`ctime_ns`) |
+
+These fields are part of the checksummed inode payload. Formatting and inode
+allocation initialize them when the portable runtime clock succeeds. The core
+updates modification/change timestamps for content and metadata operations;
+automatic atime-on-read is deliberately not enabled.
+
+## Feature compatibility
+
+v1.3 images may advertise `OPENFS_FEATURE_EXTENT_TREE`. The current validator
+rejects unknown feature bits and rejects the extent-tree feature when paired
+with a minor version older than 1.3. Images without that feature retain the
+legacy five-inline-extent interpretation. Reserved bytes are never reinterpreted
+without the corresponding feature flag.
