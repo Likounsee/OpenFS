@@ -47,3 +47,14 @@ retain their documented non-transactional failure boundary.
 Tree root bounds, magic, depth, entry count, capacity, extent ordering and
 CRC32C are validated by the extent layer and fsck. The tree root is treated as
 an allocated metadata block and is included in fsck block-reference checks.
+
+## Supported depth boundary
+
+The current v1.3 implementation intentionally supports a single depth-0 leaf.
+At a 4096-byte block size this gives 169 overflow extents plus four inline
+extents. Extent records themselves may describe arbitrarily large contiguous
+ranges subject to the filesystem's 64-bit bounds. Deeper index nodes are not
+implemented because they would change the documented capacity and require a
+new tree-node compatibility contract; they must only be added as an explicit
+format evolution if a supported workload needs more than the current extent
+count.
