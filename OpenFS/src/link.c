@@ -23,7 +23,7 @@ static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const ope
     size_t l=strlen(p),slash=l;while(slash>0U&&p[slash-1U]!='/')--slash;
     if(l==0U||l>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
     char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\\0';}
-    uint64_t parent=0U;if(openfs_path_lookup_follow(d,s,pp,&parent)!=OPENFS_PATH_OK)return OPENFS_PATH_NOT_FOUND;
+    uint64_t parent=0U;if(openfs_path_lookup_as(d,s,pp,uid,gid,&parent)!=OPENFS_PATH_OK)return OPENFS_PATH_ACCESS_DENIED;
     openfs_inode_t in;if(ri(d,s,parent,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
     openfs_inode_result_t ar=openfs_inode_check_access(&in,uid,gid,3U);
     return ar==OPENFS_INODE_OK?OPENFS_PATH_OK:(ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_PATH_ACCESS_DENIED:OPENFS_PATH_CORRUPT);
