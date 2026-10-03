@@ -7,6 +7,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/fsck.h"
 #include "openfs/path.h"
+#include "openfs/mount.h"
 
 typedef struct {
     uint8_t *bytes;
@@ -72,6 +73,7 @@ static void write_flush_failure_rolls_back_media(void){
     openfs_inode_t persisted;assert(openfs_inode_read(&v,sb.inode_table_start,i.inode_number,inode_count,&persisted)==OPENFS_INODE_OK);
     assert(memcmp(&persisted,&before,sizeof(before))==0);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(before_inode);free(before_data);free(d.bytes);
 }
 
