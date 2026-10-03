@@ -167,24 +167,6 @@ openfs_dir_result_t openfs_dir_add(
     return map_file_result(openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)));
 }
 
-static openfs_inode_result_t write_inode_for_dir_rollback(
-    openfs_block_device_t *d,
-    const openfs_superblock_t *sb,
-    const openfs_inode_t *dir)
-{
-    if (d == NULL || sb == NULL || dir == NULL ||
-        d->block_size == 0U ||
-        sb->inode_table_blocks > UINT64_MAX / d->block_size) {
-        return OPENFS_INODE_INVALID_ARGUMENT;
-    }
-    uint64_t count = (sb->inode_table_blocks * (uint64_t)d->block_size) /
-        OPENFS_INODE_SIZE;
-    if (count == 0U) {
-        return OPENFS_INODE_CORRUPT;
-    }
-    return openfs_inode_write(d, sb->inode_table_start, count, dir);
-}
-
 openfs_dir_result_t openfs_dir_remove(
     openfs_block_device_t *d,
     const openfs_superblock_t *sb,
@@ -240,9 +222,8 @@ openfs_dir_result_t openfs_dir_remove(
             }
             uint64_t inode_offset=(dir->inode_number-1U)*(uint64_t)OPENFS_INODE_SIZE;
             uint64_t inode_block=sb->inode_table_start+inode_offset/d->block_size;
-            uint32_t inode_within=(uint32_t)(inode_offset%d->block_size);
             if (inode_block>=d->block_count ||
-                (uint64_t)inode_within+OPENFS_INODE_SIZE>d->block_size) {
+                (inode_offset%d->block_size)+OPENFS_INODE_SIZE>d->block_size) {
                 int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
                 free(block); free(original_block); return rollback_ok?OPENFS_DIR_CORRUPT:OPENFS_DIR_CORRUPT;
