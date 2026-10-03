@@ -112,6 +112,7 @@ if(openfs_dir_lookup(d,s,&odir,on,&e)!=OPENFS_DIR_OK)return OPENFS_PATH_NOT_FOUN
 if(openfs_dir_lookup(d,s,&ndir,nn,&exists)==OPENFS_DIR_OK)return OPENFS_PATH_EXISTS;
 openfs_inode_t target;
 if(read_inode(d,s,e.inode_number,&target)!=OPENFS_PATH_OK)return OPENFS_PATH_IO_ERROR;
+openfs_inode_t original_target=target;
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&newparent!=oldparent){
 uint64_t cur=newparent;
 while(cur!=s->root_inode){
@@ -132,7 +133,7 @@ if(inode_count(s,&count)!=OPENFS_PATH_OK||openfs_inode_write(d,s->inode_table_st
     int rollback_ok=1;
     if(openfs_dir_remove(d,s,&ndir,nn)!=OPENFS_DIR_OK)rollback_ok=0;
     if(openfs_dir_add(d,s,&odir,on,&e)!=OPENFS_DIR_OK)rollback_ok=0;
-    if(openfs_inode_write(d,s->inode_table_start,count,&(openfs_inode_t){.inode_number=target.inode_number})!=OPENFS_INODE_OK) rollback_ok=0;
+    if(openfs_inode_write(d,s->inode_table_start,count,&original_target)!=OPENFS_INODE_OK) rollback_ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
