@@ -4,6 +4,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/crc32c.h"
 #include "openfs/inode.h"
+#include "openfs/time.h"
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
@@ -109,7 +110,7 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     for(uint64_t b=0U;b<sb.data_start;b++){if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;}
     if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,d->block_count-1U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
     if(openfs_bitmap_set(d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
-    openfs_inode_t root;memset(&root,0,sizeof(root));root.inode_number=1U;root.generation=1U;root.parent_inode=1U;root.link_count=1U;root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;
+    openfs_inode_t root;memset(&root,0,sizeof(root));root.inode_number=1U;root.generation=1U;root.parent_inode=1U;root.link_count=1U;root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){root.atime_ns=now;root.mtime_ns=now;root.ctime_ns=now;}
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     if(openfs_inode_write(d,sb.inode_table_start,inode_count,&root)!=OPENFS_INODE_OK)return OPENFS_FORMAT_IO_ERROR;
     uint8_t*buf=calloc(1U,d->block_size);if(buf==NULL)return OPENFS_FORMAT_IO_ERROR;encode(&sb,buf);
