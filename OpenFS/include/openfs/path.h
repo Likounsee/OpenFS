@@ -8,7 +8,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef enum { OPENFS_PATH_OK=0, OPENFS_PATH_INVALID_ARGUMENT=1, OPENFS_PATH_NOT_FOUND=2, OPENFS_PATH_EXISTS=3, OPENFS_PATH_NOT_DIRECTORY=4, OPENFS_PATH_NAME_TOO_LONG=5, OPENFS_PATH_IO_ERROR=6, OPENFS_PATH_CORRUPT=7, OPENFS_PATH_NO_SPACE=8, OPENFS_PATH_ACCESS_DENIED=9 } openfs_path_result_t;
+typedef enum { OPENFS_PATH_OK=0, OPENFS_PATH_INVALID_ARGUMENT=1, OPENFS_PATH_NOT_FOUND=2, OPENFS_PATH_EXISTS=3, OPENFS_PATH_NOT_DIRECTORY=4, OPENFS_PATH_NAME_TOO_LONG=5, OPENFS_PATH_IO_ERROR=6, OPENFS_PATH_CORRUPT=7, OPENFS_PATH_NO_SPACE=8, OPENFS_PATH_ACCESS_DENIED=9, OPENFS_PATH_NOT_EMPTY=10 } openfs_path_result_t;
 openfs_path_result_t openfs_path_lookup(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_lookup_follow(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_lookup_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint64_t *);
