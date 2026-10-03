@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
+#include "openfs/time.h"
 
 #define DIR_MAGIC "ODIR1"
 
@@ -158,12 +159,34 @@ openfs_dir_result_t openfs_dir_remove(
             if (openfs_file_map_block_device(d, sb, dir, (n * OPENFS_DIR_ENTRY_SIZE) / d->block_size, &physical) != OPENFS_FILE_OK) return OPENFS_DIR_CORRUPT;
             uint32_t within = (uint32_t)((n * OPENFS_DIR_ENTRY_SIZE) % d->block_size);
             uint8_t *block = (uint8_t *)malloc(d->block_size);
-            if (block == NULL) return OPENFS_DIR_IO_ERROR;
-            if (d->read(d->context, physical, 1U, block) != OPENFS_IO_OK) { free(block); return OPENFS_DIR_IO_ERROR; }
+            uint8_t *original_block = (uint8_t *)malloc(d->block_size);
+            if (block == NULL || original_block == NULL) { free(block); free(original_block); return OPENFS_DIR_IO_ERROR; }
+            if (d->read(d->context, physical, 1U, block) != OPENFS_IO_OK) { free(block); free(original_block); return OPENFS_DIR_IO_ERROR; }
+            memcpy(original_block, block, d->block_size);
             memset(block + within, 0, OPENFS_DIR_ENTRY_SIZE);
             openfs_io_result_t io = d->write(d->context, physical, 1U, block);
-            free(block);
-            if (io != OPENFS_IO_OK) return OPENFS_DIR_IO_ERROR;
+            if (io != OPENFS_IO_OK) { free(block); free(original_block); return OPENFS_DIR_IO_ERROR; }
+            uint64_t inode_bytes=0U;
+            if (d->block_size!=0U && sb->inode_table_blocks>UINT64_MAX/d->block_size) {
+                (void)d->write(d->context, physical, 1U, original_block);
+                free(block); free(original_block); return OPENFS_DIR_CORRUPT;
+            }
+            inode_bytes=sb->inode_table_blocks*(uint64_t)d->block_size;
+            uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
+            if (inode_count==0U) {
+                (void)d->write(d->context, physical, 1U, original_block);
+                free(block); free(original_block); return OPENFS_DIR_CORRUPT;
+            }
+            uint64_t now=openfs_time_now_ns();
+            uint64_t old_mtime=dir->mtime_ns, old_ctime=dir->ctime_ns;
+            if(now!=UINT64_MAX){dir->mtime_ns=now;dir->ctime_ns=now;}
+            openfs_inode_result_t ir=openfs_inode_write(d,sb->inode_table_start,inode_count,dir);
+            if(ir!=OPENFS_INODE_OK){
+                dir->mtime_ns=old_mtime;dir->ctime_ns=old_ctime;
+                (void)d->write(d->context, physical, 1U, original_block);
+                free(block); free(original_block); return OPENFS_DIR_IO_ERROR;
+            }
+            free(block); free(original_block);
             return d->flush(d->context) == OPENFS_IO_OK ? OPENFS_DIR_OK : OPENFS_DIR_IO_ERROR;
         }
     }
