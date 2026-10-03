@@ -665,6 +665,20 @@ openfs_file_result_t openfs_file_write(
         return rollback_ok ? r : OPENFS_FILE_CORRUPT;
     }
 
+    if (offset > old_size && first_logical > old_blocks) {
+        for (uint64_t b=old_blocks;b<first_logical;b++) {
+            uint64_t physical=0U;
+            if (map_block_on_disk(device,sb,inode,b,&physical)!=OPENFS_FILE_OK ||
+                zero_block(device,physical)!=OPENFS_FILE_OK) {
+                int rollback_ok=rollback_blocks(device,sb,inode,old_blocks,
+                    openfs_inode_get_extent_tree_root(&original))==OPENFS_FILE_OK;
+                *inode=original;
+                free_write_backups(backups,backup_count);
+                return rollback_ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+            }
+        }
+    }
+
     uint8_t *block = malloc(device->block_size);
     if (block == NULL) {
         int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
