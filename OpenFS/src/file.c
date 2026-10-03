@@ -296,24 +296,44 @@ openfs_file_result_t openfs_file_truncate(
             }
         }
     } else if (new_blocks < inode->blocks) {
-        while (inode->blocks > new_blocks) {
+        openfs_inode_t original = *inode;
+        openfs_inode_t reduced = *inode;
+        while (reduced.blocks > new_blocks) {
             openfs_extent_t last;
-            if (inode->extent_count == 0U ||
-                openfs_inode_get_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
+            if (reduced.extent_count == 0U ||
+                openfs_inode_get_extent(&reduced, reduced.extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
                 return OPENFS_FILE_CORRUPT;
             }
-            uint64_t physical = last.physical_start + last.block_count - 1U;
-            if (openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) {
+            uint64_t keep = new_blocks > last.logical_start ? new_blocks - last.logical_start : 0U;
+            if (keep > last.block_count) {
                 return OPENFS_FILE_CORRUPT;
             }
-            last.block_count--;
-            inode->blocks--;
-            if (last.block_count == 0U) {
-                inode->extent_count--;
-            } else if (openfs_inode_set_extent(inode, inode->extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
-                return OPENFS_FILE_CORRUPT;
+            reduced.blocks -= last.block_count - keep;
+            if (keep == 0U) {
+                reduced.extent_count--;
+            } else {
+                last.block_count = keep;
+                if (openfs_inode_set_extent(&reduced, reduced.extent_count - 1U, &last) != OPENFS_EXTENT_OK) {
+                    return OPENFS_FILE_CORRUPT;
+                }
             }
         }
+        reduced.size = new_size;
+        r = write_inode(device, sb, &reduced);
+        if (r != OPENFS_FILE_OK) {
+            *inode = original;
+            return r;
+        }
+        for (uint64_t logical = new_blocks; logical < original.blocks; ++logical) {
+            uint64_t physical = 0U;
+            if (openfs_file_map_block(&original, logical, &physical) != OPENFS_FILE_OK ||
+                openfs_free_block(device, sb, physical) != OPENFS_ALLOC_OK) {
+                *inode = reduced;
+                return OPENFS_FILE_IO_ERROR;
+            }
+        }
+        *inode = reduced;
+        return OPENFS_FILE_OK;
     }
 
     if (new_size > old_size && old_size % device->block_size != 0U) {
