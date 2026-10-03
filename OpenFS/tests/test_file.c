@@ -124,6 +124,20 @@ static void extent_limit_rollback(void){
     }
     free(d.bytes);
 }
+static void credential_io(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();i.uid=1000U;i.gid=2000U;i.mode=OPENFS_INODE_MODE_REGULAR|0640U;
+    const char msg[]="secure";
+    assert(openfs_file_write_as(&v,&sb,&i,1000U,2000U,0U,msg,sizeof(msg))==OPENFS_FILE_OK);
+    char out[16]={0};size_t got=0U;
+    assert(openfs_file_read_as(&v,&sb,&i,1000U,2000U,0U,out,sizeof(msg),&got)==OPENFS_FILE_OK);
+    assert(got==sizeof(msg)&&memcmp(out,msg,sizeof(msg))==0);
+    assert(openfs_file_read_as(&v,&sb,&i,3000U,3000U,0U,out,sizeof(msg),&got)==OPENFS_FILE_ACCESS_DENIED);
+    assert(openfs_file_write_as(&v,&sb,&i,3000U,3000U,0U,msg,sizeof(msg))==OPENFS_FILE_ACCESS_DENIED);
+    assert(openfs_file_write_as(&v,&sb,&i,3000U,2000U,0U,msg,sizeof(msg))==OPENFS_FILE_ACCESS_DENIED);
+    assert(openfs_file_truncate_as(&v,&sb,&i,1000U,2000U,0U)==OPENFS_FILE_OK);
+    free(d.bytes);
+}
 static void map_bounds(void){
     openfs_inode_t i=new_file();uint64_t p=0U;
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
@@ -134,4 +148,4 @@ static void map_bounds(void){
     assert(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
-int main(void){basic_rw();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_limit_rollback();map_bounds();return 0;}
+int main(void){basic_rw();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_limit_rollback();map_bounds();return 0;}
