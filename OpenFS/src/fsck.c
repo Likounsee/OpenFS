@@ -46,7 +46,36 @@ goto done;
 if(!root_allocated)bad++;
 for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK){if(used)bad++;continue;}
 if(used){if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
-uint64_t extent_total=0U;uint64_t previous_logical_end=0U;for(uint32_t i=0U;i<in.extent_count;i++){openfs_extent_t e;if(openfs_inode_get_extent(&in,i,&e)!=OPENFS_EXTENT_OK||e.block_count==0U){bad++;continue;}uint64_t pe=0U,data_end=0U,logical_end=0U;if(!add(extent_total,e.block_count,&extent_total)||!add(s->data_start,s->data_blocks,&data_end)||!add(e.physical_start,e.block_count,&pe)||!add(e.logical_start,e.block_count,&logical_end)||e.physical_start<s->data_start||pe>data_end){bad++;}else{if((i==0U&&e.logical_start!=0U)||(i>0U&&e.logical_start!=previous_logical_end))bad++;for(uint64_t b=0U;b<e.block_count;b++){uint64_t physical=e.physical_start+b,rel=physical-s->data_start;int allocated=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,physical,&allocated)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!allocated)bad++;if(ref_test(refs,rel))bad++;else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}}}previous_logical_end=logical_end;}if(extent_total!=in.blocks)bad++;if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS))!=0U)bad++;if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;}else{uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;if(required!=in.blocks)bad++;}}
+uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
+uint32_t inline_n=in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_INLINE_EXTENT_MAX;
+if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
+    uint64_t root_block=openfs_inode_get_extent_tree_root(&in);
+    uint64_t data_end=0U;
+    if(root_block==0U||!add(s->data_start,s->data_blocks,&data_end)||root_block<s->data_start||root_block>=data_end)bad++;
+    else{uint64_t rel=root_block-s->data_start;if(ref_test(refs,rel))bad++;else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}}
+    if(in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX)bad++;
+}else if(in.extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)bad++;
+for(uint32_t i=0U;i<in.extent_count;i++){
+    openfs_extent_t e;openfs_extent_result_t er;
+    if(i<inline_n)er=openfs_inode_get_extent(&in,i,&e);
+    else er=openfs_extent_tree_read(d,&in,i-OPENFS_INODE_INLINE_EXTENT_MAX,&e);
+    if(er!=OPENFS_EXTENT_OK||e.block_count==0U){bad++;continue;}
+    uint64_t pe=0U,data_end=0U,logical_end=0U;
+    if(!add(extent_total,e.block_count,&extent_total)||!add(s->data_start,s->data_blocks,&data_end)||
+       !add(e.physical_start,e.block_count,&pe)||!add(e.logical_start,e.block_count,&logical_end)||
+       e.physical_start<s->data_start||pe>data_end){bad++;}
+    else{
+        if((i==0U&&e.logical_start!=0U)||(i>0U&&e.logical_start!=previous_logical_end))bad++;
+        for(uint64_t b=0U;b<e.block_count;b++){
+            uint64_t physical=e.physical_start+b,rel=physical-s->data_start;int allocated=0;
+            if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,physical,&allocated)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
+            if(!allocated)bad++;
+            if(ref_test(refs,rel))bad++;else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
+        }
+    }
+    previous_logical_end=logical_end;
+}
+if(extent_total!=in.blocks)bad++;if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)bad++;if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;}else{uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;if(required!=in.blocks)bad++;}}
 else if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U)bad++;}
 for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
