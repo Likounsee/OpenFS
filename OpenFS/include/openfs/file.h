@@ -29,6 +29,13 @@ openfs_file_result_t openfs_file_map_block(
     uint64_t logical_block,
     uint64_t *physical_block);
 
+openfs_file_result_t openfs_file_map_block_device(
+    const openfs_block_device_t *,
+    const openfs_superblock_t *,
+    const openfs_inode_t *,
+    uint64_t,
+    uint64_t *);
+
 /* Read up to length bytes from a regular file. Bytes beyond EOF are not read. */
 openfs_file_result_t openfs_file_read(
     const openfs_block_device_t *device,
