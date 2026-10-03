@@ -26,7 +26,7 @@ static int same_layout(const openfs_superblock_t *a,const openfs_superblock_t *b
 
 static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,openfs_superblock_t *out)
 {
-    if (block >= d->block_count) return OPENFS_FORMAT_CORRUPT;
+    if (d==NULL||out==NULL||d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size<=OPENFS_CHECKSUM_OFFSET+3U||block >= d->block_count) return OPENFS_FORMAT_CORRUPT;
     uint8_t *raw=malloc(d->block_size);
     if(raw==NULL)return OPENFS_FORMAT_IO_ERROR;
     if(d->read(d->context,block,1U,raw)!=OPENFS_IO_OK){free(raw);return OPENFS_FORMAT_IO_ERROR;}
@@ -53,6 +53,7 @@ static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t 
 openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *device)
 {
     if(mount==NULL||!openfs_block_device_is_valid(device))return OPENFS_MOUNT_INVALID_ARGUMENT;
+    if(device->block_count<2U||device->block_size<OPENFS_SUPERBLOCK_SIZE)return OPENFS_MOUNT_CORRUPT;
     memset(mount,0,sizeof(*mount));
     openfs_superblock_t primary,backup;
     openfs_format_result_t pr=read_at(device,0U,&primary);
