@@ -171,6 +171,12 @@ static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superb
     if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return 0;
     in.mode=OPENFS_INODE_MODE_FREE;
     in.link_count=0U;
+    in.parent_inode=0U;
+    in.uid=0U;
+    in.gid=0U;
+    in.atime_ns=0U;
+    in.mtime_ns=0U;
+    in.ctime_ns=0U;
     in.size=0U;
     in.blocks=0U;
     in.extent_count=0U;
