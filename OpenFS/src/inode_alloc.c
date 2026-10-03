@@ -26,8 +26,9 @@ static openfs_inode_alloc_result_t valid(
         return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     }
     if (sb->block_size != d->block_size ||
-        sb->inode_bitmap_blocks == 0U ||
-        sb->inode_table_blocks == 0U) {
+        sb->inode_bitmap_blocks == 0U || sb->inode_table_blocks == 0U ||
+        sb->inode_bitmap_start >= d->block_count || sb->inode_bitmap_blocks > d->block_count - sb->inode_bitmap_start ||
+        sb->inode_table_start >= d->block_count || sb->inode_table_blocks > d->block_count - sb->inode_table_start) {
         return OPENFS_INODE_ALLOC_CORRUPT;
     }
     return OPENFS_INODE_ALLOC_OK;
