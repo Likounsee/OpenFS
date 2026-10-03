@@ -2,6 +2,7 @@
 #include <stdlib.h>
 static openfs_bitmap_result_t access_bit(const openfs_block_device_t*d,uint64_t start,uint64_t blocks,uint64_t bit,int set,int*out){
     if(!openfs_block_device_is_valid(d)||blocks==0U||out==NULL)return OPENFS_BITMAP_INVALID_ARGUMENT;
+    if(start>=d->block_count||blocks>d->block_count-start)return OPENFS_BITMAP_OUT_OF_RANGE;
     if(blocks>UINT64_MAX/d->block_size)return OPENFS_BITMAP_OUT_OF_RANGE;
     uint64_t bytes=blocks*(uint64_t)d->block_size;
     if(bit/8U>=bytes)return OPENFS_BITMAP_OUT_OF_RANGE;
@@ -11,7 +12,7 @@ static openfs_bitmap_result_t access_bit(const openfs_block_device_t*d,uint64_t 
     uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_BITMAP_IO_ERROR;
     if(d->read(d->context,start+block,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_BITMAP_IO_ERROR;}
     uint8_t mask=(uint8_t)(1U<<(bit%8U));
-    if(set>=0){if(set)b[in]|=mask;else b[in]&=(uint8_t)~mask;if(d->write(d->context,start+block,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_BITMAP_IO_ERROR;}}
+    if(set>=0){if(set>1)return OPENFS_BITMAP_INVALID_ARGUMENT;if(set)b[in]|=mask;else b[in]&=(uint8_t)~mask;if(d->write(d->context,start+block,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_BITMAP_IO_ERROR;}}
     *out=(b[in]&mask)!=0U;free(b);return OPENFS_BITMAP_OK;
 }
 openfs_bitmap_result_t openfs_bitmap_test(const openfs_block_device_t*d,uint64_t s,uint64_t n,uint64_t bit,int*out){return access_bit(d,s,n,bit,-1,out);}
