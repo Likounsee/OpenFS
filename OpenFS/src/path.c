@@ -1,5 +1,6 @@
 #include "openfs/path.h"
 #include "openfs/bitmap.h"
+#include "openfs/crc32c.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
