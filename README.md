@@ -27,7 +27,7 @@ Already implemented:
 - hard links and basic symbolic-link storage/readlink operations;
 - initial read-only filesystem consistency checking (`fsck` core), including extent-range/order and allocation-bitmap cross-checks;
 - inode generation reuse protection;
-- basic inode permission-bit access checks and timestamp update APIs;
+- inode permission-bit access checks and timestamp update APIs;\n- inode generation advancement across inode reuse;\n- parent-path symlink following for namespace mutations;
 - checksummed journal records with begin/commit validation, committed-transaction replay, block-write chunks, transaction ownership checks and checkpoint/reclamation;
 - mount/unmount with primary/backup superblock fallback and committed-journal replay;
 - inode table;
@@ -41,7 +41,7 @@ Already implemented:
 Still to build:
 - extent-tree/indirect extent storage for files requiring more than five fragmented extents;
 - complete permission enforcement and automatic timestamp semantics;
-- complete journal reservation/space management and broaden crash/fault-injection coverage;
+- complete journal reservation/space management and broader crash/fault-injection coverage;
 - expand crash-consistency ordering and interrupted-write recovery tests;
 - fsck and recovery tools;
 - Linux, Windows and ArchiaOS adapters.
