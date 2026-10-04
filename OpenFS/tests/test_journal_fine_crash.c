@@ -140,7 +140,9 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
     }
 
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
-    if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
+    int defer_checkpoint_flush = isj && iszero &&
+        (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH);
+    if (!defer_checkpoint_flush && !flush_file(d)) return OPENFS_IO_IO_ERROR;
 
     if (d->armed && count == 1U && isj && iszero) {
         d->zero_writes++;
@@ -154,10 +156,10 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
 static openfs_io_result_t fl(void *ctx) {
     disk_t *d = ctx;
     if (!d) return OPENFS_IO_INVALID_ARGUMENT;
+    if (d->armed && ((d->cut == C4_CHECKPOINT_FLUSH && d->flushes == 2U))) crash_now();
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
     d->flushes++;
-    if (d->armed && ((d->cut == C4_CHECKPOINT_FLUSH && d->flushes == 3U) ||
-                     (d->cut == C6_MULTI_CHECKPOINT && d->flushes == 6U))) crash_now();
+    if (d->armed && d->cut == C6_MULTI_CHECKPOINT && d->flushes == 6U) crash_now();
     return OPENFS_IO_OK;
 }
 
