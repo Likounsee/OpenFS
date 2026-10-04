@@ -315,6 +315,7 @@ static int unlink_rollback_write_failure(void)
     assert(openfs_path_create(&v, &s, "/unlink-double", OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
     d.fail_block = inode_block(&s, ino);
     d.fail_enabled = 1;
+    d.skip_writes = 1U;
     d.partial_once = 1;
     d.partial_bytes = 64U;
 
@@ -336,6 +337,7 @@ static int link_rollback_write_failure(void)
     assert(openfs_path_create(&v, &s, "/link-source", OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
     d.fail_block = inode_block(&s, ino);
     d.fail_enabled = 1;
+    d.skip_writes = 1U;
     d.partial_once = 1;
     d.partial_bytes = 64U;
 
