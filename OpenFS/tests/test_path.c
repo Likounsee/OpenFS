@@ -147,8 +147,12 @@ assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);a
 }
 {
     uint64_t rsrc=0U;
+    for(unsigned i=0U;i<32U;i++){char p[96];(void)snprintf(p,sizeof(p),"/home/test/rename-rollback-filler-%u",i);uint64_t ino=0U;assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
     assert(openfs_path_mkdir(&v,&s,"/home/test/rename-rollback-dir",&rsrc)==OPENFS_PATH_OK);
+    uint64_t parent_for_rollback=0U;assert(openfs_path_lookup(&v,&s,"/home/test",&parent_for_rollback)==OPENFS_PATH_OK);
     uint64_t source_inode_block=s.inode_table_start+((rsrc-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    uint64_t parent_inode_block=s.inode_table_start+((parent_for_rollback-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    assert(source_inode_block!=parent_inode_block);
     d.fail_write_block=source_inode_block;d.fail_write_enabled=1;d.fail_write_count=2;
     assert(openfs_path_rename(&v,&s,"/home/test/rename-rollback-dir","/home/test/rename-rollback-dir-moved")==OPENFS_PATH_CORRUPT);
     d.fail_write_enabled=0;
