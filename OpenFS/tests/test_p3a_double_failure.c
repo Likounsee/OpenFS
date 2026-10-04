@@ -199,7 +199,6 @@ static int write_rollback_write_failure(void)
     assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
     free(before);
-    free(before);
     free(d.bytes);
     return 0;
 }
@@ -248,7 +247,6 @@ static int allocator_rollback_write_failure(void)
     d.fail_flush = 0;
     assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
-    free(before);
     free(before);
     free(d.bytes);
     return 0;
@@ -366,7 +364,6 @@ static int link_rollback_write_failure(void)
     assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
     free(before);
-    free(before);
     free(d.bytes);
     return 0;
 }
@@ -399,7 +396,6 @@ static int symlink_rollback_write_failure(void)
     assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
     (void)symlink_ino;
-    free(before);
     free(before);
     free(d.bytes);
     return 0;
@@ -435,7 +431,6 @@ static int rename_replace_rollback_write_failure(void)
     d.fail_flush = 0;
     assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
-    free(before);
     free(before);
     free(d.bytes);
     return 0;
