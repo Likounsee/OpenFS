@@ -106,13 +106,23 @@ static void successive_transactions(void){
         assert(j.sequence==expected*3U-1U);
         assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
         assert(j.sequence==expected*3U);
+        assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);
+        assert(j.next_record==0U);
     }
-    assert(j.next_record==9U);
+    /* Checkpointed transactions keep the monotone counters within one journal lifetime. */
+    assert(j.transaction_id==3U);
+    assert(j.sequence==9U);
+
+    /* Before checkpoint, a remount must recover the committed journal counters. */
+    assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(tx==4U);
+    assert(openfs_journal_write(&j,&v,tx,"x",1U)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
     openfs_journal_t reopened;
     assert(openfs_journal_open(&reopened,&v,&s)==OPENFS_JOURNAL_OK);
-    assert(reopened.transaction_id==3U);
-    assert(reopened.sequence==9U);
-    assert(reopened.next_record==9U);
+    assert(reopened.transaction_id==4U);
+    assert(reopened.sequence==12U);
+    assert(reopened.next_record==3U);
     assert(openfs_journal_checkpoint(&reopened,&v)==OPENFS_JOURNAL_OK);
     assert(reopened.next_record==0U);
     free(d.b);
