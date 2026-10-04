@@ -333,6 +333,7 @@ static int replay_state_case(int kind, unsigned id) {
     if(openfs_path_create(&v,&s,"/replay-target",OPENFS_INODE_MODE_REGULAR,&ino)!=OPENFS_PATH_OK ||
        openfs_inode_read(&v,s.inode_table_start,ino,inode_count,&inode)!=OPENFS_INODE_OK)
     { close_disk(&d); remove(path); return 0; }
+    uint64_t target=0U;
     uint8_t initial[BS]; memset(initial,0x11U,sizeof(initial));
     if(openfs_file_write(&v,&s,&inode,0U,initial,sizeof(initial))!=OPENFS_FILE_OK ||
        openfs_file_map_block_device(&v,&s,&inode,0U,&target)!=OPENFS_FILE_OK)
