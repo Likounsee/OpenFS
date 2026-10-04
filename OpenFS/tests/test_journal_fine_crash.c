@@ -421,6 +421,16 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_BEGIN,2U,5U,NULL,0U);
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
         ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_COMMIT,2U,7U,NULL,0U);
+    } else if(kind==8){ /* four committed transactions, replayed in order */
+        for(uint64_t tx=1U;tx<=4U;tx++){
+            uint8_t value=(uint8_t)(0x70U+tx);
+            memset(payload+24U,value,BS-32U-24U);
+            uint64_t slot=(tx-1U)*3U;
+            uint64_t seq=(tx-1U)*3U+1U;
+            ok&=write_raw(&v,&s,slot,OPENFS_JOURNAL_BEGIN,tx,seq,NULL,0U);
+            ok&=write_raw(&v,&s,slot+1U,OPENFS_JOURNAL_DATA,tx,seq+1U,payload,BS-32U);
+            ok&=write_raw(&v,&s,slot+2U,OPENFS_JOURNAL_COMMIT,tx,seq+2U,NULL,0U);
+        }
     }
     if(!ok){close_disk(&d);remove(path);return 0;}
     close_disk(&d);
@@ -434,6 +444,7 @@ static int replay_state_case(int kind, unsigned id) {
         if(kind==0) { uint8_t z[BS]; memset(z,0x11U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==1) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x61U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==2) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
+        else if(kind==8) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x74U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==3) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x63U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         if (!ok) fprintf(stderr,"replay kind=%d block=%02x expected=%02x\\n",kind,b[0],kind==0?0x11:kind==1?0x61:kind==2?0x72:0x63);
@@ -441,7 +452,7 @@ static int replay_state_case(int kind, unsigned id) {
         if(openfs_unmount(&m)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d unmount failed\\n",kind); ok=0; }
         openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second mount failed\\n",kind); ok=0; }
         if(ok){
-            uint8_t b2[BS], expected2[BS]; uint8_t want2=(kind==0)?0x11U:(kind==1)?0x61U:(kind==2)?0x72U:(kind==3)?0x63U:0x72U;
+            uint8_t b2[BS], expected2[BS]; uint8_t want2=(kind==0)?0x11U:(kind==1)?0x61U:(kind==2)?0x72U:(kind==3)?0x63U:(kind==8)?0x74U:0x72U;
             memset(expected2,0x11U,BS); if(kind!=0)memset(expected2,want2,BS-56U);
             if(rd(&d,target,1U,b2)!=OPENFS_IO_OK||memcmp(b2,expected2,BS)!=0){ fprintf(stderr,"replay kind=%d second replay changed data\\n",kind); ok=0; }
             openfs_journal_t j2;
@@ -480,6 +491,6 @@ int main(int argc,char **argv){
         assert(ok);
     }
     { int ok = journal_crash_case(argv[0],C6_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
-    for(int k=0;k<8;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
+    for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
     return 0;
 }
