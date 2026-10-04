@@ -92,6 +92,8 @@ openfs_inode_t target;openfs_path_result_t target_result=read_inode(d,s,e.inode_
 if(target.generation!=e.generation)return OPENFS_PATH_CORRUPT;
 uint8_t expected=(target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY?2U:((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_SYMLINK?3U:1U);if(expected!=e.type)return OPENFS_PATH_CORRUPT;
 uint64_t c=0U;if(inode_count(s,&c)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+uint64_t parent_inode_offset=(parent-1U)*(uint64_t)OPENFS_INODE_SIZE;if(s->block_size==0U||parent_inode_offset/s->block_size>UINT64_MAX-s->inode_table_start)return OPENFS_PATH_CORRUPT;
+uint64_t parent_inode_block=s->inode_table_start+parent_inode_offset/s->block_size;uint8_t *parent_inode_backup=malloc(d->block_size);if(parent_inode_backup==NULL||d->read(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK){free(parent_inode_backup);return OPENFS_PATH_IO_ERROR;}
 openfs_inode_t original_target=target;uint8_t *root_backup=NULL;uint64_t original_root=openfs_inode_get_extent_tree_root(&original_target);
 if(target.link_count==0U)return OPENFS_PATH_CORRUPT;
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY){
@@ -142,7 +144,7 @@ if(openfs_inode_write(d,s->inode_table_start,c,&target)!=OPENFS_INODE_OK){
     if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
     if(!restore_directory_state(d,s,&pi,&original_pi,c))rollback_ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-    free(root_backup);
+    if(d->write(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK)rollback_ok=0;if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;free(parent_inode_backup);free(root_backup);
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
 if(target.mode==OPENFS_INODE_MODE_FREE&&openfs_inode_free(d,s,e.inode_number)!=OPENFS_INODE_ALLOC_OK){
@@ -152,7 +154,7 @@ if(target.mode==OPENFS_INODE_MODE_FREE&&openfs_inode_free(d,s,e.inode_number)!=O
     if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
     if(!restore_directory_state(d,s,&pi,&original_pi,c))rollback_ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-    free(root_backup);
+    if(d->write(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK)rollback_ok=0;if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;free(parent_inode_backup);free(root_backup);
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
 if(d->flush(d->context)!=OPENFS_IO_OK){
