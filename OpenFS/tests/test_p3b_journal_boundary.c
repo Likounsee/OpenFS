@@ -35,14 +35,14 @@ static void physical_boundaries(void){
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);uint64_t target=s.data_start;uint8_t payload[25];uint64_t jb=s.journal_blocks;assert(jb>=8U);
     /* next_record=1: one incomplete BEGIN, then replay/remount/fsck must remain safe. */
     raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==1U);assert(j.commit_record_written==0U);assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
-    assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);
+    assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);free(d.b);
     /* Leave exactly one slot and use it as DATA: then use the same last slot as COMMIT in a fresh exact-capacity transaction. */
     setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0xA5U);
     raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
     for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,sizeof(payload));
     raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_DATA,1U,jb,payload,sizeof(payload));
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==jb);assert(j.commit_record_written==0U);
-    assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);
+    assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);free(d.b);
     /* Exact-full committed journal through the real writer: BEGIN + (jb-2) DATA + COMMIT. */
     setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0x5CU);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
