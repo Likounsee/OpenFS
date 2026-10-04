@@ -133,21 +133,34 @@ static void name_and_path_boundaries(void){
     char name[OPENFS_DIR_NAME_MAX+2U];
     memset(name,'n',sizeof(name));name[OPENFS_DIR_NAME_MAX]='\0';
     char path[OPENFS_PATH_MAX+2U];
-    path[0]='/';memset(path+1,'a',OPENFS_PATH_MAX-1U);path[OPENFS_PATH_MAX]='\0';
     uint64_t ino=0U;
-
-    assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_NAME_TOO_LONG);
-
-    path[0]='/';
     size_t used=1U;
-    for(unsigned i=0U;i<2047U;i++){path[used++]='a';path[used++]='/';}
+    path[0]='/';
+
+    /* Build 15 maximal components so the final component isolates PATH_MAX. */
+    for(unsigned i=0U;i<15U;i++){
+        memset(path+used,'d',OPENFS_DIR_NAME_MAX);
+        used+=OPENFS_DIR_NAME_MAX;
+        path[used++]='/';
+        path[used]='\0';
+        assert(strlen(path)<OPENFS_PATH_MAX);
+        assert(openfs_path_mkdir(&v,&s,path,&ino)==OPENFS_PATH_OK);
+    }
+    memset(path+used,'e',OPENFS_DIR_NAME_MAX-1U);
+    used+=OPENFS_DIR_NAME_MAX-1U;
     path[used]='\0';
     assert(strlen(path)==OPENFS_PATH_MAX-1U);
-    assert(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
 
-    path[OPENFS_PATH_MAX-1U]='a';path[OPENFS_PATH_MAX]='\0';
+    path[used++]='e';
+    path[used]='\0';
     assert(strlen(path)==OPENFS_PATH_MAX);
-    assert(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NAME_TOO_LONG);
+    assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_INVALID_ARGUMENT);
+
+    path[used++]='e';
+    path[used]='\0';
+    assert(strlen(path)==OPENFS_PATH_MAX+1U);
+    assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_INVALID_ARGUMENT);
 
     char p[OPENFS_DIR_NAME_MAX+4U]="/";
     memcpy(p+1,name,OPENFS_DIR_NAME_MAX+1U);
