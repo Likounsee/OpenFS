@@ -323,6 +323,8 @@ static int apply_operation(crash_disk_t *d, namespace_op_t op)
     openfs_path_result_t pr;
 
     if (openfs_read_superblock(&v, &s) != OPENFS_FORMAT_OK) return 0;
+    d->journal_start = s.journal_start;
+    d->journal_blocks = s.journal_blocks;
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 0;
     if (openfs_transaction_begin(&t, &v, &j) != OPENFS_TRANSACTION_OK) return 0;
 
