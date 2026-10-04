@@ -123,7 +123,8 @@ assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);a
     openfs_inode_t rename_parent_before,rename_parent_after;
     assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_before)==OPENFS_INODE_OK);
     d.fail_flush=1;d.fail_flush_once=1;
-    assert(openfs_path_rename(&v,&s,"/home/renamed","/home/rename-flush-fail")==OPENFS_PATH_IO_ERROR);\n{
+    assert(openfs_path_rename(&v,&s,"/home/renamed","/home/rename-flush-fail")==OPENFS_PATH_IO_ERROR);
+{
     uint64_t rold=0U,rnew=0U,rsrc=0U,rdst=0U;
     assert(openfs_path_mkdir(&v,&s,"/home/test/rename-partial-old",&rold)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/home/test/rename-partial-new",&rnew)==OPENFS_PATH_OK);
