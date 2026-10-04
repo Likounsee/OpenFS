@@ -979,19 +979,22 @@ static int sequence_case(const char *self, int sequence_kind,
         !sequence_snapshot(reference, sequence_kind, expected, path_count))
         goto cleanup;
 
-    if (crash_index > 0) {
-        crash_disk_t prefix_disk;
-        if (!copy_file(base, prefix) || !open_disk(&prefix_disk, prefix, "r+b"))
-            goto cleanup;
-        if (!run_sequence(&prefix_disk, sequence_kind, cut, crash_index, 0, crash_index)) {
+    {
+        int expected_steps = crash_index + (cut == CUT_N1 ? 0 : 1);
+        if (expected_steps == 0) {
+            memcpy(expected, initial, sizeof(expected));
+        } else {
+            crash_disk_t prefix_disk;
+            if (!copy_file(base, prefix) || !open_disk(&prefix_disk, prefix, "r+b"))
+                goto cleanup;
+            if (!run_sequence(&prefix_disk, sequence_kind, cut, crash_index, 0, expected_steps)) {
+                close_disk(&prefix_disk);
+                goto cleanup;
+            }
             close_disk(&prefix_disk);
-            goto cleanup;
+            if (!sequence_snapshot(prefix, sequence_kind, expected, path_count))
+                goto cleanup;
         }
-        close_disk(&prefix_disk);
-        if (!sequence_snapshot(prefix, sequence_kind, expected, path_count))
-            goto cleanup;
-    } else if (cut == CUT_N1) {
-        memcpy(expected, initial, sizeof(expected));
     }
 
     if (!run_sequence_child(self, sequence_kind, cut, crash_index, crashed, 1))
