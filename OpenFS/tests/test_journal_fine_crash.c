@@ -374,7 +374,7 @@ static int replay_state_case(int kind, unsigned id) {
     if(mr!=expected_mount) ok=0;
     if(ok){
         uint8_t b[BS]; if(rd(&d,target,1U,b)!=OPENFS_IO_OK)ok=0;
-        if(kind==0) { uint8_t z[BS]={0}; if(memcmp(b,z,BS)!=0)ok=0; }
+        if(kind==0) { uint8_t z[BS]; memset(z,0x11U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==1) { uint8_t z[BS]={0}; memset(z,0x60U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==2) { uint8_t z[BS]={0}; memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else { uint8_t z[BS]={0}; memset(z,0x60U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
