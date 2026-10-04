@@ -49,35 +49,35 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
 {
-    uint64_t a=0U,b=0U,qino=0U;
+    uint64_t a=0U,b=0U,q=0U;
     assert(openfs_path_create(&v,&s,"/home/test/r-file-symlink-src",OPENFS_INODE_MODE_REGULAR,&a)==OPENFS_PATH_OK);
     assert(openfs_symlink(&v,&s,"/home/test","/home/test/r-file-symlink-dst")==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-file-symlink-src","/home/test/r-file-symlink-dst")==OPENFS_PATH_OK);
-    assert(openfs_path_lookup(&v,&s,"/home/test/r-file-symlink-dst",&qino)==OPENFS_PATH_OK&&qino==a);
-    assert(openfs_path_lookup(&v,&s,"/home/test/r-file-symlink-src",&qino)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_lookup(&v,&s,"/home/test/r-file-symlink-dst",&q)==OPENFS_PATH_OK&&q==a);
+    assert(openfs_path_lookup(&v,&s,"/home/test/r-file-symlink-src",&q)==OPENFS_PATH_NOT_FOUND);
     assert(openfs_path_create(&v,&s,"/home/test/r-symlink-file-dst",OPENFS_INODE_MODE_REGULAR,&b)==OPENFS_PATH_OK);
     assert(openfs_symlink(&v,&s,"/home/test","/home/test/r-symlink-file-src")==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-symlink-file-src","/home/test/r-symlink-file-dst")==OPENFS_PATH_OK);
-    assert(openfs_path_lookup(&v,&s,"/home/test/r-symlink-file-dst",&qino)==OPENFS_PATH_OK&&qino!=b);
+    assert(openfs_path_lookup(&v,&s,"/home/test/r-symlink-file-dst",&q)==OPENFS_PATH_OK&&q!=b);
     assert(openfs_symlink(&v,&s,"/home/test","/home/test/r-symlink-symlink-src")==OPENFS_PATH_OK);
     assert(openfs_symlink(&v,&s,"/home","/home/test/r-symlink-symlink-dst")==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-symlink-symlink-src","/home/test/r-symlink-symlink-dst")==OPENFS_PATH_OK);
     assert(openfs_path_create(&v,&s,"/home/test/r-hard-src",OPENFS_INODE_MODE_REGULAR,&a)==OPENFS_PATH_OK);
     assert(openfs_link(&v,&s,"/home/test/r-hard-src","/home/test/r-hard-alias")==OPENFS_PATH_OK);
     assert(openfs_path_create(&v,&s,"/home/test/r-hard-dst",OPENFS_INODE_MODE_REGULAR,&b)==OPENFS_PATH_OK);
-    {openfs_inode_t hi;assert(openfs_inode_read(&v,s.inode_table_start,a,ic,&hi)==OPENFS_INODE_OK&&hi.link_count==2U);
+    {openfs_inode_t hi;assert(openfs_inode_read(&v,s.inode_table_start,a,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&hi)==OPENFS_INODE_OK&&hi.link_count==2U);
      assert(openfs_path_rename(&v,&s,"/home/test/r-hard-src","/home/test/r-hard-dst")==OPENFS_PATH_OK);
-     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-dst",&qino)==OPENFS_PATH_OK&&qino==a);
-     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-src",&qino)==OPENFS_PATH_NOT_FOUND);
-     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-alias",&qino)==OPENFS_PATH_OK&&qino==a);
+     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-dst",&q)==OPENFS_PATH_OK&&q==a);
+     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-src",&q)==OPENFS_PATH_NOT_FOUND);
+     assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-alias",&q)==OPENFS_PATH_OK&&q==a);
      assert(openfs_inode_read(&v,s.inode_table_start,a,ic,&hi)==OPENFS_INODE_OK&&hi.link_count==2U);}
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-src",&a)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-dst",&b)==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-dir-src","/home/test/r-dir-dst")==OPENFS_PATH_OK);
-    assert(openfs_path_lookup(&v,&s,"/home/test/r-dir-dst",&qino)==OPENFS_PATH_OK&&qino==a);
-    assert(openfs_path_lookup(&v,&s,"/home/test/r-dir-src",&qino)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_lookup(&v,&s,"/home/test/r-dir-dst",&q)==OPENFS_PATH_OK&&q==a);
+    assert(openfs_path_lookup(&v,&s,"/home/test/r-dir-src",&q)==OPENFS_PATH_NOT_FOUND);
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-nonempty",&b)==OPENFS_PATH_OK);
-    assert(openfs_path_create(&v,&s,"/home/test/r-dir-nonempty/file",OPENFS_INODE_MODE_REGULAR,&qino)==OPENFS_PATH_OK);
+    assert(openfs_path_create(&v,&s,"/home/test/r-dir-nonempty/file",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-src2",&a)==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-dir-src2","/home/test/r-dir-nonempty")==OPENFS_PATH_NOT_EMPTY);
     assert(openfs_path_rename(&v,&s,"/home/test/r-dir-src2","/home/test/r-hard-alias")==OPENFS_PATH_NOT_DIRECTORY);
@@ -87,8 +87,8 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_path_create(&v,&s,"/home/r-replace-parent/src",OPENFS_INODE_MODE_REGULAR,&a)==OPENFS_PATH_OK);
     assert(openfs_path_create(&v,&s,"/home/r-replace-parent2/dst",OPENFS_INODE_MODE_REGULAR,&b)==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/r-replace-parent/src","/home/r-replace-parent2/dst")==OPENFS_PATH_OK);
-    assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent/src",&qino)==OPENFS_PATH_NOT_FOUND);
-    assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent2/dst",&qino)==OPENFS_PATH_OK&&qino==a);
+    assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent/src",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);
 }
 {
     uint64_t src=0U,dst=0U;assert(openfs_path_create(&v,&s,"/home/test/rb-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/test/rb-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
@@ -99,7 +99,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
     assert(v.read(v.context,db,1U,dbefore)==OPENFS_IO_OK);assert(v.read(v.context,pb,1U,pbefore)==OPENFS_IO_OK);assert(v.read(v.context,dib,1U,ibefore)==OPENFS_IO_OK);
     size_t bb=(size_t)(s.block_bitmap_blocks*s.block_size),ib=(size_t)(s.inode_bitmap_blocks*s.block_size);uint8_t *bbefore=malloc(bb),*bafter=malloc(bb),*ibitmap_before=malloc(ib),*ibitmap_after=malloc(ib);assert(bbefore&&bafter&&ibitmap_before&&ibitmap_after);memcpy(bbefore,d.b+(size_t)(s.block_bitmap_start*s.block_size),bb);memcpy(ibitmap_before,d.b+(size_t)(s.inode_bitmap_start*s.block_size),ib);
     d.fail_write_block=dib;d.fail_write_enabled=1;d.fail_write_count=1;assert(openfs_path_rename(&v,&s,"/home/test/rb-src","/home/test/rb-dst")==OPENFS_PATH_IO_ERROR);d.fail_write_enabled=0;
-    assert(openfs_path_lookup(&v,&s,"/home/test/rb-src",&qino)==OPENFS_PATH_OK&&qino==src);assert(openfs_path_lookup(&v,&s,"/home/test/rb-dst",&qino)==OPENFS_PATH_OK&&qino==dst);
+    assert(openfs_path_lookup(&v,&s,"/home/test/rb-src",&q)==OPENFS_PATH_OK&&q==src);assert(openfs_path_lookup(&v,&s,"/home/test/rb-dst",&q)==OPENFS_PATH_OK&&q==dst);
     assert(v.read(v.context,db,1U,dafter)==OPENFS_IO_OK&&memcmp(dbefore,dafter,s.block_size)==0);assert(v.read(v.context,pb,1U,pafter)==OPENFS_IO_OK&&memcmp(pbefore,pafter,s.block_size)==0);assert(v.read(v.context,dib,1U,iafter)==OPENFS_IO_OK&&memcmp(ibefore,iafter,s.block_size)==0);
     memcpy(bafter,d.b+(size_t)(s.block_bitmap_start*s.block_size),bb);memcpy(ibitmap_after,d.b+(size_t)(s.inode_bitmap_start*s.block_size),ib);assert(memcmp(bbefore,bafter,bb)==0&&memcmp(ibitmap_before,ibitmap_after,ib)==0);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
