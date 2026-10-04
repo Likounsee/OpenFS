@@ -203,11 +203,17 @@ static void inode_generation_boundary(void){
     assert(second==first);
     openfs_inode_t b;assert(openfs_inode_read(&v,s.inode_table_start,second,64U,&b)==OPENFS_INODE_OK);
     assert(b.generation==2U);
-    openfs_dir_entry_t stale;
-    stale.inode_number=first;stale.generation=a.generation;stale.type=1U;
-    assert(openfs_dir_add(&v,&s,&(openfs_inode_t){.inode_number=1U,.generation=1U,.mode=OPENFS_INODE_MODE_DIRECTORY,.link_count=1U},"/invalid",&stale)!=OPENFS_DIR_OK);
-    assert(openfs_path_lookup(&v,&s,"/generation-b",&second)==OPENFS_PATH_OK);
-    assert(second==first);
+
+    /* An old inode+generation pair must not resolve to the reused inode. */
+    openfs_inode_t root;
+    assert(openfs_inode_read(&v,s.inode_table_start,s.root_inode,64U,&root)==OPENFS_INODE_OK);
+    openfs_dir_entry_t stale={first,a.generation,1U};
+    assert(openfs_dir_add(&v,&s,&root,"stale-generation",&stale)==OPENFS_DIR_OK);
+    assert(openfs_path_lookup(&v,&s,"/stale-generation",&second)==OPENFS_PATH_CORRUPT);
+
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT);
+    assert(errors!=0U);
     free(d.b);
 }
 
