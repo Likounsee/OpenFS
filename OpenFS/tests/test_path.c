@@ -7,6 +7,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/fsck.h"
 #include "openfs/file.h"
+#include "openfs/mount.h"
 #include <stdio.h>
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
@@ -89,6 +90,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_path_rename(&v,&s,"/home/r-replace-parent/src","/home/r-replace-parent2/dst")==OPENFS_PATH_OK);
     assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent/src",&q)==OPENFS_PATH_NOT_FOUND);
     assert(openfs_path_lookup(&v,&s,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);
+    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);uint64_t errors=0U;assert(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
 }
 {
     uint64_t src=0U,dst=0U;assert(openfs_path_create(&v,&s,"/home/test/rb-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/test/rb-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
