@@ -655,6 +655,7 @@ cleanup:
     (void)remove(base);
     (void)remove(reference);
     (void)remove(crashed);
+    (void)remove(prefix);
     return ok;
 }
 
@@ -754,7 +755,7 @@ static int apply_step(openfs_transaction_t *t, const openfs_superblock_t *s,
 }
 
 static int run_sequence(crash_disk_t *d, int sequence_kind,
-                        namespace_cut_t cut, int crash_index, int crash)
+                        namespace_cut_t cut, int crash_index, int crash, int stop_after)
 {
     static const sequence_step_t rename_chain[] = {
         {OP_RENAME_NEW, "/home/test/src", "/home/test/chain-b"},
@@ -794,6 +795,7 @@ static int run_sequence(crash_disk_t *d, int sequence_kind,
         d->journal_start = s.journal_start;
         d->journal_blocks = s.journal_blocks;
 
+        if (stop_after >= 0 && (size_t)stop_after < count) count = (size_t)stop_after;
         for (i = 0U; i < count; ++i) {
             openfs_journal_t j;
             openfs_transaction_t t;
@@ -910,7 +912,7 @@ static int run_sequence_child(const char *self, int sequence_kind,
     if (pid == 0) {
         crash_disk_t d;
         if (!open_disk(&d, path, "r+b")) _exit(2);
-        if (!run_sequence(&d, sequence_kind, cut, crash_index, crash)) _exit(3);
+        if (!run_sequence(&d, sequence_kind, cut, crash_index, crash, -1)) _exit(3);
         close_disk(&d);
         _exit(0);
     }
@@ -927,7 +929,7 @@ static int sequence_case(const char *self, int sequence_kind,
                        sequence_kind == 1 ? "directory-mutation" :
                        sequence_kind == 2 ? "hard-link-chain" : "symlink-chain";
     size_t path_count = sequence_kind == 0 || sequence_kind == 1 ? 3U : 2U;
-    char base[512], reference[512], crashed[512];
+    char base[512], reference[512], crashed[512], prefix[512];
     snapshot_entry_t expected[SNAP_PATHS];
     snapshot_entry_t initial[SNAP_PATHS];
     scenario_t initial_scenario;
@@ -956,7 +958,8 @@ static int sequence_case(const char *self, int sequence_kind,
 
     if (snprintf(base, sizeof(base), "openfs-ns-seq-%u-base.img", serial) < 0 ||
         snprintf(reference, sizeof(reference), "openfs-ns-seq-%u-ref.img", serial) < 0 ||
-        snprintf(crashed, sizeof(crashed), "openfs-ns-seq-%u-crash.img", serial) < 0)
+        snprintf(crashed, sizeof(crashed), "openfs-ns-seq-%u-crash.img", serial) < 0 ||
+        snprintf(prefix, sizeof(prefix), "openfs-ns-seq-%u-prefix.img", serial) < 0)
         return 0;
 
     if (!prepare_base(base, OP_CREATE) ||
@@ -974,12 +977,26 @@ static int sequence_case(const char *self, int sequence_kind,
         goto cleanup;
 
     if (!run_sequence_child(self, sequence_kind, cut, crash_index, reference, 0) ||
-        !sequence_snapshot(reference, sequence_kind, expected, path_count) ||
-        !run_sequence_child(self, sequence_kind, cut, crash_index, crashed, 1))
+        !sequence_snapshot(reference, sequence_kind, expected, path_count))
         goto cleanup;
 
-    if (crash_index == 0 && cut == CUT_N1)
+    if (crash_index > 0) {
+        crash_disk_t prefix_disk;
+        if (!copy_file(base, prefix) || !open_disk(&prefix_disk, prefix, "r+b"))
+            goto cleanup;
+        if (!run_sequence(&prefix_disk, sequence_kind, cut, crash_index, 0, crash_index)) {
+            close_disk(&prefix_disk);
+            goto cleanup;
+        }
+        close_disk(&prefix_disk);
+        if (!sequence_snapshot(prefix, sequence_kind, expected, path_count))
+            goto cleanup;
+    } else if (cut == CUT_N1) {
         memcpy(expected, initial, sizeof(expected));
+    }
+
+    if (!run_sequence_child(self, sequence_kind, cut, crash_index, crashed, 1))
+        goto cleanup;
 
     ok = verify_sequence_case(crashed, sequence_kind, expected, path_count);
     if (!ok)
@@ -1005,7 +1022,7 @@ int main(int argc, char **argv)
         int crash = atoi(argv[5]);
         crash_disk_t d;
         if (!open_disk(&d, argv[6], "r+b")) return 2;
-        if (!run_sequence(&d, sequence_kind, (namespace_cut_t)cut, crash_index, crash)) return 3;
+        if (!run_sequence(&d, sequence_kind, (namespace_cut_t)cut, crash_index, crash, -1)) return 3;
         close_disk(&d);
         return 0;
     }
