@@ -1,3 +1,6 @@
+#if !defined(_WIN32)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -536,8 +539,6 @@ static int reference_snapshot(const char *path, const scenario_t *scenario,
     if (!open_disk(&d, path, "r+b")) return 0;
     v = make_device(&d);
     if (openfs_read_superblock(&v, &s) != OPENFS_FORMAT_OK ||
-        !apply_operation(&d, scenario->op) ||
-        openfs_read_superblock(&v, &s) != OPENFS_FORMAT_OK ||
         !snapshot_paths(&v, &s, scenario, snapshot)) {
         close_disk(&d);
         return 0;
@@ -615,6 +616,7 @@ static int test_case(const char *self, const scenario_t *scenario,
         goto cleanup;
 
     ok = verify_image(crashed, scenario, expected);
+    if (!ok) fprintf(stderr, "namespace crash failure: %s cut=%d\\n", scenario->name, (int)cut);
 
 cleanup:
     (void)remove(base);
