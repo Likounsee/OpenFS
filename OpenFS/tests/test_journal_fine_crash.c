@@ -379,13 +379,36 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
-    } else if(kind==4){ /* incomplete then committed */
+    } else if(kind==4){ /* TX1 incomplete just before COMMIT, then TX2 committed */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         memset(payload+24U,0x72U,BS-32U-24U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_BEGIN,2U,3U,NULL,0U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_DATA,2U,4U,payload,BS-32U);
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_COMMIT,2U,5U,NULL,0U);
+    } else if(kind==5){ /* TX1 BEGIN only, then TX2 committed */
+        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x72U,BS-32U-24U);
+        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_BEGIN,2U,2U,NULL,0U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,2U,3U,payload,BS-32U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_COMMIT,2U,4U,NULL,0U);
+    } else if(kind==6){ /* TX1 BEGIN + multiple DATA, then TX2 committed */
+        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,1U,3U,payload,BS-32U);
+        memset(payload+24U,0x72U,BS-32U-24U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
+        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
+        ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
+    } else if(kind==7){ /* TX1 BEGIN + three DATA, then TX2 committed */
+        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,1U,3U,payload,BS-32U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_DATA,1U,4U,payload,BS-32U);
+        memset(payload+24U,0x72U,BS-32U-24U);
+        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_BEGIN,2U,5U,NULL,0U);
+        ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
+        ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_COMMIT,2U,7U,NULL,0U);
     }
     if(!ok){close_disk(&d);remove(path);return 0;}
     close_disk(&d);
@@ -437,6 +460,6 @@ int main(int argc,char **argv){
         assert(ok);
     }
     { int ok = journal_crash_case(argv[0],C6_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
-    for(int k=0;k<5;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
+    for(int k=0;k<8;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
     return 0;
 }
