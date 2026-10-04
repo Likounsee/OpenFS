@@ -291,9 +291,12 @@ static int create_rollback_write_failure(void)
     d.partial_once = 1;
     d.partial_bytes = 64U;
 
-    assert(openfs_path_create_as(&v, &s, "/create-double-write",
-                                 OPENFS_INODE_MODE_REGULAR, 1000U, 1000U, &ino)
-           == OPENFS_PATH_CORRUPT);
+    openfs_path_result_t result = openfs_path_create_as(
+        &v, &s, "/create-double-write", OPENFS_INODE_MODE_REGULAR,
+        1000U, 1000U, &ino);
+    fprintf(stderr, "P3-A create result=%d expected=%d\\n",
+            (int)result, (int)OPENFS_PATH_CORRUPT);
+    assert(result == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_enabled = 0;
     d.fail_flush = 0;
