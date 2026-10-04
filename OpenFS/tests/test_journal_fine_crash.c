@@ -38,7 +38,7 @@ typedef enum {
     J4_DATA_PARTIAL_MID,
     J4_DATA_PARTIAL_END,
     J5_COMMIT_PARTIAL,
-    C1_BEFORE_CLEAR,
+    C1_BEFORE_SNAPSHOT, /* after final data flush, before checkpoint snapshot */
     C2_SNAPSHOT_MID,
     C3_AFTER_CLEAR_BEFORE_FLUSH,
     C4_CHECKPOINT_FLUSH,
@@ -90,7 +90,7 @@ static openfs_io_result_t rd(void *ctx, uint64_t first, uint32_t count, void *ou
         return OPENFS_IO_OUT_OF_RANGE;
     size_t n = (size_t)((uint64_t)count * BS);
     if (d->armed && d->checkpoint_ready && count == 1U && journal_block(d, first)) {
-        if (d->cut == C1_BEFORE_CLEAR && d->checkpoint_reads == 0U) crash_now();
+        if (d->cut == C1_BEFORE_SNAPSHOT && d->checkpoint_reads == 0U) crash_now();
         d->checkpoint_reads++;
         if (d->cut == C2_SNAPSHOT_MID && d->checkpoint_reads == 4U) crash_now();
     }
@@ -147,7 +147,7 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
     }
 
     if (d->armed && count == 1U && isj && iszero &&
-        d->cut == C1_BEFORE_CLEAR && d->zero_writes == 0U) {
+        d->cut == C1_BEFORE_SNAPSHOT && d->zero_writes == 0U) {
         crash_now();
     }
 
@@ -498,7 +498,7 @@ int main(int argc,char **argv){
         cut_t c=journal_cuts[i]; int ok=journal_crash_case(argv[0],c,0,id++);
         if(!ok) fprintf(stderr,"journal cut failed: %d\\n",(int)c); assert(ok);
     }
-    for(int c=C1_BEFORE_CLEAR;c<=C5_AFTER_CHECKPOINT_FLUSH;c++) {
+    for(int c=C1_BEFORE_SNAPSHOT;c<=C5_AFTER_CHECKPOINT_FLUSH;c++) {
         int ok = journal_crash_case(argv[0],(cut_t)c,0,id++);
         if(!ok) fprintf(stderr,"checkpoint cut failed: %d\\n",c);
         assert(ok);
