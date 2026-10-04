@@ -29,6 +29,29 @@ static int restore_unlinked_inode_storage(openfs_block_device_t *d,const openfs_
     return d->flush(d->context) == OPENFS_IO_OK;
 }
 
+static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino)
+{
+    openfs_inode_t in;
+    uint64_t count=0U;
+    if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK||inode_count(s,&count)!=OPENFS_PATH_OK)return 0;
+    in.mode=OPENFS_INODE_MODE_FREE;
+    in.link_count=0U;
+    in.parent_inode=0U;
+    in.uid=0U;
+    in.gid=0U;
+    in.atime_ns=0U;
+    in.mtime_ns=0U;
+    in.ctime_ns=0U;
+    in.size=0U;
+    in.blocks=0U;
+    in.extent_count=0U;
+    in.flags=0U;
+    memset(in.inline_data,0,sizeof(in.inline_data));
+    memset(in.reserved,0,sizeof(in.reserved));
+    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return 0;
+    return openfs_inode_free(d,s,ino)==OPENFS_INODE_ALLOC_OK&&d->flush(d->context)==OPENFS_IO_OK;
+}
+
 static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *path,uint64_t ino,const openfs_inode_t *original_parent)
 {
     char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
