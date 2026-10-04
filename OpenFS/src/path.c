@@ -246,8 +246,6 @@ static openfs_path_result_t parent_access(openfs_block_device_t *d,const openfs_
 }
 static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino)
 {
-    uint64_t count=0U;
-    if(inode_count(s,&count)!=OPENFS_PATH_OK)return 0;
     openfs_inode_t in;
     if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return 0;
     in.mode=OPENFS_INODE_MODE_FREE;
@@ -275,8 +273,9 @@ static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblo
     openfs_inode_t pi;
     if(split_last(path,pp,sizeof(pp),name,sizeof(name))!=OPENFS_PATH_OK||
        read_inode(d,s,parent,&pi)!=OPENFS_PATH_OK||
-       openfs_dir_remove(d,s,&pi,name)!=OPENFS_DIR_OK)return 0;
-    uint64_t count=0U;
+       uint64_t count=0U;
+    if(inode_count(s,&count)!=OPENFS_PATH_OK)return 0;
+    if(openfs_dir_remove(d,s,&pi,name)!=OPENFS_DIR_OK)return 0;
     if(inode_count(s,&count)!=OPENFS_PATH_OK)return 0;
     openfs_inode_t in;
     if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return 0;
@@ -296,12 +295,14 @@ static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblo
     memset(in.reserved,0,sizeof(in.reserved));
     if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return 0;
     if(openfs_inode_free(d,s,ino)!=OPENFS_INODE_ALLOC_OK)return 0;
+    if(!restore_directory_state(d,s,&pi,&original_pi,count))return 0;
     return d->flush(d->context)==OPENFS_IO_OK;
 }
 openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
+    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     r=openfs_path_create(d,s,p,mode,out);
     if(r!=OPENFS_PATH_OK)return r;
     uint64_t count=0U;
@@ -318,6 +319,7 @@ openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_s
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
+    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     r=openfs_path_mkdir(d,s,p,out);
     if(r!=OPENFS_PATH_OK)return r;
     uint64_t count=0U;
