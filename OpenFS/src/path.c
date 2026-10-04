@@ -333,7 +333,7 @@ if(ok){
     if(openfs_dir_add(d,s,&ndir,nn,&moved)!=OPENFS_DIR_OK){ok=0;}
     else mutated=1;
 }
-if(ok&&source_is_dir&&oldparent!=newparent){
+if(ok&&source_is_dir){
     source.parent_inode=newparent;
     openfs_inode_result_t ir=openfs_inode_write(d,s->inode_table_start,count,&source);
     if(ir!=OPENFS_INODE_OK)ok=0;
