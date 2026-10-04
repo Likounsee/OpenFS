@@ -429,6 +429,14 @@ static int replay_state_case(int kind, unsigned id) {
         if(openfs_unmount(&m)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d unmount failed\\n",kind); ok=0; }
         openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second mount failed\\n",kind); ok=0; }
         if(ok){
+            uint8_t b2[BS], expected2[BS]; uint8_t want2=(kind==0)?0x11U:(kind==1)?0x61U:(kind==2)?0x72U:(kind==3)?0x63U:0x72U;
+            memset(expected2,0x11U,BS); if(kind!=0)memset(expected2,want2,BS-56U);
+            if(rd(&d,target,1U,b2)!=OPENFS_IO_OK||memcmp(b2,expected2,BS)!=0){ fprintf(stderr,"replay kind=%d second replay changed data\\n",kind); ok=0; }
+            openfs_journal_t j2;
+            if(openfs_journal_open(&j2,&v,&m2.superblock)!=OPENFS_JOURNAL_OK ||
+               j2.next_record!=0U || j2.active_transaction_id!=0U || j2.commit_record_written!=0U){
+                fprintf(stderr,"replay kind=%d second journal not clean\\n",kind); ok=0;
+            }
             e=0U;
             if(openfs_fsck(&v,&m2.superblock,&e)!=OPENFS_FSCK_OK||e!=0U){ fprintf(stderr,"replay kind=%d second fsck=%llu\\n",kind,(unsigned long long)e); ok=0; }
             if(openfs_unmount(&m2)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second unmount failed\\n",kind); ok=0; }
