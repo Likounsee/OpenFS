@@ -10,6 +10,7 @@
 #include "openfs/dir.h"
 #include "openfs/inode.h"
 #include "openfs/crc32c.h"
+#include "openfs/journal.h"
 
 typedef struct { uint8_t *b; uint32_t bs; uint64_t bc; } disk_t;
 
@@ -54,7 +55,7 @@ static void patch_sb_u64(openfs_block_device_t*v,const openfs_superblock_t*s,uin
     uint64_t blocks[2]={0U,v->block_count-1U};for(unsigned n=0;n<2;n++){uint8_t raw[4096U];assert(v->read(v->context,blocks[n],1U,raw)==OPENFS_IO_OK);for(unsigned k=0;k<8;k++)raw[off+k]=(uint8_t)(value>>(8U*k));memset(raw+4088U,0,4U);uint32_t c=openfs_crc32c(raw,4088U);for(unsigned k=0;k<4;k++)raw[4088U+k]=(uint8_t)(c>>(8U*k));assert(v->write(v->context,blocks[n],1U,raw)==OPENFS_IO_OK);}
 }
 static int corrupt_case(unsigned kind){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s,&s);
+    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);
     uint64_t ic=inode_count(&s),ino=0;assert(openfs_path_create(&v,&s,"/f",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint8_t one[4096U];memset(one,0x5A,sizeof(one));openfs_inode_t fi;assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&fi)==OPENFS_INODE_OK);assert(openfs_file_write(&v,&s,&fi,0U,one,sizeof(one))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&fi)==OPENFS_INODE_OK);
     switch(kind){
