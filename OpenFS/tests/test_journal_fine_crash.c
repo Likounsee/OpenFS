@@ -250,8 +250,11 @@ static int verify(const char *path, int expect0, int expect1, int expect2, int e
     int ex[4]={expect0,expect1,expect2,expect3};
     for(int i=0;i<4;i++){
         if(rd(&d,targets[i],1U,b)!=OPENFS_IO_OK){ok=0;break;}
-        uint8_t want=(uint8_t)(ex[i] ? (0xA0U + (unsigned)(i/2)) : 0U);
-        if(i%2) want=(uint8_t)(ex[i] ? (0xB0U + (unsigned)(i/2)) : 0U);
+        uint8_t want=0U;
+        if (ex[i]) {
+            static const uint8_t wants[4] = {0xA0U,0xA1U,0xB0U,0xB1U};
+            want=wants[i];
+        }
         uint8_t expected[BS]; memset(expected,want,sizeof(expected));
         if(memcmp(b,expected,sizeof(b))!=0){ok=0;break;}
     }
