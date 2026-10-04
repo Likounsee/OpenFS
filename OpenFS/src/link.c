@@ -57,8 +57,8 @@ char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
 openfs_path_result_t r=OPENFS_PATH_OK;
 size_t l=strlen(linkp),slash=l;while(slash>0U&&linkp[slash-1U]!='/')--slash;
 if(l==0U||l>=OPENFS_PATH_MAX||slash==0U||l-slash==0U||l-slash>OPENFS_DIR_NAME_MAX)return OPENFS_PATH_INVALID_ARGUMENT;
-memcpy(name,linkp+slash,l-slash);name[l-slash]='\\0';
-if(slash==1U){pp[0]='/';pp[1]='\\0';}else{memcpy(pp,linkp,slash-1U);pp[slash-1U]='\\0';}
+memcpy(name,linkp+slash,l-slash);name[l-slash]='\0';
+if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,linkp,slash-1U);pp[slash-1U]='\0';}
 uint64_t parent=0U;r=openfs_path_lookup_follow(d,s,pp,&parent);if(r!=OPENFS_PATH_OK)return r;
 openfs_inode_t original_parent;if(ri(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
 uint64_t ino=0U;r=openfs_path_create(d,s,linkp,OPENFS_INODE_MODE_SYMLINK,&ino);if(r!=OPENFS_PATH_OK)return r;
