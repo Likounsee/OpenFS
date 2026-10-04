@@ -43,14 +43,16 @@ static void physical_boundaries(void){
     raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_DATA,1U,jb,payload,sizeof(payload));
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==jb);assert(j.commit_record_written==0U);
     assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);
-    /* Exact-full committed journal: BEGIN + (jb-2) DATA + COMMIT. */
-    setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start+1U;data_payload(payload,target,0x5CU);
-    raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
-    for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,sizeof(payload));
-    raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_COMMIT,1U,jb,NULL,0U);
-    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==jb);assert(j.active_transaction_id==0U);assert(j.commit_record_written==1U);assert(j.transaction_id==1U);assert(j.sequence==jb);
+    /* Exact-full committed journal through the real writer: BEGIN + (jb-2) DATA + COMMIT. */
+    setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0x5CU);
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    uint64_t tx=0U;assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    for(uint64_t n=1U;n<jb-1U;n++)assert(openfs_journal_write(&j,&v,tx,payload,sizeof(payload))==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+    assert(j.next_record==jb);assert(j.active_transaction_id==0U);assert(j.commit_record_written==1U);assert(j.transaction_id==1U);assert(j.sequence==jb);
     uint64_t dummy=0U;assert(openfs_journal_begin(&j,&v,&dummy)==OPENFS_JOURNAL_INVALID_ARGUMENT);
-    assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);assert(j.commit_record_written==0U);
+    assert(openfs_journal_write(&j,&v,tx,payload,sizeof(payload))==OPENFS_JOURNAL_INVALID_ARGUMENT);
+    memset(d.b+(size_t)(target*d.bs),0U,d.bs);
     assert_clean_after_mount(&v,&s,target,0x5CU);
     free(d.b);
 }
