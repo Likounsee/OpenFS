@@ -396,8 +396,9 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
     assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
     assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-committed","/home/test/tx-rename-commit-fail")==OPENFS_PATH_OK);
-    uint64_t tx_source_inode_block=s.inode_table_start+((tx_src-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    d.fail_write_block=tx_source_inode_block;d.fail_write_enabled=1;d.fail_write_count=1;
+    openfs_inode_t tx_parent_inode;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tx_parent_inode)==OPENFS_INODE_OK);
+    uint64_t tx_parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&tx_parent_inode,0U,&tx_parent_block)==OPENFS_FILE_OK);
+    d.fail_write_block=tx_parent_block;d.fail_write_enabled=1;d.fail_write_count=1;
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
     d.fail_write_enabled=0;
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
