@@ -278,6 +278,15 @@ static int verify(const char *path, int expect0, int expect1, int expect2, int e
     disk_t d; if(!open_disk(path,&d))return 0;
     d.armed = 0;
     openfs_block_device_t v=dev(&d); openfs_mount_t m;
+    openfs_superblock_t pre;
+    if(openfs_read_superblock(&v,&pre)==OPENFS_FORMAT_OK){
+        uint8_t predata[BS], prej[BS];
+        if(rd(&d,pre.data_start+8U,1U,predata)==OPENFS_IO_OK &&
+           rd(&d,pre.journal_start,1U,prej)==OPENFS_IO_OK &&
+           predata[0]==0U)
+            fprintf(stderr,"verify pre-mount: target=%02x journal=%02x%02x%02x%02x%02x type=%u\\n",
+                    predata[0],prej[0],prej[1],prej[2],prej[3],prej[4],(unsigned)prej[5]);
+    }
     openfs_mount_result_t mr = openfs_mount(&m,&v);
     if(mr!=OPENFS_MOUNT_OK){ fprintf(stderr,"verify mount=%d\\n",(int)mr); close_disk(&d); return 0; }
     uint8_t b[BS]; int ok=1;
