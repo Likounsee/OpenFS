@@ -262,16 +262,26 @@ static int inode_rollback_write_failure(void)
     return 0;
 }
 
-static int create_rollback_flush_failure(void)
+static int create_rollback_write_failure(void)
 {
     disk_t d; openfs_block_device_t v; openfs_superblock_t s;
     uint64_t ino = 0U;
     setup(&d, &v, &s);
 
-    d.fail_flush = 1;
-    assert(openfs_path_create_as(&v, &s, "/create-double-flush",
+    /*
+     * Creation writes the inode once.  The _as wrapper then writes uid/gid.
+     * Fail that second write and keep failing the same block during rollback.
+     */
+    d.fail_block = inode_block(&s, 2U);
+    d.fail_enabled = 1;
+    d.skip_writes = 1U;
+    d.partial_once = 1;
+    d.partial_bytes = 64U;
+
+    assert(openfs_path_create_as(&v, &s, "/create-double-write",
                                  OPENFS_INODE_MODE_REGULAR, 1000U, 1000U, &ino)
            == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -790,7 +800,7 @@ int main(void)
     assert(write_rollback_flush_failure() == 0);
     assert(allocator_rollback_write_failure() == 0);
     assert(inode_rollback_write_failure() == 0);
-    assert(create_rollback_flush_failure() == 0);
+    assert(create_rollback_write_failure() == 0);
     assert(unlink_rollback_write_failure() == 0);
     assert(link_rollback_write_failure() == 0);
     assert(symlink_rollback_write_failure() == 0);
