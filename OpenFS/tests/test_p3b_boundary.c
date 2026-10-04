@@ -172,6 +172,10 @@ static void name_and_path_boundaries(void){
     memcpy(p+1,name,OPENFS_DIR_NAME_MAX+1U);p[OPENFS_DIR_NAME_MAX+2U]='\0';
     assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_NAME_TOO_LONG);
 
+    /* Restore a valid source path after the explicit +1 name rejection. */
+    name[OPENFS_DIR_NAME_MAX]='\0';
+    memcpy(p+1,name,OPENFS_DIR_NAME_MAX+1U);p[OPENFS_DIR_NAME_MAX+2U]='\0';
+
     char mkdir_path[OPENFS_DIR_NAME_MAX+2U];make_name(mkdir_path,'m');
     assert(openfs_path_mkdir(&v,&s,mkdir_path,&ino)==OPENFS_PATH_OK);
     char link_path[OPENFS_DIR_NAME_MAX+2U];make_name(link_path,'l');
