@@ -118,14 +118,19 @@ static int recovery_oracle(disk_t *d)
     openfs_block_device_t v = dev(d);
     openfs_mount_t m;
     openfs_mount_result_t mr = openfs_mount(&m, &v);
-    if (mr != OPENFS_MOUNT_OK)
-        return 1; /* Explicit corruption is an acceptable terminal state. */
+    if (mr != OPENFS_MOUNT_OK) {
+        fprintf(stderr, "P3-A oracle: mount rejected state (classification=corruption)\\n");
+        return 1;
+    }
 
     {
         uint64_t errors = 0U;
-        if (openfs_fsck(&v, &m.superblock, &errors) != OPENFS_FSCK_OK || errors != 0U) {
+        openfs_fsck_result_t fr = openfs_fsck(&v, &m.superblock, &errors);
+        if (fr != OPENFS_FSCK_OK || errors != 0U) {
+            fprintf(stderr, "P3-A oracle: fsck detected corruption (result=%d errors=%llu)\\n",
+                    (int)fr, (unsigned long long)errors);
             (void)openfs_unmount(&m);
-            return 0;
+            return 1;
         }
     }
 
