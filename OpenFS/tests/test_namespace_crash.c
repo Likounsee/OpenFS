@@ -24,7 +24,7 @@
 #endif
 
 #define BLOCK_SIZE 4096U
-#define BLOCK_COUNT 256U
+#define BLOCK_COUNT 1024U
 #define CRASH_EXIT_CODE 137
 #define SNAP_PATHS 12U
 #define SNAP_CONTENT 64U
