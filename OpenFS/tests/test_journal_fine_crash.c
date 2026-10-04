@@ -373,7 +373,7 @@ static int replay_state_case(int kind, unsigned id) {
     int expected_mount = kind==0 ? OPENFS_MOUNT_OK : OPENFS_MOUNT_OK;
     if(mr!=expected_mount) { fprintf(stderr,"replay kind=%d mount=%d\\n",kind,(int)mr); ok=0; }
     if(ok){
-        uint8_t b[BS]; if(rd(&d,target,1U,b)!=OPENFS_IO_OK)ok=0;
+        uint8_t b[BS]; if(rd(&d,target,1U,b)!=OPENFS_IO_OK){ fprintf(stderr,"replay kind=%d read failed\\n",kind); ok=0; }
         if(kind==0) { uint8_t z[BS]; memset(z,0x11U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==1) { uint8_t z[BS]={0}; memset(z,0x61U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==2) { uint8_t z[BS]={0}; memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
