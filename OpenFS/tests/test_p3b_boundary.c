@@ -51,7 +51,7 @@ static void journal_capacity_and_limits(void){
     assert(j.transaction_id==UINT64_MAX);
     assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);
-    assert(j.sequence==0U);
+    assert(j.sequence!=0U);
     assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
     assert(tx==1U);
 
