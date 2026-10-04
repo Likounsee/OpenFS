@@ -56,7 +56,8 @@ typedef struct {
     unsigned zero_writes;
     unsigned journal_reads;
     unsigned flushes;
-    unsigned checkpoint_target_flushes;
+    unsigned final_data_writes;
+    int checkpoint_ready_pending;
     unsigned checkpoint_reads;
     unsigned checkpoint_zero_writes;
     int checkpoint_ready;
@@ -157,6 +158,10 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
          d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C6_MULTI_CHECKPOINT);
     if (!defer_checkpoint_flush && !flush_file(d)) return OPENFS_IO_IO_ERROR;
 
+    if (d->armed && !isj && count == 1U) {
+        d->final_data_writes++;
+        if (d->final_data_writes == 2U) d->checkpoint_ready_pending = 1;
+    }
     if (d->armed && count == 1U && isj && iszero && d->checkpoint_ready) {
         d->zero_writes++;
         d->checkpoint_zero_writes++;
@@ -172,7 +177,8 @@ static openfs_io_result_t fl(void *ctx) {
         d->cut == C4_CHECKPOINT_FLUSH) crash_now();
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
     d->flushes++;
-    if (d->checkpoint_target_flushes != 0U && d->flushes == d->checkpoint_target_flushes) {
+    if (d->armed && d->checkpoint_ready_pending) {
+        d->checkpoint_ready_pending = 0;
         d->checkpoint_ready = 1;
         d->checkpoint_reads = 0U;
         d->checkpoint_zero_writes = 0U;
@@ -234,7 +240,8 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 4;
     for (int pass = 0; pass < (multi ? 2 : 1); ++pass) {
         if (multi && pass == 1) d.armed = 1;
-        d.checkpoint_target_flushes = d.flushes + 10U;
+        d.final_data_writes = 0U;
+        d.checkpoint_ready_pending = 0;
         d.checkpoint_ready = 0;
         d.checkpoint_reads = 0U;
         d.checkpoint_zero_writes = 0U;
