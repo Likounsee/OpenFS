@@ -47,7 +47,8 @@ assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);d.fail_read_blo
     memcpy(ib_before,d.b+(size_t)(s.inode_bitmap_start*s.block_size),ib_bytes);
     uint64_t count=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;
     uint64_t predicted=0U;
-    for(uint64_t candidate=2U;candidate<=count;candidate++){int used=0;assert(openfs_bitmap_test(&v,s.inode_bitmap_start,s.inode_bitmap_blocks,candidate-1U,&used)==OPENFS_BITMAP_OK);if(!used){predicted=candidate;break;}}
+    uint64_t parent_inode_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    for(uint64_t candidate=2U;candidate<=count;candidate++){int used=0;uint64_t candidate_block=s.inode_table_start+((candidate-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;assert(openfs_bitmap_test(&v,s.inode_bitmap_start,s.inode_bitmap_blocks,candidate-1U,&used)==OPENFS_BITMAP_OK);if(!used&&candidate_block!=parent_inode_block){predicted=candidate;break;}}
     assert(predicted!=0U);
     uint64_t predicted_block=s.inode_table_start+((predicted-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=predicted_block;d.fail_write_enabled=1;d.fail_write_count=2;
