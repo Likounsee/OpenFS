@@ -10,6 +10,9 @@
 #include "openfs/fsck.h"
 #include "openfs/journal.h"
 #include "openfs/mount.h"
+#include "openfs/path.h"
+#include "openfs/file.h"
+#include "openfs/inode.h"
 #include "openfs/transaction.h"
 
 #if defined(_WIN32)
@@ -324,7 +327,16 @@ static int replay_state_case(int kind, unsigned id) {
     openfs_block_device_t v=dev(&d); uint8_t uuid[16]={0x52U};
     if(openfs_format(&v,uuid)!=OPENFS_FORMAT_OK){close_disk(&d);return 0;}
     openfs_superblock_t s; if(openfs_read_superblock(&v,&s)!=OPENFS_FORMAT_OK){close_disk(&d);return 0;}
-    uint64_t target=s.data_start+12U;
+    uint64_t ino=0U;
+    uint64_t inode_count=(s.inode_table_blocks*(uint64_t)s.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t inode;
+    if(openfs_path_create(&v,&s,"/replay-target",OPENFS_INODE_MODE_REGULAR,&ino)!=OPENFS_PATH_OK ||
+       openfs_inode_read(&v,s.inode_table_start,ino,inode_count,&inode)!=OPENFS_INODE_OK)
+    { close_disk(&d); remove(path); return 0; }
+    uint8_t initial[BS]; memset(initial,0x11U,sizeof(initial));
+    if(openfs_file_write(&v,&s,&inode,0U,initial,sizeof(initial))!=OPENFS_FILE_OK ||
+       openfs_file_map_block_device(&v,&s,&inode,0U,&target)!=OPENFS_FILE_OK)
+    { close_disk(&d); remove(path); return 0; }
     uint8_t payload[BS-32U]; memset(payload,0,sizeof(payload));
     memcpy(payload,"OJBD1",5U); p64(payload+8U,target); p32(payload+16U,0U); p32(payload+20U,BS-56U);
     memset(payload+24U,(uint8_t)(0x60U+kind),BS-32U-24U);
