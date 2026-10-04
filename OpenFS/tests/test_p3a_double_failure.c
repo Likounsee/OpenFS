@@ -144,10 +144,10 @@ static p3a_oracle_result_t recovery_oracle(disk_t *d, const uint8_t *before, int
     uint64_t errors = 0U;
     openfs_fsck_result_t fr = openfs_fsck(&v, &m.superblock, &errors);
     if (fr != OPENFS_FSCK_OK || errors != 0U) {
-        fprintf(stderr, "P3-A oracle: unexpected corruption after successful mount (result=%d errors=%llu)\n",
-                (int)fr, (unsigned long long)errors);
+        fprintf(stderr, "P3-A oracle: fsck result=%d errors=%llu classification=%s\n",
+                (int)fr, (unsigned long long)errors, reported_corrupt ? "explicit-corruption" : "unexpected-corruption");
         (void)openfs_unmount(&m);
-        return P3A_ORACLE_UNEXPECTED;
+        return reported_corrupt ? P3A_ORACLE_EXPLICIT_CORRUPTION : P3A_ORACLE_UNEXPECTED;
     }
     if (openfs_unmount(&m) != OPENFS_MOUNT_OK)
         return P3A_ORACLE_UNEXPECTED;
