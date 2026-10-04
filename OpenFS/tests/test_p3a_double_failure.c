@@ -287,7 +287,7 @@ static int create_rollback_write_failure(void)
      */
     d.fail_block = inode_block(&s, 2U);
     d.fail_enabled = 1;
-    d.skip_writes = 1U;
+    d.skip_writes = 2U;
     d.partial_once = 1;
     d.partial_bytes = 64U;
 
