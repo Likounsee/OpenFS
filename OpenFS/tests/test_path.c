@@ -70,7 +70,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
      assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-dst",&q)==OPENFS_PATH_OK&&q==a);
      assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-src",&q)==OPENFS_PATH_NOT_FOUND);
      assert(openfs_path_lookup(&v,&s,"/home/test/r-hard-alias",&q)==OPENFS_PATH_OK&&q==a);
-     assert(openfs_inode_read(&v,s.inode_table_start,a,ic,&hi)==OPENFS_INODE_OK&&hi.link_count==2U);}
+     assert(openfs_inode_read(&v,s.inode_table_start,a,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&hi)==OPENFS_INODE_OK&&hi.link_count==2U);}
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-src",&a)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/home/test/r-dir-dst",&b)==OPENFS_PATH_OK);
     assert(openfs_path_rename(&v,&s,"/home/test/r-dir-src","/home/test/r-dir-dst")==OPENFS_PATH_OK);
