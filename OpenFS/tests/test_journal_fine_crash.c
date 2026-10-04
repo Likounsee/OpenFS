@@ -326,7 +326,7 @@ static int replay_state_case(int kind, unsigned id) {
     openfs_superblock_t s; if(openfs_read_superblock(&v,&s)!=OPENFS_FORMAT_OK){close_disk(&d);return 0;}
     uint64_t target=s.data_start+12U;
     uint8_t payload[BS-32U]; memset(payload,0,sizeof(payload));
-    memcpy(payload,"OJBD1",5U); p64(payload+8U,target); p32(payload+16U,0U); p32(payload+20U,BS-32U);
+    memcpy(payload,"OJBD1",5U); p64(payload+8U,target); p32(payload+16U,0U); p32(payload+20U,BS-56U);
     memset(payload+24U,(uint8_t)(0x60U+kind),BS-32U-24U);
 
     int ok=1;
