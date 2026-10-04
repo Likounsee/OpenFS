@@ -149,17 +149,17 @@ static void name_and_path_boundaries(void){
     memset(path+used,'e',OPENFS_DIR_NAME_MAX-1U);
     used+=OPENFS_DIR_NAME_MAX-1U;
     path[used]='\0';
-    assert(strlen(path)==OPENFS_PATH_MAX-1U);
+    assert(used==OPENFS_PATH_MAX-1U);
     assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
 
     path[used++]='e';
     path[used]='\0';
-    assert(strlen(path)==OPENFS_PATH_MAX);
+    assert(used==OPENFS_PATH_MAX);
     assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_INVALID_ARGUMENT);
 
     path[used++]='e';
     path[used]='\0';
-    assert(strlen(path)==OPENFS_PATH_MAX+1U);
+    assert(used==OPENFS_PATH_MAX+1U);
     assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_INVALID_ARGUMENT);
 
     char p[OPENFS_DIR_NAME_MAX+4U]="/";
