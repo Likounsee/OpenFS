@@ -155,8 +155,8 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
 
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     int defer_checkpoint_flush = isj && iszero &&
-        (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH ||
-         d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C7_MULTI_CHECKPOINT);
+        (d->cut == C4_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C5_CHECKPOINT_FLUSH ||
+         d->cut == C6_AFTER_CHECKPOINT_FLUSH || d->cut == C7_MULTI_CHECKPOINT);
     if (!defer_checkpoint_flush && !flush_file(d)) return OPENFS_IO_IO_ERROR;
 
     if (d->armed && !isj && count == 1U) {
@@ -236,7 +236,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
     openfs_superblock_t s;
     if (openfs_read_superblock(&v, &s) != OPENFS_FORMAT_OK) return 3;
     d.js = s.journal_start; d.jb = s.journal_blocks;
-    d.cut = cut; d.armed = cut == C6_MULTI_CHECKPOINT ? 0 : 1;
+    d.cut = cut; d.armed = cut == C7_MULTI_CHECKPOINT ? 0 : 1;
 
     openfs_journal_t j;
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 4;
@@ -260,7 +260,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
         if (d.armed && cut == C6_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
-        if (multi && pass == 1 && cut == C6_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
+        if (multi && pass == 1 && cut == C7_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
         d.cut = cut;
         if (multi && pass == 0) d.armed = 0;
     }
@@ -512,7 +512,7 @@ int main(int argc,char **argv){
         if(!ok) fprintf(stderr,"checkpoint cut failed: %d\\n",c);
         assert(ok);
     }
-    { int ok = journal_crash_case(argv[0],C6_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
+    { int ok = journal_crash_case(argv[0],C7_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
     for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
     return 0;
 }
