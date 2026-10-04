@@ -47,7 +47,7 @@ static void patch_dir_entry(openfs_block_device_t*v,const openfs_superblock_t*s,
     assert(openfs_file_write(v,s,&d,off,raw,sizeof(raw))==OPENFS_FILE_OK);
 }
 static void patch_journal_record(openfs_block_device_t*v,const openfs_superblock_t*s,uint64_t slot,uint64_t tx,uint64_t seq,uint32_t len){
-    uint8_t raw[4096U];assert(v->read(v->context,s->journal_start+slot,1U,raw)==OPENFS_IO_OK);
+    uint8_t raw[4096U];memset(raw,0,sizeof(raw));memcpy(raw,OPENFS_JOURNAL_MAGIC,5U);raw[5U]=OPENFS_JOURNAL_DATA;
     for(unsigned k=0;k<8;k++)raw[8U+k]=(uint8_t)(tx>>(8U*k));for(unsigned k=0;k<8;k++)raw[16U+k]=(uint8_t)(seq>>(8U*k));for(unsigned k=0;k<4;k++)raw[24U+k]=(uint8_t)(len>>(8U*k));
     memset(raw+28U,0,4U);uint32_t c=openfs_crc32c(raw,4096U);for(unsigned k=0;k<4;k++)raw[28U+k]=(uint8_t)(c>>(8U*k));assert(v->write(v->context,s->journal_start+slot,1U,raw)==OPENFS_IO_OK);
 }
@@ -59,8 +59,8 @@ static int corrupt_case(unsigned kind){
     uint64_t ic=inode_count(&s),ino=0;assert(openfs_path_create(&v,&s,"/f",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint8_t one[4096U];memset(one,0x5A,sizeof(one));openfs_inode_t fi;assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&fi)==OPENFS_INODE_OK);assert(openfs_file_write(&v,&s,&fi,0U,one,sizeof(one))==OPENFS_FILE_OK);assert(openfs_inode_read(&v,s.inode_table_start,ino,ic,&fi)==OPENFS_INODE_OK);
     switch(kind){
-    case 0: patch_sb_u64(&v,&s,28U,d.bc+1U); break; /* block count */
-    case 1: patch_sb_u64(&v,&s,92U,0U); break; /* inode count geometry */
+    case 0: patch_sb_u64(&v,&s,28U,d.bc+1U); s.total_blocks=d.bc+1U; break; /* block count */
+    case 1: patch_sb_u64(&v,&s,92U,0U); s.inode_table_blocks=0U; break; /* inode count geometry */
     case 2: patch_inode_u64(&v,&s,ino,0U,0U); break; /* inode number 0 */
     case 3: patch_inode_u64(&v,&s,ino,0U,ic+1U); break; /* inode number out of range */
     case 4: patch_inode_u64(&v,&s,ino,8U,0U); break; /* generation zero */
@@ -73,8 +73,8 @@ static int corrupt_case(unsigned kind){
     case 11: patch_dir_entry(&v,&s,s.root_inode,0U,ic+1U,1U); break; /* inode reference */
     case 12: patch_dir_entry(&v,&s,s.root_inode,0U,ino,999U); break; /* generation reference */
     case 13: {uint64_t child=0;assert(openfs_path_mkdir(&v,&s,"/child",&child)==OPENFS_PATH_OK);patch_inode_u64(&v,&s,child,32U,999U);break;} /* parent */
-    case 14: patch_sb_u64(&v,&s,100U,d.bc); break; /* journal start out of range */
-    case 15: patch_sb_u64(&v,&s,108U,d.bc); break; /* journal length out of range */
+    case 14: patch_sb_u64(&v,&s,100U,d.bc); s.journal_start=d.bc; break; /* journal start out of range */
+    case 15: patch_sb_u64(&v,&s,108U,d.bc); s.journal_blocks=d.bc; break; /* journal length out of range */
     case 16: patch_journal_record(&v,&s,0U,1U,1U,(uint32_t)(v.block_size-OPENFS_JOURNAL_HEADER_SIZE+1U)); break; /* record too large */
     case 17: patch_journal_record(&v,&s,0U,0U,1U,0U); break; /* txid invalid */
     case 18: patch_journal_record(&v,&s,0U,1U,0U,0U); break; /* sequence invalid */
