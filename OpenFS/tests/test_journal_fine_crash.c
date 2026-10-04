@@ -31,12 +31,18 @@ typedef enum {
     J1_BEGIN_PARTIAL = 0,
     J2_DATA_PARTIAL,
     J3_BETWEEN_DATA,
-    J4_DATA_PARTIAL_OFFSETS,
+    J4_DATA_PARTIAL_HEADER,
+    J4_DATA_PARTIAL_CRC,
+    J4_DATA_PARTIAL_CRC_MID,
+    J4_DATA_PARTIAL_PAYLOAD,
+    J4_DATA_PARTIAL_MID,
+    J4_DATA_PARTIAL_END,
     J5_COMMIT_PARTIAL,
     C1_BEFORE_CLEAR,
     C2_CLEAR_MID,
     C3_AFTER_CLEAR_BEFORE_FLUSH,
     C4_CHECKPOINT_FLUSH,
+    C5_AFTER_CHECKPOINT_FLUSH,
     C6_MULTI_CHECKPOINT
 } cut_t;
 
@@ -104,9 +110,16 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
             if (fwrite(raw, 1U, prefix, d->f) != prefix || !flush_file(d)) return OPENFS_IO_IO_ERROR;
             crash_now();
         }
-        if ((d->cut == J2_DATA_PARTIAL || d->cut == J4_DATA_PARTIAL_OFFSETS) &&
+        if ((d->cut == J2_DATA_PARTIAL ||
+             (d->cut >= J4_DATA_PARTIAL_HEADER && d->cut <= J4_DATA_PARTIAL_END)) &&
             type == OPENFS_JOURNAL_DATA && d->journal_data_writes == 0U) {
-            size_t prefix = d->cut == J2_DATA_PARTIAL ? 32U : 2048U;
+            size_t prefix = 32U;
+            if (d->cut == J4_DATA_PARTIAL_HEADER) prefix = 8U;
+            else if (d->cut == J4_DATA_PARTIAL_CRC) prefix = 28U;
+            else if (d->cut == J4_DATA_PARTIAL_CRC_MID) prefix = 30U;
+            else if (d->cut == J4_DATA_PARTIAL_PAYLOAD) prefix = 64U;
+            else if (d->cut == J4_DATA_PARTIAL_MID) prefix = 2048U;
+            else if (d->cut == J4_DATA_PARTIAL_END) prefix = 4091U;
             if (fwrite(raw, 1U, prefix, d->f) != prefix || !flush_file(d)) return OPENFS_IO_IO_ERROR;
             crash_now();
         }
@@ -212,6 +225,8 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
             return 7;
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
+        if (d.armed && cut == C5_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
+        if (multi && pass == 1 && cut == C6_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
         d.cut = cut;
         if (multi && pass == 0) d.armed = 0;
     }
@@ -398,8 +413,17 @@ int main(int argc,char **argv){
     }
     if(argc!=1)return 1;
     unsigned id=0U;
-    for(int c=J1_BEGIN_PARTIAL;c<=J5_COMMIT_PARTIAL;c++) { int ok=journal_crash_case(argv[0],(cut_t)c,0,id++); if(!ok) fprintf(stderr,"journal cut failed: %d\\n",c); assert(ok); }
-    for(int c=C1_BEFORE_CLEAR;c<=C4_CHECKPOINT_FLUSH;c++) {
+    const cut_t journal_cuts[] = {
+        J1_BEGIN_PARTIAL, J2_DATA_PARTIAL, J3_BETWEEN_DATA,
+        J4_DATA_PARTIAL_HEADER, J4_DATA_PARTIAL_CRC, J4_DATA_PARTIAL_CRC_MID,
+        J4_DATA_PARTIAL_PAYLOAD, J4_DATA_PARTIAL_MID, J4_DATA_PARTIAL_END,
+        J5_COMMIT_PARTIAL
+    };
+    for(size_t i=0U;i<sizeof(journal_cuts)/sizeof(journal_cuts[0]);++i) {
+        cut_t c=journal_cuts[i]; int ok=journal_crash_case(argv[0],c,0,id++);
+        if(!ok) fprintf(stderr,"journal cut failed: %d\\n",(int)c); assert(ok);
+    }
+    for(int c=C1_BEFORE_CLEAR;c<=C5_AFTER_CHECKPOINT_FLUSH;c++) {
         int ok = journal_crash_case(argv[0],(cut_t)c,0,id++);
         if(!ok) fprintf(stderr,"checkpoint cut failed: %d\\n",c);
         assert(ok);
