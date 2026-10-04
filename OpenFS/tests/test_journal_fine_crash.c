@@ -186,7 +186,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
     openfs_superblock_t s;
     if (openfs_read_superblock(&v, &s) != OPENFS_FORMAT_OK) return 3;
     d.js = s.journal_start; d.jb = s.journal_blocks;
-    d.cut = cut; d.armed = 1;
+    d.cut = cut; d.armed = cut == C6_MULTI_CHECKPOINT ? 0 : 1;
 
     openfs_journal_t j;
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 4;
