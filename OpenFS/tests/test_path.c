@@ -397,7 +397,20 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
     assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-committed","/home/test/tx-rename-commit-fail")==OPENFS_PATH_OK);
     openfs_inode_t tx_parent_inode;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tx_parent_inode)==OPENFS_INODE_OK);
-    uint64_t tx_parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&tx_parent_inode,0U,&tx_parent_block)==OPENFS_FILE_OK);
+    openfs_block_device_t *txdev=openfs_transaction_device(&tx);assert(txdev!=NULL);
+    uint64_t tx_parent_block=0U;int tx_parent_block_found=0;
+    for(uint64_t logical=0U;logical<tx_parent_inode.blocks&&!tx_parent_block_found;logical++){
+        assert(openfs_file_map_block_device(&v,&s,&tx_parent_inode,logical,&tx_parent_block)==OPENFS_FILE_OK);
+        uint8_t *block=malloc(s.block_size);assert(block!=NULL);
+        assert(txdev->read(txdev->context,tx_parent_block,1U,block)==OPENFS_IO_OK);
+        uint64_t entries=s.block_size/OPENFS_DIR_ENTRY_SIZE;
+        for(uint64_t slot=0U;slot<entries;slot++){
+            const uint8_t *raw=block+(size_t)(slot*OPENFS_DIR_ENTRY_SIZE);
+            if(memcmp(raw,"ODIR1",5U)==0&&raw[7U]==20U&&memcmp(raw+24U,"tx-rename-commit-fail",20U)==0){tx_parent_block_found=1;break;}
+        }
+        free(block);
+    }
+    assert(tx_parent_block_found);
     d.fail_write_block=tx_parent_block;d.fail_write_enabled=1;d.fail_write_count=1;
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
     d.fail_write_enabled=0;
