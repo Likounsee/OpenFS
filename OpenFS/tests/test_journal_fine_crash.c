@@ -380,9 +380,13 @@ static int replay_state_case(int kind, unsigned id) {
         else { uint8_t z[BS]={0}; memset(z,0x63U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         if (!ok) fprintf(stderr,"replay kind=%d block=%02x expected=%02x\\n",kind,b[0],kind==0?0x11:kind==1?0x61:kind==2?0x72:0x63);
         uint64_t e=0U; if(openfs_fsck(&v,&m.superblock,&e)!=OPENFS_FSCK_OK||e!=0U){ fprintf(stderr,"replay kind=%d fsck=%llu\\n",kind,(unsigned long long)e); ok=0; }
-        if(openfs_unmount(&m)!=OPENFS_MOUNT_OK)ok=0;
-        openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK)ok=0;
-        if(ok){e=0U;if(openfs_fsck(&v,&m2.superblock,&e)!=OPENFS_FSCK_OK||e!=0U)ok=0;if(openfs_unmount(&m2)!=OPENFS_MOUNT_OK)ok=0;}
+        if(openfs_unmount(&m)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d unmount failed\\n",kind); ok=0; }
+        openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second mount failed\\n",kind); ok=0; }
+        if(ok){
+            e=0U;
+            if(openfs_fsck(&v,&m2.superblock,&e)!=OPENFS_FSCK_OK||e!=0U){ fprintf(stderr,"replay kind=%d second fsck=%llu\\n",kind,(unsigned long long)e); ok=0; }
+            if(openfs_unmount(&m2)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second unmount failed\\n",kind); ok=0; }
+        }
     }
     close_disk(&d); remove(path); return ok;
 }
