@@ -216,8 +216,8 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     size_t bitmap_bytes=(size_t)(s.block_bitmap_blocks*s.block_size);
     uint8_t *bitmap_before=malloc(bitmap_bytes);uint8_t *bitmap_after=malloc(bitmap_bytes);assert(bitmap_before&&bitmap_after);
     memcpy(bitmap_before,d.b+(size_t)(s.block_bitmap_start*s.block_size),bitmap_bytes);
-    uint64_t source_block=s.inode_table_start+((rename_source-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    d.fail_write_block=source_block;d.fail_write_enabled=1;d.fail_write_count=1;
+    uint64_t full_dir_block=0U;assert(openfs_file_map_block_device(&v,&s,&full_before,0U,&full_dir_block)==OPENFS_FILE_OK);
+    d.fail_write_block=full_dir_block;d.fail_write_enabled=1;d.fail_write_count=1;
     assert(openfs_path_rename(&v,&s,"/home/test/rename-source","/home/test/full-rename-dir/moved")==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
     openfs_inode_t full_after;
