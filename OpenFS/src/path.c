@@ -120,7 +120,7 @@ if(target.link_count==1U&&original_root!=0U){
     root_backup=malloc(d->block_size);
     if(root_backup==NULL||d->read(d->context,original_root,1U,root_backup)!=OPENFS_IO_OK){free(root_backup);return OPENFS_PATH_IO_ERROR;}
 }
-openfs_dir_result_t rr=openfs_dir_remove(d,s,&pi,name);if(rr!=OPENFS_DIR_OK){free(root_backup);return map_dir_result(rr);}
+openfs_dir_result_t rr=openfs_dir_remove(d,s,&pi,name);if(rr!=OPENFS_DIR_OK){free(parent_inode_backup);free(root_backup);return map_dir_result(rr);}
 if(target.link_count==1U){
     openfs_file_result_t truncate_result=openfs_file_truncate(d,s,&target,0U);
     if(truncate_result!=OPENFS_FILE_OK){
@@ -128,7 +128,8 @@ if(target.link_count==1U){
         if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
         if(openfs_inode_write(d,s->inode_table_start,c,&pi)!=OPENFS_INODE_OK)rollback_ok=0;
         if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-        free(root_backup);
+        if(d->write(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK)rollback_ok=0;if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+        free(parent_inode_backup);free(root_backup);
         return rollback_ok?map_file_result(truncate_result):OPENFS_PATH_CORRUPT;
     }
     target.mode=OPENFS_INODE_MODE_FREE;target.link_count=0U;target.parent_inode=0U;target.flags=0U;target.extent_count=0U;
@@ -167,10 +168,11 @@ if(d->flush(d->context)!=OPENFS_IO_OK){
     if(openfs_dir_add(d,s,&pi,name,&e)!=OPENFS_DIR_OK)rollback_ok=0;
     if(!restore_directory_state(d,s,&pi,&original_pi,c))rollback_ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-    free(root_backup);
+    if(d->write(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK)rollback_ok=0;if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+    free(parent_inode_backup);free(root_backup);
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
-free(root_backup);return OPENFS_PATH_OK;}
+free(parent_inode_backup);free(root_backup);return OPENFS_PATH_OK;}
 typedef struct {
     uint64_t block;
     uint8_t *data;
