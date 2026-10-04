@@ -390,6 +390,15 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
     assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-src","/home/test/tx-rename-dst")==OPENFS_PATH_OK);
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
+    assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
+    assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-dst","/home/test/tx-rename-commit-fail")==OPENFS_PATH_OK);
+    uint64_t tx_source_inode_block=s.inode_table_start+((tx_src-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    d.fail_write_block=tx_source_inode_block;d.fail_write_enabled=1;d.fail_write_count=1;
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
+    d.fail_write_enabled=0;
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
+    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-commit-fail",&q)==OPENFS_PATH_OK&&q==tx_src);uint64_t errors=0U;assert(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_src);
     {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_src);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
