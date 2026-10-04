@@ -194,7 +194,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
         assert(openfs_file_read(&v,&s,&restored,0U,readback,sizeof(readback),&got)==OPENFS_FILE_OK&&got==sizeof(readback)&&memcmp(readback,unlink_payload,sizeof(readback))==0);
     }
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
-    {openfs_inode_t unlink_fail_parent_after;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_after)==OPENFS_INODE_OK);fprintf(stderr,"UNLINKDBG parent_block=%llu target_ino=%llu target_block=%llu before=%llu/%llu after=%llu/%llu\\n",(unsigned long long)unlink_parent_block,(unsigned long long)unlink_fail_ino,(unsigned long long)(s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size),(unsigned long long)unlink_fail_parent_before.mtime_ns,(unsigned long long)unlink_fail_parent_before.ctime_ns,(unsigned long long)unlink_fail_parent_after.mtime_ns,(unsigned long long)unlink_fail_parent_after.ctime_ns);assert(unlink_fail_parent_after.mtime_ns==unlink_fail_parent_before.mtime_ns&&unlink_fail_parent_after.ctime_ns==unlink_fail_parent_before.ctime_ns);}
+    {openfs_inode_t unlink_fail_parent_after;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_after)==OPENFS_INODE_OK);assert(unlink_fail_parent_after.mtime_ns==unlink_fail_parent_before.mtime_ns&&unlink_fail_parent_after.ctime_ns==unlink_fail_parent_before.ctime_ns);}
 }
 {
     {
@@ -225,12 +225,20 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     {
         openfs_inode_t partial_parent;
         assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&partial_parent)==OPENFS_INODE_OK);
-        uint64_t partial_block=0U;
-        assert(openfs_file_map_block_device(&v,&s,&partial_parent,0U,&partial_block)==OPENFS_FILE_OK);
-        uint8_t *before=malloc(s.block_size);uint8_t *after=malloc(s.block_size);assert(before&&after);
-        assert(v.read(v.context,partial_block,1U,before)==OPENFS_IO_OK);
         uint64_t partial_ino=0U;
         assert(openfs_path_create(&v,&s,"/home/test/partial-unlink",OPENFS_INODE_MODE_REGULAR,&partial_ino)==OPENFS_PATH_OK);
+        assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&partial_parent)==OPENFS_INODE_OK);
+        uint64_t partial_block=0U;int partial_found=0;
+        uint8_t *scan_block=malloc(s.block_size);assert(scan_block);
+        for(uint64_t logical=0U;logical<partial_parent.blocks&&!partial_found;logical++){
+            uint64_t physical=0U;assert(openfs_file_map_block_device(&v,&s,&partial_parent,logical,&physical)==OPENFS_FILE_OK);
+            assert(v.read(v.context,physical,1U,scan_block)==OPENFS_IO_OK);
+            for(uint32_t off=0U;off+OPENFS_DIR_ENTRY_SIZE<=s.block_size;off+=OPENFS_DIR_ENTRY_SIZE){
+                if(memcmp(scan_block+off,"ODIR1",5U)==0&&scan_block[7U]==14U&&memcmp(scan_block+24U,"partial-unlink",14U)==0){partial_block=physical;partial_found=1;break;}
+            }
+        }
+        free(scan_block);assert(partial_found);
+        uint8_t *before=malloc(s.block_size);uint8_t *after=malloc(s.block_size);assert(before&&after);
         assert(v.read(v.context,partial_block,1U,before)==OPENFS_IO_OK);
         d.partial_write_block=partial_block;d.partial_write_bytes=17U;d.partial_write_once=1;
         assert(openfs_path_unlink(&v,&s,"/home/test/partial-unlink")==OPENFS_PATH_IO_ERROR);
