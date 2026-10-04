@@ -219,7 +219,7 @@ static void inode_generation_boundary(void){
 }
 
 static void extent_boundary(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s,256U);
+    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s,1024U);
     assert(openfs_extent_tree_capacity(4096U)==169U);
     assert(openfs_extent_tree_capacity(4096U-1U)==169U);
 
