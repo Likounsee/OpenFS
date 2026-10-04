@@ -6,6 +6,15 @@ work across operating systems through small OS-specific adapters.
 ArchiaOS is a planned integration, but the filesystem core itself does not
 depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
+## Development roadmap
+
+- **P0 — Foundations / Correctness:** CLOSED
+- **P1 — Transactions / Journal / Recovery:** CLOSED
+- **P2 — Crash-Cut Hardening:** CLOSED
+- **P3-A — Error Path / Double Failure:** CLOSED
+- **P3-B — Boundary Matrix:** IN PROGRESS
+- **P3-C — Final Release Validation:** PLANNED — final validation before release.
+
 ## Where we are
 
 OpenFS has a substantial filesystem core implemented and is currently in the **final robustness, crash-consistency, and integration phase**. The
@@ -18,7 +27,7 @@ This is an engineering estimate, not a release-readiness metric.
 ### Implemented
 
 - portable block-device API;
-- versioned v1.2 on-disk format;
+- versioned v1.3 on-disk format;
 - primary and backup superblocks;
 - root-directory default traversal permissions (0755);
 - CRC32C checks for metadata;
@@ -27,7 +36,7 @@ This is an engineering estimate, not a release-readiness metric.
 - first-fit data block allocation/freeing;
 - inode allocation/freeing with generation reuse protection;
 - checksummed inodes;
-- persistent five-extent inode storage in the v1.2 format;
+- persistent five-extent inode storage in the v1.3 format;
 - versioned v1.3 depth-0 extent-tree leaves with checksummed overflow extents and files beyond five extents;
 - extent-backed file read/write/truncate;
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
