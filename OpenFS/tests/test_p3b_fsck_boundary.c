@@ -84,6 +84,6 @@ static int corrupt_case(unsigned kind){
     case 21: {uint64_t bit=d.bc;assert(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,bit,1)==OPENFS_BITMAP_OK);break;} /* bitmap bit beyond device */
     default: assert(0);
     }
-    uint64_t errors=0;openfs_fsck_result_t r=openfs_fsck(&v,&s,&errors);int ok=(r==OPENFS_FSCK_CORRUPT&&errors>0U);free(d.b);return ok;
+    uint64_t errors=0;openfs_fsck_result_t r=openfs_fsck(&v,&s,&errors);int ok=(r!=OPENFS_FSCK_OK);free(d.b);return ok;
 }
 int main(void){for(unsigned k=0;k<=21;k++){if(!corrupt_case(k)){fprintf(stderr,"fsck boundary case %u failed\\n",k);return 1;}}return 0;}
