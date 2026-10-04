@@ -406,7 +406,7 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
         uint64_t entries=s.block_size/OPENFS_DIR_ENTRY_SIZE;
         for(uint64_t slot=0U;slot<entries;slot++){
             const uint8_t *raw=block+(size_t)(slot*OPENFS_DIR_ENTRY_SIZE);
-            if(memcmp(raw,"ODIR1",5U)==0&&raw[7U]==20U&&memcmp(raw+24U,"tx-rename-commit-fail",20U)==0){tx_parent_block_found=1;break;}
+            if(memcmp(raw,"ODIR1",5U)==0&&raw[7U]==21U&&memcmp(raw+24U,"tx-rename-commit-fail",21U)==0){tx_parent_block_found=1;break;}
         }
         free(block);
     }
