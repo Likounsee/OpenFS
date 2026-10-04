@@ -235,7 +235,8 @@ static int verify_recovery(crash_cut_t cut, const char *path)
     openfs_block_device_t v = make_device(&d);
 
     openfs_mount_t m;
-    if (openfs_mount(&m, &v) != OPENFS_MOUNT_OK) {
+    openfs_mount_result_t mount_result = openfs_mount(&m, &v);
+    if (mount_result != OPENFS_MOUNT_OK) {
         close_disk(&d);
         return 0;
     }
@@ -273,8 +274,10 @@ static int verify_recovery(crash_cut_t cut, const char *path)
         }
     }
 
+    int ok = mutation_present == expected_present && fsck_ok && journal_clean && stable_remount;
+    fprintf(stderr, "crash-cut %d: mount=%d mutation=%d expected=%d fsck=%d journal=%d remount=%d\\n", (int)cut, (int)mount_result, mutation_present, expected_present, fsck_ok, journal_clean, stable_remount);
     close_disk(&d);
-    return mutation_present == expected_present && fsck_ok && journal_clean && stable_remount;
+    return ok;
 }
 
 static int crash_cut_test(crash_cut_t cut, const char *self)
