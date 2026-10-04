@@ -217,10 +217,8 @@ static int run_worker(const char *self, crash_cut_t cut, const char *path)
     pid_t pid = fork();
     if (pid < 0) return 0;
     if (pid == 0) {
-        char cut_arg[16];
-        snprintf(cut_arg, sizeof(cut_arg), "%d", (int)cut);
-        execl(self, self, "worker", cut_arg, path, (char *)NULL);
-        _exit(127);
+        int result = worker(cut, path);
+        _exit(result);
     }
     int status = 0;
     if (waitpid(pid, &status, 0) != pid) return 0;
@@ -231,7 +229,7 @@ static int run_worker(const char *self, crash_cut_t cut, const char *path)
 static int verify_recovery(crash_cut_t cut, const char *path)
 {
     crash_disk_t d;
-    if (!open_disk(&d, path, "r+b")) return 0;
+    if (!open_disk(&d, path, "r+b")) { fprintf(stderr, "crash-cut %d: cannot reopen image\\n", (int)cut); return 0; }
     openfs_block_device_t v = make_device(&d);
 
     openfs_mount_t m;
@@ -292,6 +290,7 @@ static int crash_cut_test(crash_cut_t cut, const char *self)
         return 0;
 
     int crashed = run_worker(self, cut, path);
+    if (!crashed) fprintf(stderr, "crash-cut %d: child did not terminate at cut\\n", (int)cut);
     int recovered = crashed && verify_recovery(cut, path);
     (void)remove(path);
     return recovered;
