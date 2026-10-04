@@ -194,7 +194,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
         assert(openfs_file_read(&v,&s,&restored,0U,readback,sizeof(readback),&got)==OPENFS_FILE_OK&&got==sizeof(readback)&&memcmp(readback,unlink_payload,sizeof(readback))==0);
     }
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
-    {openfs_inode_t unlink_fail_parent_after;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_after)==OPENFS_INODE_OK);assert(unlink_fail_parent_after.mtime_ns==unlink_fail_parent_before.mtime_ns&&unlink_fail_parent_after.ctime_ns==unlink_fail_parent_before.ctime_ns);}
+    {openfs_inode_t unlink_fail_parent_after;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&unlink_fail_parent_after)==OPENFS_INODE_OK);fprintf(stderr,"UNLINKDBG parent_block=%llu target_ino=%llu target_block=%llu before=%llu/%llu after=%llu/%llu\\n",(unsigned long long)unlink_parent_block,(unsigned long long)unlink_fail_ino,(unsigned long long)(s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size),(unsigned long long)unlink_fail_parent_before.mtime_ns,(unsigned long long)unlink_fail_parent_before.ctime_ns,(unsigned long long)unlink_fail_parent_after.mtime_ns,(unsigned long long)unlink_fail_parent_after.ctime_ns);assert(unlink_fail_parent_after.mtime_ns==unlink_fail_parent_before.mtime_ns&&unlink_fail_parent_after.ctime_ns==unlink_fail_parent_before.ctime_ns);}
 }
 {
     {
