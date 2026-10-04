@@ -175,6 +175,7 @@ if(split_last(oldp,op,sizeof(op),on,sizeof(on))!=OPENFS_PATH_OK||split_last(newp
 uint64_t oldparent=0U,newparent=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,op,&oldparent);if(lr!=OPENFS_PATH_OK)return lr;
 lr=openfs_path_lookup_follow(d,s,np,&newparent);if(lr!=OPENFS_PATH_OK)return lr;
 if(oldparent==0U||newparent==0U)return OPENFS_PATH_CORRUPT;
+if(oldparent==newparent&&strcmp(on,nn)==0)return OPENFS_PATH_OK;
 openfs_inode_t odir,ndir;openfs_path_result_t odir_result=read_inode(d,s,oldparent,&odir);if(odir_result!=OPENFS_PATH_OK)return odir_result;
 openfs_path_result_t ndir_result=read_inode(d,s,newparent,&ndir);if(ndir_result!=OPENFS_PATH_OK)return ndir_result;
 if((odir.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY||(ndir.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
