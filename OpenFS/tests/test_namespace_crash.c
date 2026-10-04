@@ -598,6 +598,7 @@ static int test_case(const char *self, const scenario_t *scenario,
     char reference[512];
     char crashed[512];
     snapshot_entry_t expected[SNAP_PATHS];
+    snapshot_entry_t initial[SNAP_PATHS];
     int ok = 0;
 
     if (snprintf(base, sizeof(base), "openfs-ns-%u-base.img", serial) < 0 ||
@@ -609,6 +610,24 @@ static int test_case(const char *self, const scenario_t *scenario,
         fprintf(stderr, "namespace stage prepare failed: %s cut=%d\\n", scenario->name, (int)cut);
         goto cleanup;
     }
+    {
+        crash_disk_t base_disk;
+        openfs_block_device_t base_device;
+        openfs_superblock_t base_superblock;
+        if (!open_disk(&base_disk, base, "r+b")) {
+            fprintf(stderr, "namespace stage base reopen failed: %s cut=%d\\n", scenario->name, (int)cut);
+            goto cleanup;
+        }
+        base_device = make_device(&base_disk);
+        if (openfs_read_superblock(&base_device, &base_superblock) != OPENFS_FORMAT_OK ||
+            !snapshot_paths(&base_device, &base_superblock, scenario, initial)) {
+            close_disk(&base_disk);
+            fprintf(stderr, "namespace stage initial snapshot failed: %s cut=%d\\n", scenario->name, (int)cut);
+            goto cleanup;
+        }
+        close_disk(&base_disk);
+    }
+
     if (!copy_file(base, reference) || !copy_file(base, crashed)) {
         fprintf(stderr, "namespace stage copy failed: %s cut=%d\\n", scenario->name, (int)cut);
         goto cleanup;
@@ -628,6 +647,7 @@ static int test_case(const char *self, const scenario_t *scenario,
         goto cleanup;
     }
 
+    if (cut == CUT_N1) memcpy(expected, initial, sizeof(expected));
     ok = verify_image(crashed, scenario, expected);
     if (!ok) fprintf(stderr, "namespace stage recovery oracle failed: %s cut=%d\\n", scenario->name, (int)cut);
 
