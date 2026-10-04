@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,4 +86,4 @@ static int corrupt_case(unsigned kind){
     }
     uint64_t errors=0;openfs_fsck_result_t r=openfs_fsck(&v,&s,&errors);int ok=(r==OPENFS_FSCK_CORRUPT&&errors>0U);free(d.b);return ok;
 }
-int main(void){for(unsigned k=0;k<=21;k++)assert(corrupt_case(k));return 0;}
+int main(void){for(unsigned k=0;k<=21;k++){if(!corrupt_case(k)){fprintf(stderr,"fsck boundary case %u failed\\n",k);return 1;}}return 0;}
