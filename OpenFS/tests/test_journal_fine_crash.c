@@ -85,9 +85,9 @@ static openfs_io_result_t rd(void *ctx, uint64_t first, uint32_t count, void *ou
         (uint64_t)count > d->blocks - first || !seek_block(d, first))
         return OPENFS_IO_OUT_OF_RANGE;
     size_t n = (size_t)((uint64_t)count * BS);
-    if (d->armed && d->cut == C1_BEFORE_CLEAR && count == 1U && journal_block(d, first) &&
-        d->journal_reads == 1U) {
-        crash_now();
+    if (d->armed && d->cut == C1_BEFORE_CLEAR && count == 1U && journal_block(d, first)) {
+        fprintf(stderr, "verify C1 journal-read: block=%llu count=%u reads=%u\\n", (unsigned long long)first, (unsigned)count, d->journal_reads);
+        if (d->journal_reads == 1U) crash_now();
     }
     if (fread(out, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     if (d->armed && d->cut == C2_SNAPSHOT_MID && count == 1U && journal_block(d, first)) {
