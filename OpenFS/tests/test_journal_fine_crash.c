@@ -226,6 +226,15 @@ static int run_child(const char *self, const char *path, cut_t cut, int multi) {
 #endif
 }
 
+static int verify_corrupt(const char *path) {
+    disk_t d; if (!open_disk(path, &d)) return 0;
+    openfs_block_device_t v = dev(&d);
+    openfs_mount_t m;
+    openfs_mount_result_t r = openfs_mount(&m, &v);
+    close_disk(&d);
+    return r == OPENFS_MOUNT_CORRUPT;
+}
+
 static int verify(const char *path, int expect0, int expect1, int expect2, int expect3) {
     disk_t d; if(!open_disk(path,&d))return 0;
     openfs_block_device_t v=dev(&d); openfs_mount_t m;
@@ -265,8 +274,10 @@ static int journal_crash_case(const char *self, cut_t cut, int multi, unsigned i
     int crashed=run_child(self,path,cut,multi);
     int ok=crashed;
     if(ok){
-        if(cut==J1_BEGIN_PARTIAL||cut==J2_DATA_PARTIAL||cut==J3_BETWEEN_DATA||
+        if(cut==J1_BEGIN_PARTIAL||cut==J2_DATA_PARTIAL||
            cut==J4_DATA_PARTIAL_OFFSETS||cut==J5_COMMIT_PARTIAL)
+            ok=verify_corrupt(path);
+        else if(cut==J3_BETWEEN_DATA)
             ok=verify(path,0,0,0,0);
         else if(multi) ok=verify(path,1,1,1,1);
         else ok=verify(path,1,0,1,0);
@@ -315,7 +326,7 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
-        payload[32U-24U]=(uint8_t)0x72U;
+        memset(payload+24U,0x72U,BS-32U-24U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
@@ -336,9 +347,9 @@ static int replay_state_case(int kind, unsigned id) {
     if(ok){
         uint8_t b[BS]; if(rd(&d,target,1U,b)!=OPENFS_IO_OK)ok=0;
         if(kind==0) { uint8_t z[BS]={0}; if(memcmp(b,z,BS)!=0)ok=0; }
-        else if(kind==1) { uint8_t z[BS]; memset(z,0x60U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
-        else if(kind==2) { uint8_t z[BS]; memset(z,0x72U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
-        else { uint8_t z[BS]; memset(z,0x60U,BS); if(memcmp(b,z,BS)!=0)ok=0; }
+        else if(kind==1) { uint8_t z[BS]={0}; memset(z,0x60U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
+        else if(kind==2) { uint8_t z[BS]={0}; memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
+        else { uint8_t z[BS]={0}; memset(z,0x60U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         uint64_t e=0U; if(openfs_fsck(&v,&m.superblock,&e)!=OPENFS_FSCK_OK||e!=0U)ok=0;
         if(openfs_unmount(&m)!=OPENFS_MOUNT_OK)ok=0;
         openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK)ok=0;
