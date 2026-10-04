@@ -169,10 +169,10 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(after_link_parent.mtime_ns==before_link_parent.mtime_ns&&after_link_parent.ctime_ns==before_link_parent.ctime_ns);{
     uint64_t unlink_fail_ino=0U;
     uint64_t unlink_parent_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    unsigned unlink_filler=0U;
+    unsigned unlink_filler=0U;char unlink_path[64];
     for(;;){
-        char unlink_name[64];(void)snprintf(unlink_name,sizeof(unlink_name),"/home/test/unlink-fail-%u",unlink_filler++);
-        assert(openfs_path_create(&v,&s,unlink_name,OPENFS_INODE_MODE_REGULAR,&unlink_fail_ino)==OPENFS_PATH_OK);
+        (void)snprintf(unlink_path,sizeof(unlink_path),"/home/test/unlink-fail-%u",unlink_filler++);
+        assert(openfs_path_create(&v,&s,unlink_path,OPENFS_INODE_MODE_REGULAR,&unlink_fail_ino)==OPENFS_PATH_OK);
         uint64_t unlink_target_block=s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
         if(unlink_target_block!=unlink_parent_block)break;
     }
@@ -183,9 +183,9 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_file_write(&v,&s,&unlink_fail_inode,0U,unlink_payload,sizeof(unlink_payload))==OPENFS_FILE_OK);
     uint64_t target_block=s.inode_table_start+((unlink_fail_ino-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     d.fail_write_block=target_block; d.fail_write_enabled=1; d.fail_write_count=1;
-    assert(openfs_path_unlink(&v,&s,"/home/test/unlink-fail-0")==OPENFS_PATH_IO_ERROR);
+    assert(openfs_path_unlink(&v,&s,unlink_path)==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
-    assert(openfs_path_lookup(&v,&s,"/home/test/unlink-fail-0",&q)==OPENFS_PATH_OK&&q==unlink_fail_ino);
+    assert(openfs_path_lookup(&v,&s,unlink_path,&q)==OPENFS_PATH_OK&&q==unlink_fail_ino);
     {openfs_inode_t restored;uint8_t readback[4096];size_t got=0U;
         assert(openfs_inode_read(&v,s.inode_table_start,unlink_fail_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&restored)==OPENFS_INODE_OK);
         assert(restored.size==sizeof(unlink_payload)&&restored.blocks==1U);
