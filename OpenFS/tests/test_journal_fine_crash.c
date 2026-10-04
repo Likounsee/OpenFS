@@ -56,6 +56,10 @@ typedef struct {
     unsigned zero_writes;
     unsigned journal_reads;
     unsigned flushes;
+    unsigned checkpoint_target_flushes;
+    unsigned checkpoint_reads;
+    unsigned checkpoint_zero_writes;
+    int checkpoint_ready;
     int armed;
 } disk_t;
 
@@ -85,17 +89,13 @@ static openfs_io_result_t rd(void *ctx, uint64_t first, uint32_t count, void *ou
         (uint64_t)count > d->blocks - first || !seek_block(d, first))
         return OPENFS_IO_OUT_OF_RANGE;
     size_t n = (size_t)((uint64_t)count * BS);
-    if (d->armed && d->cut == C1_BEFORE_CLEAR && count == 1U && journal_block(d, first)) {
-        fprintf(stderr, "verify C1 journal-read: block=%llu count=%u reads=%u\\n", (unsigned long long)first, (unsigned)count, d->journal_reads);
-        if (d->journal_reads == 1U) crash_now();
+    if (d->armed && d->checkpoint_ready && count == 1U && journal_block(d, first)) {
+        if (d->cut == C1_BEFORE_CLEAR && d->checkpoint_reads == 0U) crash_now();
+        d->checkpoint_reads++;
+        if (d->cut == C2_SNAPSHOT_MID && d->checkpoint_reads == 4U) crash_now();
     }
     if (fread(out, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
-    if (d->armed && d->cut == C2_SNAPSHOT_MID && count == 1U && journal_block(d, first)) {
-        d->journal_reads++;
-        if (d->journal_reads == 4U) crash_now();
-    } else if (count == 1U && journal_block(d, first)) {
-        d->journal_reads++;
-    }
+    if (count == 1U && journal_block(d, first)) d->journal_reads++;
     return OPENFS_IO_OK;
 }
 
@@ -151,15 +151,16 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
         crash_now();
     }
 
-    if (d->armed && d->cut == C1_BEFORE_CLEAR && !isj && count == 1U) fprintf(stderr, "verify C1 data-write: block=%llu byte0=%02x\\n", (unsigned long long)first, raw[0]);
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     int defer_checkpoint_flush = isj && iszero &&
-        (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH);
+        (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH ||
+         d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C6_MULTI_CHECKPOINT);
     if (!defer_checkpoint_flush && !flush_file(d)) return OPENFS_IO_IO_ERROR;
 
-    if (d->armed && count == 1U && isj && iszero) {
+    if (d->armed && count == 1U && isj && iszero && d->checkpoint_ready) {
         d->zero_writes++;
-        if (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH && d->zero_writes == d->jb) crash_now();
+        d->checkpoint_zero_writes++;
+        if (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH && d->checkpoint_zero_writes == d->jb) crash_now();
     }
     return OPENFS_IO_OK;
 }
@@ -167,10 +168,17 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
 static openfs_io_result_t fl(void *ctx) {
     disk_t *d = ctx;
     if (!d) return OPENFS_IO_INVALID_ARGUMENT;
-    if (d->armed && ((d->cut == C4_CHECKPOINT_FLUSH && d->flushes == 2U))) crash_now();
+    if (d->armed && d->checkpoint_ready && d->checkpoint_zero_writes == d->jb &&
+        d->cut == C4_CHECKPOINT_FLUSH) crash_now();
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
     d->flushes++;
-    if (d->armed && d->cut == C6_MULTI_CHECKPOINT && d->flushes == 6U) crash_now();
+    if (d->checkpoint_target_flushes != 0U && d->flushes == d->checkpoint_target_flushes) {
+        d->checkpoint_ready = 1;
+        d->checkpoint_reads = 0U;
+        d->checkpoint_zero_writes = 0U;
+    }
+    if (d->armed && d->checkpoint_ready && d->checkpoint_zero_writes == d->jb &&
+        (d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C6_MULTI_CHECKPOINT)) crash_now();
     return OPENFS_IO_OK;
 }
 
@@ -226,6 +234,10 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 4;
     for (int pass = 0; pass < (multi ? 2 : 1); ++pass) {
         if (multi && pass == 1) d.armed = 1;
+        d.checkpoint_target_flushes = d.flushes + 10U;
+        d.checkpoint_ready = 0;
+        d.checkpoint_reads = 0U;
+        d.checkpoint_zero_writes = 0U;
         openfs_transaction_t t;
         if (openfs_transaction_begin(&t, &v, &j) != OPENFS_TRANSACTION_OK) return 5;
         openfs_block_device_t *td = openfs_transaction_device(&t);
@@ -238,7 +250,6 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
             return 7;
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
-        if (!multi && cut == C1_BEFORE_CLEAR) { uint8_t dbg[BS], jdbg[BS]; if (rd(&d, s.data_start + 8U, 1U, dbg) == OPENFS_IO_OK && rd(&d, s.journal_start, 1U, jdbg) == OPENFS_IO_OK) fprintf(stderr, "verify post-commit: target=%02x journal=%02x%02x%02x%02x%02x type=%u\\n", dbg[0], jdbg[0], jdbg[1], jdbg[2], jdbg[3], jdbg[4], (unsigned)jdbg[5]); }
         if (d.armed && cut == C5_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
         if (multi && pass == 1 && cut == C6_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
         d.cut = cut;
@@ -280,15 +291,6 @@ static int verify(const char *path, int expect0, int expect1, int expect2, int e
     disk_t d; if(!open_disk(path,&d))return 0;
     d.armed = 0;
     openfs_block_device_t v=dev(&d); openfs_mount_t m;
-    openfs_superblock_t pre;
-    if(openfs_read_superblock(&v,&pre)==OPENFS_FORMAT_OK){
-        uint8_t predata[BS], prej[BS];
-        if(rd(&d,pre.data_start+8U,1U,predata)==OPENFS_IO_OK &&
-           rd(&d,pre.journal_start,1U,prej)==OPENFS_IO_OK &&
-           predata[0]==0U)
-            fprintf(stderr,"verify pre-mount: target=%02x journal=%02x%02x%02x%02x%02x type=%u\\n",
-                    predata[0],prej[0],prej[1],prej[2],prej[3],prej[4],(unsigned)prej[5]);
-    }
     openfs_mount_result_t mr = openfs_mount(&m,&v);
     if(mr!=OPENFS_MOUNT_OK){ fprintf(stderr,"verify mount=%d\\n",(int)mr); close_disk(&d); return 0; }
     uint8_t b[BS]; int ok=1;
