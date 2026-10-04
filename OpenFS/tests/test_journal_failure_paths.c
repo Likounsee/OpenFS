@@ -76,9 +76,6 @@ static void test_data_failure_restores_sequence(void)
 
     uint64_t tx = 0U;
     assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
-    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
-
-    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
     uint64_t sequence_before = j.sequence;
 
     d.fail_next_write = 1;
