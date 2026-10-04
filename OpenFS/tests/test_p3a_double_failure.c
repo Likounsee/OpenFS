@@ -174,6 +174,8 @@ static int write_rollback_write_failure(void)
     assert(memcmp(before, d.bytes, (size_t)d.block_count * d.block_size) != 0);
     d.fail_enabled = 0;
     d.fail_flush = 0;
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(before);
@@ -197,6 +199,8 @@ static int write_rollback_flush_failure(void)
 
     d.fail_flush = 1;
     assert(openfs_file_write(&v, &s, &inode, 0U, update, sizeof(update)) == OPENFS_FILE_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -220,6 +224,8 @@ static int allocator_rollback_write_failure(void)
 
     assert(openfs_alloc_block(&v, &s, &block) == OPENFS_ALLOC_CORRUPT);
     assert(memcmp(before, d.bytes, (size_t)d.block_count * d.block_size) != 0);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(before);
@@ -256,6 +262,8 @@ static int inode_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_inode_alloc(&v, &s, s.root_inode, OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_INODE_ALLOC_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -282,6 +290,8 @@ static int create_rollback_write_failure(void)
                                  OPENFS_INODE_MODE_REGULAR, 1000U, 1000U, &ino)
            == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -301,6 +311,8 @@ static int unlink_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_path_unlink(&v, &s, "/unlink-double") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -320,6 +332,8 @@ static int link_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_link(&v, &s, "/link-source", "/link-alias") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -348,6 +362,8 @@ static int symlink_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_symlink(&v, &s, "/symlink-target", "/symlink-double") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     (void)symlink_ino;
@@ -380,6 +396,8 @@ static int rename_replace_rollback_write_failure(void)
     d.partial_bytes = 128U;
 
     assert(openfs_path_rename(&v, &s, "/rename-src", "/rename-dst") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -562,6 +580,8 @@ static int write_rollback_write_failure(void)
     assert(memcmp(before, d.bytes, (size_t)d.block_count * d.block_size) != 0);
     d.fail_enabled = 0;
     d.fail_flush = 0;
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(before);
@@ -585,6 +605,8 @@ static int write_rollback_flush_failure(void)
 
     d.fail_flush = 1;
     assert(openfs_file_write(&v, &s, &inode, 0U, update, sizeof(update)) == OPENFS_FILE_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -608,6 +630,8 @@ static int allocator_rollback_write_failure(void)
 
     assert(openfs_alloc_block(&v, &s, &block) == OPENFS_ALLOC_CORRUPT);
     assert(memcmp(before, d.bytes, (size_t)d.block_count * d.block_size) != 0);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(before);
@@ -644,6 +668,8 @@ static int inode_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_inode_alloc(&v, &s, s.root_inode, OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_INODE_ALLOC_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -660,6 +686,8 @@ static int create_rollback_flush_failure(void)
     assert(openfs_path_create_as(&v, &s, "/create-double-flush",
                                  OPENFS_INODE_MODE_REGULAR, 1000U, 1000U, &ino)
            == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -679,6 +707,8 @@ static int unlink_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_path_unlink(&v, &s, "/unlink-double") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -698,6 +728,8 @@ static int link_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_link(&v, &s, "/link-source", "/link-alias") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
@@ -726,6 +758,8 @@ static int symlink_rollback_write_failure(void)
     d.partial_bytes = 64U;
 
     assert(openfs_symlink(&v, &s, "/symlink-target", "/symlink-double") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     (void)symlink_ino;
@@ -758,6 +792,8 @@ static int rename_replace_rollback_write_failure(void)
     d.partial_bytes = 128U;
 
     assert(openfs_path_rename(&v, &s, "/rename-src", "/rename-dst") == OPENFS_PATH_CORRUPT);
+    d.fail_enabled = 0;
+    d.fail_flush = 0;
     assert(recovery_oracle(&d));
 
     free(d.bytes);
