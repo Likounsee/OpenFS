@@ -40,10 +40,11 @@ typedef enum {
     J5_COMMIT_PARTIAL,
     C1_BEFORE_SNAPSHOT, /* after final data flush, before checkpoint snapshot */
     C2_SNAPSHOT_MID,
-    C3_AFTER_CLEAR_BEFORE_FLUSH,
-    C4_CHECKPOINT_FLUSH,
-    C5_AFTER_CHECKPOINT_FLUSH,
-    C6_MULTI_CHECKPOINT
+    C3_AFTER_FIRST_CLEAR,
+    C4_AFTER_CLEAR_BEFORE_FLUSH,
+    C5_CHECKPOINT_FLUSH,
+    C6_AFTER_CHECKPOINT_FLUSH,
+    C7_MULTI_CHECKPOINT
 } cut_t;
 
 typedef struct {
@@ -155,7 +156,7 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     int defer_checkpoint_flush = isj && iszero &&
         (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH ||
-         d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C6_MULTI_CHECKPOINT);
+         d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C7_MULTI_CHECKPOINT);
     if (!defer_checkpoint_flush && !flush_file(d)) return OPENFS_IO_IO_ERROR;
 
     if (d->armed && !isj && count == 1U) {
@@ -165,7 +166,8 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
     if (d->armed && count == 1U && isj && iszero && d->checkpoint_ready) {
         d->zero_writes++;
         d->checkpoint_zero_writes++;
-        if (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH && d->checkpoint_zero_writes == d->jb) crash_now();
+        if (d->cut == C3_AFTER_FIRST_CLEAR && d->checkpoint_zero_writes == 1U) crash_now();
+        if (d->cut == C4_AFTER_CLEAR_BEFORE_FLUSH && d->checkpoint_zero_writes == d->jb) crash_now();
     }
     return OPENFS_IO_OK;
 }
@@ -174,7 +176,7 @@ static openfs_io_result_t fl(void *ctx) {
     disk_t *d = ctx;
     if (!d) return OPENFS_IO_INVALID_ARGUMENT;
     if (d->armed && d->checkpoint_ready && d->checkpoint_zero_writes == d->jb &&
-        d->cut == C4_CHECKPOINT_FLUSH) crash_now();
+        d->cut == C5_CHECKPOINT_FLUSH) crash_now();
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
     d->flushes++;
     if (d->armed && d->checkpoint_ready_pending) {
@@ -184,7 +186,7 @@ static openfs_io_result_t fl(void *ctx) {
         d->checkpoint_zero_writes = 0U;
     }
     if (d->armed && d->checkpoint_ready && d->checkpoint_zero_writes == d->jb &&
-        (d->cut == C5_AFTER_CHECKPOINT_FLUSH || d->cut == C6_MULTI_CHECKPOINT)) crash_now();
+        (d->cut == C6_AFTER_CHECKPOINT_FLUSH || d->cut == C7_MULTI_CHECKPOINT)) crash_now();
     return OPENFS_IO_OK;
 }
 
@@ -257,7 +259,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
             return 7;
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
-        if (d.armed && cut == C5_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
+        if (d.armed && cut == C6_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
         if (multi && pass == 1 && cut == C6_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
         d.cut = cut;
         if (multi && pass == 0) d.armed = 0;
@@ -505,7 +507,7 @@ int main(int argc,char **argv){
         cut_t c=journal_cuts[i]; int ok=journal_crash_case(argv[0],c,0,id++);
         if(!ok) fprintf(stderr,"journal cut failed: %d\\n",(int)c); assert(ok);
     }
-    for(int c=C1_BEFORE_SNAPSHOT;c<=C5_AFTER_CHECKPOINT_FLUSH;c++) {
+    for(int c=C1_BEFORE_SNAPSHOT;c<=C6_AFTER_CHECKPOINT_FLUSH;c++) {
         int ok = journal_crash_case(argv[0],(cut_t)c,0,id++);
         if(!ok) fprintf(stderr,"checkpoint cut failed: %d\\n",c);
         assert(ok);
