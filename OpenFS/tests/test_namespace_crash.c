@@ -356,6 +356,7 @@ static int apply_operation(crash_disk_t *d, namespace_op_t op)
     }
 
     if (pr != OPENFS_PATH_OK) {
+        fprintf(stderr, "namespace operation %d returned path=%d failed=%d\\n", (int)op, (int)pr, t.failed);
         (void)openfs_transaction_abort(&t);
         return 0;
     }
