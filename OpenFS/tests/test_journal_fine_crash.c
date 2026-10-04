@@ -196,6 +196,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
     openfs_journal_t j;
     if (openfs_journal_open(&j, &v, &s) != OPENFS_JOURNAL_OK) return 4;
     for (int pass = 0; pass < (multi ? 2 : 1); ++pass) {
+        if (multi && pass == 1) d.armed = 1;
         openfs_transaction_t t;
         if (openfs_transaction_begin(&t, &v, &j) != OPENFS_TRANSACTION_OK) return 5;
         openfs_block_device_t *td = openfs_transaction_device(&t);
@@ -210,7 +211,6 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
         if (r != OPENFS_TRANSACTION_OK) return 8;
         d.cut = cut;
         if (multi && pass == 0) d.armed = 0;
-        if (multi && pass == 1) d.armed = 1;
     }
     close_disk(&d);
     return 0;
