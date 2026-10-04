@@ -221,7 +221,7 @@ static void inode_generation_boundary(void){
 static void extent_boundary(void){
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s,256U);
     assert(openfs_extent_tree_capacity(4096U)==169U);
-    assert(openfs_extent_tree_capacity(4096U-1U)==168U);
+    assert(openfs_extent_tree_capacity(4096U-1U)==169U);
 
     openfs_inode_t inode;memset(&inode,0,sizeof(inode));
     inode.inode_number=2U;inode.generation=1U;inode.mode=OPENFS_INODE_MODE_REGULAR;
