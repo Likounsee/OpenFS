@@ -37,6 +37,17 @@ assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);d.fail_read_blo
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
 assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/home/test",&q)==OPENFS_PATH_OK&&q==m);
+{
+    uint64_t src=0U,dst=0U;
+    assert(openfs_path_create(&v,&s,"/home/test/replace-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);
+    assert(openfs_path_create(&v,&s,"/home/test/replace-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
+    assert(openfs_path_rename(&v,&s,"/home/test/replace-src","/home/test/replace-dst")==OPENFS_PATH_OK);
+    assert(openfs_path_lookup(&v,&s,"/home/test/replace-dst",&q)==OPENFS_PATH_OK&&q==src);
+    assert(openfs_path_lookup(&v,&s,"/home/test/replace-src",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_inode_read(&v,s.inode_table_start,dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&fi)==OPENFS_INODE_OK);
+    assert(fi.mode==OPENFS_INODE_MODE_FREE&&fi.link_count==0U);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+}
 assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/home/renamed",&m)==OPENFS_PATH_OK);{
     openfs_inode_t rename_parent_before,rename_parent_after;
     assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&rename_parent_before)==OPENFS_INODE_OK);
