@@ -381,7 +381,7 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_path_create(&v,&s,"/home/test/tx-rename-dst",OPENFS_INODE_MODE_REGULAR,&tx_dst)==OPENFS_PATH_OK);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
     assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
-    assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-src","/home/test/tx-rename-dst")==OPENFS_PATH_OK);
+    assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-src","/home/test/tx-rename-dst-new")==OPENFS_PATH_OK);
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-src",&q)==OPENFS_PATH_OK&&q==tx_src);
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_dst);
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
