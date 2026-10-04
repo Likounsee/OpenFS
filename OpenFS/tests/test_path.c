@@ -397,7 +397,7 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
     assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-committed","/home/test/tx-rename-commit-fail")==OPENFS_PATH_OK);
     openfs_inode_t tx_parent_inode;assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tx_parent_inode)==OPENFS_INODE_OK);
-    openfs_block_device_t *txdev=openfs_transaction_device(&tx);assert(txdev!=NULL);
+    txdev=openfs_transaction_device(&tx);assert(txdev!=NULL);
     uint64_t tx_parent_block=0U;int tx_parent_block_found=0;
     for(uint64_t logical=0U;logical<tx_parent_inode.blocks&&!tx_parent_block_found;logical++){
         assert(openfs_file_map_block_device(&v,&s,&tx_parent_inode,logical,&tx_parent_block)==OPENFS_FILE_OK);
