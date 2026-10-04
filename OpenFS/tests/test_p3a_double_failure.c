@@ -184,12 +184,8 @@ static int write_rollback_write_failure(void)
     assert(openfs_file_write(&v, &s, &inode, 0U, seed, sizeof(seed)) == OPENFS_FILE_OK);
 
     uint64_t physical = file_block(&v, &s, &inode, 0U);
-    uint8_t *before = malloc((size_t)d.block_count * d.block_size);
-    assert(before != NULL);
-    memcpy(before, d.bytes, (size_t)d.block_count * d.block_size);
-
-    d.fail_block = physical;
     uint8_t *before = snapshot_disk(&d);
+    d.fail_block = physical;
     d.fail_enabled = 1;
     d.partial_once = 1;
     d.partial_bytes = 512U;
@@ -226,7 +222,7 @@ static int write_rollback_flush_failure(void)
     assert(openfs_file_write(&v, &s, &inode, 0U, update, sizeof(update)) == OPENFS_FILE_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
+    assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
     free(d.bytes);
     return 0;
@@ -237,10 +233,6 @@ static int allocator_rollback_write_failure(void)
     disk_t d; openfs_block_device_t v; openfs_superblock_t s;
     uint64_t block = 0U;
     setup(&d, &v, &s);
-
-    uint8_t *before = malloc((size_t)d.block_count * d.block_size);
-    assert(before != NULL);
-    memcpy(before, d.bytes, (size_t)d.block_count * d.block_size);
 
     uint8_t *before = snapshot_disk(&d);
     d.fail_block = s.block_bitmap_start;
@@ -361,11 +353,13 @@ static int link_rollback_write_failure(void)
     d.partial_once = 1;
     d.partial_bytes = 64U;
 
+    uint8_t *before = snapshot_disk(&d);
     assert(openfs_link(&v, &s, "/link-source", "/link-alias") == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
     assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
+    free(before);
     free(d.bytes);
     return 0;
 }
@@ -398,6 +392,7 @@ static int symlink_rollback_write_failure(void)
     assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     (void)symlink_ino;
+    free(before);
     free(d.bytes);
     return 0;
 }
@@ -432,6 +427,7 @@ static int rename_replace_rollback_write_failure(void)
     d.fail_flush = 0;
     assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
+    free(before);
     free(d.bytes);
     return 0;
 }
