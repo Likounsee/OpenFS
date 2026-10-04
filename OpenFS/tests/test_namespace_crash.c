@@ -655,7 +655,6 @@ cleanup:
     (void)remove(base);
     (void)remove(reference);
     (void)remove(crashed);
-    (void)remove(prefix);
     return ok;
 }
 
