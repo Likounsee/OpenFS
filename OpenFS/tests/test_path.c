@@ -223,6 +223,29 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
         free(root_before);free(root_after);
     }
     {
+        uint64_t tree_src=0U,tree_dst=0U;
+        assert(openfs_path_create(&v,&s,"/home/test/tree-rename-src",OPENFS_INODE_MODE_REGULAR,&tree_src)==OPENFS_PATH_OK);
+        assert(openfs_path_create(&v,&s,"/home/test/tree-rename-dst",OPENFS_INODE_MODE_REGULAR,&tree_dst)==OPENFS_PATH_OK);
+        openfs_inode_t tree_dest_inode;assert(openfs_inode_read(&v,s.inode_table_start,tree_dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tree_dest_inode)==OPENFS_INODE_OK);
+        uint8_t tree_data2[4096U];memset(tree_data2,0x3CU,sizeof(tree_data2));
+        for(unsigned n=0U;n<5U;n++){
+            assert(openfs_file_write(&v,&s,&tree_dest_inode,(uint64_t)n*s.block_size,tree_data2,sizeof(tree_data2))==OPENFS_FILE_OK);
+            assert(openfs_inode_read(&v,s.inode_table_start,tree_dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tree_dest_inode)==OPENFS_INODE_OK);
+            if(n<4U){char filler[64];(void)snprintf(filler,sizeof(filler),"/home/test/tree-rename-filler-%u",n);uint64_t filler_ino=0U;assert(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;assert(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);assert(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}
+        }
+        assert(tree_dest_inode.extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
+        uint64_t tree_dest_root=openfs_inode_get_extent_tree_root(&tree_dest_inode);assert(tree_dest_root!=0U);
+        uint64_t tree_dest_inode_block=s.inode_table_start+((tree_dst-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+        uint8_t *tree_root_before=malloc(s.block_size);uint8_t *tree_root_after=malloc(s.block_size);assert(tree_root_before&&tree_root_after);assert(v.read(v.context,tree_dest_root,1U,tree_root_before)==OPENFS_IO_OK);
+        d.fail_write_block=tree_dest_inode_block;d.fail_write_enabled=1;d.fail_write_count=1;
+        assert(openfs_path_rename(&v,&s,"/home/test/tree-rename-src","/home/test/tree-rename-dst")==OPENFS_PATH_IO_ERROR);d.fail_write_enabled=0;
+        assert(openfs_path_lookup(&v,&s,"/home/test/tree-rename-src",&q)==OPENFS_PATH_OK&&q==tree_src);assert(openfs_path_lookup(&v,&s,"/home/test/tree-rename-dst",&q)==OPENFS_PATH_OK&&q==tree_dst);
+        assert(v.read(v.context,tree_dest_root,1U,tree_root_after)==OPENFS_IO_OK&&memcmp(tree_root_before,tree_root_after,s.block_size)==0);
+        {openfs_inode_t restored;assert(openfs_inode_read(&v,s.inode_table_start,tree_dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&restored)==OPENFS_INODE_OK);assert(restored.blocks==5U&&restored.extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX);}
+        {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+        free(tree_root_before);free(tree_root_after);
+    }
+    {
         uint64_t partial_dir=0U;assert(openfs_path_mkdir(&v,&s,"/home/test/partial-dir",&partial_dir)==OPENFS_PATH_OK);
         for(unsigned i=0U;i<16U;i++){char p[64];(void)snprintf(p,sizeof(p),"/home/test/partial-dir/f%u",i);uint64_t ino=0U;assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
         uint64_t partial_ino=0U;assert(openfs_path_create(&v,&s,"/home/test/partial-dir/partial-unlink",OPENFS_INODE_MODE_REGULAR,&partial_ino)==OPENFS_PATH_OK);
