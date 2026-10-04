@@ -74,6 +74,10 @@ This is an engineering estimate, not a release-readiness metric.
 - optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
 - additional fsck repair capabilities (fsck remains deliberately read-only);
 
+### v1.3 journal CRC compatibility
+
+The journal CRC currently covers the complete journal block. Earlier v1.3 development images used a legacy CRC span that excluded the final four bytes of the block. Those legacy journal records are therefore **not currently backward-compatible** with the hardened reader. This is a release-readiness finding, not a silent compatibility claim; before release, OpenFS must either provide an explicit legacy-reader/migration path or version the journal format so old v1.3 images are not silently rejected.
+
 ### Scope boundary
 
 The filesystem core is intentionally independent of the host OS. Linux and
