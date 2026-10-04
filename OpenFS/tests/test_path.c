@@ -431,6 +431,8 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(tx.active==1&&tx.failed==1&&tx.commit_started==1&&tx.committed==0&&tx.recovery_required==0&&tx.pending==NULL&&tx.pending_count==0U);
     assert(v.read(v.context,commit_slot,1U,commit_after)==OPENFS_IO_OK&&memcmp(commit_before,commit_after,s.block_size)==0);
     assert(j.active_transaction_id==tx.txid&&j.commit_record_written==0U);
+    uint64_t sequence_after_failed_commit=j.sequence;
+    assert(sequence_after_failed_commit==j.sequence-0U);
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
     assert(tx.active==0&&tx.pending==NULL&&tx.pending_count==0U);
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-partial-src",&q)==OPENFS_PATH_OK&&q==tx_partial_src);
