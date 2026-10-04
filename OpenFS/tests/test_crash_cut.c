@@ -117,6 +117,7 @@ static openfs_io_result_t disk_flush(void *ctx)
     if (d == NULL) return OPENFS_IO_INVALID_ARGUMENT;
     if (!persist(d)) return OPENFS_IO_IO_ERROR;
     d->flush_count++;
+    fprintf(stderr, "flush cut=%d armed=%d count=%u\\n", (int)d->cut, d->armed, d->flush_count);
     if (!d->armed) return OPENFS_IO_OK;
 
     if ((d->cut == CUT_B && d->flush_count == 1U) ||
@@ -190,7 +191,8 @@ static int worker(crash_cut_t cut, const char *path)
     if (td == NULL || td->write(td->context, d.target_block, 1U, pattern) != OPENFS_IO_OK)
         return 7;
 
-    (void)openfs_transaction_commit(&t);
+    openfs_transaction_result_t result = openfs_transaction_commit(&t);
+    fprintf(stderr, "worker cut=%d commit=%d flushes=%u\\n", (int)cut, (int)result, d.flush_count);
     return 8;
 }
 
