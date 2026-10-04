@@ -92,7 +92,7 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openf
 }
 {
     uint64_t src=0U,dst=0U;assert(openfs_path_create(&v,&s,"/home/test/rb-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/test/rb-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
-    openfs_inode_t di;assert(openfs_inode_read(&v,s.inode_table_start,dst,ic,&di)==OPENFS_INODE_OK);uint8_t payload[4096];memset(payload,0x5AU,sizeof(payload));assert(openfs_file_write(&v,&s,&di,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    openfs_inode_t di;assert(openfs_inode_read(&v,s.inode_table_start,dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&di)==OPENFS_INODE_OK);uint8_t payload[4096];memset(payload,0x5AU,sizeof(payload));assert(openfs_file_write(&v,&s,&di,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
     assert(openfs_inode_read(&v,s.inode_table_start,dst,ic,&di)==OPENFS_INODE_OK);uint64_t db=0U;assert(openfs_file_map_block_device(&v,&s,&di,0U,&db)==OPENFS_FILE_OK);
     uint64_t parent_ino=0U;assert(openfs_path_lookup(&v,&s,"/home/test",&parent_ino)==OPENFS_PATH_OK);openfs_inode_t parent;assert(openfs_inode_read(&v,s.inode_table_start,parent_ino,ic,&parent)==OPENFS_INODE_OK);uint64_t pb=0U;assert(openfs_file_map_block_device(&v,&s,&parent,0U,&pb)==OPENFS_FILE_OK);
     uint64_t dib=s.inode_table_start+((dst-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;uint8_t *dbefore=malloc(s.block_size),*dafter=malloc(s.block_size),*pbefore=malloc(s.block_size),*pafter=malloc(s.block_size),*ibefore=malloc(s.block_size),*iafter=malloc(s.block_size);assert(dbefore&&dafter&&pbefore&&pafter&&ibefore&&iafter);
