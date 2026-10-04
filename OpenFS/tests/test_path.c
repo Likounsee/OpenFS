@@ -36,6 +36,34 @@ assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);d.fail_read_blo
     assert(openfs_path_lookup(&v,&s,"/home/test/late-validate",&q)==OPENFS_PATH_OK&&q==late_validate_ino);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
+{
+    openfs_inode_t parent_before,parent_after;
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&parent_before)==OPENFS_INODE_OK);
+    uint64_t parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&parent_before,0U,&parent_block)==OPENFS_FILE_OK);
+    uint8_t *dir_before=malloc(s.block_size);uint8_t *dir_after=malloc(s.block_size);assert(dir_before&&dir_after);
+    assert(v.read(v.context,parent_block,1U,dir_before)==OPENFS_IO_OK);
+    size_t ib_bytes=(size_t)(s.inode_bitmap_blocks*s.block_size);
+    uint8_t *ib_before=malloc(ib_bytes);uint8_t *ib_after=malloc(ib_bytes);assert(ib_before&&ib_after);
+    memcpy(ib_before,d.b+(size_t)(s.inode_bitmap_start*s.block_size),ib_bytes);
+    uint64_t count=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;
+    uint64_t predicted=0U;
+    for(uint64_t candidate=2U;candidate<=count;candidate++){int used=0;assert(openfs_bitmap_test(&v,s.inode_bitmap_start,s.inode_bitmap_blocks,candidate-1U,&used)==OPENFS_BITMAP_OK);if(!used){predicted=candidate;break;}}
+    assert(predicted!=0U);
+    uint64_t predicted_block=s.inode_table_start+((predicted-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    d.fail_write_block=predicted_block;d.fail_write_enabled=1;d.fail_write_count=2;
+    uint64_t as_fail_ino=0U;
+    assert(openfs_path_create_as(&v,&s,"/home/test/as-rollback",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&as_fail_ino)==OPENFS_PATH_IO_ERROR);
+    d.fail_write_enabled=0;
+    assert(as_fail_ino==predicted);
+    assert(openfs_path_lookup(&v,&s,"/home/test/as-rollback",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&parent_after)==OPENFS_INODE_OK);
+    assert(memcmp(&parent_before,&parent_after,sizeof(parent_before))==0);
+    assert(v.read(v.context,parent_block,1U,dir_after)==OPENFS_IO_OK&&memcmp(dir_before,dir_after,s.block_size)==0);
+    memcpy(ib_after,d.b+(size_t)(s.inode_bitmap_start*s.block_size),ib_bytes);
+    assert(memcmp(ib_before,ib_after,ib_bytes)==0);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+    free(dir_before);free(dir_after);free(ib_before);free(ib_after);
+}
 assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_EXISTS);
 assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,"/home/renamed",&m)==OPENFS_PATH_OK);{
     openfs_inode_t rename_parent_before,rename_parent_after;
