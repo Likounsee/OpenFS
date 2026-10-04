@@ -86,6 +86,14 @@ static void journal_capacity_and_limits(void){
     assert(j.next_record+1U==j.journal_blocks);
     assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
     assert(j.next_record==j.journal_blocks);
+    assert(j.active_transaction_id==0U);
+    assert(j.commit_record_written==1U);
+    openfs_journal_t full_reopen;
+    assert(openfs_journal_open(&full_reopen,&v,&s)==OPENFS_JOURNAL_OK);
+    assert(full_reopen.next_record==full_reopen.journal_blocks);
+    assert(full_reopen.active_transaction_id==0U);
+    assert(full_reopen.commit_record_written==1U);
+    assert(full_reopen.transaction_id==tx);
     /* A committed full journal still requires checkpoint before another BEGIN. */
     assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_INVALID_ARGUMENT);
     assert(j.next_record==j.journal_blocks);
