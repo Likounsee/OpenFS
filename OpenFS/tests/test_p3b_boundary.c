@@ -138,7 +138,7 @@ static void name_and_path_boundaries(void){
     path[0]='/';
 
     /* Build 15 maximal components so the final component isolates PATH_MAX. */
-    for(unsigned i=0U;i<15U;i++){
+    for(unsigned i=0U;i<17U;i++){
         memset(path+used,'d',OPENFS_DIR_NAME_MAX);
         used+=OPENFS_DIR_NAME_MAX;
         path[used++]='/';
@@ -146,8 +146,8 @@ static void name_and_path_boundaries(void){
         assert(strlen(path)<OPENFS_PATH_MAX);
         assert(openfs_path_mkdir(&v,&s,path,&ino)==OPENFS_PATH_OK);
     }
-    memset(path+used,'e',OPENFS_DIR_NAME_MAX-1U);
-    used+=OPENFS_DIR_NAME_MAX-1U;
+    memset(path+used,'e',OPENFS_DIR_NAME_MAX-9U);
+    used+=OPENFS_DIR_NAME_MAX-9U;
     path[used]='\0';
     assert(used==OPENFS_PATH_MAX-1U);
     assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
