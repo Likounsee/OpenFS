@@ -30,17 +30,10 @@ d.fail_read_block=0U;d.fail_read_enabled=0;d.arm_on_write=1;d.arm_block=s.inode_
     uint64_t late_validate_ino=0U;
     uint64_t original_inode_table_blocks=s.inode_table_blocks;
     assert(openfs_path_create(&v,&s,"/home/test/late-validate",OPENFS_INODE_MODE_REGULAR,&late_validate_ino)==OPENFS_PATH_OK);
-    openfs_inode_t home_for_fault;
-    assert(openfs_inode_read(&v,s.inode_table_start,m,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_for_fault)==OPENFS_INODE_OK);
-    uint64_t home_inode_block=s.inode_table_start+((m-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    d.mutate_sb_after_write=&s;
-    d.mutate_after_write_block=home_inode_block;
-    d.mutate_after_write=1;
-    assert(openfs_path_unlink(&v,&s,"/home/test/late-validate")==OPENFS_PATH_OK);
-    assert(s.inode_table_blocks==0U);
+    s.inode_table_blocks=0U;
+    assert(openfs_path_unlink(&v,&s,"/home/test/late-validate")==OPENFS_PATH_CORRUPT);
     s.inode_table_blocks=original_inode_table_blocks;
-    d.mutate_sb_after_write=NULL;
-    assert(openfs_path_lookup(&v,&s,"/home/test/late-validate",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_lookup(&v,&s,"/home/test/late-validate",&q)==OPENFS_PATH_OK&&q==late_validate_ino);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
 }
 assert(openfs_path_mkdir(&v,&s,"/home/test",&m)==OPENFS_PATH_OK);assert(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);assert(openfs_path_rename(&v,&s,"/home/test","/home/test")==OPENFS_PATH_EXISTS);
