@@ -201,8 +201,8 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);assert(openf
     assert(openfs_path_mkdir(&v,&s,"/home/test/rename-partial-old",&rold)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/home/test/rename-partial-new",&rnew)==OPENFS_PATH_OK);
     for(unsigned i=0U;i<16U;i++){char p[96];(void)snprintf(p,sizeof(p),"/home/test/rename-partial-old/f%u",i);uint64_t ino=0U;assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
-    assert(openfs_path_create(&v,&s,"/home/test/rename-partial-old/src",&rsrc)==OPENFS_PATH_OK);
-    assert(openfs_path_create(&v,&s,"/home/test/rename-partial-new/dst",&rdst)==OPENFS_PATH_OK);
+    assert(openfs_path_create(&v,&s,"/home/test/rename-partial-old/src",OPENFS_INODE_MODE_REGULAR,&rsrc)==OPENFS_PATH_OK);
+    assert(openfs_path_create(&v,&s,"/home/test/rename-partial-new/dst",OPENFS_INODE_MODE_REGULAR,&rdst)==OPENFS_PATH_OK);
     openfs_inode_t oi,ni;assert(openfs_inode_read(&v,s.inode_table_start,rold,ic,&oi)==OPENFS_INODE_OK);assert(openfs_inode_read(&v,s.inode_table_start,rnew,ic,&ni)==OPENFS_INODE_OK);
     uint64_t ob=0U,nb=0U;assert(openfs_file_map_block_device(&v,&s,&oi,1U,&ob)==OPENFS_FILE_OK);assert(openfs_file_map_block_device(&v,&s,&ni,0U,&nb)==OPENFS_FILE_OK);
     uint64_t old_inode_block=s.inode_table_start+((rsrc-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
