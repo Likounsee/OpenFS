@@ -85,10 +85,16 @@ static openfs_io_result_t rd(void *ctx, uint64_t first, uint32_t count, void *ou
         (uint64_t)count > d->blocks - first || !seek_block(d, first))
         return OPENFS_IO_OUT_OF_RANGE;
     size_t n = (size_t)((uint64_t)count * BS);
+    if (d->armed && d->cut == C1_BEFORE_CLEAR && count == 1U && journal_block(d, first) &&
+        d->journal_reads == 1U) {
+        crash_now();
+    }
     if (fread(out, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     if (d->armed && d->cut == C2_SNAPSHOT_MID && count == 1U && journal_block(d, first)) {
         d->journal_reads++;
         if (d->journal_reads == 4U) crash_now();
+    } else if (count == 1U && journal_block(d, first)) {
+        d->journal_reads++;
     }
     return OPENFS_IO_OK;
 }
@@ -152,7 +158,6 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
 
     if (d->armed && count == 1U && isj && iszero) {
         d->zero_writes++;
-        if (d->cut == C1_BEFORE_CLEAR && d->zero_writes == 1U) crash_now();
         if (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH && d->zero_writes == d->jb) crash_now();
     }
     return OPENFS_IO_OK;
