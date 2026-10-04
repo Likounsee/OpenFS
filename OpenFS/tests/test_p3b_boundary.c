@@ -226,13 +226,14 @@ static void extent_boundary(void){
     openfs_inode_t inode;memset(&inode,0,sizeof(inode));
     inode.inode_number=2U;inode.generation=1U;inode.mode=OPENFS_INODE_MODE_REGULAR;
     inode.link_count=1U;inode.flags=OPENFS_INODE_FLAG_EXTENT_TREE|OPENFS_INODE_FLAG_HAS_EXTENTS;
-    inode.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+169U;
+    inode.extent_count=0U;
     inode.blocks=173U;
     for(uint32_t i=0U;i<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;i++){
         openfs_extent_t e={(uint64_t)i,s.data_start+1U+(uint64_t)i,1U};
         assert(openfs_inode_set_extent(&inode,i,&e)==OPENFS_EXTENT_OK);
     }
     assert(openfs_inode_set_extent_tree_root(&inode,s.data_start)==OPENFS_EXTENT_OK);
+    inode.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+169U;
 
     openfs_extent_t extents[169];
     for(uint32_t i=0U;i<169U;i++){
