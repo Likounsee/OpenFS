@@ -243,7 +243,8 @@ static int verify(const char *path, int expect0, int expect1, int expect2, int e
     disk_t d; if(!open_disk(path,&d))return 0;
     d.armed = 0;
     openfs_block_device_t v=dev(&d); openfs_mount_t m;
-    if(openfs_mount(&m,&v)!=OPENFS_MOUNT_OK){close_disk(&d);return 0;}
+    openfs_mount_result_t mr = openfs_mount(&m,&v);
+    if(mr!=OPENFS_MOUNT_OK){ fprintf(stderr,"verify mount=%d\\n",(int)mr); close_disk(&d); return 0; }
     uint8_t b[BS]; int ok=1;
     uint64_t targets[4]={m.superblock.data_start+8U,m.superblock.data_start+9U,
                          m.superblock.data_start+10U,m.superblock.data_start+11U};
@@ -256,16 +257,16 @@ static int verify(const char *path, int expect0, int expect1, int expect2, int e
             want=wants[i];
         }
         uint8_t expected[BS]; memset(expected,want,sizeof(expected));
-        if(memcmp(b,expected,sizeof(b))!=0){ok=0;break;}
+        if(memcmp(b,expected,sizeof(b))!=0){ fprintf(stderr,"block mismatch i=%d want=%02x got=%02x\\n",i,want,b[0]); ok=0;break;}
     }
     uint64_t errors=0U;
-    if(openfs_fsck(&v,&m.superblock,&errors)!=OPENFS_FSCK_OK||errors!=0U)ok=0;
+    if(openfs_fsck(&v,&m.superblock,&errors)!=OPENFS_FSCK_OK||errors!=0U){ fprintf(stderr,"fsck failed errors=%llu\\n",(unsigned long long)errors); ok=0;}
     openfs_journal_t j;
     if(openfs_journal_open(&j,&v,&m.superblock)!=OPENFS_JOURNAL_OK ||
-       j.next_record!=0U || j.active_transaction_id!=0U || j.commit_record_written!=0U)ok=0;
-    if(openfs_unmount(&m)!=OPENFS_MOUNT_OK)ok=0;
+       j.next_record!=0U || j.active_transaction_id!=0U || j.commit_record_written!=0U){ fprintf(stderr,"journal not clean next=%llu active=%llu commit=%u\\n",(unsigned long long)j.next_record,(unsigned long long)j.active_transaction_id,(unsigned)j.commit_record_written); ok=0;}
+    if(openfs_unmount(&m)!=OPENFS_MOUNT_OK){ fprintf(stderr,"unmount failed\\n"); ok=0; }
     openfs_mount_t m2;
-    if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK)ok=0;
+    if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK){ fprintf(stderr,"second mount failed\\n"); ok=0; }
     if(ok){
         errors=0U;
         if(openfs_fsck(&v,&m2.superblock,&errors)!=OPENFS_FSCK_OK||errors!=0U)ok=0;
