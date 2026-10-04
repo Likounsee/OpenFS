@@ -139,7 +139,7 @@ if(dir_refs[target_ino]==UINT64_MAX)bad++;else dir_refs[target_ino]++;
 }}
 for(uint64_t n=1U;n<=count;n++){
 int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
-if(!used)continue;
+if(!used){if(dir_refs[n]!=0U)bad++;continue;}
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
 if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
 }
