@@ -308,7 +308,7 @@ static int journal_crash_case(const char *self, cut_t cut, int multi, unsigned i
     if(!crashed) fprintf(stderr,"fine cut did not crash: %d\\n",(int)cut);
     if(ok){
         if(cut==J1_BEGIN_PARTIAL||cut==J2_DATA_PARTIAL||
-           cut==J4_DATA_PARTIAL_OFFSETS||cut==J5_COMMIT_PARTIAL)
+           (cut>=J4_DATA_PARTIAL_HEADER&&cut<=J4_DATA_PARTIAL_END)||cut==J5_COMMIT_PARTIAL)
             ok=verify_corrupt(path);
         else if(cut==J3_BETWEEN_DATA)
             ok=verify(path,0,0,0,0);
