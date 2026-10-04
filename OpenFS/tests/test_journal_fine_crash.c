@@ -237,6 +237,7 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
             return 7;
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
+        if (!multi && cut == C1_BEFORE_CLEAR) { uint8_t dbg[BS]; if (d.read(d.context, s.data_start + 8U, 1U, dbg) == OPENFS_IO_OK) fprintf(stderr, "verify post-commit: target=%02x journal=%02x%02x%02x%02x%02x type=%u\\n", dbg[0], ((uint8_t*)dbg)[0], ((uint8_t*)dbg)[1], ((uint8_t*)dbg)[2], ((uint8_t*)dbg)[3], ((uint8_t*)dbg)[4], (unsigned)0U); }
         if (d.armed && cut == C5_AFTER_CHECKPOINT_FLUSH && d.flushes == 3U) crash_now();
         if (multi && pass == 1 && cut == C6_MULTI_CHECKPOINT && d.flushes == 6U) crash_now();
         d.cut = cut;
