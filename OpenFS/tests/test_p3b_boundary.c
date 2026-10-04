@@ -8,6 +8,7 @@
 #include "openfs/dir.h"
 #include "openfs/link.h"
 #include "openfs/extent.h"
+#include "openfs/fsck.h"
 
 typedef struct { uint8_t *b; uint32_t bs; uint64_t bc; } disk_t;
 
