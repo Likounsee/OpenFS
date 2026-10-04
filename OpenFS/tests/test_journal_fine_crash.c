@@ -151,6 +151,7 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
         crash_now();
     }
 
+    if (d->armed && d->cut == C1_BEFORE_CLEAR && !isj && count == 1U) fprintf(stderr, "verify C1 data-write: block=%llu byte0=%02x\\n", (unsigned long long)first, raw[0]);
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     int defer_checkpoint_flush = isj && iszero &&
         (d->cut == C3_AFTER_CLEAR_BEFORE_FLUSH || d->cut == C4_CHECKPOINT_FLUSH);
