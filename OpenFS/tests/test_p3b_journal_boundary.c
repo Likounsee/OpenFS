@@ -17,12 +17,11 @@ static openfs_block_device_t dev(disk_t*d){openfs_block_device_t v={d,d->bs,d->b
 static void setup(disk_t*d,openfs_block_device_t*v,openfs_superblock_t*s){memset(d,0,sizeof(*d));d->bs=4096U;d->bc=256U;d->b=calloc((size_t)d->bs,(size_t)d->bc);assert(d->b);*v=dev(d);uint8_t u[16]={0xB1U};assert(openfs_format(v,u)==OPENFS_FORMAT_OK);assert(openfs_read_superblock(v,s)==OPENFS_FORMAT_OK);}
 static void p32(uint8_t*p,uint32_t v){for(unsigned k=0;k<4;k++)p[k]=(uint8_t)(v>>(8U*k));}
 static void p64(uint8_t*p,uint64_t v){for(unsigned k=0;k<8;k++)p[k]=(uint8_t)(v>>(8U*k));}
-static uint64_t g64(const uint8_t*p){uint64_t v=0;for(unsigned k=0;k<8;k++)v|=(uint64_t)p[k]<<(8U*k);return v;}
 static void raw_record(openfs_block_device_t*v,const openfs_superblock_t*s,uint64_t slot,uint8_t type,uint64_t tx,uint64_t seq,const uint8_t*payload,uint32_t len){
     uint8_t b[4096U];memset(b,0,sizeof(b));memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=type;p64(b+8U,tx);p64(b+16U,seq);p32(b+24U,len);if(len)memcpy(b+32U,payload,len);p32(b+28U,0U);p32(b+28U,openfs_crc32c(b,sizeof(b)));assert(v->write(v->context,s->journal_start+slot,1U,b)==OPENFS_IO_OK);
 }
 static uint32_t data_payload(uint8_t*p,uint64_t target,uint8_t value){memset(p,0,25U);memcpy(p,"OJBD1",5U);p64(p+8U,target);p32(p+16U,0U);p32(p+20U,1U);p[24U]=value;return 25U;}
-static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t*s,uint64_t target,uint8_t value){
+static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t*s,uint64_t target,uint8_t value){(void)s;
     openfs_mount_t m;assert(openfs_mount(&m,v)==OPENFS_MOUNT_OK);assert(m.journal.next_record==0U);assert(m.journal.active_transaction_id==0U);assert(m.journal.commit_record_written==0U);
     uint8_t b[4096U];assert(v->read(v->context,target,1U,b)==OPENFS_IO_OK);assert(b[0]==value);uint64_t errors=0;assert(openfs_fsck(v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     openfs_mount_t m2;assert(openfs_mount(&m2,v)==OPENFS_MOUNT_OK);assert(m2.journal.next_record==0U);errors=0;assert(openfs_fsck(v,&m2.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&m2)==OPENFS_MOUNT_OK);
