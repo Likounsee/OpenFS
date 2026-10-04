@@ -117,7 +117,6 @@ static openfs_io_result_t disk_flush(void *ctx)
     if (d == NULL) return OPENFS_IO_INVALID_ARGUMENT;
     if (!persist(d)) return OPENFS_IO_IO_ERROR;
     d->flush_count++;
-    fprintf(stderr, "flush cut=%d armed=%d count=%u\\n", (int)d->cut, d->armed, d->flush_count);
     if (!d->armed) return OPENFS_IO_OK;
 
     if ((d->cut == CUT_B && d->flush_count == 1U) ||
@@ -183,6 +182,7 @@ static int worker(crash_cut_t cut, const char *path)
     d.journal_blocks = s.journal_blocks;
     d.target_block = s.data_start + 8U;
     d.cut = cut;
+    d.flush_count = 0U;
     d.armed = 1;
 
     uint8_t pattern[BLOCK_SIZE];
@@ -191,8 +191,7 @@ static int worker(crash_cut_t cut, const char *path)
     if (td == NULL || td->write(td->context, d.target_block, 1U, pattern) != OPENFS_IO_OK)
         return 7;
 
-    openfs_transaction_result_t result = openfs_transaction_commit(&t);
-    fprintf(stderr, "worker cut=%d commit=%d flushes=%u\\n", (int)cut, (int)result, d.flush_count);
+    (void)openfs_transaction_commit(&t);
     return 8;
 }
 
@@ -231,7 +230,7 @@ static int run_worker(const char *self, crash_cut_t cut, const char *path)
 static int verify_recovery(crash_cut_t cut, const char *path)
 {
     crash_disk_t d;
-    if (!open_disk(&d, path, "r+b")) { fprintf(stderr, "crash-cut %d: cannot reopen image\\n", (int)cut); return 0; }
+    if (!open_disk(&d, path, "r+b")) return 0;
     openfs_block_device_t v = make_device(&d);
 
     openfs_mount_t m;
@@ -292,7 +291,6 @@ static int crash_cut_test(crash_cut_t cut, const char *self)
         return 0;
 
     int crashed = run_worker(self, cut, path);
-    if (!crashed) fprintf(stderr, "crash-cut %d: child did not terminate at cut\\n", (int)cut);
     int recovered = crashed && verify_recovery(cut, path);
     (void)remove(path);
     return recovered;
