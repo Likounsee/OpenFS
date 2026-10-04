@@ -118,7 +118,7 @@ uint64_t parent_inode_offset=(parent-1U)*(uint64_t)OPENFS_INODE_SIZE;if(s->block
 uint64_t parent_inode_block=s->inode_table_start+parent_inode_offset/s->block_size;uint8_t *parent_inode_backup=malloc(d->block_size);if(parent_inode_backup==NULL||d->read(d->context,parent_inode_block,1U,parent_inode_backup)!=OPENFS_IO_OK){free(parent_inode_backup);return OPENFS_PATH_IO_ERROR;}
 if(target.link_count==1U&&original_root!=0U){
     root_backup=malloc(d->block_size);
-    if(root_backup==NULL||d->read(d->context,original_root,1U,root_backup)!=OPENFS_IO_OK){free(root_backup);return OPENFS_PATH_IO_ERROR;}
+    if(root_backup==NULL||d->read(d->context,original_root,1U,root_backup)!=OPENFS_IO_OK){free(root_backup);free(parent_inode_backup);return OPENFS_PATH_IO_ERROR;}
 }
 openfs_dir_result_t rr=openfs_dir_remove(d,s,&pi,name);if(rr!=OPENFS_DIR_OK){free(parent_inode_backup);free(root_backup);return map_dir_result(rr);}
 if(target.link_count==1U){

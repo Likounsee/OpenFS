@@ -13,7 +13,7 @@ static void write_raw(uint8_t *b,uint32_t type,uint64_t tx,uint64_t seq,uint32_t
     memset(b,0,4096U);memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=(uint8_t)type;
     for(unsigned k=0;k<8U;k++){b[8U+k]=(uint8_t)(tx>>(8U*k));b[16U+k]=(uint8_t)(seq>>(8U*k));}
     b[24U]=(uint8_t)len;b[25U]=(uint8_t)(len>>8U);b[26U]=(uint8_t)(len>>16U);b[27U]=(uint8_t)(len>>24U);
-    uint32_t crc=openfs_crc32c(b,4092U);if(!valid_crc)crc^=0xA5A5A5A5U;
+    uint32_t crc=openfs_crc32c(b,4096U);if(!valid_crc)crc^=0xA5A5A5A5U;
     b[28U]=(uint8_t)crc;b[29U]=(uint8_t)(crc>>8U);b[30U]=(uint8_t)(crc>>16U);b[31U]=(uint8_t)(crc>>24U);
 }
 static void journal_corruption_matrix(void){
@@ -25,6 +25,22 @@ static void journal_corruption_matrix(void){
     memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,UINT64_MAX,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_COMMIT,UINT64_MAX,2U,0U,1);assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_OK);
     memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,7U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_COMMIT,8U,2U,0U,1);assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
     memset(d.b+(size_t)(s.journal_start*d.bs),0,3U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,9U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_DATA,9U,2U,1U,1);raw[32U]=1U;assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_BEGIN,10U,3U,0U,1);assert(v.write(v.context,s.journal_start+2U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
+    memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);
+    uint8_t full_payload[4064U];
+    memset(full_payload,0x5AU,sizeof(full_payload));
+    memset(raw,0,sizeof(raw));
+    write_raw(raw,OPENFS_JOURNAL_BEGIN,11U,1U,0U,1);
+    assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
+    write_raw(raw,OPENFS_JOURNAL_DATA,11U,2U,4064U,1);
+    memcpy(raw+32U,full_payload,sizeof(full_payload));
+    uint32_t full_crc=openfs_crc32c(raw,4096U);
+    raw[28U]=(uint8_t)full_crc;raw[29U]=(uint8_t)(full_crc>>8U);raw[30U]=(uint8_t)(full_crc>>16U);raw[31U]=(uint8_t)(full_crc>>24U);
+    assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    assert(v.read(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
+    raw[4095U]^=0x01U;
+    assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
     free(d.b);
 }
 

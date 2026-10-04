@@ -42,6 +42,7 @@ static openfs_dir_result_t validate_dir(const openfs_inode_t *inode, const char 
     if (inode->size > UINT64_MAX - (OPENFS_DIR_ENTRY_SIZE - 1U)) return OPENFS_DIR_CORRUPT;
     if ((inode->mode & 0170000U) != OPENFS_INODE_MODE_DIRECTORY) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name[0] == '\0' || strchr(name, '/') != NULL) return OPENFS_DIR_INVALID_ARGUMENT;
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return OPENFS_DIR_INVALID_ARGUMENT;
     if (name_length(name) == SIZE_MAX) return OPENFS_DIR_NAME_TOO_LONG;
     return OPENFS_DIR_OK;
 }

@@ -113,42 +113,46 @@ static uint64_t file_block(openfs_block_device_t *v, const openfs_superblock_t *
     return physical;
 }
 
-static int recovery_oracle(disk_t *d)
+typedef enum {
+    P3A_ORACLE_UNEXPECTED = 0,
+    P3A_ORACLE_RECOVERED = 1,
+    P3A_ORACLE_EXPLICIT_CORRUPTION = 2
+} p3a_oracle_result_t;
+
+static p3a_oracle_result_t recovery_oracle(disk_t *d)
 {
     openfs_block_device_t v = dev(d);
     openfs_mount_t m;
     openfs_mount_result_t mr = openfs_mount(&m, &v);
+    if (mr == OPENFS_MOUNT_CORRUPT) {
+        fprintf(stderr, "P3-A oracle: explicit corruption classification\n");
+        return P3A_ORACLE_EXPLICIT_CORRUPTION;
+    }
     if (mr != OPENFS_MOUNT_OK) {
-        fprintf(stderr, "P3-A oracle: mount rejected state (classification=corruption)\\n");
-        return 1;
+        fprintf(stderr, "P3-A oracle: unexpected mount result=%d\n", (int)mr);
+        return P3A_ORACLE_UNEXPECTED;
     }
-
-    {
-        uint64_t errors = 0U;
-        openfs_fsck_result_t fr = openfs_fsck(&v, &m.superblock, &errors);
-        if (fr != OPENFS_FSCK_OK || errors != 0U) {
-            fprintf(stderr, "P3-A oracle: fsck detected corruption (result=%d errors=%llu)\\n",
-                    (int)fr, (unsigned long long)errors);
-            (void)openfs_unmount(&m);
-            return 1;
-        }
+    uint64_t errors = 0U;
+    openfs_fsck_result_t fr = openfs_fsck(&v, &m.superblock, &errors);
+    if (fr != OPENFS_FSCK_OK || errors != 0U) {
+        fprintf(stderr, "P3-A oracle: unexpected corruption after successful mount (result=%d errors=%llu)\n",
+                (int)fr, (unsigned long long)errors);
+        (void)openfs_unmount(&m);
+        return P3A_ORACLE_UNEXPECTED;
     }
-
     if (openfs_unmount(&m) != OPENFS_MOUNT_OK)
-        return 0;
-
+        return P3A_ORACLE_UNEXPECTED;
     if (openfs_mount(&m, &v) != OPENFS_MOUNT_OK)
-        return 0;
-
-    {
-        uint64_t errors = 0U;
-        if (openfs_fsck(&v, &m.superblock, &errors) != OPENFS_FSCK_OK || errors != 0U) {
-            (void)openfs_unmount(&m);
-            return 0;
-        }
+        return P3A_ORACLE_UNEXPECTED;
+    errors = 0U;
+    fr = openfs_fsck(&v, &m.superblock, &errors);
+    if (fr != OPENFS_FSCK_OK || errors != 0U) {
+        (void)openfs_unmount(&m);
+        return P3A_ORACLE_UNEXPECTED;
     }
-
-    return openfs_unmount(&m) == OPENFS_MOUNT_OK;
+    if (openfs_unmount(&m) != OPENFS_MOUNT_OK)
+        return P3A_ORACLE_UNEXPECTED;
+    return P3A_ORACLE_RECOVERED;
 }
 
 static int write_rollback_write_failure(void)
@@ -181,7 +185,7 @@ static int write_rollback_write_failure(void)
     d.fail_flush = 0;
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(before);
     free(d.bytes);
@@ -206,7 +210,7 @@ static int write_rollback_flush_failure(void)
     assert(openfs_file_write(&v, &s, &inode, 0U, update, sizeof(update)) == OPENFS_FILE_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
@@ -231,7 +235,7 @@ static int allocator_rollback_write_failure(void)
     assert(memcmp(before, d.bytes, (size_t)d.block_count * d.block_size) != 0);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(before);
     free(d.bytes);
@@ -269,7 +273,7 @@ static int inode_rollback_write_failure(void)
     assert(openfs_inode_alloc(&v, &s, s.root_inode, OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_INODE_ALLOC_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
@@ -296,7 +300,7 @@ static int create_rollback_write_failure(void)
            == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
@@ -318,7 +322,7 @@ static int unlink_rollback_write_failure(void)
     assert(openfs_path_unlink(&v, &s, "/unlink-double") == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
@@ -340,7 +344,7 @@ static int link_rollback_write_failure(void)
     assert(openfs_link(&v, &s, "/link-source", "/link-alias") == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
@@ -370,7 +374,7 @@ static int symlink_rollback_write_failure(void)
     assert(openfs_symlink(&v, &s, "/symlink-target", "/symlink-double") == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     (void)symlink_ino;
     free(d.bytes);
@@ -404,7 +408,7 @@ static int rename_replace_rollback_write_failure(void)
     assert(openfs_path_rename(&v, &s, "/rename-src", "/rename-dst") == OPENFS_PATH_CORRUPT);
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d));
+    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
 
     free(d.bytes);
     return 0;
