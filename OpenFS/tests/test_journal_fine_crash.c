@@ -33,7 +33,8 @@ typedef enum {
     C1_BEFORE_CLEAR,
     C2_CLEAR_MID,
     C3_AFTER_CLEAR_BEFORE_FLUSH,
-    C4_CHECKPOINT_FLUSH
+    C4_CHECKPOINT_FLUSH,
+    C6_MULTI_CHECKPOINT
 } cut_t;
 
 typedef struct {
@@ -134,7 +135,8 @@ static openfs_io_result_t fl(void *ctx) {
     if (!d) return OPENFS_IO_INVALID_ARGUMENT;
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
     d->flushes++;
-    if (d->armed && d->cut == C4_CHECKPOINT_FLUSH && d->flushes == 3U) crash_now();
+    if (d->armed && ((d->cut == C4_CHECKPOINT_FLUSH && d->flushes == 3U) ||
+                     (d->cut == C6_MULTI_CHECKPOINT && d->flushes == 6U))) crash_now();
     return OPENFS_IO_OK;
 }
 
@@ -202,6 +204,8 @@ static int tx_worker(const char *path, cut_t cut, int multi) {
         openfs_transaction_result_t r = openfs_transaction_commit(&t);
         if (r != OPENFS_TRANSACTION_OK) return 8;
         d.cut = cut;
+        if (multi && pass == 0) d.armed = 0;
+        if (multi && pass == 1) d.armed = 1;
     }
     close_disk(&d);
     return 0;
@@ -365,8 +369,13 @@ int main(int argc,char **argv){
     }
     if(argc!=1)return 1;
     unsigned id=0U;
-    for(int c=J1_BEGIN_PARTIAL;c<=J5_COMMIT_PARTIAL;c++) assert(journal_crash_case(argv[0],(cut_t)c,0,id++));
-    for(int c=C1_BEFORE_CLEAR;c<=C4_CHECKPOINT_FLUSH;c++) assert(journal_crash_case(argv[0],(cut_t)c,c==C4_CHECKPOINT_FLUSH,id++));
-    for(int k=0;k<4;k++) assert(replay_state_case(k,id++));
+    for(int c=J1_BEGIN_PARTIAL;c<=J5_COMMIT_PARTIAL;c++) { int ok=journal_crash_case(argv[0],(cut_t)c,0,id++); if(!ok) fprintf(stderr,"journal cut failed: %d\\n",c); assert(ok); }
+    for(int c=C1_BEFORE_CLEAR;c<=C4_CHECKPOINT_FLUSH;c++) {
+        int ok = journal_crash_case(argv[0],(cut_t)c,0,id++);
+        if(!ok) fprintf(stderr,"checkpoint cut failed: %d\\n",c);
+        assert(ok);
+    }
+    { int ok = journal_crash_case(argv[0],C6_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
+    for(int k=0;k<4;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
     return 0;
 }
