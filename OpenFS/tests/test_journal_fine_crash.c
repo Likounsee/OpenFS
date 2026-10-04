@@ -118,6 +118,11 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count, const vo
         }
     }
 
+    if (d->armed && count == 1U && isj && iszero &&
+        d->cut == C1_BEFORE_CLEAR && d->zero_writes == 0U) {
+        crash_now();
+    }
+
     if (fwrite(in, 1U, n, d->f) != n) return OPENFS_IO_IO_ERROR;
     if (!flush_file(d)) return OPENFS_IO_IO_ERROR;
 
