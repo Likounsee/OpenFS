@@ -241,6 +241,7 @@ static int verify_corrupt(const char *path) {
 
 static int verify(const char *path, int expect0, int expect1, int expect2, int expect3) {
     disk_t d; if(!open_disk(path,&d))return 0;
+    d.armed = 0;
     openfs_block_device_t v=dev(&d); openfs_mount_t m;
     if(openfs_mount(&m,&v)!=OPENFS_MOUNT_OK){close_disk(&d);return 0;}
     uint8_t b[BS]; int ok=1;
