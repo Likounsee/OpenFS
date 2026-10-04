@@ -398,6 +398,14 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     d.fail_write_enabled=0;
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
     {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-commit-fail",&q)==OPENFS_PATH_OK&&q==tx_src);uint64_t errors=0U;assert(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+    assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
+    assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-commit-fail","/home/test/tx-rename-flush-fail")==OPENFS_PATH_OK);
+    d.fail_flush=1;d.fail_flush_once=1;
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
+    d.fail_flush=0;
+    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-commit-fail",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-flush-fail",&q)==OPENFS_PATH_OK&&q==tx_src);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+
 
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_src);
