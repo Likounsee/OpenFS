@@ -6,8 +6,10 @@
 #include "openfs/journal.h"
 #include "openfs/fsck.h"
 #include "openfs/mount.h"
+#include "openfs/crc32c.h"
 
 typedef struct { uint8_t *b; uint32_t bs; uint64_t bc; } disk_t;
+static openfs_journal_result_t replay_ok(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){(void)ctx;(void)tx;(void)data;(void)len;return OPENFS_JOURNAL_OK;}
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*o){disk_t*d=c;if(!d||!o||!n||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(o,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*i){disk_t*d=c;if(!d||!i||!n||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),i,(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){(void)c;return OPENFS_IO_OK;}
@@ -27,7 +29,7 @@ static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t
 }
 static void empty_boundary(void){
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);assert(j.active_transaction_id==0U);assert(j.commit_record_written==0U);
-    assert(openfs_journal_replay(&v,&s,[](void*,uint64_t,const uint8_t*,uint32_t){return OPENFS_JOURNAL_OK;},NULL)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);openfs_journal_t r;assert(openfs_journal_open(&r,&v,&s)==OPENFS_JOURNAL_OK);assert(r.next_record==0U);free(d.b);
 }
 static void physical_boundaries(void){
@@ -48,7 +50,7 @@ static void physical_boundaries(void){
     for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,sizeof(payload));
     raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_COMMIT,1U,jb,NULL,0U);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==jb);assert(j.active_transaction_id==0U);assert(j.commit_record_written==1U);assert(j.transaction_id==1U);assert(j.sequence==jb);
-    assert(openfs_journal_begin(&j,&v,&(uint64_t){0})==OPENFS_JOURNAL_INVALID_ARGUMENT);
+    uint64_t dummy=0U;assert(openfs_journal_begin(&j,&v,&dummy)==OPENFS_JOURNAL_INVALID_ARGUMENT);
     assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);assert(j.commit_record_written==0U);
     assert_clean_after_mount(&v,&s,target,0x5CU);
     free(d.b);
