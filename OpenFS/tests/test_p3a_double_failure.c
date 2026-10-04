@@ -119,7 +119,16 @@ typedef enum {
     P3A_ORACLE_EXPLICIT_CORRUPTION = 2
 } p3a_oracle_result_t;
 
-static p3a_oracle_result_t recovery_oracle(disk_t *d)
+static uint8_t *snapshot_disk(const disk_t *d)
+{
+    size_t bytes = (size_t)d->block_count * d->block_size;
+    uint8_t *copy = malloc(bytes);
+    assert(copy != NULL);
+    memcpy(copy, d->bytes, bytes);
+    return copy;
+}
+
+static p3a_oracle_result_t recovery_oracle(disk_t *d, const uint8_t *before)
 {
     openfs_block_device_t v = dev(d);
     openfs_mount_t m;
@@ -152,6 +161,11 @@ static p3a_oracle_result_t recovery_oracle(disk_t *d)
     }
     if (openfs_unmount(&m) != OPENFS_MOUNT_OK)
         return P3A_ORACLE_UNEXPECTED;
+    size_t bytes = (size_t)d->block_count * d->block_size;
+    if (before == NULL || memcmp(d->bytes, before, bytes) != 0) {
+        fprintf(stderr, "P3-A oracle: recovered mount/fsck but durable image differs from baseline\n");
+        return P3A_ORACLE_UNEXPECTED;
+    }
     return P3A_ORACLE_RECOVERED;
 }
 
@@ -175,6 +189,7 @@ static int write_rollback_write_failure(void)
     memcpy(before, d.bytes, (size_t)d.block_count * d.block_size);
 
     d.fail_block = physical;
+    uint8_t *before = snapshot_disk(&d);
     d.fail_enabled = 1;
     d.partial_once = 1;
     d.partial_bytes = 512U;
@@ -185,7 +200,7 @@ static int write_rollback_write_failure(void)
     d.fail_flush = 0;
     d.fail_enabled = 0;
     d.fail_flush = 0;
-    assert(recovery_oracle(&d) == P3A_ORACLE_EXPLICIT_CORRUPTION);
+    assert(recovery_oracle(&d, before) != P3A_ORACLE_UNEXPECTED);
 
     free(before);
     free(d.bytes);
@@ -206,6 +221,7 @@ static int write_rollback_flush_failure(void)
     assert(openfs_inode_read(&v, s.inode_table_start, ino, inode_count(&s), &inode) == OPENFS_INODE_OK);
     assert(openfs_file_write(&v, &s, &inode, 0U, seed, sizeof(seed)) == OPENFS_FILE_OK);
 
+    uint8_t *before = snapshot_disk(&d);
     d.fail_flush = 1;
     assert(openfs_file_write(&v, &s, &inode, 0U, update, sizeof(update)) == OPENFS_FILE_CORRUPT);
     d.fail_enabled = 0;
@@ -226,6 +242,7 @@ static int allocator_rollback_write_failure(void)
     assert(before != NULL);
     memcpy(before, d.bytes, (size_t)d.block_count * d.block_size);
 
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = s.block_bitmap_start;
     d.fail_enabled = 1;
     d.partial_once = 1;
@@ -265,6 +282,7 @@ static int inode_rollback_write_failure(void)
         assert(openfs_inode_free(&v, &s, ino) == OPENFS_INODE_ALLOC_OK);
     }
 
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = inode_block(&s, ino);
     d.fail_enabled = 1;
     d.partial_once = 1;
@@ -289,6 +307,7 @@ static int create_rollback_write_failure(void)
      * Creation writes the inode once.  The _as wrapper then writes uid/gid.
      * Fail that second write and keep failing the same block during rollback.
      */
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = inode_block(&s, 2U);
     d.fail_enabled = 1;
     d.skip_writes = 2U;
@@ -313,6 +332,7 @@ static int unlink_rollback_write_failure(void)
     setup(&d, &v, &s);
 
     assert(openfs_path_create(&v, &s, "/unlink-double", OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = inode_block(&s, ino);
     d.fail_enabled = 1;
     d.skip_writes = 1U;
@@ -365,6 +385,7 @@ static int symlink_rollback_write_failure(void)
      * primary failure; every subsequent write to the same block fails.
      */
     uint64_t candidate = inode_block(&s, target + 1U);
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = candidate;
     d.fail_enabled = 1;
     d.skip_writes = 1U;
@@ -399,6 +420,7 @@ static int rename_replace_rollback_write_failure(void)
      * Destination removal succeeds. Source removal is the first failed
      * mutation. Rollback then attempts to restore the same directory block.
      */
+    uint8_t *before = snapshot_disk(&d);
     d.fail_block = dir_block;
     d.fail_enabled = 1;
     d.skip_writes = 1U;

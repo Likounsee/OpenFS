@@ -33,6 +33,7 @@ static void journal_corruption_matrix(void){
     assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
     write_raw(raw,OPENFS_JOURNAL_DATA,11U,2U,4064U,1);
     memcpy(raw+32U,full_payload,sizeof(full_payload));
+    raw[28U]=raw[29U]=raw[30U]=raw[31U]=0U;
     uint32_t full_crc=openfs_crc32c(raw,4096U);
     raw[28U]=(uint8_t)full_crc;raw[29U]=(uint8_t)(full_crc>>8U);raw[30U]=(uint8_t)(full_crc>>16U);raw[31U]=(uint8_t)(full_crc>>24U);
     assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
