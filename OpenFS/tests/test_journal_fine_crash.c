@@ -277,6 +277,7 @@ static int journal_crash_case(const char *self, cut_t cut, int multi, unsigned i
     if(!prepare(path,&target))return 0;
     int crashed=run_child(self,path,cut,multi);
     int ok=crashed;
+    if(!crashed) fprintf(stderr,"fine cut did not crash: %d\\n",(int)cut);
     if(ok){
         if(cut==J1_BEGIN_PARTIAL||cut==J2_DATA_PARTIAL||
            cut==J4_DATA_PARTIAL_OFFSETS||cut==J5_COMMIT_PARTIAL)
@@ -286,7 +287,7 @@ static int journal_crash_case(const char *self, cut_t cut, int multi, unsigned i
         else if(multi) ok=verify(path,1,1,1,1);
         else ok=verify(path,1,0,1,0);
     }
-    close_disk(&(disk_t){0});
+    if(!ok) fprintf(stderr,"fine cut verification failed: %d\\n",(int)cut);
     (void)remove(path);
     return ok;
 }
