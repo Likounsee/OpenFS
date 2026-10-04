@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "openfs/fsck.h"
 #include "openfs/format.h"
@@ -14,7 +15,8 @@
 #include <windows.h>
 #include <io.h>
 #else
-#include <errno.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -54,12 +56,7 @@ static void die_now(void)
 
 static int persist(crash_disk_t *d)
 {
-    if (fflush(d->file) != 0) return 0;
-#if defined(_WIN32)
-    return _commit(_fileno(d->file)) == 0;
-#else
-    return fsync(fileno(d->file)) == 0;
-#endif
+    return fflush(d->file) == 0;
 }
 
 static int seek_block(crash_disk_t *d, uint64_t block)
