@@ -89,10 +89,9 @@ static void name_and_path_boundaries(void){
 
     assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_NAME_TOO_LONG);
 
-    memcpy(path,"/",2U);
+    path[0]='/';
     size_t used=1U;
-    while(used+2U<OPENFS_PATH_MAX-1U){path[used++]='a';path[used++]='/';}
-    path[used++]='a';
+    for(unsigned i=0U;i<2047U;i++){path[used++]='a';path[used++]='/';}
     path[used]='\0';
     assert(strlen(path)==OPENFS_PATH_MAX-1U);
     assert(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);
@@ -108,7 +107,7 @@ static void name_and_path_boundaries(void){
     assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
 
     name[OPENFS_DIR_NAME_MAX]='x';name[OPENFS_DIR_NAME_MAX+1U]='\0';
-    memcpy(p+1,name,sizeof(name));p[OPENFS_DIR_NAME_MAX+2U]='\0';
+    memcpy(p+1,name,OPENFS_DIR_NAME_MAX+1U);p[OPENFS_DIR_NAME_MAX+2U]='\0';
     assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_NAME_TOO_LONG);
     free(d.b);
 }
