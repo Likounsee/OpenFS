@@ -361,7 +361,7 @@ static void raw_record(uint8_t *b,uint8_t type,uint64_t tx,uint64_t seq,const ui
     memset(b,0,BS);memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=type;
     p64(b+8U,tx);p64(b+16U,seq);p32(b+24U,len);
     if(len)memcpy(b+32U,payload,len);
-    p32(b+28U,0U);p32(b+28U,openfs_crc32c(b,BS-4U));
+    p32(b+28U,0U);p32(b+28U,openfs_crc32c(b,BS));
 }
 
 static int write_raw(openfs_block_device_t *v,const openfs_superblock_t *s,uint64_t slot,
