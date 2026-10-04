@@ -9,10 +9,10 @@
 #include "openfs/file.h"
 #include "openfs/mount.h"
 #include <stdio.h>
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;uint32_t flush_calls;uint32_t fail_flush_call;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_write_enabled&&f==d->fail_write_block){if(d->fail_write_count>0){if(--d->fail_write_count==0)d->fail_write_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->arm_on_write&&f==d->arm_block)d->armed=1;if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;if(d->partial_write_once&&f==d->partial_write_block){uint32_t bytes=d->partial_write_bytes<d->bs?d->partial_write_bytes:d->bs;memcpy(d->b+(size_t)(f*d->bs),x,bytes);d->partial_write_once=0;return OPENFS_IO_IO_ERROR;}memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->mutate_after_write&&d->mutate_sb_after_write&&f==d->mutate_after_write_block){d->mutate_after_write=0;d->mutate_sb_after_write->inode_table_blocks=0U;}return OPENFS_IO_OK;}
-static openfs_io_result_t f(void*c){D*d=c;if(d->fail_flush){if(d->fail_flush_once)d->fail_flush=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
+static openfs_io_result_t f(void*c){D*d=c;d->flush_calls++;if(d->fail_flush_call!=0U&&d->flush_calls==d->fail_flush_call){d->fail_flush_call=0U;return OPENFS_IO_IO_ERROR;}if(d->fail_flush){if(d->fail_flush_once)d->fail_flush=0;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static void long_unlink_path(void){
  D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
  char path[OPENFS_PATH_MAX];size_t used=1U;path[0]='/';path[1]='\0';for(unsigned level=0U;level<6U;level++){char name[201];memset(name,(int)('a'+level),200U);name[200]='\0';assert(used+201U<sizeof(path));memcpy(path+used,name,200U);used+=200U;path[used++]='/';path[used]='\0';uint64_t ino=0U;assert(openfs_path_mkdir(&v,&s,path,&ino)==OPENFS_PATH_OK);}path[used-1U]='x';path[used]='\0';uint64_t ino=0U;assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,path)==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);free(d.b);
@@ -408,6 +408,17 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
     d.fail_flush=0;
     {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-commit-fail",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-flush-fail",&q)==OPENFS_PATH_OK&&q==tx_src);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    assert(openfs_transaction_begin(&tx,&v,&j)==OPENFS_TRANSACTION_OK);
+    assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-flush-fail","/home/test/tx-rename-checkpoint-fail")==OPENFS_PATH_OK);
+    d.flush_calls=0U;d.fail_flush=0;d.fail_flush_once=0;d.fail_flush_call=3U;
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
+    assert(tx.active==1&&tx.failed==1&&tx.commit_started==1&&tx.committed==1&&tx.recovery_required==1&&tx.pending==NULL&&tx.pending_count==0U);
+    assert(j.active_transaction_id==0U&&j.commit_record_written==1U);
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
+    assert(tx.active==0&&tx.pending==NULL&&tx.pending_count==0U);
+    d.fail_flush_call=0U;
+    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-flush-fail",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-checkpoint-fail",&q)==OPENFS_PATH_OK&&q==tx_src);uint64_t errors=0U;assert(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
 
 
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);
