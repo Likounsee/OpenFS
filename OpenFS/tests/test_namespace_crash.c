@@ -603,20 +603,31 @@ static int test_case(const char *self, const scenario_t *scenario,
         snprintf(crashed, sizeof(crashed), "openfs-ns-%u-crash.img", serial) < 0)
         return 0;
 
-    if (!prepare_base(base, scenario->op) ||
-        !copy_file(base, reference) ||
-        !copy_file(base, crashed))
+    if (!prepare_base(base, scenario->op)) {
+        fprintf(stderr, "namespace stage prepare failed: %s cut=%d\\n", scenario->name, (int)cut);
         goto cleanup;
+    }
+    if (!copy_file(base, reference) || !copy_file(base, crashed)) {
+        fprintf(stderr, "namespace stage copy failed: %s cut=%d\\n", scenario->name, (int)cut);
+        goto cleanup;
+    }
 
-    if (!run_child(self, scenario->op, cut, reference, 0) ||
-        !reference_snapshot(reference, scenario, expected))
+    if (!run_child(self, scenario->op, cut, reference, 0)) {
+        fprintf(stderr, "namespace stage reference operation failed: %s cut=%d\\n", scenario->name, (int)cut);
         goto cleanup;
+    }
+    if (!reference_snapshot(reference, scenario, expected)) {
+        fprintf(stderr, "namespace stage reference snapshot failed: %s cut=%d\\n", scenario->name, (int)cut);
+        goto cleanup;
+    }
 
-    if (!run_child(self, scenario->op, cut, crashed, 1))
+    if (!run_child(self, scenario->op, cut, crashed, 1)) {
+        fprintf(stderr, "namespace stage crash child failed: %s cut=%d\\n", scenario->name, (int)cut);
         goto cleanup;
+    }
 
     ok = verify_image(crashed, scenario, expected);
-    if (!ok) fprintf(stderr, "namespace crash failure: %s cut=%d\\n", scenario->name, (int)cut);
+    if (!ok) fprintf(stderr, "namespace stage recovery oracle failed: %s cut=%d\\n", scenario->name, (int)cut);
 
 cleanup:
     (void)remove(base);
