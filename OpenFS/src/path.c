@@ -300,6 +300,7 @@ uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CO
 
 path_block_snapshots_t dir_snap={0},inode_snap={0},dest_data_snap={0};
 uint8_t *inode_bitmap_before=NULL,*block_bitmap_before=NULL,*dest_root_before=NULL;
+uint64_t dest_root_block=0U;
 int snapshot_ok=1;
 snapshot_ok &= path_snapshot_file_blocks(d,s,&odir,&dir_snap);
 if(newparent!=oldparent)snapshot_ok &= path_snapshot_file_blocks(d,s,&ndir,&dir_snap);
@@ -309,10 +310,10 @@ snapshot_ok &= path_snapshot_inode_block(d,s,source_entry.inode_number,&inode_sn
 if(destination_exists)snapshot_ok &= path_snapshot_inode_block(d,s,dest_entry.inode_number,&inode_snap);
 if(destination_exists&&destination.link_count==1U){
     snapshot_ok &= path_snapshot_file_blocks(d,s,&destination,&dest_data_snap);
-    uint64_t root=openfs_inode_get_extent_tree_root(&destination);
-    if(root!=0U){
+    dest_root_block=openfs_inode_get_extent_tree_root(&destination);
+    if(dest_root_block!=0U){
         dest_root_before=malloc(d->block_size);
-        if(dest_root_before==NULL||d->read(d->context,root,1U,dest_root_before)!=OPENFS_IO_OK)snapshot_ok=0;
+        if(dest_root_before==NULL||d->read(d->context,dest_root_block,1U,dest_root_before)!=OPENFS_IO_OK)snapshot_ok=0;
     }
 }
 if(snapshot_ok)snapshot_ok &= path_snapshot_bitmap(d,s,s->inode_bitmap_start,s->inode_bitmap_blocks,&inode_bitmap_before);
@@ -363,8 +364,7 @@ if(!ok){
     if(!path_restore_snapshots(d,&dir_snap))rollback_ok=0;
     if(!path_restore_snapshots(d,&dest_data_snap))rollback_ok=0;
     if(dest_root_before!=NULL){
-        uint64_t root=openfs_inode_get_extent_tree_root(&destination);
-        if(root==0U||d->write(d->context,root,1U,dest_root_before)!=OPENFS_IO_OK)rollback_ok=0;
+        if(dest_root_block==0U||d->write(d->context,dest_root_block,1U,dest_root_before)!=OPENFS_IO_OK)rollback_ok=0;
     }
     if(!path_restore_bitmap(d,s->inode_bitmap_start,s->inode_bitmap_blocks,inode_bitmap_before))rollback_ok=0;
     if(!path_restore_bitmap(d,s->block_bitmap_start,s->block_bitmap_blocks,block_bitmap_before))rollback_ok=0;
