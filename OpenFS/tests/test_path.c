@@ -457,7 +457,7 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
 
 
     assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);
-    assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_src);
-    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_src);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+    assert(openfs_path_lookup(&v,&s,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_dst);
+    {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-dst",&q)==OPENFS_PATH_OK&&q==tx_dst);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-src",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
 }
 free(d.b);return 0;}
