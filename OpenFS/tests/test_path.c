@@ -135,25 +135,27 @@ assert(openfs_path_rename(&v,&s,"/home/test","/home/renamed")==OPENFS_PATH_OK);a
     uint64_t ob=0U,nb=0U;assert(openfs_file_map_block_device(&v,&s,&oi,1U,&ob)==OPENFS_FILE_OK);assert(openfs_file_map_block_device(&v,&s,&ni,0U,&nb)==OPENFS_FILE_OK);
     uint64_t old_inode_block=s.inode_table_start+((rsrc-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
     uint64_t new_inode_block=s.inode_table_start+((rdst-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    size_t bitmap_bytes=(size_t)(s.block_bitmap_blocks*s.block_size)+(size_t)(s.inode_bitmap_blocks*s.block_size);
-    uint8_t *obefore=malloc(s.block_size),*oafter=malloc(s.block_size),*nbefore=malloc(s.block_size),*nafter=malloc(s.block_size),*ibefore=malloc(s.block_size),*iafter=malloc(s.block_size),*bbefore=malloc(bitmap_bytes),*bafter=malloc(bitmap_bytes);
-    assert(obefore&&oafter&&nbefore&&nafter&&ibefore&&iafter&&bbefore&&bafter);
+    size_t block_bitmap_bytes=(size_t)(s.block_bitmap_blocks*s.block_size),inode_bitmap_bytes=(size_t)(s.inode_bitmap_blocks*s.block_size);
+    uint8_t *obefore=malloc(s.block_size),*oafter=malloc(s.block_size),*nbefore=malloc(s.block_size),*nafter=malloc(s.block_size),*old_ibefore=malloc(s.block_size),*old_iafter=malloc(s.block_size),*new_ibefore=malloc(s.block_size),*new_iafter=malloc(s.block_size),*bbefore=malloc(block_bitmap_bytes),*bafter=malloc(block_bitmap_bytes),*ibitmap_before=malloc(inode_bitmap_bytes),*ibitmap_after=malloc(inode_bitmap_bytes);
+    assert(obefore&&oafter&&nbefore&&nafter&&old_ibefore&&old_iafter&&new_ibefore&&new_iafter&&bbefore&&bafter&&ibitmap_before&&ibitmap_after);
     assert(v.read(v.context,ob,1U,obefore)==OPENFS_IO_OK);assert(v.read(v.context,nb,1U,nbefore)==OPENFS_IO_OK);
-    assert(v.read(v.context,old_inode_block,1U,ibefore)==OPENFS_IO_OK);assert(v.read(v.context,new_inode_block,1U,iafter)==OPENFS_IO_OK);
-    memcpy(bbefore,d.b+(size_t)(s.block_bitmap_start*s.block_size),bitmap_bytes);
+    assert(v.read(v.context,old_inode_block,1U,old_ibefore)==OPENFS_IO_OK);assert(v.read(v.context,new_inode_block,1U,new_ibefore)==OPENFS_IO_OK);
+    memcpy(bbefore,d.b+(size_t)(s.block_bitmap_start*s.block_size),block_bitmap_bytes);
+    memcpy(ibitmap_before,d.b+(size_t)(s.inode_bitmap_start*s.block_size),inode_bitmap_bytes);
     d.partial_write_block=ob;d.partial_write_bytes=17U;d.partial_write_once=1;
     assert(openfs_path_rename(&v,&s,"/home/test/rename-partial-old/src","/home/test/rename-partial-new/dst")==OPENFS_PATH_IO_ERROR);
     assert(v.read(v.context,ob,1U,oafter)==OPENFS_IO_OK&&memcmp(obefore,oafter,s.block_size)==0);
     assert(v.read(v.context,nb,1U,nafter)==OPENFS_IO_OK&&memcmp(nbefore,nafter,s.block_size)==0);
-    assert(v.read(v.context,old_inode_block,1U,oafter)==OPENFS_IO_OK&&memcmp(ibefore,oafter,s.block_size)==0);
-    assert(v.read(v.context,new_inode_block,1U,iafter)==OPENFS_IO_OK&&memcmp(iafter,iafter,s.block_size)==0);
-    memcpy(bafter,d.b+(size_t)(s.block_bitmap_start*s.block_size),bitmap_bytes);
-    assert(memcmp(bbefore,bafter,bitmap_bytes)==0);
+    assert(v.read(v.context,old_inode_block,1U,old_iafter)==OPENFS_IO_OK&&memcmp(old_ibefore,old_iafter,s.block_size)==0);
+    assert(v.read(v.context,new_inode_block,1U,new_iafter)==OPENFS_IO_OK&&memcmp(new_ibefore,new_iafter,s.block_size)==0);
+    memcpy(bafter,d.b+(size_t)(s.block_bitmap_start*s.block_size),block_bitmap_bytes);
+    memcpy(ibitmap_after,d.b+(size_t)(s.inode_bitmap_start*s.block_size),inode_bitmap_bytes);
+    assert(memcmp(bbefore,bafter,block_bitmap_bytes)==0&&memcmp(ibitmap_before,ibitmap_after,inode_bitmap_bytes)==0);
     assert(openfs_path_lookup(&v,&s,"/home/test/rename-partial-old/src",&q)==OPENFS_PATH_OK&&q==rsrc);
     assert(openfs_path_lookup(&v,&s,"/home/test/rename-partial-new/dst",&q)==OPENFS_PATH_OK&&q==rdst);
     {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
     {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/rename-partial-old/src",&q)==OPENFS_PATH_OK&&q==rsrc);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/rename-partial-new/dst",&q)==OPENFS_PATH_OK&&q==rdst);uint64_t errors=0U;assert(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
-    free(obefore);free(oafter);free(nbefore);free(nafter);free(ibefore);free(iafter);free(bbefore);free(bafter);
+    free(obefore);free(oafter);free(nbefore);free(nafter);free(old_ibefore);free(old_iafter);free(new_ibefore);free(new_iafter);free(bbefore);free(bafter);free(ibitmap_before);free(ibitmap_after);
 }
 {
     uint64_t rsrc=0U;
