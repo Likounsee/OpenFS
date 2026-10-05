@@ -29,7 +29,7 @@ static int restore_unlinked_inode_storage(openfs_block_device_t *d,const openfs_
     return d->flush(d->context) == OPENFS_IO_OK;
 }
 
-static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *path,uint64_t ino,const openfs_inode_t *original_parent);
+static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const openfs_inode_t *target,uint32_t uid);
 static openfs_path_result_t map_file_result(openfs_file_result_t r)
 {
     switch (r) {
@@ -328,9 +328,9 @@ if(!snapshot_ok){
 }
 
 openfs_path_result_t failure=OPENFS_PATH_IO_ERROR;
-int mutated=0,ok=1;
+int ok=1;
 if(destination_exists){
-    if(openfs_dir_remove(d,s,&ndir,nn)!=OPENFS_DIR_OK){ok=0;failure=OPENFS_PATH_IO_ERROR;}else mutated=1;
+    if(openfs_dir_remove(d,s,&ndir,nn)!=OPENFS_DIR_OK){ok=0;failure=OPENFS_PATH_IO_ERROR;};
 }
 if(ok&&openfs_dir_remove(d,s,&odir,on)!=OPENFS_DIR_OK){ok=0;}
 if(ok){
