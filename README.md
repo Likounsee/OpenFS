@@ -13,13 +13,13 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 - **P2 — Crash-Cut Hardening:** CLOSED
 - **P3-A — Error Path / Double Failure:** CLOSED
 - **P3-B — Boundary Matrix:** CLOSED
-- **P3-C — Final Release Validation:** CLOSED
+- **P3-C — Final Release Validation:** REOPENED — independent audit in progress
 
 ## Where we are
 
-OpenFS has a substantial filesystem core implemented and has completed its final P3-C audit. The
+OpenFS has a substantial filesystem core implemented, but the previous P3-C release validation has been superseded by a new independent audit. The
 core remains an integration component rather than a turnkey mounted desktop
-filesystem.
+filesystem. The current branch must not be considered release-ready until the reopened audit and its final CI validation are complete.
 
 Current overall progress is approximately **98% of the planned project scope**.
 This is an engineering estimate, not a release-readiness metric.
@@ -63,6 +63,10 @@ This is an engineering estimate, not a release-readiness metric.
   generation, and link-count invariants;
 - CMake build with GCC/Clang warning flags and MSVC-compatible warning configuration;
 - CMake build with GCC/Clang warning flags, Linux and ArchiaOS adapter contract tests, and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan;
+
+### Current audit status
+
+The reopened audit is actively checking corruption handling, crash consistency, rollback paths, permissions, symlink and directory semantics, on-disk invariants, overflow boundaries, adapters, and test/CI consistency. Confirmed findings are being corrected with regression coverage. Historical P3-C validation below is evidence of a previous state, not a current release decision.
 
 ### Remaining hardening / integration
 
