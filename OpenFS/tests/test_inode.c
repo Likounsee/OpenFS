@@ -5,6 +5,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/format.h"
 #include "openfs/inode.h"
+#include "openfs/crc32c.h"
 #include "openfs/extent.h"
 #include "openfs/inode_alloc.h"
 
