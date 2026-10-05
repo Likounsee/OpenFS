@@ -454,13 +454,14 @@ static void extent_tree_root_outside_data_area_is_rejected(void){
     uint64_t root=sb.journal_start;
     assert(root<sb.data_start);
     assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);
-    i.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U;
-    i.blocks=i.extent_count;
+    i.extent_count=0U;
+    i.blocks=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U;
     i.size=i.blocks*(uint64_t)sb.block_size;
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
         openfs_extent_t e={n,sb.data_start+10U+n,1U};
         assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
     }
+    i.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U;
     openfs_extent_t tree={OPENFS_INODE_TREE_INLINE_EXTENT_MAX,sb.data_start+20U,1U};
     uint8_t *raw=calloc(1U,sb.block_size);assert(raw);
     memcpy(raw,OPENFS_EXTENT_TREE_MAGIC,8U);
