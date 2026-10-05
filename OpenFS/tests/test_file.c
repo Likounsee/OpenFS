@@ -537,6 +537,26 @@ static void extent_tree_root_outside_data_area_is_rejected(void){
     free(d.bytes);
 }
 
+static void extent_tree_free_root_is_rejected(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();i.generation=1U;
+    uint64_t root=0U;assert(openfs_alloc_block(&v,&sb,&root)==OPENFS_ALLOC_OK);
+    assert(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);
+    i.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U;
+    i.blocks=i.extent_count;i.size=i.blocks*(uint64_t)sb.block_size;
+    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
+        openfs_extent_t e={n,sb.data_start+10U+n,1U};
+        assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
+    }
+    openfs_extent_t tree={OPENFS_INODE_TREE_INLINE_EXTENT_MAX,sb.data_start+20U,1U};
+    assert(openfs_extent_tree_write(&v,&sb,&i,&tree,1U)==OPENFS_EXTENT_OK);
+    assert(openfs_free_block(&v,&sb,root)==OPENFS_ALLOC_OK);
+    openfs_extent_t out={0};
+    assert(openfs_extent_tree_read(&v,&sb,&i,0U,&out)==OPENFS_EXTENT_CORRUPT);
+    assert(openfs_extent_tree_write(&v,&sb,&i,&tree,1U)==OPENFS_EXTENT_CORRUPT);
+    free(d.bytes);
+}
+
 static void map_bounds(void){
     openfs_inode_t i=new_file();uint64_t p=0U;
     openfs_extent_t e={0U,42U,2U};assert(openfs_inode_set_extent(&i,0U,&e)==OPENFS_EXTENT_OK);i.blocks=2U;
@@ -554,4 +574,4 @@ int main(void){
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
     sparse_write_zeroes_intermediate_blocks();
     partial_write_rollback_failure_is_corruption();
-shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();map_bounds();return 0;}
+shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();extent_tree_free_root_is_rejected();map_bounds();return 0;}
