@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,11 @@ int main(void)
     assert(a.device.read(a.device.context,1U,1U,block)==OPENFS_IO_OK);
     assert(block[0]==0x5aU&&block[4095]==0x5aU);
     assert(a.device.read(a.device.context,4U,1U,block)==OPENFS_IO_OUT_OF_RANGE);
+    a.device.block_count=(uint64_t)(LLONG_MAX/4096LL)+1U;
+    uint64_t edge_first=(uint64_t)(LLONG_MAX/4096LL);
+    assert(a.device.write(a.device.context,edge_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
+    assert(a.device.read(a.device.context,edge_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
+    a.device.block_count=4U;
     assert(openfs_linux_adapter_close(&a)==OPENFS_LINUX_ADAPTER_OK);
 
     assert(openfs_linux_adapter_open(&a,path,4096U,0)==OPENFS_LINUX_ADAPTER_OK);
