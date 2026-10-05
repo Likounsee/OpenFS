@@ -52,9 +52,9 @@ openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t*d,cons
     for(uint64_t n=0U;n<s->journal_blocks;n++){
         if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
         int all_zero=1;for(uint32_t z=0U;z<d->block_size;z++)if(b[z]!=0U){all_zero=0;break;}
-        if(all_zero){int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;valid_records=n;break;}
+        if(all_zero){int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);if(tail<0){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}if(!tail){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}valid_records=n;break;}
         if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0||!crc_valid(b,d->block_size)){
-            int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;valid_records=n;break;
+            int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);if(tail<0){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}if(!tail){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}valid_records=n;break;
         }
         uint32_t len=g32(b+24U);uint64_t tx=g64(b+8U),seq=g64(b+16U);
         if(b[6U]!=0U||b[7U]!=0U||len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U||((b[5]==OPENFS_JOURNAL_BEGIN||b[5]==OPENFS_JOURNAL_COMMIT)&&len!=0U)){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
