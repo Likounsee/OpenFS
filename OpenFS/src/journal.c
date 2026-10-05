@@ -7,11 +7,11 @@ static void p32(uint8_t*p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8U);p[2]
 static void p64(uint8_t*p,uint64_t v){for(unsigned i=0;i<8U;i++)p[i]=(uint8_t)(v>>(8U*i));}
 static uint32_t g32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8U)|((uint32_t)p[2]<<16U)|((uint32_t)p[3]<<24U);}
 static uint64_t g64(const uint8_t*p){uint64_t v=0U;for(unsigned i=0;i<8U;i++)v|=(uint64_t)p[i]<<(8U*i);return v;}static int crc_valid(uint8_t*b,uint32_t block_size){uint32_t stored=g32(b+28U);p32(b+28U,0U);uint32_t full=openfs_crc32c(b,block_size);if(stored==full){p32(b+28U,stored);return 1;}if(block_size>=4U){uint32_t legacy=openfs_crc32c(b,block_size-4U);int reserved=b[block_size-4U]==0U&&b[block_size-3U]==0U&&b[block_size-2U]==0U&&b[block_size-1U]==0U;p32(b+28U,stored);return stored==legacy&&reserved;}p32(b+28U,stored);return 0;}
-static int zero_tail(const openfs_block_device_t*d,uint64_t start,uint64_t blocks)
+static int zero_tail(const openfs_block_device_t*d,uint64_t base,uint64_t start,uint64_t blocks)
 {
     if(start>=blocks)return 1;
     uint8_t*b=malloc(d->block_size);if(b==NULL)return -1;
-    for(uint64_t n=start;n<blocks;n++){if(d->read(d->context,n,1U,b)!=OPENFS_IO_OK){free(b);return -1;}for(uint32_t i=0U;i<d->block_size;i++)if(b[i]!=0U){free(b);return 0;}}
+    for(uint64_t n=start;n<blocks;n++){if(d->read(d->context,base+n,1U,b)!=OPENFS_IO_OK){free(b);return -1;}for(uint32_t i=0U;i<d->block_size;i++)if(b[i]!=0U){free(b);return 0;}}
     free(b);return 1;
 }
 static int range(const openfs_block_device_t*d,const openfs_superblock_t*s){return openfs_block_device_is_valid(d)&&s!=NULL&&s->block_size==d->block_size&&s->journal_blocks>0U&&s->journal_start<d->block_count&&s->journal_blocks<=d->block_count-s->journal_start;}
@@ -26,9 +26,9 @@ openfs_journal_result_t openfs_journal_open(openfs_journal_t*j,const openfs_bloc
     for(uint64_t n=0U;n<s->journal_blocks;n++){
         if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_JOURNAL_IO_ERROR;}
         int all_zero=1;for(uint32_t z=0U;z<d->block_size;z++)if(b[z]!=0U){all_zero=0;break;}
-        if(all_zero){int tail=zero_tail(d,n+1U,s->journal_blocks);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;candidate.next_record=n;*j=candidate;return OPENFS_JOURNAL_OK;}
+        if(all_zero){int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;candidate.next_record=n;*j=candidate;return OPENFS_JOURNAL_OK;}
         if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0||!crc_valid(b,d->block_size)){
-            int tail=zero_tail(d,n+1U,s->journal_blocks);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail){return OPENFS_JOURNAL_CORRUPT;}return OPENFS_JOURNAL_CORRUPT;
+            int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;candidate.next_record=n;*j=candidate;return OPENFS_JOURNAL_OK;
         }
         uint32_t len=g32(b+24U);uint64_t tx=g64(b+8U),seq=g64(b+16U);
         if(b[6U]!=0U||b[7U]!=0U||len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U||(b[5]!=OPENFS_JOURNAL_BEGIN&&b[5]!=OPENFS_JOURNAL_DATA&&b[5]!=OPENFS_JOURNAL_COMMIT)||((b[5]==OPENFS_JOURNAL_BEGIN||b[5]==OPENFS_JOURNAL_COMMIT)&&len!=0U)){free(b);return OPENFS_JOURNAL_CORRUPT;}
@@ -52,9 +52,9 @@ openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t*d,cons
     for(uint64_t n=0U;n<s->journal_blocks;n++){
         if(d->read(d->context,s->journal_start+n,1U,b)!=OPENFS_IO_OK){free(txids);free(states);free(b);return OPENFS_JOURNAL_IO_ERROR;}
         int all_zero=1;for(uint32_t z=0U;z<d->block_size;z++)if(b[z]!=0U){all_zero=0;break;}
-        if(all_zero){int tail=zero_tail(d,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;break;}
+        if(all_zero){int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;break;}
         if(memcmp(b,OPENFS_JOURNAL_MAGIC,5U)!=0||!crc_valid(b,d->block_size)){
-            int tail=zero_tail(d,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;break;
+            int tail=zero_tail(d,s->journal_start,n+1U,s->journal_blocks);free(txids);free(states);free(b);if(tail<0)return OPENFS_JOURNAL_IO_ERROR;if(!tail)return OPENFS_JOURNAL_CORRUPT;break;
         }
         uint32_t len=g32(b+24U);uint64_t tx=g64(b+8U),seq=g64(b+16U);
         if(b[6U]!=0U||b[7U]!=0U||len>d->block_size-OPENFS_JOURNAL_HEADER_SIZE||tx==0U||seq==0U||((b[5]==OPENFS_JOURNAL_BEGIN||b[5]==OPENFS_JOURNAL_COMMIT)&&len!=0U)){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
