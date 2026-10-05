@@ -156,8 +156,25 @@ One new test/oracle bug was found and fixed during this reopened audit:
 
 ## Release decision
 
-**P3-C: CLOSED**
+**P3-C: REOPENED — pending final audit CI**
 
-**RELEASE READY: YES**
+**RELEASE READY: NO**
 
 No known release blocker remains from this audit.
+
+
+## Final P3-C reopening audit
+
+The independent audit found and reproduced a production issue in the extent-tree API design: the extent layer previously re-read the primary superblock to validate the tree root. This was incompatible with a valid mount that had selected the backup superblock after primary corruption.
+
+The correction changes extent-tree read/write APIs to receive the already validated superblock selected by the caller. File and fsck extent-tree paths now pass that selected superblock through. Root validation remains data-area-only and retains overflow checks.
+
+The audit also demonstrated a second production issue: extent-tree write validated physical extents only against device block_count, so a metadata/reserved block could be accepted as an extent. The write path now enforces the selected superblock data-area range.
+
+The Linux adapter audit found a real write-side off_t boundary omission: writes checked the converted starting offset but not offset + bytes against LLONG_MAX. The write path now applies the same terminal-range check already used by reads, with a dedicated adapter regression.
+
+The repository contains strtok() in path lookup. The public API does not promise general concurrent/reentrant path calls, so this is classified as a documented limitation rather than a release-blocking production bug. The limitation is now explicit in adapters.md; no unnecessary parser refactor was made.
+
+A dedicated mount regression now creates a real extent-tree-backed file, corrupts only the primary superblock, mounts through the valid backup, reads and writes through the selected superblock, remounts, and runs fsck while checking inode size, block count, tree root and data.
+
+Final release status remains **NO** until the complete post-audit CI run is finished and reviewed.
