@@ -205,30 +205,6 @@ openfs_extent_result_t openfs_extent_tree_read(
     return OPENFS_EXTENT_OK;
 }
 
-static int extent_physical_contains(const openfs_extent_t *e,uint64_t block)
-{
-    return e!=NULL&&e->block_count!=0U&&e->physical_start<=block&&block-e->physical_start<e->block_count;
-}
-static int extent_tree_root_conflicts(const openfs_block_device_t *device,const openfs_superblock_t *sb,const openfs_inode_t *inode,uint64_t root)
-{
-    if(device==NULL||sb==NULL||inode==NULL)return 1;
-    uint32_t inline_n=inode->extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?inode->extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
-    for(uint32_t n=0U;n<inline_n;n++){
-        openfs_extent_t e;
-        if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return 1;
-        if(extent_physical_contains(&e,root))return 1;
-    }
-    if((inode->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&inode->extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX){
-        uint32_t count=inode->extent_count-OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
-        for(uint32_t n=0U;n<count;n++){
-            openfs_extent_t e;
-            if(openfs_extent_tree_read(device,sb,inode,n,&e)!=OPENFS_EXTENT_OK)return 1;
-            if(extent_physical_contains(&e,root))return 1;
-        }
-    }
-    return 0;
-}
-
 openfs_extent_result_t openfs_extent_tree_write(
     const openfs_block_device_t *device,
     const openfs_superblock_t *sb,
@@ -241,7 +217,6 @@ openfs_extent_result_t openfs_extent_tree_write(
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
     if (!extent_tree_root_in_data_area(sb, device, root) || inode->generation==0U || cap == 0U || count > cap || count > UINT16_MAX ||
-        extent_tree_root_conflicts(device,sb,inode,root) ||
         inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         count != inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
