@@ -56,6 +56,9 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     if (parent > count) return OPENFS_INODE_ALLOC_CORRUPT;
     if (parent == 0U) return OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
     {
+        int parent_used = 0;
+        if (openfs_bitmap_test(d, sb->inode_bitmap_start, sb->inode_bitmap_blocks, parent - 1U, &parent_used) != OPENFS_BITMAP_OK) return OPENFS_INODE_ALLOC_IO_ERROR;
+        if (!parent_used) return OPENFS_INODE_ALLOC_CORRUPT;
         openfs_inode_t parent_inode;
         openfs_inode_result_t pir=openfs_inode_read(d,sb->inode_table_start,parent,count,&parent_inode);if(pir!=OPENFS_INODE_OK)return pir==OPENFS_INODE_IO_ERROR?OPENFS_INODE_ALLOC_IO_ERROR:OPENFS_INODE_ALLOC_CORRUPT;if((parent_inode.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_INODE_ALLOC_CORRUPT;
     }
