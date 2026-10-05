@@ -40,6 +40,7 @@ static char *next_path_component(char *path,size_t len,size_t *pos)
     if(*pos<len){path[*pos]='\0';(*pos)++;}
     return path+start;
 }
+static openfs_path_result_t read_inode(openfs_block_device_t*,const openfs_superblock_t*,uint64_t,openfs_inode_t*);
 static int path_has_trailing_slash(const char *p)
 {
     size_t len=p==NULL?0U:strlen(p);
@@ -418,7 +419,7 @@ static openfs_path_result_t check_search_followed(openfs_block_device_t*d,const 
     openfs_inode_t root;if(read_inode(d,s,s->root_inode,&root)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\0';
-    char *part=next_path_component(buf,len,&pos);while(part){
+    size_t pos=0U;char *part=next_path_component(buf,len,&pos);while(part){
         if(strcmp(part,".")==0){part=next_path_component(buf,len,&pos);continue;}
         size_t plen=strlen(part);if(used>1U){if(used+plen+1U>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;prefix[used++]='/';}else{if(used+plen>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;}
         memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\0';
