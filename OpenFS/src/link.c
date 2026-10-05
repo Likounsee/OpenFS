@@ -91,6 +91,7 @@ if(d->flush(d->context)!=OPENFS_IO_OK){
 return OPENFS_PATH_OK;}
 
 static openfs_path_result_t symlink_internal(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp,uint32_t uid,uint32_t gid){
+size_t link_len=linkp==NULL?0U:strlen(linkp);if(link_len>1U&&linkp[link_len-1U]=='/')return OPENFS_PATH_NOT_DIRECTORY;
 if(!openfs_block_device_is_valid(d)||s==NULL||target==NULL||linkp==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
 if(linkp[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
 size_t len=strlen(target);if(len==0U)return OPENFS_PATH_INVALID_ARGUMENT;if(len>=OPENFS_PATH_MAX)return OPENFS_PATH_NAME_TOO_LONG;
