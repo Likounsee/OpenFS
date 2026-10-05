@@ -182,6 +182,27 @@ static void file_write_rejects_unallocated_extent(void){
     assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
     free(d.bytes);
 }
+static void file_rejects_unallocated_extent_tree_root(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint64_t physical[5];
+    for(unsigned n=0U;n<5U;n++)assert(openfs_alloc_block(&v,&sb,&physical[n])==OPENFS_ALLOC_OK);
+    memset(i.inline_data,0,sizeof(i.inline_data));memset(i.reserved,0,sizeof(i.reserved));
+    i.flags=0U;i.extent_count=0U;i.blocks=5U;i.size=5U*4096U;
+    for(uint32_t n=0U;n<5U;n++){openfs_extent_t e={n,physical[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
+    uint8_t value=0xA5U;
+    assert(openfs_file_write(&v,&sb,&i,5U*4096U,&value,1U)==OPENFS_FILE_OK);
+    uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
+    int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&used);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,0)==OPENFS_BITMAP_OK);
+    size_t got=0U;uint8_t out=0U;
+    assert(openfs_file_read(&v,&sb,&i,0U,&out,1U,&got)==OPENFS_FILE_CORRUPT&&got==0U);
+    assert(openfs_file_map_block_device(&v,&sb,&i,0U,&root)==OPENFS_FILE_CORRUPT);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,1)==OPENFS_BITMAP_OK);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -525,6 +546,7 @@ static void map_bounds(void){
 }
 int main(void){
     file_write_rejects_unallocated_extent();
+    file_rejects_unallocated_extent_tree_root();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
     sparse_write_zeroes_intermediate_blocks();
