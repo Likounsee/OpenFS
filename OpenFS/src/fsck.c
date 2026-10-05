@@ -7,6 +7,7 @@
 #include "openfs/journal.h"
 #include <limits.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define OPENFS_FSCK_MAX_REF_BYTES (64U * 1024U * 1024U)
@@ -160,7 +161,7 @@ else{
 if(in.mode!=OPENFS_INODE_MODE_FREE||in.link_count!=0U||in.blocks!=0U||in.extent_count!=0U||
    in.flags!=0U||in.size!=0U)bad++;
 }}
-for(uint64_t n=1U;n<=count;n++){
+fprintf(stderr,"FSCKDBG after_inode=%llu\\n",(unsigned long long)bad);for(uint64_t n=1U;n<=count;n++){
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
 if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)continue;
 if(in.size%OPENFS_DIR_ENTRY_SIZE!=0U){bad++;continue;}
@@ -177,7 +178,7 @@ if(target.generation!=generation||type!=inode_dir_type(target.mode)){bad++;conti
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&target.parent_inode!=n)bad++;
 if(dir_refs[target_ino]==UINT64_MAX)bad++;else dir_refs[target_ino]++;
 }}
-uint8_t*reachable=calloc((size_t)(count+1U),1U);
+fprintf(stderr,"FSCKDBG after_dirs=%llu\\n",(unsigned long long)bad);uint8_t*reachable=calloc((size_t)(count+1U),1U);
 uint64_t*queue=calloc((size_t)(count+1U),sizeof(*queue));
 if(reachable==NULL||queue==NULL){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
 uint64_t head=0U,tail=0U;
@@ -245,7 +246,7 @@ for(uint64_t n=1U;n<=count;n++){
     if(used&&!reachable[n])bad++;
     if(!used&&reachable[n])bad++;
 }
-free(queue);free(reachable);
+free(queue);free(reachable);fprintf(stderr,"FSCKDBG after_reach=%llu\\n",(unsigned long long)bad);
 for(uint64_t n=1U;n<=count;n++){
 int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
 if(!used){if(dir_refs[n]!=0U)bad++;continue;}
@@ -260,4 +261,4 @@ if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size){result=OPENFS_FSCK_CORRUPT;g
 uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){
 for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
-done:free(dir_refs);free(refs);*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);}
+fprintf(stderr,"FSCKDBG final=%llu\\n",(unsigned long long)bad);done:free(dir_refs);free(refs);*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);}
