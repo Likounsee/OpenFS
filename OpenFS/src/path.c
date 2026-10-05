@@ -84,7 +84,7 @@ static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const op
 openfs_path_result_t openfs_path_unlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p){
 char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
 openfs_path_result_t r=split_last(p,pp,sizeof(pp),name,sizeof(name));if(r!=OPENFS_PATH_OK)return r;
-uint64_t parent=0U;openfs_path_result_t parent_lookup=openfs_path_lookup(d,s,pp,&parent);if(parent_lookup!=OPENFS_PATH_OK)return parent_lookup;
+uint64_t parent=0U;openfs_path_result_t parent_lookup=openfs_path_lookup_follow(d,s,pp,&parent);if(parent_lookup!=OPENFS_PATH_OK)return parent_lookup;
 openfs_inode_t pi;openfs_path_result_t pir=read_inode(d,s,parent,&pi);if(pir!=OPENFS_PATH_OK)return pir;
 openfs_inode_t original_pi=pi;
 if((pi.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
