@@ -10,7 +10,7 @@ static char *next_path_component(char *path,size_t len,size_t *pos)
     if(*pos>=len)return NULL;
     size_t start=*pos;
     while(*pos<len&&path[*pos]!='/')(*pos)++;
-    if(*pos<len)path[*pos]='\0';
+    if(*pos<len){path[*pos]='\0';(*pos)++;}
     return path+start;
 }
 static openfs_path_result_t map_file_result(openfs_file_result_t r){switch(r){case OPENFS_FILE_OK:return OPENFS_PATH_OK;case OPENFS_FILE_NO_SPACE:return OPENFS_PATH_NO_SPACE;case OPENFS_FILE_OUT_OF_RANGE:return OPENFS_PATH_NO_SPACE;case OPENFS_FILE_CORRUPT:return OPENFS_PATH_CORRUPT;case OPENFS_FILE_ACCESS_DENIED:return OPENFS_PATH_ACCESS_DENIED;default:return OPENFS_PATH_IO_ERROR;}}
