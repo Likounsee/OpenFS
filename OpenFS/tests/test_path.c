@@ -23,12 +23,12 @@ static void create_as_growth_rollback(void)
  for(unsigned i=0U;i<16U;i++){char p[32];(void)snprintf(p,sizeof(p),"/grow/f%u",i);uint64_t ino=0U;assert(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
  openfs_inode_t before;assert(openfs_inode_read(&v,s.inode_table_start,parent,ic,&before)==OPENFS_INODE_OK);
  assert(before.size==16U*OPENFS_DIR_ENTRY_SIZE&&before.blocks==1U);
- uint64_t parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&before,0U,&parent_block)==OPENFS_FILE_OK);
- d.arm_on_write=1;d.arm_block=parent_block;d.fail_next_armed_write=1;
+ uint64_t parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&before,0U,&parent_block)==OPENFS_FILE_OK);uint64_t next_data=0U;for(uint64_t b=s.data_start;b<s.data_start+s.data_blocks;b++){int used=1;assert(openfs_bitmap_test(&v,s.block_bitmap_start,s.block_bitmap_blocks,b,&used)==OPENFS_BITMAP_OK);if(!used){next_data=b;break;}}assert(next_data!=0U);
+ d.arm_on_write=1;d.arm_block=next_data;d.fail_next_armed_write=1;
  uint64_t ino=0U;assert(openfs_path_create_as(&v,&s,"/grow/rollback",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);
  d.arm_on_write=0;d.armed=0;
  assert(openfs_path_lookup(&v,&s,"/grow/rollback",&ino)==OPENFS_PATH_NOT_FOUND);
- d.arm_on_write=1;d.arm_block=parent_block;d.fail_next_armed_write=1;assert(openfs_path_mkdir_as(&v,&s,"/grow/mkdir-rollback",1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);d.arm_on_write=0;d.armed=0;assert(openfs_path_lookup(&v,&s,"/grow/mkdir-rollback",&ino)==OPENFS_PATH_NOT_FOUND);
+ d.arm_on_write=1;d.arm_block=next_data;d.fail_next_armed_write=1;assert(openfs_path_mkdir_as(&v,&s,"/grow/mkdir-rollback",1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);d.arm_on_write=0;d.armed=0;assert(openfs_path_lookup(&v,&s,"/grow/mkdir-rollback",&ino)==OPENFS_PATH_NOT_FOUND);
  openfs_inode_t after;assert(openfs_inode_read(&v,s.inode_table_start,parent,ic,&after)==OPENFS_INODE_OK);
  assert(after.size==before.size&&after.blocks==before.blocks);
  uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
