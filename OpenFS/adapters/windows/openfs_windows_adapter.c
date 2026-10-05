@@ -1,4 +1,5 @@
 #include "openfs_windows_adapter.h"
+#include "openfs/format.h"
 
 #ifdef _WIN32
 #include <stdint.h>
@@ -57,7 +58,7 @@ static openfs_io_result_t windows_flush(void *context)
 openfs_windows_adapter_result_t openfs_windows_adapter_open(
     openfs_windows_adapter_t *adapter,const wchar_t *path,uint32_t block_size,int writable)
 {
-    if(adapter==NULL||path==NULL||block_size==0U)return OPENFS_WINDOWS_ADAPTER_INVALID_ARGUMENT;
+    if(adapter==NULL||path==NULL||block_size<OPENFS_MIN_BLOCK_SIZE||block_size>OPENFS_MAX_BLOCK_SIZE||(block_size&(block_size-1U))!=0U)return OPENFS_WINDOWS_ADAPTER_INVALID_ARGUMENT;
     DWORD access=writable?(GENERIC_READ|GENERIC_WRITE):GENERIC_READ;
     HANDLE h=CreateFileW(path,access,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OVERLAPPED,NULL);
     if(h==INVALID_HANDLE_VALUE)return OPENFS_WINDOWS_ADAPTER_IO_ERROR;
