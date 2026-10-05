@@ -89,7 +89,7 @@ if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
 for(uint32_t i=0U;i<in.extent_count;i++){
     openfs_extent_t e;openfs_extent_result_t er;
     if(i<inline_n)er=openfs_inode_get_extent(&in,i,&e);
-    else er=openfs_extent_tree_read(d,&in,i-inline_n,&e);
+    else er=openfs_extent_tree_read(d,s,&in,i-inline_n,&e);
     if(er!=OPENFS_EXTENT_OK||e.block_count==0U){if(er==OPENFS_EXTENT_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
     uint64_t pe=0U,data_end=0U,logical_end=0U;
     if(!add(extent_total,e.block_count,&extent_total)||!add(s->data_start,s->data_blocks,&data_end)||
