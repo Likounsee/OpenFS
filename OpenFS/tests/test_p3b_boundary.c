@@ -249,14 +249,14 @@ static void extent_boundary(void){
         extents[i].physical_start=s.data_start+5U+(uint64_t)i;
         extents[i].block_count=1U;
     }
-    assert(openfs_extent_tree_write(&v,&sb,&inode,extents,169U)==OPENFS_EXTENT_OK);
+    assert(openfs_extent_tree_write(&v,&s,&inode,extents,169U)==OPENFS_EXTENT_OK);
     openfs_extent_t last;
-    assert(openfs_extent_tree_read(&v,&sb,&inode,168U,&last)==OPENFS_EXTENT_OK);
+    assert(openfs_extent_tree_read(&v,&s,&inode,168U,&last)==OPENFS_EXTENT_OK);
     assert(last.logical_start==172U);
     assert(last.physical_start==s.data_start+173U);
 
     /* Capacity + 1 must be rejected before the tree can be published. */
-    assert(openfs_extent_tree_write(&v,&sb,&inode,extents,170U)==OPENFS_EXTENT_CORRUPT);
+    assert(openfs_extent_tree_write(&v,&s,&inode,extents,170U)==OPENFS_EXTENT_CORRUPT);
     free(d.b);
 }
 
