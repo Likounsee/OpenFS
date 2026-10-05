@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "openfs_linux_adapter.h"
+#include "openfs/format.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -57,7 +58,7 @@ static openfs_io_result_t linux_flush(void *context)
 openfs_linux_adapter_result_t openfs_linux_adapter_open(
     openfs_linux_adapter_t *adapter,const char *path,uint32_t block_size,int writable)
 {
-    if(adapter==NULL||path==NULL||block_size==0U)return OPENFS_LINUX_ADAPTER_INVALID_ARGUMENT;
+    if(adapter==NULL||path==NULL||block_size<OPENFS_MIN_BLOCK_SIZE||block_size>OPENFS_MAX_BLOCK_SIZE||(block_size&(block_size-1U))!=0U)return OPENFS_LINUX_ADAPTER_INVALID_ARGUMENT;
     int flags=writable?O_RDWR:O_RDONLY;
     int fd=open(path,flags);
     if(fd<0)return OPENFS_LINUX_ADAPTER_IO_ERROR;
