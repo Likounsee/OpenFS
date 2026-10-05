@@ -480,6 +480,7 @@ static openfs_path_result_t create_credentialed_atomic(openfs_block_device_t*d,c
     uint64_t parent=0U;
     openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
+    (void)parent;
     openfs_journal_t journal;
     openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
@@ -514,9 +515,8 @@ static openfs_path_result_t create_credentialed_atomic(openfs_block_device_t*d,c
         openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
         return ar==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
     }
-    if(out!=NULL)*out=ino;
     tr=openfs_transaction_commit(&tx);
-    if(tr==OPENFS_TRANSACTION_OK)return OPENFS_PATH_OK;
+    if(tr==OPENFS_TRANSACTION_OK){if(out!=NULL)*out=ino;return OPENFS_PATH_OK;}
     if(tx.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
         if(ar==OPENFS_TRANSACTION_CORRUPT)return OPENFS_PATH_CORRUPT;
