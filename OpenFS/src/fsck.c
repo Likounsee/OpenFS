@@ -137,6 +137,73 @@ if(target.generation!=generation||type!=inode_dir_type(target.mode)){bad++;conti
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&target.parent_inode!=n)bad++;
 if(dir_refs[target_ino]==UINT64_MAX)bad++;else dir_refs[target_ino]++;
 }}
+uint8_t*reachable=calloc((size_t)(count+1U),1U);
+uint64_t*queue=calloc((size_t)(count+1U),sizeof(*queue));
+if(reachable==NULL||queue==NULL){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
+uint64_t head=0U,tail=0U;
+if(s->root_inode==0U||s->root_inode>count){bad++;}else{
+    reachable[s->root_inode]=1U;queue[tail++]=s->root_inode;
+}
+while(head<tail){
+    uint64_t dir_ino=queue[head++];
+    openfs_inode_t dir_inode;
+    if(openfs_inode_read(d,s->inode_table_start,dir_ino,count,&dir_inode)!=OPENFS_INODE_OK){
+        bad++;continue;
+    }
+    if((dir_inode.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY){
+        bad++;continue;
+    }
+    if(dir_inode.size%OPENFS_DIR_ENTRY_SIZE!=0U){
+        bad++;continue;
+    }
+    uint64_t entries=dir_inode.size/OPENFS_DIR_ENTRY_SIZE;
+    uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
+    for(uint64_t e=0U;e<entries;e++){
+        size_t got=0U;
+        if(e>UINT64_MAX/OPENFS_DIR_ENTRY_SIZE){
+            bad++;continue;
+        }
+        openfs_file_result_t fr=openfs_file_read(d,s,&dir_inode,e*OPENFS_DIR_ENTRY_SIZE,raw,sizeof(raw),&got);
+        if(fr!=OPENFS_FILE_OK||got!=sizeof(raw)){
+            if(fr==OPENFS_FILE_IO_ERROR){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
+            bad++;continue;
+        }
+        uint64_t target_ino=0U,generation=0U;uint8_t type=0U;
+        int decoded=decode_dir_entry(raw,&target_ino,&generation,&type);
+        if(decoded!=1)continue;
+        if(target_ino==0U||target_ino>count){bad++;continue;}
+        openfs_inode_t target;
+        if(openfs_inode_read(d,s->inode_table_start,target_ino,count,&target)!=OPENFS_INODE_OK){
+            bad++;continue;
+        }
+        if(target.generation!=generation||type!=inode_dir_type(target.mode)){
+            bad++;continue;
+        }
+        if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY){
+            if(target.parent_inode!=dir_ino){
+                bad++;
+            }
+            if(reachable[target_ino]){
+                bad++;
+                continue;
+            }
+        }
+        if(!reachable[target_ino]){
+            reachable[target_ino]=1U;
+            if(tail>=count+1U){bad++;continue;}
+            queue[tail++]=target_ino;
+        }
+    }
+}
+for(uint64_t n=1U;n<=count;n++){
+    int used=0;
+    if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){
+        free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;
+    }
+    if(used&&!reachable[n])bad++;
+    if(!used&&reachable[n])bad++;
+}
+free(queue);free(reachable);
 for(uint64_t n=1U;n<=count;n++){
 int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
 if(!used){if(dir_refs[n]!=0U)bad++;continue;}
