@@ -172,6 +172,16 @@ static void file_read_rejects_unallocated_extent(void){
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
+static void file_write_rejects_unallocated_extent(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t value=0x5AU;
+    assert(openfs_file_write(&v,&sb,&i,0U,&value,1U)==OPENFS_FILE_OK);
+    openfs_extent_t e;assert(openfs_inode_get_extent(&i,0U,&e)==OPENFS_EXTENT_OK);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,0)==OPENFS_BITMAP_OK);
+    assert(openfs_file_write(&v,&sb,&i,0U,&value,1U)==OPENFS_FILE_CORRUPT);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
+    free(d.bytes);
+}
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -514,6 +524,7 @@ static void map_bounds(void){
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
 int main(void){
+    file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
     sparse_write_zeroes_intermediate_blocks();
