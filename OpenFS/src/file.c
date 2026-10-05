@@ -44,6 +44,7 @@ static openfs_file_result_t inode_table_count(
 
 static openfs_file_result_t load_all_extents(const openfs_block_device_t*,const openfs_superblock_t*,const openfs_inode_t*,openfs_extent_t**,uint32_t*);
 static int validate_extent_set(const openfs_superblock_t*,const openfs_extent_t*,uint32_t);
+static openfs_file_result_t validate_allocated_block(const openfs_block_device_t*,const openfs_superblock_t*,uint64_t);
 
 static openfs_file_result_t validate_file(
     const openfs_block_device_t *device,
@@ -92,6 +93,10 @@ static openfs_file_result_t validate_file(
         if (inode->extent_count <= OPENFS_INODE_TREE_INLINE_EXTENT_MAX || root == 0U ||
             root < sb->data_start || root >= sb->data_start + sb->data_blocks) {
             return OPENFS_FILE_CORRUPT;
+        }
+        openfs_file_result_t root_result = validate_allocated_block(device, sb, root);
+        if (root_result != OPENFS_FILE_OK) {
+            return root_result;
         }
     }
     if ((inode->flags & OPENFS_INODE_FLAG_INLINE_DATA) == 0U) {
