@@ -29,6 +29,7 @@ int main(void){
     legacy_record(&v,&s,1U,OPENFS_JOURNAL_DATA,1U,2U,payload,sizeof(payload));
     legacy_record(&v,&s,2U,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
 
+    uint8_t raw[4096U];
     openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==3U&&j.transaction_id==1U);
     uint32_t hits=0U;assert(openfs_journal_replay(&v,&s,replay_probe,&hits)==OPENFS_JOURNAL_OK&&hits==1U);
 
