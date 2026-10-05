@@ -128,6 +128,27 @@ static openfs_file_result_t validate_physical_block(
         : OPENFS_FILE_CORRUPT;
 }
 
+static openfs_file_result_t validate_allocated_block(
+    const openfs_block_device_t *device,
+    const openfs_superblock_t *sb,
+    uint64_t physical)
+{
+    openfs_file_result_t r = validate_physical_block(sb, physical);
+    if (r != OPENFS_FILE_OK) return r;
+    if (sb->block_bitmap_blocks == 0U ||
+        sb->block_bitmap_start >= device->block_count ||
+        sb->block_bitmap_blocks > device->block_count - sb->block_bitmap_start) {
+        return OPENFS_FILE_CORRUPT;
+    }
+    int allocated = 0;
+    openfs_bitmap_result_t br = openfs_bitmap_test(
+        device, sb->block_bitmap_start, sb->block_bitmap_blocks, physical, &allocated);
+    if (br != OPENFS_BITMAP_OK) {
+        return br == OPENFS_BITMAP_IO_ERROR ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
+    }
+    return allocated ? OPENFS_FILE_OK : OPENFS_FILE_CORRUPT;
+}
+
 static openfs_file_result_t write_inode(
     openfs_block_device_t *device,
     const openfs_superblock_t *sb,
@@ -272,7 +293,7 @@ static openfs_file_result_t map_block_on_disk(const openfs_block_device_t*d,cons
     for(uint32_t n=inline_max;n<inode->extent_count;n++){openfs_extent_t e;openfs_extent_result_t er=openfs_extent_tree_read(d,sb,inode,n-inline_max,&e);if(er!=OPENFS_EXTENT_OK)return er==OPENFS_EXTENT_IO_ERROR?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;uint64_t end=0U;if(add_overflow_u64(e.logical_start,e.block_count,&end))return OPENFS_FILE_CORRUPT;if(e.physical_start>UINT64_MAX-e.block_count||e.logical_start!=previous)return OPENFS_FILE_CORRUPT;if(root!=0U&&extent_contains_block(&e,root))return OPENFS_FILE_CORRUPT;for(uint32_t p=0U;p<inline_n;p++){openfs_extent_t prior;if(openfs_inode_get_extent(inode,p,&prior)!=OPENFS_EXTENT_OK||physical_extents_overlap(&prior,&e))return OPENFS_FILE_CORRUPT;}for(uint32_t p=inline_max;p<n;p++){openfs_extent_t prior;openfs_extent_result_t per=openfs_extent_tree_read(d,sb,inode,p-inline_max,&prior);if(per!=OPENFS_EXTENT_OK)return per==OPENFS_EXTENT_IO_ERROR?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;if(physical_extents_overlap(&prior,&e))return OPENFS_FILE_CORRUPT;}if(logical>=e.logical_start&&logical<end){uint64_t delta=logical-e.logical_start;if(e.physical_start>UINT64_MAX-delta)return OPENFS_FILE_CORRUPT;*physical=e.physical_start+delta;return OPENFS_FILE_OK;}previous=end;}
     return OPENFS_FILE_OUT_OF_RANGE;
 }
-openfs_file_result_t openfs_file_map_block_device(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*i,uint64_t logical,uint64_t*p){openfs_file_result_t r=map_block_on_disk(d,sb,i,logical,p);if(r!=OPENFS_FILE_OK)return r;if(validate_physical_block(sb,*p)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;return OPENFS_FILE_OK;}
+openfs_file_result_t openfs_file_map_block_device(const openfs_block_device_t*d,const openfs_superblock_t*sb,const openfs_inode_t*i,uint64_t logical,uint64_t*p){openfs_file_result_t r=map_block_on_disk(d,sb,i,logical,p);if(r!=OPENFS_FILE_OK)return r;r=validate_allocated_block(d,sb,*p);if(r!=OPENFS_FILE_OK)return r;return OPENFS_FILE_OK;}
 
 static openfs_file_result_t append_block_to_inode(openfs_block_device_t *d,const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t physical)
 {
@@ -576,7 +597,7 @@ openfs_file_result_t openfs_file_read(    const openfs_block_device_t *device,
             free(block);
             return r;
         }
-        r = validate_physical_block(sb, physical);
+        r = validate_allocated_block(device, sb, physical);
         if (r != OPENFS_FILE_OK) {
             free(block);
             return r;
