@@ -29,7 +29,7 @@ int main(void){
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
     for(unsigned i=0U;i<24U;i++){
         openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
-        char dir[64],file[96],renamed[96],hard[96],sym[96],target[64];
+        char dir[32],file[64],renamed[64],hard[64],sym[64],target[64];
         snprintf(dir,sizeof(dir),"/d%u",i);snprintf(file,sizeof(file),"%s/f",dir);snprintf(renamed,sizeof(renamed),"%s/r",dir);snprintf(hard,sizeof(hard),"%s/h",dir);snprintf(sym,sizeof(sym),"%s/s",dir);snprintf(target,sizeof(target),"%s/r",dir);
         uint64_t ino=0U;assert(openfs_path_mkdir(&v,&s,dir,&ino)==OPENFS_PATH_OK);
         assert(openfs_path_create(&v,&s,file,0644U,&ino)==OPENFS_PATH_OK);
