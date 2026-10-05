@@ -12,8 +12,8 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 - **P1 — Transactions / Journal / Recovery:** CLOSED
 - **P2 — Crash-Cut Hardening:** CLOSED
 - **P3-A — Error Path / Double Failure:** CLOSED
-- **P3-B — Boundary Matrix:** IN PROGRESS
-- **P3-C — Final Release Validation:** PLANNED — final validation before release.
+- **P3-B — Boundary Matrix:** CLOSED
+- **P3-C — Final Release Validation:** IN PROGRESS
 
 ## Where we are
 
@@ -66,9 +66,7 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### Remaining hardening / integration
 
-- broader crash-cut testing for less frequently used namespace/error combinations;
-- direct (non-transactional) API partial-I/O rollback hardening where practical; transactional APIs remain the crash-atomic interface;
-- broader corruption/fault-injection matrix and compatibility regression images;
+- final P3-C release-validation audit and release decision;
 - Windows adapter is verified by the GitHub Actions Windows build and adapter integration test;
 - ArchiaOS adapter integration against the actual ArchiaOS storage subsystem (the repository currently verifies only the documented callback contract);
 - optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
@@ -76,7 +74,7 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### v1.3 journal CRC compatibility
 
-The journal CRC currently covers the complete journal block. Earlier v1.3 development images used a legacy CRC span that excluded the final four bytes of the block. Those legacy journal records are therefore **not currently backward-compatible** with the hardened reader. This is a release-readiness finding, not a silent compatibility claim; before release, OpenFS must either provide an explicit legacy-reader/migration path or version the journal format so old v1.3 images are not silently rejected.
+The journal writer uses the current full-record CRC32C calculation. The reader also accepts the legacy v1.3 CRC span used by earlier development images, while requiring the legacy reserved tail bytes to remain zero. Thus legacy v1.3 journal records are backward-readable without changing the v1.3 format number. New records continue to use the full-record CRC.
 
 ### Scope boundary
 
