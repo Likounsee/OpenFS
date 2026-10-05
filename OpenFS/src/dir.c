@@ -68,7 +68,13 @@ static void encode_entry(uint8_t *raw, const char *name, const openfs_dir_entry_
 
 static int decode_entry(const uint8_t *raw, openfs_dir_entry_t *entry, char *name)
 {
-    if (memcmp(raw, DIR_MAGIC, 5U) != 0) return 0;
+    if (raw == NULL || entry == NULL || name == NULL) return -1;
+    int empty = 1;
+    for (size_t z = 0U; z < OPENFS_DIR_ENTRY_SIZE; ++z) {
+        if (raw[z] != 0U) { empty = 0; break; }
+    }
+    if (empty) return 0;
+    if (memcmp(raw, DIR_MAGIC, 5U) != 0) return -1;
     uint32_t stored = (uint32_t)raw[252U] |
         ((uint32_t)raw[253U] << 8U) |
         ((uint32_t)raw[254U] << 16U) |
