@@ -391,7 +391,6 @@ static openfs_path_result_t check_search_followed(openfs_block_device_t*d,const 
     char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\0';
     char *part=strtok(buf,"/");while(part){
         if(strcmp(part,".")==0){part=strtok(NULL,"/");continue;}
-        if(strcmp(part,"..")==0){part=strtok(NULL,"/");continue;}
         size_t plen=strlen(part);if(used>1U){if(used+plen+1U>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;prefix[used++]='/';}else{if(used+plen>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;}
         memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\0';
         uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,prefix,&ino);if(lr!=OPENFS_PATH_OK)return lr;
