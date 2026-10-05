@@ -212,7 +212,8 @@ static int extent_physical_contains(const openfs_extent_t *e,uint64_t block)
 static int extent_tree_root_conflicts(const openfs_block_device_t *device,const openfs_superblock_t *sb,const openfs_inode_t *inode,uint64_t root)
 {
     if(device==NULL||sb==NULL||inode==NULL)return 1;
-    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
+    uint32_t inline_n=inode->extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?inode->extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
+    for(uint32_t n=0U;n<inline_n;n++){
         openfs_extent_t e;
         if(openfs_inode_get_extent(inode,n,&e)!=OPENFS_EXTENT_OK)return 1;
         if(extent_physical_contains(&e,root))return 1;
