@@ -13,11 +13,11 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 - **P2 — Crash-Cut Hardening:** CLOSED
 - **P3-A — Error Path / Double Failure:** CLOSED
 - **P3-B — Boundary Matrix:** CLOSED
-- **P3-C — Final Release Validation:** CLOSED
+- **P3-C — Final Release Validation:** IN PROGRESS (final audit reopened)
 
 ## Where we are
 
-OpenFS has a substantial filesystem core implemented and has completed its P3-C robustness, crash-consistency, and release-validation phase. The
+OpenFS has a substantial filesystem core implemented and is undergoing a final P3-C audit before release readiness is restored. The
 core remains an integration component rather than a turnkey mounted desktop
 filesystem.
 
@@ -80,7 +80,8 @@ The journal writer uses the current full-record CRC32C calculation. The reader a
 The filesystem core is intentionally independent of the host OS. Linux and
 ArchiaOS adapters now implement and test the documented block-device contract;
 the Windows adapter is present and its documented callback contract is verified by the
-GitHub Actions Windows build and adapter integration test. The current extent-tree implementation deliberately stops at one
+GitHub Actions Windows build and adapter integration test.
+- Core path APIs are not generally thread-safe/reentrant; callers must serialize concurrent path operations. The current extent-tree implementation deliberately stops at one
 checksummed leaf: a single 4 KiB leaf holds 169 overflow extents in addition to
 four inline extents, so deeper nodes are only needed if that documented limit
 is insufficient for a supported workload.
