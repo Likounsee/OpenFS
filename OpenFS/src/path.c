@@ -37,7 +37,7 @@ static char *next_path_component(char *path,size_t len,size_t *pos)
     if(*pos>=len)return NULL;
     size_t start=*pos;
     while(*pos<len&&path[*pos]!='/')(*pos)++;
-    if(*pos<len)path[*pos]='\0';
+    if(*pos<len){path[*pos]='\0';(*pos)++;}
     return path+start;
 }
 static int path_has_trailing_slash(const char *p)
