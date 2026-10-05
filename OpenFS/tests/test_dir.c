@@ -101,5 +101,13 @@ int main(void){
  openfs_inode_t child;assert(openfs_inode_read(&v,sb.inode_table_start,2U,count,&child)==OPENFS_INODE_OK);
  child.link_count=0U;child.mode=OPENFS_INODE_MODE_FREE;assert(openfs_inode_write(&v,sb.inode_table_start,count,&child)==OPENFS_INODE_OK);
  assert(openfs_inode_free(&v,&sb,2U)==OPENFS_INODE_ALLOC_OK);
+ assert(openfs_inode_alloc(&v,&sb,1U,OPENFS_INODE_MODE_REGULAR,&n)==OPENFS_INODE_ALLOC_OK);
+ entry.inode_number=n;entry.generation=2U;assert(openfs_dir_add(&v,&sb,&root,"hello",&entry)==OPENFS_DIR_OK);
+ uint64_t root_block=0U;assert(openfs_file_map_block_device(&v,&sb,&root,0U,&root_block)==OPENFS_FILE_OK);
+ uint8_t raw[OPENFS_DIR_ENTRY_SIZE];size_t got=0U;assert(openfs_file_read(&v,&sb,&root,0U,raw,sizeof(raw),&got)==OPENFS_FILE_OK&&got==sizeof(raw));
+ raw[7U]=1U;raw[24U]='.';memset(raw+25U,0U,227U);uint32_t crc=openfs_crc32c(raw,252U);raw[252U]=(uint8_t)crc;raw[253U]=(uint8_t)(crc>>8U);raw[254U]=(uint8_t)(crc>>16U);raw[255U]=(uint8_t)(crc>>24U);
+ assert(openfs_file_write(&v,&sb,&root,0U,raw,sizeof(raw))==OPENFS_FILE_OK);
+ assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_CORRUPT);
+ uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
  free(d.bytes);return 0;
 }
