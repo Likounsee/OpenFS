@@ -35,7 +35,7 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
         uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
         if(ceildiv(inode_count,bits,ib)||*ib==0U)return 0;
         if(*ib>metadata-*bb-journal-data)return 0;
-        uint64_t next=metadata-*bb-*ib-journal-data;
+        uint64_t next=metadata-1U-*bb-*ib-journal-data;
         if(next==inode_table){*it=inode_table;*jb=journal;return 1;}
         inode_table=next;
     }
