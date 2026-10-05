@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/journal.h"
 #include "openfs/crc32c.h"
+#include "openfs/fsck.h"
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
@@ -55,7 +56,7 @@ static void reject_partial_committed_block_replay(void){
     write_raw(raw,OPENFS_JOURNAL_BEGIN,1U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
     write_raw(raw,OPENFS_JOURNAL_DATA,1U,2U,sizeof(payload),1);memcpy(raw+32U,payload,sizeof(payload));raw[28]=raw[29]=raw[30]=raw[31]=0U;uint32_t crc=openfs_crc32c(raw,4096U);raw[28]=(uint8_t)crc;raw[29]=(uint8_t)(crc>>8U);raw[30]=(uint8_t)(crc>>16U);raw[31]=(uint8_t)(crc>>24U);assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
     write_raw(raw,OPENFS_JOURNAL_COMMIT,1U,3U,0U,1);assert(v.write(v.context,s.journal_start+2U,1U,raw)==OPENFS_IO_OK);
-    uint8_t before[4096U]={0},after[4096U];assert(v.read(v.context,target,1U,before)==OPENFS_IO_OK);
+    uint8_t before[4096U]={0},after[4096U];assert(v.read(v.context,target,1U,before)==OPENFS_IO_OK);uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
     openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_CORRUPT);assert(v.read(v.context,target,1U,after)==OPENFS_IO_OK);assert(memcmp(before,after,sizeof(before))==0);
     free(d.b);
 }
