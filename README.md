@@ -13,11 +13,11 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 - **P2 — Crash-Cut Hardening:** CLOSED
 - **P3-A — Error Path / Double Failure:** CLOSED
 - **P3-B — Boundary Matrix:** CLOSED
-- **P3-C — Final Release Validation:** IN PROGRESS (final audit reopened)
+- **P3-C — Final Release Validation:** CLOSED
 
 ## Where we are
 
-OpenFS has a substantial filesystem core implemented and is undergoing a final P3-C audit before release readiness is restored. The
+OpenFS has a substantial filesystem core implemented and has completed its final P3-C audit. The
 core remains an integration component rather than a turnkey mounted desktop
 filesystem.
 
