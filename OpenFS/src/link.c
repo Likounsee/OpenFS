@@ -97,11 +97,11 @@ static openfs_path_result_t credentialed_parent_access(openfs_block_device_t*d,c
     char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}char buf[OPENFS_PATH_MAX];memcpy(buf,pp,strlen(pp)+1U);
     openfs_inode_t root;if(openfs_inode_read(d,s->inode_table_start,s->root_inode,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&root)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
-    char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\\0';
+    char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\0';
     char *part=strtok(buf,"/");while(part){
         if(strcmp(part,".")==0){part=strtok(NULL,"/");continue;}
         size_t plen=strlen(part);if(used>1U){if(used+plen+1U>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;prefix[used++]='/';}else{if(used+plen>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;}
-        memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\\0';
+        memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\0';
         uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,prefix,&ino);if(lr!=OPENFS_PATH_OK)return lr;
         openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,ino,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&in)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
         if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
