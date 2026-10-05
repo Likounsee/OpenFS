@@ -21,6 +21,18 @@ int main(void){
  uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
  openfs_inode_t root;assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);
  assert(root.inode_number==1U&&root.parent_inode==1U&&root.link_count==1U&&root.mode==(OPENFS_INODE_MODE_DIRECTORY|0755U));
+{
+ uint64_t inode_block=sb.inode_table_start;
+ uint8_t raw[4096U];assert(v.read(v.context,inode_block,1U,raw)==OPENFS_IO_OK);
+ memcpy(raw+OPENFS_INODE_SIZE,raw,OPENFS_INODE_SIZE);
+ memset(raw+OPENFS_INODE_SIZE+224U,0,4U);
+ uint32_t crc=openfs_crc32c(raw+OPENFS_INODE_SIZE,224U);
+ raw[OPENFS_INODE_SIZE+224U]=(uint8_t)crc;raw[OPENFS_INODE_SIZE+225U]=(uint8_t)(crc>>8U);
+ raw[OPENFS_INODE_SIZE+226U]=(uint8_t)(crc>>16U);raw[OPENFS_INODE_SIZE+227U]=(uint8_t)(crc>>24U);
+ assert(v.write(v.context,inode_block,1U,raw)==OPENFS_IO_OK);
+ openfs_inode_t mismatched;assert(openfs_inode_read(&v,sb.inode_table_start,2U,inode_count,&mismatched)==OPENFS_INODE_CORRUPT);
+ memset(raw+OPENFS_INODE_SIZE,0,OPENFS_INODE_SIZE);assert(v.write(v.context,inode_block,1U,raw)==OPENFS_IO_OK);
+}
 root.mode=0200000U|0644U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;root.flags=0x80000000U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.flags=OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.flags=OPENFS_INODE_FLAG_INLINE_DATA;root.mode=OPENFS_INODE_MODE_REGULAR|0755U;root.size=1U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.mode=OPENFS_INODE_MODE_SYMLINK|0777U;root.size=sizeof(root.inline_data)+1U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.size=0U;root.flags=OPENFS_INODE_FLAG_EXTENT_TREE;root.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.flags=OPENFS_INODE_FLAG_HAS_EXTENTS;root.extent_count=0U;root.blocks=0U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;root.flags=0U;root.extent_count=0U;root.parent_inode=0U;assert(openfs_inode_validate(&root,inode_count)==OPENFS_INODE_CORRUPT);root.parent_inode=1U;
  root.size=0U;root.generation=2U;assert(openfs_inode_write(&v,sb.inode_table_start,inode_count,&root)==OPENFS_INODE_OK);
  memset(&root,0,sizeof(root));assert(openfs_inode_read(&v,sb.inode_table_start,1U,inode_count,&root)==OPENFS_INODE_OK);assert(root.size==0U&&root.generation==2U);
