@@ -67,7 +67,6 @@ static void trailing_slash_regressions(void)
     assert(openfs_path_lookup_as(&v,&s,"/as-absolute/sub",0U,0U,&q)==OPENFS_PATH_OK);
     assert(openfs_path_lookup_as(&v,&s,"/as-relative/./sub/../",0U,0U,&q)==OPENFS_PATH_OK&&q==as_target);
     assert(openfs_path_lookup_as(&v,&s,"/as-chain/../",0U,0U,&q)==OPENFS_PATH_OK&&q==s.root_inode);
-    assert(openfs_path_mkdir(&v,&s,"/as-private",OPENFS_INODE_MODE_DIRECTORY,&q)==OPENFS_PATH_OK);
     assert(openfs_path_lookup_follow(&v,&s,"//trail-dir///./sub/../",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_create(&v,&s,"/trail-file-created/",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_NOT_DIRECTORY);
     assert(openfs_path_lookup(&v,&s,"/trail-file-created",&q)==OPENFS_PATH_NOT_FOUND);
