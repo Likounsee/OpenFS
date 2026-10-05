@@ -47,13 +47,13 @@ static void trailing_slash_regressions(void)
     uint64_t file=0U,dir=0U,q=0U;
     assert(openfs_path_create(&v,&s,"/trail-file",OPENFS_INODE_MODE_REGULAR,&file)==OPENFS_PATH_OK);
     assert(openfs_path_mkdir(&v,&s,"/trail-dir",&dir)==OPENFS_PATH_OK);assert(openfs_path_mkdir(&v,&s,"/trail-dir/sub",&q)==OPENFS_PATH_OK);
-    assert(openfs_path_lookup_follow(&v,&s,"/trail-file/",&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-file/",&q)==OPENFS_PATH_NOT_DIRECTORY);assert(openfs_path_lookup(&v,&s,"/trail-file/",&q)==OPENFS_PATH_NOT_DIRECTORY);assert(openfs_path_lookup(&v,&s,"/trail-file///",&q)==OPENFS_PATH_NOT_DIRECTORY);assert(openfs_path_lookup(&v,&s,"/trail-dir/",&q)==OPENFS_PATH_OK&&q==dir);assert(openfs_path_lookup(&v,&s,"/trail-dir///",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_lookup_follow(&v,&s,"/trail-file///",&q)==OPENFS_PATH_NOT_DIRECTORY);
     assert(openfs_path_lookup_follow(&v,&s,"/trail-dir/",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_lookup_follow(&v,&s,"/trail-dir///",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_symlink(&v,&s,"/trail-file","/trail-file-link")==OPENFS_PATH_OK);
     assert(openfs_symlink(&v,&s,"/trail-dir","/trail-dir-link")==OPENFS_PATH_OK);
-    assert(openfs_path_lookup_follow(&v,&s,"/trail-file-link/",&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-file-link/",&q)==OPENFS_PATH_NOT_DIRECTORY);assert(openfs_path_lookup(&v,&s,"/trail-file-link/",&q)==OPENFS_PATH_NOT_DIRECTORY);assert(openfs_path_lookup(&v,&s,"/trail-dir-link/",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_lookup_follow(&v,&s,"/trail-dir-link/",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_lookup_follow(&v,&s,"//trail-dir///./sub/../",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_create(&v,&s,"/trail-file-created/",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_NOT_DIRECTORY);
