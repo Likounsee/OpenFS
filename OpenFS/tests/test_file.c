@@ -462,7 +462,9 @@ static void extent_tree_root_outside_data_area_is_rejected(void){
         assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
     }
     i.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U;
-    openfs_extent_t tree={OPENFS_INODE_TREE_INLINE_EXTENT_MAX,sb.data_start+20U,1U};
+    openfs_extent_t tree={OPENFS_INODE_TREE_INLINE_EXTENT_MAX,sb.journal_start,1U};
+    assert(openfs_extent_tree_write(&v,&sb,&i,&tree,1U)==OPENFS_EXTENT_CORRUPT);
+    tree.physical_start=sb.data_start+20U;
     uint8_t *raw=calloc(1U,sb.block_size);assert(raw);
     memcpy(raw,OPENFS_EXTENT_TREE_MAGIC,8U);
     raw[10]=1U; raw[12]=(uint8_t)openfs_extent_tree_capacity(sb.block_size);
