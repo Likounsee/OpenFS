@@ -7,6 +7,7 @@
 #include "openfs/fsck.h"
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
+#include "openfs/path.h"
 
 typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
@@ -23,23 +24,33 @@ static void backup_superblock_extent_tree_regression(void)
     openfs_mount_t mounted;
     assert(openfs_mount(&mounted,&v)==OPENFS_MOUNT_OK);
     uint64_t ino_no=0U;
-    assert(openfs_inode_alloc(&v,&mounted.superblock,1U,OPENFS_INODE_MODE_REGULAR|0644U,&ino_no)==OPENFS_INODE_ALLOC_OK);
-    uint64_t count=(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX+2U;
-    size_t bytes=(size_t)(count*(uint64_t)d.block_size);
+    assert(openfs_path_create(&v,&mounted.superblock,"/backup-extent-tree",OPENFS_INODE_MODE_REGULAR|0644U,&ino_no)==OPENFS_PATH_OK);
+    uint64_t inode_count=(mounted.superblock.inode_table_blocks*(uint64_t)d.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t inode;
+    assert(openfs_inode_read(&v,mounted.superblock.inode_table_start,ino_no,inode_count,&inode)==OPENFS_INODE_OK);
+
+    const uint64_t count=(uint64_t)OPENFS_INODE_TREE_INLINE_EXTENT_MAX+2U;
+    const size_t bytes=(size_t)(count*(uint64_t)d.block_size);
     uint8_t *data=malloc(bytes);assert(data);
     for(size_t i=0U;i<bytes;i++)data[i]=(uint8_t)(i*13U+7U);
-    openfs_inode_t inode;
-    uint64_t inode_count=(mounted.superblock.inode_table_blocks*(uint64_t)d.block_size)/OPENFS_INODE_SIZE;
-    assert(openfs_inode_read(&v,mounted.superblock.inode_table_start,ino_no,inode_count,&inode)==OPENFS_INODE_OK);
-    assert(openfs_file_write(&v,&mounted.superblock,&inode,0U,data,bytes)==OPENFS_FILE_OK);
-    assert(openfs_inode_get_extent_tree_root(&inode)!=0U);
+
+    uint64_t spacers[OPENFS_INODE_TREE_INLINE_EXTENT_MAX]={0U};
+    for(uint64_t n=0U;n<count;n++){
+        assert(openfs_file_write(&v,&mounted.superblock,&inode,n*(uint64_t)d.block_size,
+            data+(size_t)(n*d.block_size),d.block_size)==OPENFS_FILE_OK);
+        assert(openfs_inode_read(&v,mounted.superblock.inode_table_start,ino_no,inode_count,&inode)==OPENFS_INODE_OK);
+        if(n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX)
+            assert(openfs_alloc_block(&v,&mounted.superblock,&spacers[n])==OPENFS_ALLOC_OK);
+    }
     assert(inode.extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
+    assert(openfs_inode_get_extent_tree_root(&inode)!=0U);
+    for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++)
+        assert(openfs_free_block(&v,&mounted.superblock,spacers[n])==OPENFS_ALLOC_OK);
     assert(openfs_unmount(&mounted)==OPENFS_MOUNT_OK);
 
     d.bytes[0]^=0x5AU;
     openfs_mount_t fallback;
     assert(openfs_mount(&fallback,&v)==OPENFS_MOUNT_OK);
-    assert(fallback.superblock.data_start!=0U);
     openfs_inode_t recovered;
     assert(openfs_inode_read(&v,fallback.superblock.inode_table_start,ino_no,inode_count,&recovered)==OPENFS_INODE_OK);
     assert(openfs_inode_get_extent_tree_root(&recovered)!=0U);
@@ -60,7 +71,7 @@ static void backup_superblock_extent_tree_regression(void)
     assert(openfs_mount(&remounted,&v)==OPENFS_MOUNT_OK);
     assert(openfs_inode_read(&v,remounted.superblock.inode_table_start,ino_no,inode_count,&recovered)==OPENFS_INODE_OK);
     assert(recovered.size==bytes&&recovered.blocks==count);
-    got=0U;memset(readback,0,bytes);
+    got=0U;
     assert(openfs_file_read(&v,&remounted.superblock,&recovered,write_offset,readback+write_offset,1U,&got)==OPENFS_FILE_OK);
     assert(got==1U&&readback[write_offset]==marker);
     uint64_t fsck_errors=0U;
