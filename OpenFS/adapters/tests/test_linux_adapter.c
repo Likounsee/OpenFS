@@ -17,7 +17,7 @@ int main(void)
     assert(fsync(seed)==0);assert(close(seed)==0);
 
     openfs_linux_adapter_t a={0};
-    assert(openfs_linux_adapter_open(&a,path,4096U,1)==OPENFS_LINUX_ADAPTER_OK);
+    assert(openfs_linux_adapter_open(&a,path,3000U,1)==OPENFS_LINUX_ADAPTER_INVALID_ARGUMENT);assert(openfs_linux_adapter_open(&a,path,4096U,1)==OPENFS_LINUX_ADAPTER_OK);
     assert(a.device.block_count==4U);
     uint8_t block[4096];memset(block,0x5a,sizeof(block));
     assert(a.device.write(a.device.context,1U,1U,block)==OPENFS_IO_OK);
