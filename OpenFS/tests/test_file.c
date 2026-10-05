@@ -184,7 +184,10 @@ static void file_write_rejects_unallocated_extent(void){
 }
 static void file_rejects_unallocated_extent_tree_root(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint64_t physical[5];
+    uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/extent-root-bitmap",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint64_t physical[5];
     for(unsigned n=0U;n<5U;n++)assert(openfs_alloc_block(&v,&sb,&physical[n])==OPENFS_ALLOC_OK);
     memset(i.inline_data,0,sizeof(i.inline_data));memset(i.reserved,0,sizeof(i.reserved));
     i.flags=0U;i.extent_count=0U;i.blocks=5U;i.size=5U*4096U;
