@@ -25,7 +25,7 @@ static void create_as_growth_rollback(void)
  assert(before.size==16U*OPENFS_DIR_ENTRY_SIZE&&before.blocks==1U);
  uint64_t parent_block=0U;assert(openfs_file_map_block_device(&v,&s,&before,0U,&parent_block)==OPENFS_FILE_OK);uint64_t next_data=0U;for(uint64_t b=s.data_start;b<s.data_start+s.data_blocks;b++){int used=1;assert(openfs_bitmap_test(&v,s.block_bitmap_start,s.block_bitmap_blocks,b,&used)==OPENFS_BITMAP_OK);if(!used){next_data=b;break;}}assert(next_data!=0U);fprintf(stderr,"PARENT_BLOCK=%llu NEXT_DATA=%llu\\n",(unsigned long long)parent_block,(unsigned long long)next_data);
  d.arm_on_write=1;d.arm_block=next_data;d.fail_next_armed_write=1;
- uint64_t ino=0U;assert(openfs_path_create_as(&v,&s,"/grow/rollback",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);
+ uint64_t ino=0U;openfs_path_result_t growth_result=openfs_path_create_as(&v,&s,"/grow/rollback",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&ino);fprintf(stderr,"GROW_RESULT=%d ARMED=%d FAILNEXT=%d\\n",(int)growth_result,d.armed,d.fail_next_armed_write);assert(growth_result==OPENFS_PATH_IO_ERROR);
  d.arm_on_write=0;d.armed=0;
  assert(openfs_path_lookup(&v,&s,"/grow/rollback",&ino)==OPENFS_PATH_NOT_FOUND);
  d.arm_on_write=1;d.arm_block=next_data;d.fail_next_armed_write=1;assert(openfs_path_mkdir_as(&v,&s,"/grow/mkdir-rollback",1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);d.arm_on_write=0;d.armed=0;assert(openfs_path_lookup(&v,&s,"/grow/mkdir-rollback",&ino)==OPENFS_PATH_NOT_FOUND);
