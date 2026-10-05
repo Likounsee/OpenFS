@@ -11,6 +11,38 @@
 
 #define OPENFS_FSCK_MAX_REF_BYTES (64U * 1024U * 1024U)
 #define OPENFS_FSCK_MAX_DIR_REFS (2U * 1024U * 1024U)
+static uint16_t sb_get16(const uint8_t*p){return (uint16_t)p[0]|((uint16_t)p[1]<<8U);}
+static uint32_t sb_get32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8U)|((uint32_t)p[2]<<16U)|((uint32_t)p[3]<<24U);}
+static uint64_t sb_get64(const uint8_t*p){uint64_t v=0U;for(unsigned k=0U;k<8U;k++)v|=(uint64_t)p[k]<<(8U*k);return v;}
+static openfs_format_result_t fsck_read_superblock_at(openfs_block_device_t*d,uint64_t block,openfs_superblock_t*out){
+    if(d==NULL||out==NULL||block>=d->block_count||d->block_size<OPENFS_SUPERBLOCK_SIZE)return OPENFS_FORMAT_CORRUPT;
+    uint8_t*raw=malloc(d->block_size);if(raw==NULL)return OPENFS_FORMAT_IO_ERROR;
+    if(d->read(d->context,block,1U,raw)!=OPENFS_IO_OK){free(raw);return OPENFS_FORMAT_IO_ERROR;}
+    if(memcmp(raw,"OPENFS\0\0",8U)!=0||sb_get32(raw+24U)!=OPENFS_SUPERBLOCK_SIZE){free(raw);return OPENFS_FORMAT_CORRUPT;}
+    uint32_t stored=sb_get32(raw+4088U);uint8_t copy[OPENFS_SUPERBLOCK_SIZE];
+    memcpy(copy,raw,OPENFS_SUPERBLOCK_SIZE);copy[4088U]=copy[4089U]=copy[4090U]=copy[4091U]=0U;
+    if(stored!=openfs_crc32c(copy,4088U)){free(raw);return OPENFS_FORMAT_CORRUPT;}
+    memset(out,0,sizeof(*out));
+    out->version_major=sb_get16(raw+8U);out->version_minor=sb_get16(raw+10U);out->feature_flags=sb_get64(raw+12U);
+    out->block_size=sb_get32(raw+20U);out->total_blocks=sb_get64(raw+28U);out->metadata_start=sb_get64(raw+36U);out->metadata_blocks=sb_get64(raw+44U);
+    out->block_bitmap_start=sb_get64(raw+52U);out->block_bitmap_blocks=sb_get64(raw+60U);out->inode_bitmap_start=sb_get64(raw+68U);out->inode_bitmap_blocks=sb_get64(raw+76U);
+    out->inode_table_start=sb_get64(raw+84U);out->inode_table_blocks=sb_get64(raw+92U);out->journal_start=sb_get64(raw+100U);out->journal_blocks=sb_get64(raw+108U);
+    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);
+    memcpy(out->uuid,raw+148U,16U);free(raw);
+    return openfs_validate_superblock(d,out);
+}
+static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_superblock_t*b){
+    return a!=NULL&&b!=NULL&&a->version_major==b->version_major&&a->version_minor==b->version_minor&&
+        a->feature_flags==b->feature_flags&&a->block_size==b->block_size&&a->total_blocks==b->total_blocks&&
+        a->metadata_start==b->metadata_start&&a->metadata_blocks==b->metadata_blocks&&
+        a->block_bitmap_start==b->block_bitmap_start&&a->block_bitmap_blocks==b->block_bitmap_blocks&&
+        a->inode_bitmap_start==b->inode_bitmap_start&&a->inode_bitmap_blocks==b->inode_bitmap_blocks&&
+        a->inode_table_start==b->inode_table_start&&a->inode_table_blocks==b->inode_table_blocks&&
+        a->journal_start==b->journal_start&&a->journal_blocks==b->journal_blocks&&
+        a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->root_inode==b->root_inode&&
+        memcmp(a->uuid,b->uuid,sizeof(a->uuid))==0;
+}
+
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
 static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
@@ -43,6 +75,14 @@ openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock
 if (errors != NULL) *errors = 0U;
 if(!openfs_block_device_is_valid(d)||s==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;
 if(openfs_validate_superblock(d,s)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
+openfs_superblock_t primary_copy={0},backup_copy={0};
+openfs_format_result_t primary_result=fsck_read_superblock_at(d,0U,&primary_copy);
+openfs_format_result_t backup_result=fsck_read_superblock_at(d,d->block_count-1U,&backup_copy);
+uint64_t superblock_errors=0U;
+if(primary_result==OPENFS_FORMAT_IO_ERROR||backup_result==OPENFS_FORMAT_IO_ERROR)return OPENFS_FSCK_IO_ERROR;
+if(primary_result!=OPENFS_FORMAT_OK)superblock_errors++;
+if(backup_result!=OPENFS_FORMAT_OK)superblock_errors++;
+if(primary_result==OPENFS_FORMAT_OK&&backup_result==OPENFS_FORMAT_OK&&!fsck_same_superblock_layout(&primary_copy,&backup_copy))superblock_errors++;
 openfs_journal_t journal;openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
 jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
@@ -54,7 +94,7 @@ uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)retur
 if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
-uint64_t bad=0U;
+uint64_t bad=superblock_errors;
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;
 if(openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root)!=OPENFS_INODE_OK){
