@@ -1,4 +1,5 @@
 #include "openfs/extent.h"
+#include "openfs/format.h"
 
 #include <limits.h>
 #include <stdlib.h>
