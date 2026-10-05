@@ -79,8 +79,8 @@ The journal writer uses the current full-record CRC32C calculation. The reader a
 
 The filesystem core is intentionally independent of the host OS. Linux and
 ArchiaOS adapters now implement and test the documented block-device contract;
-the Windows adapter is present but requires Windows-host CI/integration to be
-verified. The current extent-tree implementation deliberately stops at one
+the Windows adapter is present and its documented callback contract is verified by the
+GitHub Actions Windows build and adapter integration test. The current extent-tree implementation deliberately stops at one
 checksummed leaf: a single 4 KiB leaf holds 169 overflow extents in addition to
 four inline extents, so deeper nodes are only needed if that documented limit
 is insufficient for a supported workload.
