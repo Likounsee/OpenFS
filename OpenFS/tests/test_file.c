@@ -161,6 +161,17 @@ static void sparse_write_zeroes_intermediate_blocks(void){
     for(size_t n=0;n<3U*4096U;n++)assert(gap[n]==0U);
     free(gap);free(d.bytes);
 }
+static void file_read_rejects_unallocated_extent(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t value=0x5AU,out=0U;size_t got=0U;
+    assert(openfs_file_write(&v,&sb,&i,0U,&value,1U)==OPENFS_FILE_OK);
+    openfs_extent_t e;assert(openfs_inode_get_extent(&i,0U,&e)==OPENFS_EXTENT_OK);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,0)==OPENFS_BITMAP_OK);
+    assert(openfs_file_read(&v,&sb,&i,0U,&out,1U,&got)==OPENFS_FILE_CORRUPT&&got==0U);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
 static void basic_rw(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();
@@ -503,6 +514,7 @@ static void map_bounds(void){
     assert(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
 int main(void){
+    file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
     sparse_write_zeroes_intermediate_blocks();
     partial_write_rollback_failure_is_corruption();
