@@ -409,6 +409,7 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
     } else if(kind==3){ /* committed then incomplete BEGIN only */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
