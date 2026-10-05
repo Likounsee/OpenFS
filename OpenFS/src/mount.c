@@ -148,8 +148,12 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     if(openfs_validate_superblock(device,&mount->superblock)!=OPENFS_FORMAT_OK){memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_CORRUPT;}
     openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
-    jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
+    replay_state_t replay_state={mount,NULL,0U,0U,0U};
+    jr=openfs_journal_replay(device,&mount->superblock,replay_block,&replay_state);
+    int replay_complete=(jr==OPENFS_JOURNAL_OK)&&replay_targets_complete(&replay_state);
+    free(replay_state.targets);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
+    if(!replay_complete)return OPENFS_MOUNT_CORRUPT;
     if(device->flush(device->context)!=OPENFS_IO_OK)return OPENFS_MOUNT_IO_ERROR;
     openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK)return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;
     mount->mounted=1;
