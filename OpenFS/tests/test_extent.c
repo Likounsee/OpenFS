@@ -20,10 +20,10 @@ static void extent_tree_root_collision_regression(void)
     assert(openfs_alloc_block(&v,&s,&b0)==OPENFS_ALLOC_OK);assert(openfs_alloc_block(&v,&s,&b1)==OPENFS_ALLOC_OK);
     assert(openfs_alloc_block(&v,&s,&b2)==OPENFS_ALLOC_OK);assert(openfs_alloc_block(&v,&s,&b3)==OPENFS_ALLOC_OK);
     openfs_extent_t e0={0U,b0,1U},e1={1U,b1,1U},e2={2U,b2,1U},e3={3U,b3,1U};
-    assert(openfs_inode_set_extent(&i,0U,&e0)==OPENFS_EXTENT_OK);assert(openfs_inode_set_extent(&i,1U,&e1)==OPENFS_EXTENT_OK);
-    assert(openfs_inode_set_extent(&i,2U,&e2)==OPENFS_EXTENT_OK);assert(openfs_inode_set_extent(&i,3U,&e3)==OPENFS_EXTENT_OK);
-    i.extent_count=5U;assert(openfs_inode_set_extent_tree_root(&i,b0)==OPENFS_EXTENT_OK);
+    assert(openfs_inode_set_extent(&i,0U,&e0)==OPENFS_EXTENT_OK);i.extent_count=1U;
     assert(openfs_inode_write(&v,s.inode_table_start,inode_count,&i)==OPENFS_INODE_OK);
+    assert(openfs_inode_set_extent(&i,1U,&e1)==OPENFS_EXTENT_OK);assert(openfs_inode_set_extent(&i,2U,&e2)==OPENFS_EXTENT_OK);assert(openfs_inode_set_extent(&i,3U,&e3)==OPENFS_EXTENT_OK);
+    i.extent_count=5U;assert(openfs_inode_set_extent_tree_root(&i,b0)==OPENFS_EXTENT_OK);
     uint8_t *before=malloc(s.block_size),*after=malloc(s.block_size);assert(before&&after);memset(before,0xA5,s.block_size);
     assert(v.write(v.context,b0,1U,before)==OPENFS_IO_OK);
     openfs_extent_t tree_extent={4U,s.data_start+10U,1U};
