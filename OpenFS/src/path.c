@@ -455,39 +455,63 @@ static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblo
     if(!restore_directory_state(d,s,&pi,&original_pi,count))return 0;
     return d->flush(d->context)==OPENFS_IO_OK;
 }
-openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
+static openfs_path_result_t create_credentialed_atomic(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
 {
-    uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
+    uint64_t parent=0U;
+    openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
     if(r!=OPENFS_PATH_OK)return r;
-    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
-    r=openfs_path_create(d,s,p,mode,out);
-    if(r!=OPENFS_PATH_OK)return r;
+    openfs_journal_t journal;
+    openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
+    if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+    openfs_transaction_t tx;
+    openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,&journal);
+    if(tr!=OPENFS_TRANSACTION_OK)return tr==OPENFS_TRANSACTION_FULL?OPENFS_PATH_NO_SPACE:(tr==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR);
+    uint64_t ino=0U;
+    r=openfs_path_create_tx(&tx,s,p,mode,&ino);
+    if(r!=OPENFS_PATH_OK){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        return ar==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:r;
+    }
+    openfs_block_device_t *td=openfs_transaction_device(&tx);
     uint64_t count=0U;
-    if(inode_count(s,&count)!=OPENFS_PATH_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_CORRUPT;}
+    if(td==NULL||inode_count(s,&count)!=OPENFS_PATH_OK){
+        tx.failed=1;
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        return ar==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+    }
     openfs_inode_t in;
-    if(read_inode(d,s,*out,&in)!=OPENFS_PATH_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
+    openfs_inode_result_t ir=openfs_inode_read(td,s->inode_table_start,ino,count,&in);
+    if(ir!=OPENFS_INODE_OK){
+        tx.failed=1;
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        return ar==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
+    }
     in.uid=uid;in.gid=gid;
     uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX)in.ctime_ns=now;
-    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
-    if(d->flush(d->context)!=OPENFS_IO_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
-    return OPENFS_PATH_OK;
+    ir=openfs_inode_write(td,s->inode_table_start,count,&in);
+    if(ir!=OPENFS_INODE_OK){
+        tx.failed=1;
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        return ar==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
+    }
+    if(out!=NULL)*out=ino;
+    tr=openfs_transaction_commit(&tx);
+    if(tr==OPENFS_TRANSACTION_OK)return OPENFS_PATH_OK;
+    if(tx.active){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        if(ar==OPENFS_TRANSACTION_CORRUPT)return OPENFS_PATH_CORRUPT;
+    }
+    if(tr==OPENFS_TRANSACTION_FULL)return OPENFS_PATH_NO_SPACE;
+    return tr==OPENFS_TRANSACTION_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
+}
+
+openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
+{
+    return create_credentialed_atomic(d,s,p,mode,uid,gid,out);
 }
 openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
 {
-    uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);
-    if(r!=OPENFS_PATH_OK)return r;
-    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
-    r=openfs_path_mkdir(d,s,p,out);
-    if(r!=OPENFS_PATH_OK)return r;
-    uint64_t count=0U;
-    if(inode_count(s,&count)!=OPENFS_PATH_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_CORRUPT;}
-    openfs_inode_t in;
-    if(read_inode(d,s,*out,&in)!=OPENFS_PATH_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
-    in.uid=uid;in.gid=gid;
-    uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX)in.ctime_ns=now;
-    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
-    if(d->flush(d->context)!=OPENFS_IO_OK){if(!rollback_created_entry(d,s,parent,p,*out,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_IO_ERROR;}
-    return OPENFS_PATH_OK;
+    return create_credentialed_atomic(d,s,p,OPENFS_INODE_MODE_DIRECTORY,uid,gid,out);
 }
 static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const openfs_inode_t *target,uint32_t uid)
 {
