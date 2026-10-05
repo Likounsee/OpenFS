@@ -85,6 +85,7 @@ openfs_path_result_t openfs_path_lookup(openfs_block_device_t*d,const openfs_sup
 openfs_path_result_t openfs_path_lookup_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     if(d==NULL||s==NULL||p==NULL||out==NULL||p[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
+    if(path_has_trailing_slash(p)){openfs_path_result_t tr=require_trailing_directory(d,s,p);if(tr!=OPENFS_PATH_OK)return tr;size_t n=strlen(p);while(n>1U&&p[n-1U]=='/')--n;char normalized[OPENFS_PATH_MAX];if(n>=sizeof(normalized))return OPENFS_PATH_NAME_TOO_LONG;memcpy(normalized,p,n);normalized[n]='\\0';return openfs_path_lookup_as(d,s,normalized,uid,gid,out);}
     size_t len=strlen(p);if(len>=OPENFS_PATH_MAX)return OPENFS_PATH_NAME_TOO_LONG;
     if(strcmp(p,"/")==0){openfs_inode_t root;openfs_path_result_t rr=read_inode(d,s,s->root_inode,&root);if(rr!=OPENFS_PATH_OK)return rr;if((root.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_CORRUPT;openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;*out=s->root_inode;return OPENFS_PATH_OK;}
     char buf[OPENFS_PATH_MAX];memcpy(buf,p,len+1U);uint64_t cur=s->root_inode;size_t pos=0U;char *part=next_path_component(buf,len,&pos);
