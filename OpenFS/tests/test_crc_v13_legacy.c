@@ -48,7 +48,7 @@ int main(void){
 
     /* The legacy span does not cover the final four reserved bytes; the reader rejects them explicitly. */
     legacy_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,3U,7U,NULL,0U);
-    uint8_t raw[4096U];assert(v.read(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);raw[4095U]=0xA5U;assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
+    assert(v.read(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);raw[4095U]=0xA5U;assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
 
     free(d.b);return 0;
