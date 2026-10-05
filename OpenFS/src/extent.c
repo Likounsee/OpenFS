@@ -167,6 +167,12 @@ openfs_extent_result_t openfs_extent_tree_read(
     if (inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         (inode->flags & OPENFS_INODE_FLAG_EXTENT_TREE) == 0U) return OPENFS_EXTENT_OUT_OF_RANGE;
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
+    if (root >= device->block_count) return OPENFS_EXTENT_CORRUPT;
+    int allocated = 0;
+    if (openfs_bitmap_test(device, sb->block_bitmap_start, sb->block_bitmap_blocks, root, &allocated) != OPENFS_BITMAP_OK) {
+        return OPENFS_EXTENT_IO_ERROR;
+    }
+    if (!allocated) return OPENFS_EXTENT_CORRUPT;
     uint64_t tree_count64 = inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
     if (cap == 0U || tree_count64 > UINT16_MAX || index >= tree_count64 || index >= cap) return OPENFS_EXTENT_OUT_OF_RANGE;
 
