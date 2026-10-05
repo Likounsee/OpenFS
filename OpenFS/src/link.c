@@ -108,6 +108,7 @@ static openfs_path_result_t credentialed_parent_access(openfs_block_device_t*d,c
         ar=openfs_inode_check_access(&in,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
         part=strtok(NULL,"/");
     }
+    uint64_t parent_ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,pp,&parent_ino);if(lr!=OPENFS_PATH_OK)return lr;openfs_inode_t parent_inode;if(openfs_inode_read(d,s->inode_table_start,parent_ino,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&parent_inode)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;ar=openfs_inode_check_access(&parent_inode,uid,gid,3U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     return OPENFS_PATH_OK;
 }
 
