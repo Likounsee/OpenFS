@@ -230,8 +230,10 @@ while(head<tail){
         }
         if(!reachable[target_ino]){
             reachable[target_ino]=1U;
-            if(tail>=count+1U){bad++;continue;}
-            queue[tail++]=target_ino;
+            if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY){
+                if(tail>=count+1U){bad++;continue;}
+                queue[tail++]=target_ino;
+            }
         }
     }
 }
