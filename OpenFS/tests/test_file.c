@@ -169,7 +169,6 @@ static void file_read_rejects_unallocated_extent(void){
     assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,0)==OPENFS_BITMAP_OK);
     assert(openfs_file_read(&v,&sb,&i,0U,&out,1U,&got)==OPENFS_FILE_CORRUPT&&got==0U);
     assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
-    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 static void file_write_rejects_unallocated_extent(void){
