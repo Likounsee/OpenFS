@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "openfs/time.h"
+#include "openfs/bitmap.h"
 static char *next_path_component(char *path,size_t len,size_t *pos)
 {
     if(path==NULL||pos==NULL)return NULL;
