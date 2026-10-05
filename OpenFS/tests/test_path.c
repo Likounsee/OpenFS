@@ -178,7 +178,7 @@ assert(openfs_path_unlink_as(&v,&s,"/home/test/asuser",1000U,1000U)==OPENFS_PATH
     }
     assert(candidate!=0U);
     uint64_t inode_block=s.inode_table_start+((candidate-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
-    d.fail_write_block=inode_block;d.fail_write_enabled=1;d.fail_write_count=2;
+    d.fail_write_block=inode_block;d.fail_write_enabled=1;d.fail_write_count=1;
     assert(openfs_path_create_as(&v,&s,"/home/test/as-create-write-fail",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&q)==OPENFS_PATH_IO_ERROR);
     d.fail_write_enabled=0;
     assert(openfs_path_lookup(&v,&s,"/home/test/as-create-write-fail",&x)==OPENFS_PATH_NOT_FOUND);
