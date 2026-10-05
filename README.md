@@ -67,6 +67,7 @@ This is an engineering estimate, not a release-readiness metric.
 ### Current audit status
 
 The reopened audit is actively checking corruption handling, crash consistency, rollback paths, permissions, symlink and directory semantics, on-disk invariants, overflow boundaries, adapters, and test/CI consistency. Confirmed findings are being corrected with regression coverage. Historical P3-C validation below is evidence of a previous state, not a current release decision.
+The current CMake configuration registers **25 CTest cases** on Linux and Windows (23 core tests plus the platform-independent ArchiaOS adapter test and the host adapter test). The final audit must verify that full matrix rather than relying on the historical 23/23 figure.
 
 ### Remaining hardening / integration
 
