@@ -22,6 +22,20 @@ CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_FULL);CHECK(t.active==0)
 CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
 free(d.b);return 0;
 }
+static int double_begin_preserves_transaction(void){
+D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={23U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);uint64_t tx=t.txid;CHECK(t.active==1&&t.txid==tx);openfs_block_device_t*td=openfs_transaction_device(&t);CHECK(td!=NULL);
+uint64_t target=s.data_start+7U;uint8_t a[4096];memset(a,0x4DU,sizeof(a));CHECK(td->write(td->context,target,1U,a)==OPENFS_IO_OK);uint64_t pending=t.pending_count;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_INVALID_ARGUMENT);CHECK(t.active==1&&t.txid==tx&&t.pending_count==pending&&t.pending!=NULL);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);free(d.b);return 0;
+}
+static int journal_corrupt_maps_to_transaction_corrupt(void){
+D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={24U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+j.transaction_id=UINT64_MAX;openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_FULL);
+j.transaction_id=0U;j.sequence=UINT64_MAX;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_FULL);
+free(d.b);return 0;
+}
 static int poisoned_namespace_transaction(void){D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={7U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);uint64_t ino=0U;CHECK(openfs_path_create_tx(&t,&s,"/poison",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);CHECK(openfs_path_create_tx(&t,&s,"/poison",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_EXISTS);CHECK(t.failed==1);CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);CHECK(openfs_path_lookup(&v,&s,"/poison",&ino)==OPENFS_PATH_NOT_FOUND);free(d.b);return 0;}
 static int checkpoint_partial_write_rollback(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
@@ -73,7 +87,7 @@ d.fail_exact_enabled=0;CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CO
 openfs_mount_t recovered;CHECK(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);CHECK(memcmp(d.b+(size_t)(target*d.bs),a,sizeof(a))==0);CHECK(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
 free(d.b);return 0;}
 int main(void){
-CHECK(commit_full_cleans_active_transaction()==0);
+CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);CHECK(journal_corrupt_maps_to_transaction_corrupt()==0);
 CHECK(poisoned_namespace_transaction()==0);
 CHECK(checkpoint_partial_write_rollback()==0);
 CHECK(partial_commit_record_is_aborted_safely()==0);
