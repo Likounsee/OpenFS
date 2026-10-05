@@ -192,7 +192,6 @@ static void file_rejects_unallocated_extent_tree_root(void){
     memset(i.inline_data,0,sizeof(i.inline_data));memset(i.reserved,0,sizeof(i.reserved));
     i.flags=0U;i.extent_count=0U;i.blocks=5U;i.size=5U*4096U;
     for(uint32_t n=0U;n<5U;n++){openfs_extent_t e={n,physical[n],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
-    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
     uint8_t value=0xA5U;
     assert(openfs_file_write(&v,&sb,&i,5U*4096U,&value,1U)==OPENFS_FILE_OK);
