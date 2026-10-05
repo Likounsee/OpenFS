@@ -32,7 +32,7 @@ int main(void){
         char dir[32],file[64],renamed[64],hard[64],sym[64],target[64];
         snprintf(dir,sizeof(dir),"/d%u",i);snprintf(file,sizeof(file),"%s/f",dir);snprintf(renamed,sizeof(renamed),"%s/r",dir);snprintf(hard,sizeof(hard),"%s/h",dir);snprintf(sym,sizeof(sym),"%s/s",dir);snprintf(target,sizeof(target),"%s/r",dir);
         uint64_t ino=0U;assert(openfs_path_mkdir(&v,&s,dir,&ino)==OPENFS_PATH_OK);
-        openfs_path_result_t create_result=openfs_path_create(&v,&s,file,0644U,&ino);if(create_result!=OPENFS_PATH_OK){fprintf(stderr,"cycle %u file-create result=%d\\n",i,(int)create_result);check_fsck(&v,&s);}assert(create_result==OPENFS_PATH_OK);
+        openfs_path_result_t create_result=openfs_path_create(&v,&s,file,OPENFS_INODE_MODE_REGULAR|0644U,&ino);if(create_result!=OPENFS_PATH_OK){fprintf(stderr,"cycle %u file-create result=%d\\n",i,(int)create_result);check_fsck(&v,&s);}assert(create_result==OPENFS_PATH_OK);
         uint64_t inode_count=(s.inode_table_blocks*(uint64_t)s.block_size)/OPENFS_INODE_SIZE;openfs_inode_t node;assert(openfs_inode_read(&v,s.inode_table_start,ino,inode_count,&node)==OPENFS_INODE_OK);
         uint8_t wbuf[1024U],rbuf[1024U];for(size_t n=0U;n<sizeof(wbuf);n++)wbuf[n]=(uint8_t)(n+i);
         assert(openfs_file_write(&v,&s,&node,0U,wbuf,sizeof(wbuf))==OPENFS_FILE_OK);
