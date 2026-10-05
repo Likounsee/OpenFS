@@ -7,7 +7,7 @@ extern "C" {
 #endif
 #define OPENFS_JOURNAL_MAGIC "OJNL1"
 #define OPENFS_JOURNAL_HEADER_SIZE 32U
-#define OPENFS_JOURNAL_BLOCK_DATA_HEADER 16U
+#define OPENFS_JOURNAL_BLOCK_DATA_HEADER 24U
 typedef enum { OPENFS_JOURNAL_OK=0, OPENFS_JOURNAL_INVALID_ARGUMENT=1, OPENFS_JOURNAL_FULL=2, OPENFS_JOURNAL_CORRUPT=3, OPENFS_JOURNAL_IO_ERROR=4 } openfs_journal_result_t;
 typedef enum { OPENFS_JOURNAL_BEGIN=1, OPENFS_JOURNAL_DATA=2, OPENFS_JOURNAL_COMMIT=3 } openfs_journal_type_t;
 typedef struct { uint64_t transaction_id; uint64_t sequence; uint64_t active_transaction_id; uint64_t next_record; uint8_t commit_record_written; uint64_t journal_start; uint64_t journal_blocks; uint32_t block_size; } openfs_journal_t;
