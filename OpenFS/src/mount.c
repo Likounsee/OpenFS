@@ -51,6 +51,7 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
 typedef struct {
     uint64_t target;
     uint32_t next_offset;
+    uint8_t *backup;
 } replay_target_t;
 
 typedef struct {
@@ -60,6 +61,27 @@ typedef struct {
     uint64_t target_capacity;
     uint64_t txid;
 } replay_state_t;
+
+static int replay_restore_targets(replay_state_t *state)
+{
+    if(state==NULL)return 0;
+    int ok=1;
+    for(uint64_t i=0U;i<state->target_count;i++){
+        replay_target_t *entry=&state->targets[i];
+        if(entry->backup==NULL)continue;
+        if(state->mount->device->write(state->mount->device->context,entry->target,1U,entry->backup)!=OPENFS_IO_OK)ok=0;
+    }
+    if(ok&&state->mount->device->flush(state->mount->device->context)!=OPENFS_IO_OK)ok=0;
+    return ok;
+}
+
+static void replay_dispose_targets(replay_state_t *state)
+{
+    if(state==NULL)return;
+    for(uint64_t i=0U;i<state->target_count;i++)free(state->targets[i].backup);
+    free(state->targets);
+    state->targets=NULL;state->target_count=0U;state->target_capacity=0U;state->txid=0U;
+}
 
 static int replay_targets_complete(const replay_state_t *state)
 {
@@ -77,7 +99,12 @@ static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t 
     openfs_mount_t *m=state->mount;
     if(len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
     if(state->txid!=0U&&tx!=state->txid){
-        if(!replay_targets_complete(state))return OPENFS_JOURNAL_CORRUPT;
+        if(!replay_targets_complete(state)){
+            if(!replay_restore_targets(state))return OPENFS_JOURNAL_CORRUPT;
+            replay_dispose_targets(state);
+            return OPENFS_JOURNAL_CORRUPT;
+        }
+        for(uint64_t i=0U;i<state->target_count;i++)free(state->targets[i].backup);
         state->target_count=0U;
     }
     state->txid=tx;
@@ -106,7 +133,8 @@ static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t 
             state->targets=grown;state->target_capacity=next;
         }
         entry=&state->targets[state->target_count++];
-        entry->target=target;entry->next_offset=0U;
+        entry->target=target;entry->next_offset=0U;entry->backup=malloc(m->device->block_size);
+        if(entry->backup==NULL||m->device->read(m->device->context,target,1U,entry->backup)!=OPENFS_IO_OK){free(entry->backup);entry->backup=NULL;return OPENFS_JOURNAL_IO_ERROR;}
     }else if(entry->next_offset==m->device->block_size){
         if(offset!=0U)return OPENFS_JOURNAL_CORRUPT;
         entry->next_offset=0U;
@@ -153,7 +181,12 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     int replay_complete=(jr==OPENFS_JOURNAL_OK)&&replay_targets_complete(&replay_state);
     free(replay_state.targets);
     if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
-    if(!replay_complete)return OPENFS_MOUNT_CORRUPT;
+    if(!replay_complete){
+        if(!replay_restore_targets(&replay_state))replay_complete=0;
+        replay_dispose_targets(&replay_state);
+        return OPENFS_MOUNT_CORRUPT;
+    }
+    replay_dispose_targets(&replay_state);
     if(device->flush(device->context)!=OPENFS_IO_OK)return OPENFS_MOUNT_IO_ERROR;
     openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK)return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;
     mount->mounted=1;
