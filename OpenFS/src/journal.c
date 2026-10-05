@@ -39,7 +39,8 @@ if(have_sequence&&(last_sequence==UINT64_MAX||seq!=last_sequence+1U)){free(txids
 last_sequence=seq;have_sequence=1;
 uint64_t idx=0U;while(idx<tx_count&&txids[idx]!=tx)idx++;
 if(b[5]==OPENFS_JOURNAL_BEGIN){
-    if(tx==0U||tx<=last_tx||idx!=tx_count||tx_count>=s->journal_blocks||open_tx!=0U){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+    if(tx==0U||tx<=last_tx||idx!=tx_count||tx_count>=s->journal_blocks){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
+    if(open_tx!=0U)open_tx=0U;
     txids[tx_count]=tx;states[tx_count]=1U;idx=tx_count++;last_tx=tx;open_tx=tx;
 }else if(b[5]==OPENFS_JOURNAL_DATA){
     if(idx>=tx_count||states[idx]!=1U||open_tx!=tx){free(txids);free(states);free(b);return OPENFS_JOURNAL_CORRUPT;}
