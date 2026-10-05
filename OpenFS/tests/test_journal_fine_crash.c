@@ -394,13 +394,16 @@ static int replay_state_case(int kind, unsigned id) {
     int ok=1;
     if(kind==0){ /* incomplete only */ 
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
     } else if(kind==1){ /* committed only */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
     } else if(kind==2){ /* two committed transactions */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
@@ -410,12 +413,14 @@ static int replay_state_case(int kind, unsigned id) {
     } else if(kind==3){ /* committed then incomplete BEGIN only */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         memset(payload+24U,0x61U,BS-32U-24U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
     } else if(kind==4){ /* committed then incomplete BEGIN + DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
@@ -423,6 +428,7 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
     } else if(kind==5){ /* committed then incomplete BEGIN + two DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
@@ -431,6 +437,7 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
     } else if(kind==6){ /* committed then incomplete BEGIN + three DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
@@ -440,6 +447,7 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_DATA,2U,7U,payload,BS-32U);
     } else if(kind==7){ /* committed then incomplete BEGIN + four DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        memset(payload+24U,0x61U,BS-32U-24U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
