@@ -13,11 +13,11 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 - **P2 — Crash-Cut Hardening:** CLOSED
 - **P3-A — Error Path / Double Failure:** CLOSED
 - **P3-B — Boundary Matrix:** CLOSED
-- **P3-C — Final Release Validation:** IN PROGRESS
+- **P3-C — Final Release Validation:** CLOSED
 
 ## Where we are
 
-OpenFS has a substantial filesystem core implemented and is currently in the **final robustness, crash-consistency, and integration phase**. The
+OpenFS has a substantial filesystem core implemented and has completed its P3-C robustness, crash-consistency, and release-validation phase. The
 core remains an integration component rather than a turnkey mounted desktop
 filesystem.
 
@@ -66,9 +66,8 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### Remaining hardening / integration
 
-- final P3-C release-validation audit and release decision;
-- Windows adapter is verified by the GitHub Actions Windows build and adapter integration test;
 - ArchiaOS adapter integration against the actual ArchiaOS storage subsystem (the repository currently verifies only the documented callback contract);
+- Windows adapter integration is verified by the GitHub Actions Windows build and adapter integration test;
 - optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
 - additional fsck repair capabilities (fsck remains deliberately read-only);
 
