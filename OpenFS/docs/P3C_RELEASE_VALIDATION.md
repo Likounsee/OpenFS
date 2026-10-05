@@ -2,11 +2,36 @@
 
 ## Scope
 
-P3-C is the final validation phase for OpenFS v1.3. Validation follows:
+P3-C was temporarily reopened after an independent audit found a real production defect in extent-tree root validation. The reopened validation followed:
 
-**OBSERVE → REPRODUCE → CLASSIFY → CORRECT → TEST → FULL REGRESSION → CI**
+**OBSERVE → REPRODUCE → CORRECT → TARGETED TEST → FULL REGRESSION → CI**
 
-No production change is made solely to increase coverage.
+No production change was made solely to increase coverage. Existing tests and fault injection remain enabled.
+
+## Extent-tree root validation
+
+**PASS — corrected and regression-covered.**
+
+The defect was that the direct extent-tree read/write APIs accepted any non-zero root below device->block_count, allowing a root in metadata/reserved space.
+
+The production fix now validates the root against the filesystem data area before tree I/O:
+
+data_start <= root < data_start + data_blocks
+
+The same invariant is also enforced on the file mutation path before an existing tree root can be reused. Allocation/free paths already use the superblock-aware allocator, and fsck/normal inode validation already reject roots outside the data area.
+
+A dedicated regression constructs a tree inode whose root points at the journal/metadata area, populates that block with a structurally valid extent-tree leaf, and verifies that:
+- direct tree read is rejected as corruption;
+- direct tree write is rejected as corruption;
+- normal file read/write validation rejects the inode.
+
+The first CI attempt exposed a test-fixture oracle/setup error: the fixture initialized extent_count before populating inline extents, causing the existing overlap/record validation to reject the fixture. This was a **test/oracle bug**, corrected by populating the inline extents first and setting the final extent count afterward. No production weakening was made.
+
+## Journal DATA header
+
+**PASS — corrected.**
+
+OPENFS_JOURNAL_BLOCK_DATA_HEADER is now 24U, matching the on-disk OJBD1 DATA payload header. Journal block-write construction uses the constant rather than a duplicated literal, and the P3-B journal-boundary test asserts the layout constant.
 
 ## CRC
 
@@ -14,18 +39,11 @@ No production change is made solely to increase coverage.
 
 The v1.3 reader accepts both:
 - current full-record CRC32C with the CRC field zeroed;
-- historical v1.3 CRC32C over `block_size - 4` bytes, with the reserved final four bytes required to remain zero.
+- historical v1.3 CRC32C over block_size - 4 bytes, with the reserved final four bytes required to remain zero.
 
 New writers always use the current full-record CRC. The format version remains v1.3.
 
-The compatibility regression reconstructs the historical writer representation and validates:
-- old journal record opening;
-- committed replay;
-- mount;
-- remount after checkpoint;
-- new-format writer/readability;
-- payload CRC corruption rejection;
-- legacy reserved-tail corruption rejection.
+The compatibility regression validates historical replay, mount/remount, new-format readability, CRC corruption rejection, and legacy reserved-tail corruption rejection.
 
 ## Format audit
 
@@ -38,9 +56,10 @@ Validated:
 - inode serialization/checksum/generation;
 - allocation bitmaps;
 - inline and tree-backed extents;
+- extent-tree root data-area bounds;
 - directory records and CRC;
 - symlink representation;
-- journal record structure and CRC;
+- journal record structure, 24-byte DATA payload header and CRC;
 - explicit little-endian encoding/decoding.
 
 Primary/backup selection is validated by mount tests. Unknown major versions and unsupported minor/feature combinations are rejected.
@@ -49,7 +68,7 @@ Primary/backup selection is validated by mount tests. Unknown major versions and
 
 **PASS.**
 
-Existing and P3-B coverage exercises minimal corruption of:
+Existing and P3-B coverage exercises corruption of:
 - superblocks and backup selection;
 - journal records/CRC/sequence/transaction state;
 - inodes;
@@ -58,46 +77,87 @@ Existing and P3-B coverage exercises minimal corruption of:
 - allocation bitmaps;
 - fsck geometry and consistency invariants.
 
-Corruption is rejected rather than silently accepted; committed journal state is replayed where recovery is explicitly part of the format lifecycle.
+The newly added root regression demonstrates that the normal extent-tree APIs reject a metadata-area root even when the target block itself is a valid-looking extent-tree leaf.
 
 ## Stability
 
 **PASS.**
 
-`openfs-stability` performs 24 repeated create/write/read/truncate/rename/link/symlink/unlink/mkdir cycles, with periodic mount/remount and fsck validation. The cycle completed without corruption or persistent allocation failure.
+openfs-stability performs 24 repeated create/write/read/truncate/rename/link/symlink/unlink/mkdir cycles, with periodic mount/remount and fsck validation.
 
 ## Memory / resources
 
 **PASS.**
 
-GCC and Clang sanitizer validation passed on the complete 23-test suite. The stability test is included in sanitizer coverage.
+GCC and Clang sanitizer validation passed on the complete 23-test suite.
 
 ## API / errors
 
 **PASS.**
 
-Public invalid-argument, journal-full, corruption, I/O-failure, transaction-failure and recovery-required paths are covered by the existing journal, transaction, mount, fsck, P3-A/P3-B and stability tests. Durable-state-sensitive failures preserve the documented recovery-required behavior.
+Public invalid-argument, journal-full, corruption, I/O-failure, transaction-failure and recovery-required paths are covered by the existing journal, transaction, mount, fsck, P3-A/P3-B, stability and extent-tree root regression tests.
 
 ## Portability
 
 **PASS.**
 
-The complete suite builds/tests with GCC and Clang and passes the Windows job. Serialization uses explicit little-endian encoding, while size/offset arithmetic is guarded at the filesystem/device boundaries.
+The complete suite builds/tests with GCC and Clang and passes the Windows job. Serialization uses explicit little-endian encoding, while size/offset arithmetic is guarded at filesystem/device boundaries.
 
 ## Documentation
 
 **PASS.**
 
-README and format documentation now agree with the v1.3 CRC compatibility behavior, P3-B status, release-validation scope, journal behavior and current limitations.
+README and format documentation now agree on:
+- P3-C CLOSED;
+- Windows CI validation;
+- extent-tree root data-area bounds;
+- the 24-byte journal DATA header;
+- v1.3 CRC compatibility;
+- the current release-validation scope and limitations.
+
+## Final validation evidence
+
+Final code-validation CI before this documentation-only update:
+
+- **Run #1329 / Run ID 37264582582**
+- HEAD: a7ec9308c4ce50471efa9242e5c5c214cd059fa8
+- conclusion: **SUCCESS**
+- GCC: **PASS**
+- Clang: **PASS**
+- ASan/UBSan: **PASS**
+- Windows: **PASS**
+- CTest: **23/23 PASS**
+
+The validated suite explicitly passed:
+- crash-cut;
+- namespace crash;
+- journal fine-crash;
+- P3-A double-failure;
+- P3-B boundary;
+- P3-B fsck boundary;
+- P3-B journal boundary;
+- CRC v1.3 legacy;
+- stability;
+- extent-tree root regression through openfs-file.
+
+## Production bugs
+
+One new production bug was found and fixed during the reopened P3-C audit:
+
+1. Extent-tree root validation accepted metadata/reserved blocks as tree roots.
+
+Previously identified P3-B production defects remain fixed and covered by regression tests.
+
+## Test / oracle bugs
+
+One new test/oracle bug was found and fixed during this reopened audit:
+
+1. The new extent-tree root regression initialized extent_count before populating inline extents, triggering the existing inline-record validation. The fixture was corrected without changing production behavior.
 
 ## Release decision
 
-At the pre-documentation validation point:
-- CTest: 23/23 PASS
-- GCC: SUCCESS
-- Clang: SUCCESS
-- ASan: SUCCESS
-- UBSan: SUCCESS
-- Windows: SUCCESS
+**P3-C: CLOSED**
 
-A final CI run is required after these documentation/test-cleanup commits before P3-C is formally closed.
+**RELEASE READY: YES**
+
+No known release blocker remains from this audit.
