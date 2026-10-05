@@ -3,6 +3,16 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "openfs/time.h"
+static char *next_path_component(char *path,size_t len,size_t *pos)
+{
+    if(path==NULL||pos==NULL)return NULL;
+    while(*pos<len&&path[*pos]=='/')(*pos)++;
+    if(*pos>=len)return NULL;
+    size_t start=*pos;
+    while(*pos<len&&path[*pos]!='/')(*pos)++;
+    if(*pos<len)path[*pos]='\0';
+    return path+start;
+}
 static openfs_path_result_t map_file_result(openfs_file_result_t r){switch(r){case OPENFS_FILE_OK:return OPENFS_PATH_OK;case OPENFS_FILE_NO_SPACE:return OPENFS_PATH_NO_SPACE;case OPENFS_FILE_OUT_OF_RANGE:return OPENFS_PATH_NO_SPACE;case OPENFS_FILE_CORRUPT:return OPENFS_PATH_CORRUPT;case OPENFS_FILE_ACCESS_DENIED:return OPENFS_PATH_ACCESS_DENIED;default:return OPENFS_PATH_IO_ERROR;}}
 static openfs_path_result_t map_dir_result(openfs_dir_result_t r){switch(r){case OPENFS_DIR_NOT_FOUND:return OPENFS_PATH_NOT_FOUND;case OPENFS_DIR_EXISTS:return OPENFS_PATH_EXISTS;case OPENFS_DIR_NO_SPACE:return OPENFS_PATH_NO_SPACE;case OPENFS_DIR_IO_ERROR:return OPENFS_PATH_IO_ERROR;case OPENFS_DIR_CORRUPT:return OPENFS_PATH_CORRUPT;case OPENFS_DIR_NAME_TOO_LONG:return OPENFS_PATH_NAME_TOO_LONG;default:return OPENFS_PATH_INVALID_ARGUMENT;}}
 static openfs_path_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_PATH_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_PATH_OK:OPENFS_PATH_CORRUPT;}
@@ -142,20 +152,20 @@ static openfs_path_result_t credentialed_parent_access_mode(openfs_block_device_
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL||p[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
     size_t len=strlen(p),slash=len;while(slash>0U&&p[slash-1U]!='/')--slash;if(len>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
-    char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}char buf[OPENFS_PATH_MAX];memcpy(buf,pp,strlen(pp)+1U);
+    char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}char buf[OPENFS_PATH_MAX];memcpy(buf,pp,strlen(pp)+1U);size_t buf_len=strlen(buf);size_t pos=0U;
     uint64_t root_count=0U;if(icount(s,&root_count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_t root;if(openfs_inode_read(d,s->inode_table_start,s->root_inode,root_count,&root)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\0';
-    char *part=strtok(buf,"/");while(part){
-        if(strcmp(part,".")==0){part=strtok(NULL,"/");continue;}
+    char *part=next_path_component(buf,buf_len,&pos);while(part){
+        if(strcmp(part,".")==0){part=next_path_component(buf,buf_len,&pos);continue;}
         size_t plen=strlen(part);if(used>1U){if(used+plen+1U>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;prefix[used++]='/';}else{if(used+plen>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;}
         memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\0';
         uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,prefix,&ino);if(lr!=OPENFS_PATH_OK)return lr;
         openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,ino,root_count,&in)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
         if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
         ar=openfs_inode_check_access(&in,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
-        part=strtok(NULL,"/");
+        part=next_path_component(buf,buf_len,&pos);
     }
     uint64_t parent_ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,pp,&parent_ino);if(lr!=OPENFS_PATH_OK)return lr;
     openfs_inode_t parent_inode;if(openfs_inode_read(d,s->inode_table_start,parent_ino,root_count,&parent_inode)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
