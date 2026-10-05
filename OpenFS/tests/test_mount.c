@@ -8,7 +8,6 @@
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
 #include "openfs/path.h"
-#include <stdio.h>
 
 typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
@@ -75,7 +74,7 @@ static void backup_superblock_extent_tree_regression(void)
     got=0U;
     assert(openfs_file_read(&v,&remounted.superblock,&recovered,write_offset,readback+write_offset,1U,&got)==OPENFS_FILE_OK);
     assert(got==1U&&readback[write_offset]==marker);
-    uint64_t fsck_errors=0U;openfs_fsck_result_t fsck_result=openfs_fsck(&v,&remounted.superblock,&fsck_errors);fprintf(stderr,"mount_fsck_result=%d errors=%llu\\n",(int)fsck_result,(unsigned long long)fsck_errors);assert(fsck_result==OPENFS_FSCK_OK&&fsck_errors==0U);
+    uint64_t fsck_errors=0U;assert(openfs_fsck(&v,&remounted.superblock,&fsck_errors)==OPENFS_FSCK_OK&&fsck_errors==0U);
     assert(openfs_unmount(&remounted)==OPENFS_MOUNT_OK);
     free(readback);free(data);free(d.bytes);
 }
