@@ -110,6 +110,7 @@ int main(void){
  raw[7U]=1U;raw[24U]='.';memset(raw+25U,0U,227U);uint32_t crc=openfs_crc32c(raw,252U);raw[252U]=(uint8_t)crc;raw[253U]=(uint8_t)(crc>>8U);raw[254U]=(uint8_t)(crc>>16U);raw[255U]=(uint8_t)(crc>>24U);
  assert(openfs_file_write(&v,&sb,&root,0U,raw,sizeof(raw))==OPENFS_FILE_OK);
  assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_CORRUPT);
+ raw[0U]='X';crc=openfs_crc32c(raw,252U);raw[252U]=(uint8_t)crc;raw[253U]=(uint8_t)(crc>>8U);raw[254U]=(uint8_t)(crc>>16U);raw[255U]=(uint8_t)(crc>>24U);assert(openfs_file_write(&v,&sb,&root,0U,raw,sizeof(raw))==OPENFS_FILE_OK);assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_CORRUPT);
  uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
  free(d.bytes);return 0;
 }
