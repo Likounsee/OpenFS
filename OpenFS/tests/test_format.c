@@ -35,8 +35,13 @@ static void feature_validation(void){
  assert(openfs_validate_superblock(&v,&s)==OPENFS_FORMAT_CORRUPT); s.version_minor=OPENFS_FORMAT_VERSION_MINOR; s.feature_flags=(1ULL<<63); assert(openfs_validate_superblock(&v,&s)==OPENFS_FORMAT_CORRUPT); free(d.bytes);
 }
 static void block_bitmap_capacity(void){disk_t d={.block_size=4096U,.block_count=40000U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes); openfs_block_device_t v=dev(&d);openfs_superblock_t s={0};s.version_major=OPENFS_FORMAT_VERSION_MAJOR;s.version_minor=OPENFS_FORMAT_VERSION_MINOR;s.block_size=4096U;s.total_blocks=40000U;s.metadata_start=2U;s.metadata_blocks=39997U;s.block_bitmap_start=3U;s.block_bitmap_blocks=1U;s.inode_bitmap_start=4U;s.inode_bitmap_blocks=1U;s.inode_table_start=5U;s.inode_table_blocks=1000U;s.journal_start=1005U;s.journal_blocks=6227U;s.data_start=7232U;s.data_blocks=32767U;s.root_inode=1U;assert(openfs_validate_superblock(&v,&s)==OPENFS_FORMAT_CORRUPT);free(d.bytes);}
+static void layout_boundary_format(void){
+ disk_t d={.block_size=4096U,.block_count=2986U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+ openfs_block_device_t v=dev(&d);const uint8_t u[16]={1U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
+ openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);assert(s.data_blocks>=8U);free(d.bytes);
+}
 static void geometry(void){
  disk_t d={.block_size=3000U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_UNSUPPORTED_DEVICE); free(d.bytes);
 }
-int main(void){format_remount();checksum();layout_validation();feature_validation();block_bitmap_capacity();geometry();return 0;}
+int main(void){format_remount();checksum();layout_validation();feature_validation();block_bitmap_capacity();layout_boundary_format();geometry();return 0;}
