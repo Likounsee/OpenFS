@@ -42,6 +42,9 @@ static openfs_file_result_t inode_table_count(
     return *count == 0U ? OPENFS_FILE_CORRUPT : OPENFS_FILE_OK;
 }
 
+static openfs_file_result_t load_all_extents(const openfs_block_device_t*,const openfs_superblock_t*,const openfs_inode_t*,openfs_extent_t**,uint32_t*);
+static int validate_extent_set(const openfs_superblock_t*,const openfs_extent_t*,uint32_t);
+
 static openfs_file_result_t validate_file(
     const openfs_block_device_t *device,
     const openfs_superblock_t *sb,
@@ -90,6 +93,15 @@ static openfs_file_result_t validate_file(
             root < sb->data_start || root >= sb->data_start + sb->data_blocks) {
             return OPENFS_FILE_CORRUPT;
         }
+    }
+    if ((inode->flags & OPENFS_INODE_FLAG_INLINE_DATA) == 0U) {
+        openfs_extent_t *extents = NULL; uint32_t extent_count = 0U;
+        openfs_file_result_t er = load_all_extents(device,sb,inode,&extents,&extent_count);
+        if (er != OPENFS_FILE_OK) return er;
+        int valid = validate_extent_set(sb,extents,extent_count);
+        uint64_t logical_end = extent_count == 0U ? 0U : extents[extent_count-1U].logical_start + extents[extent_count-1U].block_count;
+        if (!valid || logical_end != inode->blocks) { free(extents); return OPENFS_FILE_CORRUPT; }
+        free(extents);
     }
     return OPENFS_FILE_OK;
 }
