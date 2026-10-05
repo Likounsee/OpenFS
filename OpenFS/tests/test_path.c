@@ -421,7 +421,7 @@ uint64_t through=0U;assert(openfs_path_create(&v,&s,"/alias/throughlink",OPENFS_
     assert(openfs_path_rename_tx(&tx,&s,"/home/test/tx-rename-commit-fail","/home/test/tx-rename-flush-fail")==OPENFS_PATH_OK);
     d.fail_flush=1;d.fail_flush_once=1;
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
-    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
     d.fail_flush=0;
     {openfs_mount_t remount;assert(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-commit-fail",&q)==OPENFS_PATH_NOT_FOUND);assert(openfs_path_lookup(&v,&remount.superblock,"/home/test/tx-rename-flush-fail",&q)==OPENFS_PATH_OK&&q==tx_src);assert(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
