@@ -153,8 +153,6 @@ static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const ope
     if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
     size_t l=strlen(p),slash=l;while(slash>0U&&p[slash-1U]!='/')--slash;
     if(l==0U||l>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
-    char pp[OPENFS_PATH_MAX];
-    if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}
     return credentialed_parent_access(d,s,p,uid,gid);
 }
 openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
