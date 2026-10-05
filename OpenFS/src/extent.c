@@ -213,7 +213,7 @@ openfs_extent_result_t openfs_extent_tree_write(
     uint32_t count)
 {
     if (!openfs_block_device_is_valid(device) || sb == NULL || device->block_size==0U || sb->block_size != device->block_size || inode == NULL ||
-        (count != 0U && extents == NULL)) return OPENFS_EXTENT_INVALID_ARGUMENT;
+        count == 0U || extents == NULL) return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
     if (!extent_tree_root_in_data_area(sb, device, root) || inode->generation==0U || cap == 0U || count > cap || count > UINT16_MAX ||
