@@ -1,5 +1,6 @@
 #include "openfs/extent.h"
 #include "openfs/format.h"
+#include "openfs/bitmap.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -204,6 +205,48 @@ openfs_extent_result_t openfs_extent_tree_read(
     return OPENFS_EXTENT_OK;
 }
 
+static int extent_physical_contains(const openfs_extent_t *e,uint64_t block)
+{
+    return e!=NULL&&e->block_count!=0U&&e->physical_start<=block&&block-e->physical_start<e->block_count;
+}
+static int extent_tree_root_conflicts(const openfs_block_device_t *device,const openfs_superblock_t *sb,const openfs_inode_t *inode,uint64_t root)
+{
+    if(device==NULL||sb==NULL||inode==NULL)return 1;
+    if(sb->block_size==0U||sb->inode_table_blocks>UINT64_MAX/sb->block_size)return 1;
+    uint64_t inode_bytes=sb->inode_table_blocks*(uint64_t)sb->block_size;
+    if(inode_bytes<OPENFS_INODE_SIZE||inode_bytes%OPENFS_INODE_SIZE!=0U)return 1;
+    uint64_t count=inode_bytes/OPENFS_INODE_SIZE;
+    for(uint64_t n=1U;n<=count;n++){
+        int allocated=0;
+        if(openfs_bitmap_test(device,sb->inode_bitmap_start,sb->inode_bitmap_blocks,n-1U,&allocated)!=OPENFS_BITMAP_OK)return 1;
+        if(!allocated)continue;
+        openfs_inode_t other;
+        openfs_inode_result_t ir=openfs_inode_read(device,sb->inode_table_start,n,count,&other);
+        if(ir!=OPENFS_INODE_OK)return 1;
+        uint32_t inline_n=(other.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U?
+            (other.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?other.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX):
+            (other.extent_count<OPENFS_INODE_MAX?other.extent_count:OPENFS_INODE_MAX);
+        for(uint32_t i=0U;i<inline_n;i++){
+            openfs_extent_t e;
+            if(openfs_inode_get_extent(&other,i,&e)!=OPENFS_EXTENT_OK)return 1;
+            if(extent_physical_contains(&e,root))return 1;
+        }
+        if((other.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
+            uint64_t other_root=openfs_inode_get_extent_tree_root(&other);
+            if(other_root==root&&other.inode_number!=inode->inode_number)return 1;
+            if(other.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)return 1;
+            uint64_t tree_count64=other.extent_count-OPENFS_INODE_TREE_INLINE_EXTENT_MAX;
+            if(tree_count64>UINT32_MAX)return 1;
+            for(uint32_t i=0U;i<(uint32_t)tree_count64;i++){
+                openfs_extent_t e;
+                if(openfs_extent_tree_read(device,sb,&other,i,&e)!=OPENFS_EXTENT_OK)return 1;
+                if(extent_physical_contains(&e,root))return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 openfs_extent_result_t openfs_extent_tree_write(
     const openfs_block_device_t *device,
     const openfs_superblock_t *sb,
@@ -216,6 +259,7 @@ openfs_extent_result_t openfs_extent_tree_write(
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
     if (!extent_tree_root_in_data_area(sb, device, root) || inode->generation==0U || cap == 0U || count > cap || count > UINT16_MAX ||
+        extent_tree_root_conflicts(device,sb,inode,root) ||
         inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         count != inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
