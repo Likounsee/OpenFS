@@ -446,14 +446,24 @@ static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superb
 openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
-    return create_internal(d,s,p,mode,uid,gid,out);
+    uint64_t ino=0U;r=openfs_path_create(d,s,p,mode,&ino);if(r!=OPENFS_PATH_OK)return r;
+    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    in.uid=uid;in.gid=gid;
+    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+    if(out!=NULL)*out=ino;return OPENFS_PATH_OK;
 }
 openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
-    return create_internal(d,s,p,OPENFS_INODE_MODE_DIRECTORY,uid,gid,out);
+    uint64_t ino=0U;r=openfs_path_mkdir(d,s,p,&ino);if(r!=OPENFS_PATH_OK)return r;
+    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    in.uid=uid;in.gid=gid;
+    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+    if(out!=NULL)*out=ino;return OPENFS_PATH_OK;
 }
-static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const openfs_inode_t *target,uint32_t uid){if((parent->mode&01000U)==0U)return OPENFS_PATH_OK;if(uid==0U||uid==parent->uid||uid==target->uid)return OPENFS_PATH_OK;return OPENFS_PATH_ACCESS_DENIED;}
+
 openfs_path_result_t openfs_path_unlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
