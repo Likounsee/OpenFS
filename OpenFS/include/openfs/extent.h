@@ -18,8 +18,8 @@ openfs_extent_result_t openfs_inode_set_extent(openfs_inode_t *,uint32_t,const o
 uint64_t openfs_inode_get_extent_tree_root(const openfs_inode_t *);
 openfs_extent_result_t openfs_inode_set_extent_tree_root(openfs_inode_t *,uint64_t);
 uint32_t openfs_extent_tree_capacity(uint32_t block_size);
-openfs_extent_result_t openfs_extent_tree_read(const openfs_block_device_t *,const openfs_inode_t *,uint32_t,openfs_extent_t *);
-openfs_extent_result_t openfs_extent_tree_write(const openfs_block_device_t *,const openfs_inode_t *,const openfs_extent_t *,uint32_t);
+openfs_extent_result_t openfs_extent_tree_read(const openfs_block_device_t *,const openfs_superblock_t *,const openfs_inode_t *,uint32_t,openfs_extent_t *);
+openfs_extent_result_t openfs_extent_tree_write(const openfs_block_device_t *,const openfs_superblock_t *,const openfs_inode_t *,const openfs_extent_t *,uint32_t);
 #ifdef __cplusplus
 }
 #endif
