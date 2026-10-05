@@ -5,6 +5,7 @@
 #include "openfs/dir.h"
 #include "openfs/crc32c.h"
 #include "openfs/journal.h"
+#include "openfs/path.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,6 +69,23 @@ static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const
        offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||
        (target>=s->journal_start&&target-s->journal_start<s->journal_blocks))return OPENFS_JOURNAL_CORRUPT;
     return OPENFS_JOURNAL_OK;
+}
+
+static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*in)
+{
+    if(d==NULL||s==NULL||in==NULL||in->size==0U||in->size>=OPENFS_PATH_MAX)return 0;
+    if((in->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
+        for(uint64_t n=0U;n<in->size;n++)if(in->inline_data[n]=='\0')return 0;
+        return 1;
+    }
+    uint8_t *target=malloc((size_t)in->size);
+    if(target==NULL)return -1;
+    size_t got=0U;
+    openfs_file_result_t fr=openfs_file_read(d,s,in,0U,target,(size_t)in->size,&got);
+    if(fr!=OPENFS_FILE_OK||got!=in->size){free(target);return fr==OPENFS_FILE_IO_ERROR?-1:0;}
+    for(uint64_t n=0U;n<in->size;n++)if(target[n]=='\0'){free(target);return 0;}
+    free(target);
+    return 1;
 }
 
 static uint8_t inode_dir_type(uint32_t mode){
@@ -155,6 +173,11 @@ if(extent_total!=in.blocks)bad++;
         }else{
             uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;
             if(required!=in.blocks)bad++;
+        }
+        if((in.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_SYMLINK){
+            int symlink_result=validate_symlink_payload(d,s,&in);
+            if(symlink_result<0){result=OPENFS_FSCK_IO_ERROR;goto done;}
+            if(symlink_result==0)bad++;
         }
     }
 else{
