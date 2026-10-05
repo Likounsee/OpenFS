@@ -40,9 +40,9 @@ int main(void){
 
     /* Legacy CRC corruption in payload is rejected. */
     legacy_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
-    uint8_t bad_payload[28U];memcpy(bad_payload,payload,sizeof(bad_payload));bad_payload[27U]^=0x01U;
-    legacy_record(&v,&s,1U,OPENFS_JOURNAL_DATA,2U,5U,bad_payload,sizeof(bad_payload));
+    legacy_record(&v,&s,1U,OPENFS_JOURNAL_DATA,2U,5U,payload,sizeof(payload));
     legacy_record(&v,&s,2U,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
+    assert(v.read(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);raw[32U+27U]^=0x01U;assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
 
     /* The legacy span does not cover the final four reserved bytes; the reader rejects them explicitly. */
