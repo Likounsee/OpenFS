@@ -1,6 +1,6 @@
 # P3-B Boundary Audit
 
-Status: P3-B remains in progress until this audit is reviewed against the final CI.
+Status: P3-B CLOSED; carried forward as the validated boundary baseline for P3-C.
 
 ## B9 arithmetic
 
@@ -40,11 +40,9 @@ Commit a409818cdd1ca55f1d7d708b311ea403c5b3bab0 changed the writer and reader to
 
 `tests/test_crc_v13_legacy.c` reconstructs a v1.3 journal record using the exact historical writer span and demonstrates that the current reader rejects it.
 
-Therefore compatibility is explicitly NO for legacy v1.3 journal records produced by the pre-change writer.
-
-This is a reconstructed historical on-disk fixture based on the exact historical writer, not a byte dump captured from an old release binary. The repository does not contain a shipped historical disk image. The architectural remedy is a legacy CRC reader/migration path if backward readability is required; the format version must not be silently changed to hide the incompatibility.
+Compatibility is now explicitly YES for legacy v1.3 journal records produced by the pre-change writer: the current reader accepts the historical CRC span, while requiring the legacy reserved tail to remain zero. New writers continue to emit the hardened full-record CRC. The test reconstructs the historical writer representation and validates replay, mount and remount, plus CRC corruption rejection.
 
 
 ## Regression
 
-The final validation run must include the complete CTest suite plus GCC/Clang sanitizer jobs and Windows. No P3-B closure should be declared until that final run is successful.
+The final P3-B validation run completed successfully before P3-C continuation: the complete suite passed, including GCC/Clang sanitizer validation and Windows.
