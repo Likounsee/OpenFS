@@ -102,7 +102,10 @@ static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const ope
 openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
     if(a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
-    openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;return openfs_link(d,s,a,b);
+    openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;
+    uint64_t source_inode=0U;r=openfs_path_lookup_as(d,s,a,uid,gid,&source_inode);if(r!=OPENFS_PATH_OK)return r;
+    (void)source_inode;
+    return openfs_link(d,s,a,b);
 }
 openfs_path_result_t openfs_symlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
