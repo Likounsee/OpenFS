@@ -478,10 +478,12 @@ openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_
     openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     uint64_t ino=0U;r=openfs_path_create(d,s,p,mode,&ino);if(r!=OPENFS_PATH_OK)return r;
     uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK){
-        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+        (void)rollback_created_path(d,s,p,ino,&original_parent);
+        return OPENFS_PATH_CORRUPT;
     }
     openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK){
-        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+        (void)rollback_created_path(d,s,p,ino,&original_parent);
+        return OPENFS_PATH_CORRUPT;
     }
     in.uid=uid;in.gid=gid;
     openfs_inode_result_t write_result=openfs_inode_write(d,s->inode_table_start,count,&in);
