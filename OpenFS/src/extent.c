@@ -42,6 +42,14 @@ static void store64(uint8_t *p, uint64_t v)
     for (unsigned k = 0U; k < 8U; ++k) p[k] = (uint8_t)(v >> (8U * k));
 }
 
+static int extent_tree_root_in_data_area(const openfs_superblock_t *sb, const openfs_block_device_t *device, uint64_t root)
+{
+    if (sb == NULL || !openfs_block_device_is_valid(device) || sb->block_size != device->block_size ||
+        sb->data_blocks == 0U || sb->data_start > UINT64_MAX - sb->data_blocks ||
+        sb->data_start + sb->data_blocks > device->block_count) return 0;
+    return root >= sb->data_start && root < sb->data_start + sb->data_blocks;
+}
+
 static void encode_extent(uint8_t *p, const openfs_extent_t *e)
 {
     store64(p, e->logical_start);
@@ -198,6 +206,7 @@ openfs_extent_result_t openfs_extent_tree_read(
 
 openfs_extent_result_t openfs_extent_tree_write(
     const openfs_block_device_t *device,
+    const openfs_superblock_t *sb,
     const openfs_inode_t *inode,
     const openfs_extent_t *extents,
     uint32_t count)
@@ -206,7 +215,7 @@ openfs_extent_result_t openfs_extent_tree_write(
         (count != 0U && extents == NULL)) return OPENFS_EXTENT_INVALID_ARGUMENT;
     uint64_t root = openfs_inode_get_extent_tree_root(inode);
     uint32_t cap = openfs_extent_tree_capacity(device->block_size);
-    if (!extent_tree_root_in_data_area(device, root) || inode->generation==0U || cap == 0U || count > cap || count > UINT16_MAX ||
+    if (!extent_tree_root_in_data_area(sb, device, root) || inode->generation==0U || cap == 0U || count > cap || count > UINT16_MAX ||
         inode->extent_count < OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U ||
         count != inode->extent_count - OPENFS_INODE_TREE_INLINE_EXTENT_MAX ||
         !validate_extent_order(extents, count)) return OPENFS_EXTENT_CORRUPT;
