@@ -2,179 +2,143 @@
 
 ## Scope
 
-P3-C was temporarily reopened after an independent audit found a real production defect in extent-tree root validation. The reopened validation followed:
+P3-C was reopened after an independent audit of the extent-tree, backup-superblock, physical-extent, Linux adapter, and path-concurrency boundaries.
 
-**OBSERVE → REPRODUCE → CORRECT → TARGETED TEST → FULL REGRESSION → CI**
+Validation followed:
+
+**OBSERVE → REPRODUCE → CLASSIFY → CORRECT → TARGETED TEST → FULL REGRESSION → CI**
 
 No production change was made solely to increase coverage. Existing tests and fault injection remain enabled.
 
-## Extent-tree root validation
+## Production corrections
 
-**PASS — corrected and regression-covered.**
+### 1. Backup superblock + extent-tree
 
-The defect was that the direct extent-tree read/write APIs accepted any non-zero root below device->block_count, allowing a root in metadata/reserved space.
+**PASS — FIXED.**
 
-The production fix now validates the root against the filesystem data area before tree I/O:
+Extent-tree read/write paths previously depended on primary-superblock geometry instead of the selected and validated superblock from mount. This was incorrect after primary-superblock corruption with a valid backup.
 
-data_start <= root < data_start + data_blocks
+The extent-tree APIs now receive the selected superblock explicitly. File and fsck paths pass that same validated copy through; the extent layer does not perform a hidden primary-superblock reread or fallback.
 
-The same invariant is also enforced on the file mutation path before an existing tree root can be reused. Allocation/free paths already use the superblock-aware allocator, and fsck/normal inode validation already reject roots outside the data area.
+A real mount regression now:
+- creates a fragmented file large enough to require the extent tree;
+- verifies the tree exists with the primary selected;
+- corrupts only the primary superblock;
+- mounts using the valid backup;
+- reads through the backup-selected superblock;
+- writes through the backup-selected superblock;
+- remounts;
+- verifies data and inode metadata;
+- runs fsck with zero errors.
 
-A dedicated regression constructs a tree inode whose root points at the journal/metadata area, populates that block with a structurally valid extent-tree leaf, and verifies that:
-- direct tree read is rejected as corruption;
-- direct tree write is rejected as corruption;
-- normal file read/write validation rejects the inode.
+### 2. Extent physical data-area bounds
 
-The first CI attempt exposed a test-fixture oracle/setup error: the fixture initialized extent_count before populating inline extents, causing the existing overlap/record validation to reject the fixture. This was a **test/oracle bug**, corrected by populating the inline extents first and setting the final extent count afterward. No production weakening was made.
+**PASS — FIXED.**
 
-## Journal DATA header
+Extent-tree writes now require:
 
-**PASS — corrected.**
+data_start <= physical < data_start + data_blocks
 
-OPENFS_JOURNAL_BLOCK_DATA_HEADER is now 24U, matching the on-disk OJBD1 DATA payload header. Journal block-write construction uses the constant rather than a duplicated literal, and the P3-B journal-boundary test asserts the layout constant.
+with overflow-safe end validation. The file mutation/validation paths also enforce the selected superblock data-area range.
 
-## CRC
+Regression coverage rejects:
+- physical < data_start;
+- physical == data_start + data_blocks;
+- a journal/metadata block inside [0, block_count);
+- tree extents overlapping inline extents.
 
-**PASS — compatible.**
+Fsck validates every extent against the data-area boundary before bitmap/reference accounting.
 
-The v1.3 reader accepts both:
-- current full-record CRC32C with the CRC field zeroed;
-- historical v1.3 CRC32C over block_size - 4 bytes, with the reserved final four bytes required to remain zero.
+### 3. Linux write offset overflow
 
-New writers always use the current full-record CRC. The format version remains v1.3.
+**PASS — FIXED.**
 
-The compatibility regression validates historical replay, mount/remount, new-format readability, CRC corruption rejection, and legacy reserved-tail corruption rejection.
+Linux read and write now both reject requests unless the converted offset is representable and:
 
-## Format audit
+offset + bytes <= LLONG_MAX
 
-**PASS.**
+The write-side terminal-range omission was a production bug. A dedicated Linux adapter regression covers a request whose terminal byte range exceeds LLONG_MAX and verifies rejection before the transfer loop.
 
-Validated:
-- primary and backup superblocks;
-- version and feature flags;
-- geometry and overflow checks;
-- inode serialization/checksum/generation;
-- allocation bitmaps;
-- inline and tree-backed extents;
-- extent-tree root data-area bounds;
-- directory records and CRC;
-- symlink representation;
-- journal record structure, 24-byte DATA payload header and CRC;
-- explicit little-endian encoding/decoding.
-
-Primary/backup selection is validated by mount tests. Unknown major versions and unsupported minor/feature combinations are rejected.
-
-## Corruption / recovery
+## Extent-tree API migration
 
 **PASS.**
 
-Existing and P3-B coverage exercises corruption of:
-- superblocks and backup selection;
-- journal records/CRC/sequence/transaction state;
-- inodes;
-- extents and extent-tree metadata;
-- directory references and generations;
-- allocation bitmaps;
-- fsck geometry and consistency invariants.
+All extent-tree declarations and call-sites were migrated to the selected-superblock API. GCC and Clang builds compile the complete repository, and the final CI test/sanitizer jobs pass.
 
-The newly added root regression demonstrates that the normal extent-tree APIs reject a metadata-area root even when the target block itself is a valid-looking extent-tree leaf.
+Earlier intermediate CI failures were migration/test-fixture errors, not production validation:
+- an outdated test call signature;
+- a boundary fixture using sb instead of its actual s fixture variable;
+- an initial backup regression that used contiguous allocation, so it never actually created more than four extents.
 
-## Stability
+These were corrected without weakening assertions or production checks.
 
-**PASS.**
+## strtok / concurrency
 
-openfs-stability performs 24 repeated create/write/read/truncate/rename/link/symlink/unlink/mkdir cycles, with periodic mount/remount and fsck validation.
+**DOCUMENTED LIMITATION.**
 
-## Memory / resources
+OpenFS path lookup uses the stateful C strtok tokenizer. The public core path API does not promise general concurrent/reentrant operation. OpenFS/docs/adapters.md now explicitly states that callers must serialize concurrent path operations sharing a process.
 
-**PASS.**
+No unnecessary parser refactor was made and no release-blocking thread-safety promise was found.
 
-GCC and Clang sanitizer validation passed on the complete 23-test suite.
+## Historical regression preservation
 
-## API / errors
+All historical P1/P2/P3-A/P3-B/P3-C tests remain registered and enabled. No test was removed, disabled, or weakened.
 
-**PASS.**
+The final CTest suite remains **23/23 tests**, because the new backup-superblock regression is integrated into the existing mount test rather than creating a separate CTest executable.
 
-Public invalid-argument, journal-full, corruption, I/O-failure, transaction-failure and recovery-required paths are covered by the existing journal, transaction, mount, fsck, P3-A/P3-B, stability and extent-tree root regression tests.
-
-## Portability
-
-**PASS.**
-
-The complete suite builds/tests with GCC and Clang and passes the Windows job. Serialization uses explicit little-endian encoding, while size/offset arithmetic is guarded at filesystem/device boundaries.
+The final CI also validates:
+- GCC;
+- Clang;
+- AddressSanitizer;
+- UndefinedBehaviorSanitizer;
+- Windows/MSVC;
+- Linux and ArchiaOS adapter tests;
+- the complete crash/recovery, namespace, journal, fsck, extent-tree, CRC compatibility, boundary, and stability coverage.
 
 ## Documentation
 
-**PASS.**
+The format documentation now states that mount-selected superblock geometry is propagated to filesystem operations and that extent-tree roots are data-area-only. The extent-tree format section was also normalized to real Markdown line breaks.
 
-README and format documentation now agree on:
-- P3-C CLOSED;
-- Windows CI validation;
-- extent-tree root data-area bounds;
-- the 24-byte journal DATA header;
-- v1.3 CRC compatibility;
-- the current release-validation scope and limitations.
+The adapters documentation records the core path concurrency limitation.
 
 ## Final validation evidence
 
-Final code-validation CI before this documentation-only update:
+Final post-correction CI:
 
-- **Run #1329 / Run ID 37264582582**
-- HEAD: a7ec9308c4ce50471efa9242e5c5c214cd059fa8
-- conclusion: **SUCCESS**
-- GCC: **PASS**
-- Clang: **PASS**
-- ASan/UBSan: **PASS**
-- Windows: **PASS**
-- CTest: **23/23 PASS**
+- Run #1353 / Run ID 37272685827
+- HEAD: 1a4b9294bacd42c262a832824f85489f7cb6f8c3
+- conclusion: SUCCESS
+- GCC: PASS
+- Clang: PASS
+- ASan/UBSan: PASS
+- Windows: PASS
+- CTest: 23/23 PASS
 
-The validated suite explicitly passed:
-- crash-cut;
-- namespace crash;
-- journal fine-crash;
-- P3-A double-failure;
-- P3-B boundary;
-- P3-B fsck boundary;
-- P3-B journal boundary;
-- CRC v1.3 legacy;
-- stability;
-- extent-tree root regression through openfs-file.
+This CI completed after the extent physical-boundary regression was added and therefore validates that regression as well.
 
-## Production bugs
+## Production bugs found during the reopened audit
 
-One new production bug was found and fixed during the reopened P3-C audit:
+**3**
 
-1. Extent-tree root validation accepted metadata/reserved blocks as tree roots.
+1. Extent-tree paths used primary-superblock geometry instead of the mount-selected validated superblock.
+2. Extent-tree physical extents were checked only against device bounds, permitting metadata/reserved blocks.
+3. Linux adapter writes omitted the terminal offset + bytes <= LLONG_MAX check.
 
-Previously identified P3-B production defects remain fixed and covered by regression tests.
+All three were corrected and regression-covered.
 
-## Test / oracle bugs
+## Test/oracle issues found during the reopened audit
 
-One new test/oracle bug was found and fixed during this reopened audit:
+Intermediate migration/fixture issues were found and corrected:
+- outdated extent-tree test signatures;
+- a boundary-test fixture variable mismatch;
+- a backup regression that initially allocated contiguous blocks and therefore did not exercise the extent tree.
 
-1. The new extent-tree root regression initialized extent_count before populating inline extents, triggering the existing inline-record validation. The fixture was corrected without changing production behavior.
+No production behavior was weakened to make these tests pass.
 
 ## Release decision
 
-**P3-C: REOPENED — pending final audit CI**
+**P3-C: CLOSED**
 
-**RELEASE READY: NO**
+**RELEASE READY: YES**
 
-No known release blocker remains from this audit.
-
-
-## Final P3-C reopening audit
-
-The independent audit found and reproduced a production issue in the extent-tree API design: the extent layer previously re-read the primary superblock to validate the tree root. This was incompatible with a valid mount that had selected the backup superblock after primary corruption.
-
-The correction changes extent-tree read/write APIs to receive the already validated superblock selected by the caller. File and fsck extent-tree paths now pass that selected superblock through. Root validation remains data-area-only and retains overflow checks.
-
-The audit also demonstrated a second production issue: extent-tree write validated physical extents only against device block_count, so a metadata/reserved block could be accepted as an extent. The write path now enforces the selected superblock data-area range.
-
-The Linux adapter audit found a real write-side off_t boundary omission: writes checked the converted starting offset but not offset + bytes against LLONG_MAX. The write path now applies the same terminal-range check already used by reads, with a dedicated adapter regression.
-
-The repository contains strtok() in path lookup. The public API does not promise general concurrent/reentrant path calls, so this is classified as a documented limitation rather than a release-blocking production bug. The limitation is now explicit in adapters.md; no unnecessary parser refactor was made.
-
-A dedicated mount regression now creates a real extent-tree-backed file, corrupts only the primary superblock, mounts through the valid backup, reads and writes through the selected superblock, remounts, and runs fsck while checking inode size, block count, tree root and data.
-
-Final release status remains **NO** until the complete post-audit CI run is finished and reviewed.
+The release decision is based on the completed final CI above. No known release blocker remains from the reopened audit.
