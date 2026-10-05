@@ -30,6 +30,10 @@ int main(void)
     uint64_t edge_first=(uint64_t)(LLONG_MAX/4096LL);
     assert(a.device.write(a.device.context,edge_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
     assert(a.device.read(a.device.context,edge_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
+    a.device.block_count=UINT64_MAX/4096U+1U;
+    uint64_t wrap_first=UINT64_MAX/4096U+1U;
+    assert(a.device.write(a.device.context,wrap_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
+    assert(a.device.read(a.device.context,wrap_first,1U,block)==OPENFS_IO_OUT_OF_RANGE);
     a.device.block_count=4U;
     assert(openfs_linux_adapter_close(&a)==OPENFS_LINUX_ADAPTER_OK);
 
