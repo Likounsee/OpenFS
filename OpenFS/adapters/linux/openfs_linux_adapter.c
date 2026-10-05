@@ -36,7 +36,7 @@ static openfs_io_result_t linux_write(void *context,uint64_t first,uint32_t coun
     uint64_t bytes64=(uint64_t)count*a->device.block_size;
     uint64_t offset64=first*(uint64_t)a->device.block_size;
     off_t offset=(off_t)offset64;
-    if(bytes64>SIZE_MAX||offset<0||(uint64_t)offset!=offset64)return OPENFS_IO_OUT_OF_RANGE;
+    if(bytes64>SIZE_MAX||offset<0||(uint64_t)offset!=offset64||bytes64>(uint64_t)LLONG_MAX-offset64)return OPENFS_IO_OUT_OF_RANGE;
     size_t done=0U;
     const uint8_t *src=buffer;
     while(done<(size_t)bytes64){
