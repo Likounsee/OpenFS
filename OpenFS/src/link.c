@@ -90,6 +90,14 @@ size_t tl=strlen(target);if(target[0]=='/'){if((uint64_t)tl+1U>cap){free(target)
 size_t pl=strlen(p);size_t cut=pl;while(cut>0U&&p[cut-1U]!='/')--cut;if(cut==0U){free(target);return OPENFS_PATH_INVALID_ARGUMENT;}size_t base_len=(cut==1U)?1U:cut;if(base_len>SIZE_MAX-tl-2U){free(target);return OPENFS_PATH_NO_SPACE;}size_t needed=base_len+tl+2U;if((uint64_t)needed>cap){free(target);return OPENFS_PATH_NO_SPACE;}char *combined=malloc(needed);if(combined==NULL){free(target);return OPENFS_PATH_NO_SPACE;}size_t used=0U;if(cut==1U){combined[0]='/';used=1U;}else{memcpy(combined,p,cut);used=cut;if(used>1U&&combined[used-1U]!='/')combined[used++]='/';}memcpy(combined+used,target,tl+1U);free(target);r=openfs_resolve_symlink(d,s,combined,out,cap,depth+1U);free(combined);return r;
 }
 
+static openfs_path_result_t credentialed_parent_access(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid){
+    if(d==NULL||s==NULL||p==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
+    size_t l=strlen(p),slash=l;while(slash>0U&&p[slash-1U]!='/')--slash;
+    if(l==0U||l>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
+    char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}
+    return openfs_path_lookup_follow_as(d,s,pp,uid,gid,&(uint64_t){0});
+}
+
 static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid)
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
@@ -97,7 +105,7 @@ static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const ope
     if(l==0U||l>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
     char pp[OPENFS_PATH_MAX];
     if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}
-    return openfs_path_check_access(d,s,pp,uid,gid,3U);
+    return credentialed_parent_access(d,s,p,uid,gid);
 }
 openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
