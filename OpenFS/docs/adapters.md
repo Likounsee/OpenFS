@@ -97,3 +97,7 @@ concurrency policy.
 A read-only adapter may expose `OPENFS_IO_READ_ONLY` from `write`. OpenFS mount
 and read paths can use such a device for inspection, while mutation APIs must
 surface the write failure instead of silently changing semantics.
+
+## Core concurrency boundary
+
+OpenFS core path APIs are not a general thread-safe/reentrant interface. In particular, path lookup currently uses the C `strtok()` stateful tokenizer. Callers must serialize concurrent path operations that share a process. This is a documented limitation rather than a release-blocking defect because the public API does not promise concurrent/reentrant path calls.
