@@ -86,6 +86,9 @@ static int decode_entry(const uint8_t *raw, openfs_dir_entry_t *entry, char *nam
     if (entry->generation == 0U || entry->inode_number == 0U ||
         (entry->type != 1U && entry->type != 2U && entry->type != 3U)) return -1;
     for (size_t z = 24U + len; z < 252U; ++z) if (raw[z] != 0U) return -1;
+    if (memchr(raw + 24U, '\0', len) != NULL ||
+        (len == 1U && raw[24U] == '.') ||
+        (len == 2U && raw[24U] == '.' && raw[25U] == '.')) return -1;
     memcpy(name, raw + 24U, len);
     name[len] = '\0';
     if (memchr(name, '/', len) != NULL) return -1;
