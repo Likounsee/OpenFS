@@ -122,7 +122,7 @@ openfs_path_result_t openfs_readlink(openfs_block_device_t*d,const openfs_superb
         memcpy(out,in.inline_data,(size_t)in.size);out[in.size]='\\0';return OPENFS_PATH_OK;
     }
     size_t got=0U;openfs_file_result_t fr=openfs_file_read(d,s,&in,0U,out,(size_t)in.size,&got);
-    if(fr!=OPENFS_FILE_OK||got!=in.size)return fr==OPENFS_FILE_CORRUPT?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
+    if(fr!=OPENFS_FILE_OK||got!=in.size)return (fr==OPENFS_FILE_CORRUPT||fr==OPENFS_FILE_OUT_OF_RANGE)?OPENFS_PATH_CORRUPT:OPENFS_PATH_IO_ERROR;
     for(uint64_t n=0U;n<in.size;n++)if(out[n]=='\\0')return OPENFS_PATH_CORRUPT;
     out[in.size]='\\0';return OPENFS_PATH_OK;
 }
