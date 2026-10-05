@@ -407,42 +407,46 @@ static int replay_state_case(int kind, unsigned id) {
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
-    } else if(kind==3){ /* committed then incomplete */
+    } else if(kind==3){ /* committed then incomplete BEGIN only */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
         ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
+        memset(payload+24U,0x72U,BS-32U-24U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
-        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
-    } else if(kind==4){ /* TX1 incomplete just before COMMIT, then TX2 committed */
+    } else if(kind==4){ /* committed then incomplete BEGIN + DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
-        memset(payload+24U,0x72U,BS-32U-24U);
-        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_BEGIN,2U,3U,NULL,0U);
-        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_DATA,2U,4U,payload,BS-32U);
-        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_COMMIT,2U,5U,NULL,0U);
-    } else if(kind==5){ /* TX1 BEGIN only, then TX2 committed */
-        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
-        memset(payload+24U,0x72U,BS-32U-24U);
-        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_BEGIN,2U,2U,NULL,0U);
-        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,2U,3U,payload,BS-32U);
-        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_COMMIT,2U,4U,NULL,0U);
-    } else if(kind==6){ /* TX1 BEGIN + multiple DATA, then TX2 committed */
-        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
-        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
-        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,1U,3U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
         ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
         ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
-        ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_COMMIT,2U,6U,NULL,0U);
-    } else if(kind==7){ /* TX1 BEGIN + three DATA, then TX2 committed */
+    } else if(kind==5){ /* committed then incomplete BEGIN + two DATA */
         ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
         ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
-        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_DATA,1U,3U,payload,BS-32U);
-        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_DATA,1U,4U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
         memset(payload+24U,0x72U,BS-32U-24U);
-        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_BEGIN,2U,5U,NULL,0U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
+        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
         ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
-        ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_COMMIT,2U,7U,NULL,0U);
+    } else if(kind==6){ /* committed then incomplete BEGIN + three DATA */
+        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
+        memset(payload+24U,0x72U,BS-32U-24U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
+        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
+        ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
+        ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_DATA,2U,7U,payload,BS-32U);
+    } else if(kind==7){ /* committed then incomplete BEGIN + four DATA */
+        ok&=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+        ok&=write_raw(&v,&s,1,OPENFS_JOURNAL_DATA,1U,2U,payload,BS-32U);
+        ok&=write_raw(&v,&s,2,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
+        memset(payload+24U,0x72U,BS-32U-24U);
+        ok&=write_raw(&v,&s,3,OPENFS_JOURNAL_BEGIN,2U,4U,NULL,0U);
+        ok&=write_raw(&v,&s,4,OPENFS_JOURNAL_DATA,2U,5U,payload,BS-32U);
+        ok&=write_raw(&v,&s,5,OPENFS_JOURNAL_DATA,2U,6U,payload,BS-32U);
+        ok&=write_raw(&v,&s,6,OPENFS_JOURNAL_DATA,2U,7U,payload,BS-32U);
+        ok&=write_raw(&v,&s,7,OPENFS_JOURNAL_DATA,2U,8U,payload,BS-32U);
     } else if(kind==8){ /* four committed transactions, replayed in order */
         for(uint64_t tx=1U;tx<=4U;tx++){
             uint8_t value=(uint8_t)(0x70U+tx);
@@ -467,14 +471,14 @@ static int replay_state_case(int kind, unsigned id) {
         else if(kind==1) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x61U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==2) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else if(kind==8) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x74U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
-        else if(kind==3) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x63U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
+        else if(kind>=3&&kind<=7) { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x61U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         else { uint8_t z[BS]; memset(z,0x11U,BS); memset(z,0x72U,BS-56U); if(memcmp(b,z,BS)!=0)ok=0; }
         if (!ok) fprintf(stderr,"replay kind=%d block=%02x expected=%02x\\n",kind,b[0],kind==0?0x11:kind==1?0x61:kind==2?0x72:0x63);
         uint64_t e=0U; if(openfs_fsck(&v,&m.superblock,&e)!=OPENFS_FSCK_OK||e!=0U){ fprintf(stderr,"replay kind=%d fsck=%llu\\n",kind,(unsigned long long)e); ok=0; }
         if(openfs_unmount(&m)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d unmount failed\\n",kind); ok=0; }
         openfs_mount_t m2; if(openfs_mount(&m2,&v)!=OPENFS_MOUNT_OK){ fprintf(stderr,"replay kind=%d second mount failed\\n",kind); ok=0; }
         if(ok){
-            uint8_t b2[BS], expected2[BS]; uint8_t want2=(kind==0)?0x11U:(kind==1)?0x61U:(kind==2)?0x72U:(kind==3)?0x63U:(kind==8)?0x74U:0x72U;
+            uint8_t b2[BS], expected2[BS]; uint8_t want2=(kind==0)?0x11U:(kind==1)?0x61U:(kind==2)?0x72U:(kind>=3&&kind<=7)?0x61U:0x74U;
             memset(expected2,0x11U,BS); if(kind!=0)memset(expected2,want2,BS-56U);
             if(rd(&d,target,1U,b2)!=OPENFS_IO_OK||memcmp(b2,expected2,BS)!=0){ fprintf(stderr,"replay kind=%d second replay changed data\\n",kind); ok=0; }
             openfs_journal_t j2;
