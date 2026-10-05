@@ -77,11 +77,11 @@ openfs_path_result_t openfs_path_lookup_as(openfs_block_device_t*d,const openfs_
         openfs_inode_result_t ar=openfs_inode_check_access(&dir,uid,gid,1U);
         if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;
         if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
-        if(strcmp(part,".")==0){part=next_path_component(buf,strlen(buf),&pos);continue;}
-        if(strcmp(part,"..")==0){if(dir.parent_inode==0U)return OPENFS_PATH_CORRUPT;uint64_t parent_count=0U;if(inode_count(s,&parent_count)!=OPENFS_PATH_OK||dir.parent_inode>parent_count)return OPENFS_PATH_CORRUPT;openfs_inode_t parent;openfs_path_result_t parent_result=read_inode(d,s,dir.parent_inode,&parent);if(parent_result!=OPENFS_PATH_OK)return parent_result;if((parent.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_CORRUPT;cur=dir.parent_inode;part=next_path_component(buf,strlen(buf),&pos);continue;}
+        if(strcmp(part,".")==0){part=next_path_component(buf,len,&pos);continue;}
+        if(strcmp(part,"..")==0){if(dir.parent_inode==0U)return OPENFS_PATH_CORRUPT;uint64_t parent_count=0U;if(inode_count(s,&parent_count)!=OPENFS_PATH_OK||dir.parent_inode>parent_count)return OPENFS_PATH_CORRUPT;openfs_inode_t parent;openfs_path_result_t parent_result=read_inode(d,s,dir.parent_inode,&parent);if(parent_result!=OPENFS_PATH_OK)return parent_result;if((parent.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_CORRUPT;cur=dir.parent_inode;part=next_path_component(buf,len,&pos);continue;}
         openfs_dir_entry_t e;openfs_dir_result_t dr=openfs_dir_lookup(d,s,&dir,part,&e);if(dr!=OPENFS_DIR_OK)return map_dir_result(dr);
         openfs_inode_t target;openfs_path_result_t target_result=read_inode(d,s,e.inode_number,&target);if(target_result!=OPENFS_PATH_OK)return target_result;if(target.generation!=e.generation)return OPENFS_PATH_CORRUPT;uint32_t target_type=target.mode&OPENFS_INODE_TYPE_MASK;if(target_type!=OPENFS_INODE_MODE_REGULAR&&target_type!=OPENFS_INODE_MODE_DIRECTORY&&target_type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_PATH_CORRUPT;uint8_t expected=target_type==OPENFS_INODE_MODE_DIRECTORY?2U:(target_type==OPENFS_INODE_MODE_SYMLINK?3U:1U);if(expected!=e.type)return OPENFS_PATH_CORRUPT;
-        cur=e.inode_number;part=next_path_component(buf,strlen(buf),&pos);
+        cur=e.inode_number;part=next_path_component(buf,len,&pos);
     }
     *out=cur;return OPENFS_PATH_OK;
 }
@@ -399,15 +399,15 @@ static openfs_path_result_t check_search_followed(openfs_block_device_t*d,const 
     openfs_inode_t root;if(read_inode(d,s,s->root_inode,&root)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     char prefix[OPENFS_PATH_MAX];size_t used=1U;prefix[0]='/';prefix[1]='\0';
-    char *part=next_path_component(buf,strlen(buf),&pos);while(part){
-        if(strcmp(part,".")==0){part=next_path_component(buf,strlen(buf),&pos);continue;}
+    char *part=next_path_component(buf,len,&pos);while(part){
+        if(strcmp(part,".")==0){part=next_path_component(buf,len,&pos);continue;}
         size_t plen=strlen(part);if(used>1U){if(used+plen+1U>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;prefix[used++]='/';}else{if(used+plen>=sizeof(prefix))return OPENFS_PATH_NAME_TOO_LONG;}
         memcpy(prefix+used,part,plen);used+=plen;prefix[used]='\0';
         uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,prefix,&ino);if(lr!=OPENFS_PATH_OK)return lr;
         openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
         if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
         ar=openfs_inode_check_access(&in,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
-        part=next_path_component(buf,strlen(buf),&pos);
+        part=next_path_component(buf,len,&pos);
     }
     return OPENFS_PATH_OK;
 }
