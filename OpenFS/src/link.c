@@ -53,7 +53,7 @@ static openfs_path_result_t lookup_link_source(openfs_block_device_t*d,const ope
     openfs_dir_entry_t entry;openfs_dir_result_t dr=openfs_dir_lookup(d,s,&dir,name,&entry);if(dr!=OPENFS_DIR_OK)return map_dir_result(dr);
     openfs_inode_t target;ir=ri(d,s,entry.inode_number,&target);if(ir!=OPENFS_PATH_OK)return ir;
     if(target.generation!=entry.generation)return OPENFS_PATH_CORRUPT;
-    uint8_t expected=(target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY?2U:((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_SYMLINK?3U:1U);
+    uint32_t target_type=target.mode&OPENFS_INODE_TYPE_MASK;if(target_type!=OPENFS_INODE_MODE_REGULAR&&target_type!=OPENFS_INODE_MODE_DIRECTORY&&target_type!=OPENFS_INODE_MODE_SYMLINK)return OPENFS_PATH_CORRUPT;uint8_t expected=target_type==OPENFS_INODE_MODE_DIRECTORY?2U:(target_type==OPENFS_INODE_MODE_SYMLINK?3U:1U);
     if(expected!=entry.type)return OPENFS_PATH_CORRUPT;
     *out=entry.inode_number;return OPENFS_PATH_OK;
 }
