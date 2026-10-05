@@ -106,7 +106,7 @@ openfs_path_result_t openfs_path_lookup_as(openfs_block_device_t*d,const openfs_
             if(type==OPENFS_INODE_MODE_SYMLINK){
                 if(depth==40U)return OPENFS_PATH_SYMLINK_LOOP;
                 char target_path[OPENFS_PATH_MAX];openfs_path_result_t sr=read_symlink_target(d,s,e.inode_number,target_path,sizeof(target_path));if(sr!=OPENFS_PATH_OK)return sr;
-                size_t suffix_len=len-pos;size_t target_len=strlen(target_path);size_t parent_len=pos>1U?pos-1U:1U;char replacement[OPENFS_PATH_MAX];size_t used=0U;
+                size_t suffix_len=len-pos;size_t target_len=strlen(target_path);size_t component_start=pos;while(component_start>0U&&buf[component_start-1U]!='/')--component_start;size_t parent_len=component_start>1U?component_start-1U:1U;char replacement[OPENFS_PATH_MAX];size_t used=0U;
                 if(target_path[0]=='/'){if(target_len>=sizeof(replacement))return OPENFS_PATH_NAME_TOO_LONG;memcpy(replacement,target_path,target_len);used=target_len;}
                 else{if(parent_len+target_len+1U>=sizeof(replacement))return OPENFS_PATH_NAME_TOO_LONG;if(parent_len==1U){replacement[0]='/';used=1U;}else{memcpy(replacement,buf,parent_len);used=parent_len;}if(used>1U&&replacement[used-1U]!='/')replacement[used++]='/';if(used+target_len>=sizeof(replacement))return OPENFS_PATH_NAME_TOO_LONG;memcpy(replacement+used,target_path,target_len);used+=target_len;}
                 if(suffix_len>0U){if(used>0U&&replacement[used-1U]!='/')replacement[used++]='/';if(used+suffix_len>=sizeof(replacement))return OPENFS_PATH_NAME_TOO_LONG;memcpy(replacement+used,buf+pos,suffix_len);used+=suffix_len;}
