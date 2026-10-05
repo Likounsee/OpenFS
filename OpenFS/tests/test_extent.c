@@ -27,7 +27,8 @@ static void extent_tree_root_collision_regression(void)
     uint8_t *before=malloc(s.block_size),*after=malloc(s.block_size);assert(before&&after);memset(before,0xA5,s.block_size);
     assert(v.write(v.context,b0,1U,before)==OPENFS_IO_OK);
     openfs_extent_t tree_extent={4U,s.data_start+10U,1U};
-    assert(openfs_extent_tree_write(&v,&s,&i,NULL,0U)==OPENFS_EXTENT_INVALID_ARGUMENT);\n    assert(openfs_extent_tree_write(&v,&s,&i,&tree_extent,1U)==OPENFS_EXTENT_CORRUPT);
+    assert(openfs_extent_tree_write(&v,&s,&i,NULL,0U)==OPENFS_EXTENT_INVALID_ARGUMENT);
+    assert(openfs_extent_tree_write(&v,&s,&i,&tree_extent,1U)==OPENFS_EXTENT_CORRUPT);
     assert(v.read(v.context,b0,1U,after)==OPENFS_IO_OK&&memcmp(before,after,s.block_size)==0);
     free(before);free(after);free(d.b);
 }
