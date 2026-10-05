@@ -74,8 +74,7 @@ static void backup_superblock_extent_tree_regression(void)
     got=0U;
     assert(openfs_file_read(&v,&remounted.superblock,&recovered,write_offset,readback+write_offset,1U,&got)==OPENFS_FILE_OK);
     assert(got==1U&&readback[write_offset]==marker);
-    uint64_t fsck_errors=0U;
-    assert(openfs_fsck(&v,&remounted.superblock,&fsck_errors)==OPENFS_FSCK_OK&&fsck_errors==0U);
+    uint64_t fsck_errors=0U;openfs_fsck_result_t fsck_result=openfs_fsck(&v,&remounted.superblock,&fsck_errors);fprintf(stderr,"mount_fsck_result=%d errors=%llu\\n",(int)fsck_result,(unsigned long long)fsck_errors);assert(fsck_result==OPENFS_FSCK_OK&&fsck_errors==0U);
     assert(openfs_unmount(&remounted)==OPENFS_MOUNT_OK);
     free(readback);free(data);free(d.bytes);
 }
