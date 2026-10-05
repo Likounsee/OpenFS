@@ -67,6 +67,12 @@ static void trailing_slash_regressions(void)
     assert(openfs_path_lookup_as(&v,&s,"/as-absolute/sub",0U,0U,&q)==OPENFS_PATH_OK);
     assert(openfs_path_lookup_as(&v,&s,"/as-relative/./sub/../",0U,0U,&q)==OPENFS_PATH_OK&&q==as_target);
     assert(openfs_path_lookup_as(&v,&s,"/as-chain/../",0U,0U,&q)==OPENFS_PATH_OK&&q==s.root_inode);
+    assert(openfs_path_mkdir(&v,&s,"/as-private",&q)==OPENFS_PATH_OK);
+    assert(openfs_path_chmod(&v,&s,"/as-private",0700U)==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_as(&v,&s,"/as-private",1000U,1000U,&q)==OPENFS_PATH_ACCESS_DENIED);
+    assert(openfs_symlink(&v,&s,"/as-loop-b","/as-loop-a")==OPENFS_PATH_OK);
+    assert(openfs_symlink(&v,&s,"/as-loop-a","/as-loop-b")==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_as(&v,&s,"/as-loop-a",0U,0U,&q)==OPENFS_PATH_SYMLINK_LOOP);
     assert(openfs_path_lookup_follow(&v,&s,"//trail-dir///./sub/../",&q)==OPENFS_PATH_OK&&q==dir);
     assert(openfs_path_create(&v,&s,"/trail-file-created/",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_NOT_DIRECTORY);
     assert(openfs_path_lookup(&v,&s,"/trail-file-created",&q)==OPENFS_PATH_NOT_FOUND);
