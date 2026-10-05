@@ -49,7 +49,7 @@ if(d->flush(d->context)!=OPENFS_IO_OK){
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
 return OPENFS_PATH_OK;}
-openfs_path_result_t openfs_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp){
+static openfs_path_result_t symlink_internal(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp,uint32_t uid,uint32_t gid){
 if(!openfs_block_device_is_valid(d)||s==NULL||target==NULL||linkp==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
 if(linkp[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
 size_t len=strlen(target);if(len==0U)return OPENFS_PATH_INVALID_ARGUMENT;if(len>=OPENFS_PATH_MAX)return OPENFS_PATH_NAME_TOO_LONG;
@@ -61,7 +61,7 @@ memcpy(name,linkp+slash,l-slash);name[l-slash]='\0';
 if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,linkp,slash-1U);pp[slash-1U]='\0';}
 uint64_t parent=0U;r=openfs_path_lookup_follow(d,s,pp,&parent);if(r!=OPENFS_PATH_OK)return r;
 openfs_inode_t original_parent;if(ri(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
-uint64_t ino=0U;r=openfs_path_create(d,s,linkp,OPENFS_INODE_MODE_SYMLINK,&ino);if(r!=OPENFS_PATH_OK)return r;
+uint64_t ino=0U;r=openfs_path_create_as(d,s,linkp,OPENFS_INODE_MODE_SYMLINK,uid,gid,&ino);if(r!=OPENFS_PATH_OK)return r;
 openfs_inode_t in;openfs_path_result_t in_result=ri(d,s,ino,&in);if(in_result!=OPENFS_PATH_OK){if(!symlink_rollback_created(d,s,parent,linkp,ino,&original_parent))return OPENFS_PATH_CORRUPT;return in_result;}
 if(len>UINT64_MAX-1U){if(!symlink_rollback_created(d,s,parent,linkp,ino,&original_parent))return OPENFS_PATH_CORRUPT;return OPENFS_PATH_INVALID_ARGUMENT;}
 if(len<=sizeof(in.inline_data)){
@@ -128,10 +128,11 @@ openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superbl
     (void)source_inode;
     return openfs_link(d,s,a,b);
 }
+openfs_path_result_t openfs_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp){return symlink_internal(d,s,target,linkp,0U,0U);}
 openfs_path_result_t openfs_symlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
     if(a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
-    openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;return openfs_symlink(d,s,a,b);
+    openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;return symlink_internal(d,s,a,b,uid,gid);
 }
 
 openfs_path_result_t openfs_link_tx(openfs_transaction_t*t,const openfs_superblock_t*s,const char*a,const char*b){if(t==NULL||s==NULL||a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_path_result_t r=openfs_link(d,s,a,b);if(r!=OPENFS_PATH_OK)t->failed=1;return r;}
