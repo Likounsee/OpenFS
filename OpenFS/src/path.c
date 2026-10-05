@@ -443,24 +443,75 @@ static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superb
            d->flush(d->context)==OPENFS_IO_OK;
 }
 
+static int rollback_created_path(
+    openfs_block_device_t *d,
+    const openfs_superblock_t *s,
+    const char *p,
+    uint64_t ino,
+    const openfs_inode_t *original_parent)
+{
+    if (d == NULL || s == NULL || p == NULL || original_parent == NULL || ino == 0U) return 0;
+    char pp[OPENFS_PATH_MAX], name[OPENFS_DIR_NAME_MAX + 1U];
+    if (split_last(p, pp, sizeof(pp), name, sizeof(name)) != OPENFS_PATH_OK) return 0;
+
+    openfs_inode_t parent;
+    if (read_inode(d, s, original_parent->inode_number, &parent) != OPENFS_PATH_OK) return 0;
+    openfs_dir_entry_t entry;
+    if (openfs_dir_lookup(d, s, &parent, name, &entry) != OPENFS_DIR_OK ||
+        entry.inode_number != ino) {
+        return 0;
+    }
+    if (openfs_dir_remove(d, s, &parent, name) != OPENFS_DIR_OK) return 0;
+
+    uint64_t count = 0U;
+    if (inode_count(s, &count) != OPENFS_PATH_OK ||
+        openfs_inode_write(d, s->inode_table_start, count, original_parent) != OPENFS_INODE_OK) {
+        return 0;
+    }
+    if (!rollback_allocated_inode(d, s, ino)) return 0;
+    return d->flush(d->context) == OPENFS_IO_OK;
+}
+
 openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
+    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     uint64_t ino=0U;r=openfs_path_create(d,s,p,mode,&ino);if(r!=OPENFS_PATH_OK)return r;
-    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
-    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+    }
+    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+    }
     in.uid=uid;in.gid=gid;
-    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+    openfs_inode_result_t write_result=openfs_inode_write(d,s->inode_table_start,count,&in);
+    if(write_result!=OPENFS_INODE_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+    }
+    if(d->flush(d->context)!=OPENFS_IO_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+    }
     if(out!=NULL)*out=ino;return OPENFS_PATH_OK;
 }
 openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
+    openfs_inode_t original_parent;if(read_inode(d,s,parent,&original_parent)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
     uint64_t ino=0U;r=openfs_path_mkdir(d,s,p,&ino);if(r!=OPENFS_PATH_OK)return r;
-    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
-    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
+    uint64_t count=0U;if(inode_count(s,&count)!=OPENFS_PATH_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+    }
+    openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_CORRUPT:OPENFS_PATH_CORRUPT;
+    }
     in.uid=uid;in.gid=gid;
-    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_PATH_IO_ERROR;
+    openfs_inode_result_t write_result=openfs_inode_write(d,s->inode_table_start,count,&in);
+    if(write_result!=OPENFS_INODE_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+    }
+    if(d->flush(d->context)!=OPENFS_IO_OK){
+        return rollback_created_path(d,s,p,ino,&original_parent)?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
+    }
     if(out!=NULL)*out=ino;return OPENFS_PATH_OK;
 }
 
