@@ -146,6 +146,29 @@ assert(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);
 assert(openfs_path_create_as(&v,&s,"/home/test/asuser",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&q)==OPENFS_PATH_OK);
 {openfs_inode_t as_i;assert(openfs_inode_read(&v,s.inode_table_start,q,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&as_i)==OPENFS_INODE_OK);assert(as_i.uid==1000U&&as_i.gid==1000U);}
 assert(openfs_path_unlink_as(&v,&s,"/home/test/asuser",1000U,1000U)==OPENFS_PATH_OK);
+{
+    uint64_t inode_count_value=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;
+    uint64_t candidate=0U;
+    for(uint64_t n=2U;n<=inode_count_value;n++){
+        int used=0;
+        assert(openfs_bitmap_test(&v,s.inode_bitmap_start,s.inode_bitmap_blocks,n-1U,&used)==OPENFS_BITMAP_OK);
+        if(!used){candidate=n;break;}
+    }
+    assert(candidate!=0U);
+    uint64_t inode_block=s.inode_table_start+((candidate-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
+    d.fail_write_block=inode_block;d.fail_write_enabled=1;d.fail_write_count=2;
+    assert(openfs_path_create_as(&v,&s,"/home/test/as-create-write-fail",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&q)==OPENFS_PATH_IO_ERROR);
+    d.fail_write_enabled=0;
+    assert(openfs_path_lookup(&v,&s,"/home/test/as-create-write-fail",&x)==OPENFS_PATH_NOT_FOUND);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+}
+{
+    uint64_t flush_failure=d.flush_calls+3U;
+    d.fail_flush_call=(uint32_t)flush_failure;
+    assert(openfs_path_mkdir_as(&v,&s,"/home/test/as-mkdir-flush-fail",1000U,1000U,&q)==OPENFS_PATH_IO_ERROR);
+    assert(openfs_path_lookup(&v,&s,"/home/test/as-mkdir-flush-fail",&x)==OPENFS_PATH_NOT_FOUND);
+    {uint64_t errors=0U;assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);}
+}
 assert(openfs_path_create_as(&v,&s,"/home/test/denied",OPENFS_INODE_MODE_REGULAR,1000U,1000U,&q)==OPENFS_PATH_OK);
 assert(openfs_path_chmod(&v,&s,"/home/test",0555U)==OPENFS_PATH_OK);
 assert(openfs_path_unlink_as(&v,&s,"/home/test/denied",1000U,1000U)==OPENFS_PATH_ACCESS_DENIED);
