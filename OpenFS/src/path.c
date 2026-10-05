@@ -465,7 +465,7 @@ static int rollback_created_path(
 
     uint64_t count = 0U;
     if (inode_count(s, &count) != OPENFS_PATH_OK ||
-        openfs_inode_write(d, s->inode_table_start, count, original_parent) != OPENFS_INODE_OK) {
+        !restore_directory_state(d, s, &parent, original_parent, count)) {
         return 0;
     }
     if (!rollback_allocated_inode(d, s, ino)) return 0;
