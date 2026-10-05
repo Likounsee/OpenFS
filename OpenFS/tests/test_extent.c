@@ -4,6 +4,7 @@
 #include "openfs/extent.h"
 #include "openfs/allocator.h"
 #include "openfs/inode_alloc.h"
+#include "openfs/bitmap.h"
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;}ED;
 static openfs_io_result_t er( void*c,uint64_t b,uint32_t n,void*out){ED*d=c;if(b>=d->bc||(uint64_t)n>d->bc-b)return OPENFS_IO_OUT_OF_RANGE;memcpy(out,d->b+(size_t)b*d->bs,(size_t)n*d->bs);return OPENFS_IO_OK;}
 static openfs_io_result_t ew( void*c,uint64_t b,uint32_t n,const void*in){ED*d=c;if(b>=d->bc||(uint64_t)n>d->bc-b)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)b*d->bs,in,(size_t)n*d->bs);return OPENFS_IO_OK;}
