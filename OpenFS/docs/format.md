@@ -20,7 +20,7 @@ Block 1 is reserved. Block 2 is also reserved for future metadata. The metadata 
 4. journal area;
 5. data area.
 
-The final block is reserved for the backup superblock. The block bitmap marks every reserved block as used during formatting.
+The final block is reserved for the backup superblock. Mount validates both copies and selects the valid copy; when only the backup is valid, the selected backup superblock is passed through to filesystem operations. The block bitmap marks every reserved block as used during formatting.
 
 The inode bitmap size is calculated from the inode table size, so large filesystems can have more than one bitmap block. The bitmap has one bit per inode. Bit 0 is reserved for the root inode and is set during formatting.
 
