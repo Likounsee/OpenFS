@@ -225,7 +225,7 @@ static int extent_tree_root_conflicts(const openfs_block_device_t *device,const 
         if(ir!=OPENFS_INODE_OK)return 1;
         uint32_t inline_n=(other.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U?
             (other.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?other.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX):
-            (other.extent_count<OPENFS_INODE_MAX?other.extent_count:OPENFS_INODE_MAX);
+            (other.extent_count<OPENFS_EXTENT_MAX?other.extent_count:OPENFS_EXTENT_MAX);
         for(uint32_t i=0U;i<inline_n;i++){
             openfs_extent_t e;
             if(openfs_inode_get_extent(&other,i,&e)!=OPENFS_EXTENT_OK)return 1;
