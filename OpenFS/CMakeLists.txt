@@ -40,10 +40,13 @@ function(openfs_enable_warnings target)
 endfunction()
 openfs_enable_warnings(openfs)
 
+if(OPENFS_BUILD_TESTS)
+    enable_testing()
+endif()
+
 add_subdirectory(adapters)
 
 if(OPENFS_BUILD_TESTS)
-    enable_testing()
     add_executable(openfs-timestamp-test tests/test_timestamp.c)
     target_link_libraries(openfs-timestamp-test PRIVATE openfs)
     openfs_enable_warnings(openfs-timestamp-test)
