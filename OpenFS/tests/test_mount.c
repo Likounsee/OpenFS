@@ -60,6 +60,7 @@ static void backup_superblock_extent_tree_regression(void)
     size_t got=0U;
     assert(openfs_file_read(&v,&fallback.superblock,&recovered,0U,readback,bytes,&got)==OPENFS_FILE_OK);
     assert(got==bytes&&memcmp(readback,data,bytes)==0);
+    d.bytes[0]^=0x5AU; /* restore the intentionally corrupted primary copy before fsck */
 
     uint8_t marker=0xE7U;
     uint64_t write_offset=(count-1U)*(uint64_t)d.block_size+123U;
