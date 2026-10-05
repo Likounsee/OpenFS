@@ -1,3 +1,5 @@
+> **Historical record — superseded.** This document records the P3-C validation of the earlier `1a4b9294...` state. An independent audit was reopened afterward; its `RELEASE READY: YES` decision is no longer current. Do not use this document alone as evidence that the current `OpenFS` branch is release-ready.
+
 # P3-C Final Release Validation
 
 ## Scope
