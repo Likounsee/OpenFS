@@ -345,7 +345,7 @@ static openfs_file_result_t rollback_blocks(openfs_block_device_t *device,const 
             return OPENFS_FILE_CORRUPT;
         }
         physical=last->physical_start+last->block_count-1U;
-        if(validate_physical_block(sb,physical)!=OPENFS_FILE_OK||
+        if(validate_allocated_block(device,sb,physical)!=OPENFS_FILE_OK||
            openfs_free_block(device,sb,physical)!=OPENFS_ALLOC_OK){free(a);return OPENFS_FILE_CORRUPT;}
         last->block_count--;inode->blocks--;
         if(last->block_count==0U)n--;
@@ -392,7 +392,7 @@ openfs_file_result_t openfs_file_truncate(
     int tail_saved=0;
     if(new_size>old_size&&old_size%device->block_size!=0U){
         if(map_block_on_disk(device,sb,&original,old_size/device->block_size,&tail_physical)!=OPENFS_FILE_OK||
-           validate_physical_block(sb,tail_physical)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;
+           validate_allocated_block(device,sb,tail_physical)!=OPENFS_FILE_OK)return OPENFS_FILE_CORRUPT;
         tail_backup=malloc(device->block_size);
         if(tail_backup==NULL)return OPENFS_FILE_IO_ERROR;
         if(device->read(device->context,tail_physical,1U,tail_backup)!=OPENFS_IO_OK){free(tail_backup);return OPENFS_FILE_IO_ERROR;}
@@ -685,7 +685,7 @@ openfs_file_result_t openfs_file_write(
     for (uint64_t n=0U;n<backup_count;n++) {
         backups[n].logical=first_logical+n;
         if(map_block_on_disk(device,sb,&original,backups[n].logical,&backups[n].physical)!=OPENFS_FILE_OK ||
-           validate_physical_block(sb,backups[n].physical)!=OPENFS_FILE_OK){
+           validate_allocated_block(device,sb,backups[n].physical)!=OPENFS_FILE_OK){
             free_write_backups(backups,backup_count);
             return OPENFS_FILE_CORRUPT;
         }
@@ -741,7 +741,7 @@ openfs_file_result_t openfs_file_write(
         uint32_t within = (uint32_t)(absolute % device->block_size);
         uint64_t physical = 0U;
         r = map_block_on_disk(device, sb, inode, logical, &physical);
-        if (r != OPENFS_FILE_OK || validate_physical_block(sb, physical) != OPENFS_FILE_OK) {
+        if (r != OPENFS_FILE_OK || validate_allocated_block(device, sb, physical) != OPENFS_FILE_OK) {
             free(block);
             int rollback_ok = rollback_blocks(device, sb, inode, old_blocks,
                 openfs_inode_get_extent_tree_root(&original)) == OPENFS_FILE_OK;
