@@ -27,6 +27,7 @@ static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t
     openfs_mount_t m2;assert(openfs_mount(&m2,v)==OPENFS_MOUNT_OK);assert(m2.journal.next_record==0U);errors=0;assert(openfs_fsck(v,&m2.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);assert(openfs_unmount(&m2)==OPENFS_MOUNT_OK);
 }
 static void empty_boundary(void){
+    assert(OPENFS_JOURNAL_BLOCK_DATA_HEADER==24U);
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);assert(j.active_transaction_id==0U);assert(j.commit_record_written==0U);
     assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);openfs_journal_t r;assert(openfs_journal_open(&r,&v,&s)==OPENFS_JOURNAL_OK);assert(r.next_record==0U);free(d.b);
