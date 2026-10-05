@@ -190,6 +190,7 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
     if(d==NULL||sb==NULL||inode==NULL||(n!=0U&&a==NULL))return OPENFS_FILE_INVALID_ARGUMENT;
     if(!validate_extent_set(sb,a,n))return OPENFS_FILE_CORRUPT;
     uint32_t cap=openfs_extent_tree_capacity(d->block_size);uint64_t oldroot=openfs_inode_get_extent_tree_root(inode);
+    if(oldroot!=0U && (oldroot<sb->data_start || oldroot>=sb->data_start+sb->data_blocks))return OPENFS_FILE_CORRUPT;
     if(oldroot!=0U){for(uint32_t i=0U;i<n;i++)if(extent_contains_block(&a[i],oldroot))return OPENFS_FILE_CORRUPT;}
     if(n>OPENFS_INODE_TREE_INLINE_EXTENT_MAX){
         if(cap==0U||n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX>cap)return OPENFS_FILE_TOO_MANY_EXTENTS;
