@@ -193,13 +193,13 @@ static void file_rejects_unallocated_extent_tree_root(void){
     assert(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
     uint8_t value=0xA5U;
     assert(openfs_file_write(&v,&sb,&i,5U*4096U,&value,1U)==OPENFS_FILE_OK);
-    uint64_t root=openfs_inode_get_extent_tree_root(&i);assert(root!=0U);
-    int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&used);
-    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,0)==OPENFS_BITMAP_OK);
+    uint64_t root_block=openfs_inode_get_extent_tree_root(&i);assert(root_block!=0U);
+    int used=0;assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root_block,&used)==OPENFS_BITMAP_OK&&used);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root_block,0)==OPENFS_BITMAP_OK);
     size_t got=0U;uint8_t out=0U;
     assert(openfs_file_read(&v,&sb,&i,0U,&out,1U,&got)==OPENFS_FILE_CORRUPT&&got==0U);
-    assert(openfs_file_map_block_device(&v,&sb,&i,0U,&root)==OPENFS_FILE_CORRUPT);
-    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,1)==OPENFS_BITMAP_OK);
+    uint64_t mapped=0U;assert(openfs_file_map_block_device(&v,&sb,&i,0U,&mapped)==OPENFS_FILE_CORRUPT);
+    assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root_block,1)==OPENFS_BITMAP_OK);
     uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
