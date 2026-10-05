@@ -129,7 +129,7 @@ openfs_path_result_t openfs_readlink(openfs_block_device_t*d,const openfs_superb
 openfs_path_result_t openfs_resolve_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap,uint32_t depth){
 if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL||out==NULL||cap==0U)return OPENFS_PATH_INVALID_ARGUMENT;
 if(depth>40U)return OPENFS_PATH_SYMLINK_LOOP;
-uint64_t ino=0U;openfs_path_result_t lr=lookup_link_source(d,s,p,&ino);if(lr!=OPENFS_PATH_OK)return lr;
+uint64_t ino=0U;openfs_path_result_t lr=lookup_link_source(d,s,p,&ino,1);if(lr!=OPENFS_PATH_OK)return lr;
 openfs_inode_t in;openfs_path_result_t in_result=ri(d,s,ino,&in);if(in_result!=OPENFS_PATH_OK)return in_result;
 if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK){size_t n=strlen(p);if((uint64_t)n+1U>cap)return OPENFS_PATH_NO_SPACE;memcpy(out,p,n+1U);return OPENFS_PATH_OK;}
 uint64_t target_cap64=in.size==UINT64_MAX?0U:in.size+1U;if(in.size>=OPENFS_PATH_MAX)return OPENFS_PATH_CORRUPT;if(target_cap64==0U||target_cap64>(uint64_t)SIZE_MAX)return OPENFS_PATH_NO_SPACE;char *target=malloc((size_t)target_cap64);if(target==NULL)return OPENFS_PATH_NO_SPACE;openfs_path_result_t r=openfs_readlink(d,s,p,target,target_cap64);if(r!=OPENFS_PATH_OK){free(target);return r;}
