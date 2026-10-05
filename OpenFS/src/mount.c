@@ -179,10 +179,13 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     replay_state_t replay_state={mount,NULL,0U,0U,0U};
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,&replay_state);
     int replay_complete=(jr==OPENFS_JOURNAL_OK)&&replay_targets_complete(&replay_state);
-    free(replay_state.targets);
-    if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
+    if(jr!=OPENFS_JOURNAL_OK){
+        (void)replay_restore_targets(&replay_state);
+        replay_dispose_targets(&replay_state);
+        return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
+    }
     if(!replay_complete){
-        if(!replay_restore_targets(&replay_state))replay_complete=0;
+        (void)replay_restore_targets(&replay_state);
         replay_dispose_targets(&replay_state);
         return OPENFS_MOUNT_CORRUPT;
     }
