@@ -50,7 +50,7 @@ static openfs_journal_result_t replay_tx2(void*c,uint64_t tx,const uint8_t*p,uin
 static void reject_partial_committed_block_replay(void){
     D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);
     openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={24U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
-    openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t valid;assert(openfs_journal_open(&valid,&v,&s)==OPENFS_JOURNAL_OK);uint64_t valid_tx=0U;assert(openfs_journal_begin(&valid,&v,&valid_tx)==OPENFS_JOURNAL_OK);uint8_t full_block[4096U];memset(full_block,0x3CU,sizeof(full_block));assert(openfs_journal_write_block(&valid,&v,valid_tx,s.data_start,full_block)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&valid,&v,valid_tx)==OPENFS_JOURNAL_OK);uint64_t valid_errors=0U;assert(openfs_fsck(&v,&s,&valid_errors)==OPENFS_FSCK_OK&&valid_errors==0U);assert(openfs_journal_checkpoint(&valid,&v)==OPENFS_JOURNAL_OK);
     uint8_t raw[4096U];uint8_t payload[25U]={0};memcpy(payload,"OJBD1",5U);
     uint64_t target=s.data_start;payload[8U]=(uint8_t)target;payload[20U]=1U;payload[24U]=0xA5U;
     write_raw(raw,OPENFS_JOURNAL_BEGIN,1U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
