@@ -39,7 +39,35 @@ static void long_unlink_path(void){
  D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
  char path[OPENFS_PATH_MAX];size_t used=1U;path[0]='/';path[1]='\0';for(unsigned level=0U;level<6U;level++){char name[201];memset(name,(int)('a'+level),200U);name[200]='\0';assert(used+201U<sizeof(path));memcpy(path+used,name,200U);used+=200U;path[used++]='/';path[used]='\0';uint64_t ino=0U;assert(openfs_path_mkdir(&v,&s,path,&ino)==OPENFS_PATH_OK);}path[used-1U]='x';path[used]='\0';uint64_t ino=0U;assert(openfs_path_create(&v,&s,path,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);assert(openfs_path_unlink(&v,&s,path)==OPENFS_PATH_OK);assert(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);free(d.b);
 }
-int main(void){create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;assert(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;assert(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;assert(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);assert(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
+static void trailing_slash_regressions(void)
+{
+    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);
+    openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};
+    assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    uint64_t file=0U,dir=0U,q=0U;
+    assert(openfs_path_create(&v,&s,"/trail-file",OPENFS_INODE_MODE_REGULAR,&file)==OPENFS_PATH_OK);
+    assert(openfs_path_mkdir(&v,&s,"/trail-dir",&dir)==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-file/",&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-file///",&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-dir/",&q)==OPENFS_PATH_OK&&q==dir);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-dir///",&q)==OPENFS_PATH_OK&&q==dir);
+    assert(openfs_symlink(&v,&s,"/trail-file","/trail-file-link")==OPENFS_PATH_OK);
+    assert(openfs_symlink(&v,&s,"/trail-dir","/trail-dir-link")==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-file-link/",&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-dir-link/",&q)==OPENFS_PATH_OK&&q==dir);
+    assert(openfs_path_lookup_follow(&v,&s,"//trail-dir///./sub/../",&q)==OPENFS_PATH_OK&&q==s.root_inode);
+    assert(openfs_path_create(&v,&s,"/trail-file-created/",OPENFS_INODE_MODE_REGULAR,&q)==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_lookup(&v,&s,"/trail-file-created",&q)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_path_mkdir(&v,&s,"/trail-created-dir///",&q)==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-created-dir/",&q)==OPENFS_PATH_OK);
+    assert(openfs_path_unlink(&v,&s,"/trail-file/")==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_rename(&v,&s,"/trail-file/","/trail-renamed")==OPENFS_PATH_NOT_DIRECTORY);
+    assert(openfs_path_rename(&v,&s,"/trail-dir/","/trail-renamed-dir")==OPENFS_PATH_OK);
+    assert(openfs_path_lookup_follow(&v,&s,"/trail-renamed-dir/",&q)==OPENFS_PATH_OK);
+    free(d.b);
+}
+
+int main(void){trailing_slash_regressions();create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;assert(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);assert(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;assert(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;assert(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);assert(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
     openfs_inode_t home_inode;
     assert(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_inode)==OPENFS_INODE_OK);
     uint64_t home_block=0U;assert(openfs_file_map_block_device(&v,&s,&home_inode,0U,&home_block)==OPENFS_FILE_OK);
