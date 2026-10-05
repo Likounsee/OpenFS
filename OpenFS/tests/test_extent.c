@@ -50,6 +50,7 @@ static void extent_tree_unallocated_root_regression(void)
     openfs_extent_t out={0};assert(openfs_extent_tree_read(&v,&s,&i,0U,&out)==OPENFS_EXTENT_OK);
     assert(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,blocks[0],0)==OPENFS_BITMAP_OK);
     assert(openfs_extent_tree_read(&v,&s,&i,0U,&out)==OPENFS_EXTENT_CORRUPT);
+    assert(openfs_extent_tree_write(&v,&s,&i,&tree,1U)==OPENFS_EXTENT_CORRUPT);
     free(d.b);
 }
 
