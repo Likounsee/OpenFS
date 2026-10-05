@@ -336,7 +336,6 @@ if(ok&&openfs_dir_remove(d,s,&odir,on)!=OPENFS_DIR_OK){ok=0;}
 if(ok){
     openfs_dir_entry_t moved=source_entry;
     if(openfs_dir_add(d,s,&ndir,nn,&moved)!=OPENFS_DIR_OK){ok=0;}
-    else mutated=1;
 }
 if(ok&&source_is_dir){
     source.parent_inode=newparent;
@@ -443,42 +442,6 @@ static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superb
            d->flush(d->context)==OPENFS_IO_OK;
 }
 
-static int rollback_created_entry(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t parent,const char *path,uint64_t ino,const openfs_inode_t *original_parent)
-{
-    char pp[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
-    openfs_inode_t pi;
-    if(original_parent==NULL||split_last(path,pp,sizeof(pp),name,sizeof(name))!=OPENFS_PATH_OK||
-       read_inode(d,s,parent,&pi)!=OPENFS_PATH_OK)return 0;
-    openfs_inode_t original_pi=*original_parent;
-    if(openfs_dir_remove(d,s,&pi,name)!=OPENFS_DIR_OK)return 0;
-    uint64_t count=0U;
-    if(inode_count(s,&count)!=OPENFS_PATH_OK)return 0;
-    openfs_inode_t in;
-    if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return 0;
-    in.mode=OPENFS_INODE_MODE_FREE;
-    in.link_count=0U;
-    in.parent_inode=0U;
-    in.uid=0U;
-    in.gid=0U;
-    in.atime_ns=0U;
-    in.mtime_ns=0U;
-    in.ctime_ns=0U;
-    in.size=0U;
-    in.blocks=0U;
-    in.extent_count=0U;
-    in.flags=0U;
-    memset(in.inline_data,0,sizeof(in.inline_data));
-    memset(in.reserved,0,sizeof(in.reserved));
-    if(openfs_inode_write(d,s->inode_table_start,count,&in)!=OPENFS_INODE_OK)return 0;
-    if(openfs_inode_free(d,s,ino)!=OPENFS_INODE_ALLOC_OK)return 0;
-    if(!restore_directory_state(d,s,&pi,&original_pi,count))return 0;
-    return d->flush(d->context)==OPENFS_IO_OK;
-}
-openfs_path_result_t openfs_path_create(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint64_t*out)
-{
-    return create_internal(d,s,p,mode,0U,0U,out);
-}
-openfs_path_result_t openfs_path_mkdir(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint64_t*out){return create_internal(d,s,p,OPENFS_INODE_MODE_DIRECTORY,0U,0U,out);}
 openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
@@ -489,6 +452,7 @@ openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_s
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
     return create_internal(d,s,p,OPENFS_INODE_MODE_DIRECTORY,uid,gid,out);
 }
+static openfs_path_result_t sticky_allowed(const openfs_inode_t *parent,const openfs_inode_t *target,uint32_t uid){if((parent->mode&01000U)==0U)return OPENFS_PATH_OK;if(uid==0U||uid==parent->uid||uid==target->uid)return OPENFS_PATH_OK;return OPENFS_PATH_ACCESS_DENIED;}
 openfs_path_result_t openfs_path_unlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid)
 {
     uint64_t parent=0U;openfs_path_result_t r=parent_access(d,s,p,uid,gid,&parent);if(r!=OPENFS_PATH_OK)return r;
