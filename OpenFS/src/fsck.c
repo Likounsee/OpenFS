@@ -147,7 +147,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
     }
     previous_logical_end=logical_end;
 }
-if(extent_total!=in.blocks)bad++;
+if(extent_total!=in.blocks)bad++;if(bad!=inode_bad_before)fprintf(stderr,"FSCKDBG inode_bad n=%llu mode=%x flags=%x ext=%u blocks=%llu root=%llu total=%llu\\n",(unsigned long long)n,in.mode,in.flags,in.extent_count,(unsigned long long)in.blocks,(unsigned long long)openfs_inode_get_extent_tree_root(&in),(unsigned long long)extent_total);
         if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)bad++;
         if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;
         if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
