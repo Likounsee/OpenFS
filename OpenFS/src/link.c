@@ -93,7 +93,7 @@ size_t pl=strlen(p);size_t cut=pl;while(cut>0U&&p[cut-1U]!='/')--cut;if(cut==0U)
 static openfs_path_result_t credentialed_parent_access(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid)
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL||p[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
-    size_t len=strlen(p);if(len>=OPENFS_PATH_MAX)return OPENFS_PATH_NAME_TOO_LONG;
+    size_t len=strlen(p),slash=len;while(slash>0U&&p[slash-1U]!='/')--slash;if(len>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
     char pp[OPENFS_PATH_MAX];if(slash==1U){pp[0]='/';pp[1]='\0';}else{memcpy(pp,p,slash-1U);pp[slash-1U]='\0';}char buf[OPENFS_PATH_MAX];memcpy(buf,pp,strlen(pp)+1U);
     openfs_inode_t root;if(openfs_inode_read(d,s->inode_table_start,s->root_inode,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&root)!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
     openfs_inode_result_t ar=openfs_inode_check_access(&root,uid,gid,1U);if(ar==OPENFS_INODE_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_INODE_OK)return OPENFS_PATH_CORRUPT;
