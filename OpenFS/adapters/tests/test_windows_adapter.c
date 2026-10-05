@@ -19,7 +19,7 @@ int wmain(void)
     CloseHandle(h);
 
     openfs_windows_adapter_t a;
-    assert(openfs_windows_adapter_open(&a,path,4096U,1)==OPENFS_WINDOWS_ADAPTER_OK);
+    assert(openfs_windows_adapter_open(&a,path,3000U,1)==OPENFS_WINDOWS_ADAPTER_INVALID_ARGUMENT);assert(openfs_windows_adapter_open(&a,path,4096U,1)==OPENFS_WINDOWS_ADAPTER_OK);
     uint8_t w[4096],r[4096];memset(w,0x5AU,sizeof(w));memset(r,0,sizeof(r));
     assert(a.device.write(a.device.context,1U,1U,w)==OPENFS_IO_OK);
     assert(a.device.flush(a.device.context)==OPENFS_IO_OK);
