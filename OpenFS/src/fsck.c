@@ -53,6 +53,7 @@ uint32_t stored=(uint32_t)r[252U]|((uint32_t)r[253U]<<8U)|((uint32_t)r[254U]<<16
 if(stored!=openfs_crc32c(r,252U))return -1;
 uint32_t len=r[7U];if(len==0U||len>OPENFS_DIR_NAME_MAX)return -1;
 for(uint32_t i=0U;i<len;i++){if(r[24U+i]=='/'||r[24U+i]=='\0')return -1;}
+if((len==1U&&r[24U]=='.')||(len==2U&&r[24U]=='.'&&r[25U]=='.'))return -1;
 *ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];for(uint32_t i=len+24U;i<252U;i++)if(r[i]!=0U)return -1;return 1;}
 static int same_dir_name(const uint8_t*a,const uint8_t*b){uint32_t la=a[7U],lb=b[7U];return la==lb&&memcmp(a+24U,b+24U,la)==0;}
 static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
