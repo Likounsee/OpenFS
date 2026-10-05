@@ -40,11 +40,11 @@ static void extent_tree_unallocated_root_regression(void)
     uint64_t ino=0U;assert(openfs_inode_alloc(&v,&s,s.root_inode,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_INODE_ALLOC_OK);
     uint64_t count=(s.inode_table_blocks*(uint64_t)s.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;
     assert(openfs_inode_read(&v,s.inode_table_start,ino,count,&i)==OPENFS_INODE_OK);
-    uint64_t blocks[5];for(unsigned n=0U;n<5U;n++)assert(openfs_alloc_block(&v,&s,&blocks[n])==OPENFS_ALLOC_OK);
+    uint64_t blocks[6];for(unsigned n=0U;n<6U;n++)assert(openfs_alloc_block(&v,&s,&blocks[n])==OPENFS_ALLOC_OK);
     for(unsigned n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n+1U],1U};assert(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
     i.extent_count=5U;i.blocks=5U;i.size=5U*s.block_size;i.flags|=OPENFS_INODE_FLAG_HAS_EXTENTS;
     assert(openfs_inode_set_extent_tree_root(&i,blocks[0])==OPENFS_EXTENT_OK);
-    openfs_extent_t tree={4U,blocks[4],1U};
+    openfs_extent_t tree={4U,blocks[5],1U};
     assert(openfs_extent_tree_write(&v,&s,&i,&tree,1U)==OPENFS_EXTENT_OK);
     openfs_extent_t out={0};assert(openfs_extent_tree_read(&v,&s,&i,0U,&out)==OPENFS_EXTENT_OK);
     assert(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,blocks[0],0)==OPENFS_BITMAP_OK);
