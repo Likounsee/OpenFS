@@ -95,7 +95,7 @@ int main(void){
  openfs_inode_t root;uint64_t count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
  assert(openfs_inode_read(&v,sb.inode_table_start,1U,count,&root)==OPENFS_INODE_OK);
  openfs_dir_entry_t entry={2U,1U,1U};assert(openfs_dir_add(&v,&sb,&root,"hello",&entry)==OPENFS_DIR_OK);
- openfs_dir_entry_t found={0};assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_OK);assert(found.inode_number==2U);
+ openfs_dir_entry_t found={0};assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_OK);assert(found.inode_number==2U);openfs_inode_t aliased_free;assert(openfs_inode_read(&v,sb.inode_table_start,2U,count,&aliased_free)==OPENFS_INODE_OK);aliased_free.mode=OPENFS_INODE_MODE_FREE;aliased_free.link_count=0U;assert(openfs_inode_write(&v,sb.inode_table_start,count,&aliased_free)==OPENFS_INODE_OK);uint64_t aliased_ino=0U;assert(openfs_path_lookup(&v,&sb,"/hello",&aliased_ino)==OPENFS_PATH_CORRUPT);aliased_free.mode=OPENFS_INODE_MODE_REGULAR;aliased_free.link_count=1U;assert(openfs_inode_write(&v,sb.inode_table_start,count,&aliased_free)==OPENFS_INODE_OK);
  assert(openfs_dir_add(&v,&sb,&root,"hello",&entry)==OPENFS_DIR_EXISTS);
  assert(openfs_dir_remove(&v,&sb,&root,"hello")==OPENFS_DIR_OK);
  assert(openfs_dir_lookup(&v,&sb,&root,"hello",&found)==OPENFS_DIR_NOT_FOUND);
