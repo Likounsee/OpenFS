@@ -68,7 +68,8 @@ The current development order is:
    - inode, directory, allocation, and journal locking;
    - concurrency regression tests;
    - coarse-grained namespace/path serialization to close multi-step TOCTOU windows;
-   - elimination of lock-order inversions and race-prone shared state.
+   - elimination of lock-order inversions and race-prone shared state;
+   - runtime open-handle registry and mount lifetime protection.
 
 2. **File handles / descriptors — implementation started**
    - open/close lifecycle (implemented in the core handle API);
@@ -235,5 +236,6 @@ See:
 - OpenFS/docs/extent-tree-v1.3.md
 - OpenFS/docs/adapters.md
 - OpenFS/docs/file-handles.md
+- OpenFS/docs/orphans.md
 
 The documentation will evolve alongside the stable filesystem API and VFS.
