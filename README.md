@@ -69,11 +69,11 @@ The current development order is:
    - concurrency regression tests;
    - elimination of lock-order inversions and race-prone shared state.
 
-2. **File handles / descriptors**
-   - open/close lifecycle;
+2. **File handles / descriptors — implementation started**
+   - open/close lifecycle (implemented in the core handle API);
    - read/write/seek/truncate through handles;
    - open flags and access modes;
-   - descriptor duplication where required;
+   - descriptor duplication/reference counting (implemented in the core handle API);
    - reference-counted objects;
    - correct lifetime semantics when a pathname is unlinked.
 
@@ -122,25 +122,33 @@ This avoids coupling kernel integration to APIs that are still evolving.
 
 ## Locking architecture
 
-OpenFS now has portable internal lock primitives with an explicit lock hierarchy:
+OpenFS now has a portable internal locking layer and a runtime lock set for
+mounted filesystems. The lock hierarchy is intentionally ordered from outer
+filesystem lifetime to the most global mutable journal state:
 
-    INODE
+    MOUNT
       ↓
     DIRECTORY
+      ↓
+    INODE
       ↓
     ALLOCATION
       ↓
     JOURNAL
-      ↓
-    MOUNT
 
-The hierarchy exists to prevent lock-order inversions and deadlocks. Lock
-integration is currently being expanded through the core; the presence of the
-lock primitives does **not** yet mean that every filesystem operation is
-thread-safe.
+The runtime currently provides dedicated directory, inode, allocation, and
+journal mutexes. The locks are recursive where required by the existing call
+graph, and lock acquisition/release order is checked per thread. Out-of-order
+unlock attempts are rejected instead of silently corrupting the lock-order
+tracking state.
 
-Until this phase is fully completed, callers must not assume that all core path
-operations are concurrently safe.
+The mounted superblock carries a runtime-only pointer to this lock context. It
+is never serialized into the on-disk superblock.
+
+The current locking pass is deliberately conservative: it provides a correct
+coarse-grained synchronization layer first. Per-inode/per-directory sharding
+and finer-grained concurrency can be introduced later without changing the
+on-disk format.
 
 ## Scope boundary
 
