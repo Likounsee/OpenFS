@@ -459,7 +459,7 @@ static openfs_path_result_t check_search_followed(openfs_block_device_t*d,const 
         uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,prefix,&ino);if(lr!=OPENFS_PATH_OK)return lr;
         openfs_inode_t in;if(read_inode(d,s,ino,&in)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;
         if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
-        ar=openfs_inode_check_access(&in,uid,gid,1U);if(ar==OPENFS_ACL_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_ACL_OK)return OPENFS_PATH_CORRUPT;
+        ar=openfs_acl_check_access(d,s,&in,uid,gid,1U);if(ar==OPENFS_ACL_ACCESS_DENIED)return OPENFS_PATH_ACCESS_DENIED;if(ar!=OPENFS_ACL_OK)return OPENFS_PATH_CORRUPT;
         part=next_path_component(buf,len,&pos);
     }
     return OPENFS_PATH_OK;
