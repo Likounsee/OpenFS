@@ -6,6 +6,7 @@
 #include <limits.h>
 #include "openfs/time.h"
 #include "openfs/runtime.h"
+#include "openfs/orphan.h"
 static int rollback_allocated_inode(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino);
 static int restore_unlinked_inode_storage(openfs_block_device_t *d,const openfs_superblock_t *s,const openfs_inode_t *original,const uint8_t *root_backup)
 {
@@ -168,7 +169,12 @@ if(target.link_count==1U&&original_root!=0U){
     if(root_backup==NULL||d->read(d->context,original_root,1U,root_backup)!=OPENFS_IO_OK){free(root_backup);free(parent_inode_backup);return OPENFS_PATH_IO_ERROR;}
 }
 openfs_dir_result_t rr=openfs_dir_remove(d,s,&pi,name);if(rr!=OPENFS_DIR_OK){free(parent_inode_backup);free(root_backup);return map_dir_result(rr);}
-if(target.link_count==1U){
+uint64_t open_handle_count=0U;
+if(s->runtime!=NULL&&s->runtime->initialized){
+    open_handle_count=openfs_runtime_handle_count(s->runtime,d,target.inode_number,target.generation);
+    if(open_handle_count==UINT64_MAX){free(parent_inode_backup);free(root_backup);return OPENFS_PATH_IO_ERROR;}
+}
+if(target.link_count==1U&&open_handle_count==0U){
     openfs_file_result_t truncate_result=openfs_file_truncate(d,s,&target,0U);
     if(truncate_result!=OPENFS_FILE_OK){
         int rollback_ok=1;
@@ -182,6 +188,15 @@ if(target.link_count==1U){
     target.mode=OPENFS_INODE_MODE_FREE;target.link_count=0U;target.parent_inode=0U;target.flags=0U;target.extent_count=0U;
     memset(target.inline_data,0,sizeof(target.inline_data));memset(target.reserved,0,sizeof(target.reserved));
     target.uid=0U;target.gid=0U;target.atime_ns=0U;target.mtime_ns=0U;target.ctime_ns=0U;
+}else if(target.link_count==1U){
+    /*
+     * The last namespace link is gone, but an open handle still owns the
+     * inode. Keep the inode and its blocks alive until the last handle closes.
+     * The persistent orphan flag lets mount-time recovery reclaim it after a
+     * crash.
+     */
+    target.link_count=0U;
+    target.flags|=OPENFS_INODE_FLAG_ORPHAN;
 }else{
     target.link_count--;
 }
