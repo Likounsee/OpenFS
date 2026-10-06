@@ -43,9 +43,3 @@ jobs:
         run: cmake --build build-windows --config Debug --parallel
       - name: Test
         run: ctest --test-dir build-windows -C Debug --output-on-failure
-      - name: Upload OpenFS image formatter
-        uses: actions/upload-artifact@v4
-        with:
-          name: openfs-format-image-windows
-          path: OpenFS/build-windows/adapters/Debug/openfs-format-image.exe
-          if-no-files-found: error
