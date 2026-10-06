@@ -233,5 +233,6 @@ See:
 - OpenFS/docs/format.md
 - OpenFS/docs/extent-tree-v1.3.md
 - OpenFS/docs/adapters.md
+- OpenFS/docs/file-handles.md
 
 The documentation will evolve alongside the stable filesystem API and VFS.
