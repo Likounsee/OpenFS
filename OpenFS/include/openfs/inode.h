@@ -29,6 +29,8 @@ typedef struct openfs_inode {
 openfs_inode_result_t openfs_inode_read(const openfs_block_device_t *, uint64_t, uint64_t, uint64_t, openfs_inode_t *);
 openfs_inode_result_t openfs_inode_write(const openfs_block_device_t *, uint64_t, uint64_t, const openfs_inode_t *);
 openfs_inode_result_t openfs_inode_validate(const openfs_inode_t *, uint64_t);
+uint64_t openfs_inode_get_xattr_block(const openfs_inode_t *);
+openfs_inode_result_t openfs_inode_set_xattr_block(openfs_inode_t *,uint64_t);
 openfs_inode_result_t openfs_inode_check_access(const openfs_inode_t *, uint32_t uid, uint32_t gid, uint8_t requested);
 #ifdef __cplusplus
 }
