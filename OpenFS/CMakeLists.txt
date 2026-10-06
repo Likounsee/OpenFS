@@ -28,6 +28,8 @@ add_library(openfs STATIC
     src/lock.c
     src/runtime.c
     src/orphan.c
+    src/xattr.c
+    src/acl.c
     src/fd.c
     src/file_lock.c
 )
