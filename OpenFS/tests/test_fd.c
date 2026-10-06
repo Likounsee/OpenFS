@@ -12,6 +12,7 @@
 #include <pthread.h>
 #endif
 #include "openfs/fd.h"
+#include "openfs/path.h"
 #include "openfs/format.h"
 typedef struct{uint8_t*b;uint32_t bs;uint64_t n;}disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*out){disk_t*d=c;if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(out,d->b+(size_t)(f*d->bs),(size_t)n*d->bs);return OPENFS_IO_OK;}
