@@ -18,8 +18,8 @@ static openfs_fd_result_t handle_lock(openfs_file_handle_t*h){if(h==NULL||!h->lo
 static void destroy_handle(openfs_file_handle_t*h){if(h==NULL)return;if(h->lock_initialized){(void)openfs_mutex_destroy(&h->lock);h->lock_initialized=0;}free(h);}
 static openfs_fd_result_t open_common(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,uint32_t uid,uint32_t gid,int credentials,openfs_file_handle_t**out){
 if(out==NULL||!openfs_block_device_is_valid(d)||s==NULL||p==NULL)return OPENFS_FD_INVALID_ARGUMENT;*out=NULL;openfs_fd_result_t vr=validate_flags(flags);if(vr!=OPENFS_FD_OK)return vr;
-uint64_t ino=0U;openfs_path_result_t lr=credentials?openfs_path_lookup_as(d,s,p,uid,gid,&ino):openfs_path_lookup(d,s,p,&ino);
-if(lr==OPENFS_PATH_NOT_FOUND&&(flags&OPENFS_FD_CREAT)!=0U){openfs_path_result_t cr=credentials?openfs_path_create_as(d,s,p,mode,uid,gid,&ino):openfs_path_create(d,s,p,mode,&ino);if(cr!=OPENFS_PATH_OK){fprintf(stderr,"fd create path result=%d\\n",(int)cr);return map_path(cr);}}
+uint32_t create_mode=(mode&OPENFS_INODE_TYPE_MASK)==0U?(OPENFS_INODE_MODE_REGULAR|(mode&OPENFS_INODE_PERMISSION_MASK)):mode;uint64_t ino=0U;openfs_path_result_t lr=credentials?openfs_path_lookup_as(d,s,p,uid,gid,&ino):openfs_path_lookup(d,s,p,&ino);
+if(lr==OPENFS_PATH_NOT_FOUND&&(flags&OPENFS_FD_CREAT)!=0U){openfs_path_result_t cr=credentials?openfs_path_create_as(d,s,p,create_mode,uid,gid,&ino):openfs_path_create(d,s,p,create_mode,&ino);if(cr!=OPENFS_PATH_OK){fprintf(stderr,"fd create path result=%d\\n",(int)cr);return map_path(cr);}}
 else if(lr!=OPENFS_PATH_OK)return map_path(lr);
 else if((flags&(OPENFS_FD_EXCL|OPENFS_FD_CREAT))==(OPENFS_FD_EXCL|OPENFS_FD_CREAT))return OPENFS_FD_EXISTS;
 openfs_inode_t inode;openfs_fd_result_t ir=load_inode(d,s,ino,&inode);if(ir!=OPENFS_FD_OK){fprintf(stderr,"fd load inode result=%d\\n",(int)ir);return ir;}if((inode.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_FREE)return OPENFS_FD_NOT_FOUND;
