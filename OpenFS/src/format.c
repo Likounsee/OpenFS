@@ -1,7 +1,6 @@
 #include "openfs/format.h"
 #include <stdlib.h>
 #include <string.h>
-#include "openfs/bitmap.h"
 #include "openfs/crc32c.h"
 #include "openfs/inode.h"
 #include "openfs/time.h"
@@ -108,11 +107,43 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     openfs_superblock_t sb;memset(&sb,0,sizeof(sb));sb.version_major=OPENFS_FORMAT_VERSION_MAJOR;sb.version_minor=OPENFS_FORMAT_VERSION_MINOR;sb.feature_flags=OPENFS_FEATURE_EXTENT_TREE;sb.block_size=d->block_size;sb.total_blocks=d->block_count;
     sb.metadata_start=2U;sb.metadata_blocks=metadata;sb.block_bitmap_start=3U;sb.block_bitmap_blocks=bb;sb.inode_bitmap_start=3U+bb;sb.inode_bitmap_blocks=ib;sb.inode_table_start=sb.inode_bitmap_start+ib;sb.inode_table_blocks=it;sb.journal_start=sb.inode_table_start+it;sb.journal_blocks=jb;sb.data_start=sb.journal_start+jb;sb.data_blocks=data;sb.root_inode=1U;sb.generation=1U;memcpy(sb.uuid,uuid,16U);
     if(openfs_validate_superblock(d,&sb)!=OPENFS_FORMAT_OK)return OPENFS_FORMAT_CORRUPT;
-    uint8_t*zero=calloc(1U,d->block_size);if(zero==NULL)return OPENFS_FORMAT_IO_ERROR;
-    for(uint64_t b=2U;b<d->block_count-1U;b++){if(d->write(d->context,b,1U,zero)!=OPENFS_IO_OK){free(zero);return OPENFS_FORMAT_IO_ERROR;}}free(zero);
-    for(uint64_t b=0U;b<sb.data_start;b++){if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;}
-    if(openfs_bitmap_set(d,sb.block_bitmap_start,sb.block_bitmap_blocks,d->block_count-1U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
-    if(openfs_bitmap_set(d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,1)!=OPENFS_BITMAP_OK)return OPENFS_FORMAT_IO_ERROR;
+    enum { OPENFS_FORMAT_BATCH_BLOCKS = 32 };
+    size_t zero_bytes=(size_t)OPENFS_FORMAT_BATCH_BLOCKS*(size_t)d->block_size;
+    uint8_t*zero=calloc(1U,zero_bytes);if(zero==NULL)return OPENFS_FORMAT_IO_ERROR;
+    for(uint64_t b=2U;b<d->block_count-1U;){
+        uint64_t remaining=(d->block_count-1U)-b;
+        uint32_t count=remaining>OPENFS_FORMAT_BATCH_BLOCKS?OPENFS_FORMAT_BATCH_BLOCKS:(uint32_t)remaining;
+        if(d->write(d->context,b,count,zero)!=OPENFS_IO_OK){free(zero);return OPENFS_FORMAT_IO_ERROR;}
+        b+=(uint64_t)count;
+    }
+    free(zero);
+
+    uint8_t*bitmap=malloc(d->block_size);if(bitmap==NULL)return OPENFS_FORMAT_IO_ERROR;
+    uint64_t bits_per_block=(uint64_t)d->block_size*8U;
+    for(uint64_t n=0U;n<sb.block_bitmap_blocks;n++){
+        memset(bitmap,0,d->block_size);
+        uint64_t first_bit=n*bits_per_block;
+        uint64_t end_bit=first_bit+bits_per_block;
+        if(end_bit>sb.total_blocks)end_bit=sb.total_blocks;
+        uint64_t used_end=sb.data_start<end_bit?sb.data_start:end_bit;
+        if(used_end>first_bit){
+            uint64_t used_bits=used_end-first_bit;
+            uint64_t full_bytes=used_bits/8U;
+            if(full_bytes>(uint64_t)d->block_size)full_bytes=d->block_size;
+            memset(bitmap,0xff,(size_t)full_bytes);
+            if(full_bytes<(uint64_t)d->block_size&&used_bits%8U!=0U)
+                bitmap[full_bytes]=(uint8_t)((1U<<(used_bits%8U))-1U);
+        }
+        if(d->block_count-1U>=first_bit&&d->block_count-1U<end_bit)
+            bitmap[(d->block_count-1U-first_bit)/8U]|=(uint8_t)(1U<<((d->block_count-1U-first_bit)%8U));
+        if(d->write(d->context,sb.block_bitmap_start+n,1U,bitmap)!=OPENFS_IO_OK){free(bitmap);return OPENFS_FORMAT_IO_ERROR;}
+    }
+    free(bitmap);
+
+    bitmap=calloc(1U,d->block_size);if(bitmap==NULL)return OPENFS_FORMAT_IO_ERROR;
+    bitmap[0]=1U;
+    if(d->write(d->context,sb.inode_bitmap_start,1U,bitmap)!=OPENFS_IO_OK){free(bitmap);return OPENFS_FORMAT_IO_ERROR;}
+    free(bitmap);
     openfs_inode_t root;memset(&root,0,sizeof(root));root.inode_number=1U;root.generation=1U;root.parent_inode=1U;root.link_count=1U;root.mode=OPENFS_INODE_MODE_DIRECTORY|0755U;uint64_t now=openfs_time_now_ns();if(now!=UINT64_MAX){root.atime_ns=now;root.mtime_ns=now;root.ctime_ns=now;}
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     if(openfs_inode_write(d,sb.inode_table_start,inode_count,&root)!=OPENFS_INODE_OK)return OPENFS_FORMAT_IO_ERROR;
