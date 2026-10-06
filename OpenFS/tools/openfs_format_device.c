@@ -119,7 +119,7 @@ int wmain(int argc,wchar_t **argv)
     if(run_fsck){
         openfs_fsck_result_t fsck_result=openfs_fsck(device,&superblock,&checked);
         if(fsck_result!=OPENFS_FSCK_OK||checked!=0U){
-            fwprintf(stderr,L"OpenFS fsck verification failed: result=%d errors=%llu.\n",(int)fsck_result,(unsigned long long)checked);
+            fwprintf(stderr,L"OpenFS fsck verification failed: result=%d errors=%llu WindowsError=%lu.\n",(int)fsck_result,(unsigned long long)checked,(unsigned long)openfs_windows_adapter_last_error(&adapter));
             openfs_windows_adapter_close(&adapter);
             return 5;
         }
