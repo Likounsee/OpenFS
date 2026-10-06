@@ -1,3 +1,4 @@
+#include "openfs/bitmap.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
