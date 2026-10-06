@@ -752,8 +752,11 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
     for(uint64_t logical=first;;logical++){
         if(!sparse_find(ext,n,logical,NULL)){
             uint64_t physical=0U;
-            if(openfs_alloc_block(d,sb,&physical)!=OPENFS_ALLOC_OK){
-                sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);return OPENFS_FILE_NO_SPACE;
+            openfs_alloc_result_t ar=openfs_alloc_block(d,sb,&physical);
+            if(ar!=OPENFS_ALLOC_OK){
+                sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);
+                return ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:
+                    ar==OPENFS_ALLOC_CORRUPT?OPENFS_FILE_CORRUPT:OPENFS_FILE_IO_ERROR;
             }
             if(zero_block(d,physical)!=OPENFS_FILE_OK){
                 (void)openfs_free_block(d,sb,physical);sparse_free_blocks(d,sb,new_blocks,added);
