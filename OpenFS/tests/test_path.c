@@ -22,7 +22,7 @@ static void create_as_growth_rollback(void)
  openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
  uint64_t parent=0U,ic=(s.inode_table_blocks*(uint64_t)s.block_size)/OPENFS_INODE_SIZE;
  TEST_ASSERT(openfs_path_create(&v,&s,"/grow",OPENFS_INODE_MODE_DIRECTORY|0777U,&parent)==OPENFS_PATH_OK);
- for(unsigned i=0U;i<16U;i++){char p[32];(void)snprintf(p,sizeof(p),"/grow/f%u",i);uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
+ for(unsigned i=0U;i<16U;i++){char p[32];(void)snprintf(p,sizeof(p),"/grow/f%u",i);uint64_t ino=0U;openfs_path_result_t cr=openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino);if(cr!=OPENFS_PATH_OK)fprintf(stderr,"grow create %u result=%d\\n",i,(int)cr);TEST_ASSERT(cr==OPENFS_PATH_OK);}
  openfs_inode_t before;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,parent,ic,&before)==OPENFS_INODE_OK);
  TEST_ASSERT(before.size==16U*OPENFS_DIR_ENTRY_SIZE&&before.blocks==1U);
  uint64_t parent_block=0U;TEST_ASSERT(openfs_file_map_block_device(&v,&s,&before,0U,&parent_block)==OPENFS_FILE_OK);uint64_t next_data=0U;for(uint64_t b=s.data_start;b<s.data_start+s.data_blocks;b++){int used=1;TEST_ASSERT(openfs_bitmap_test(&v,s.block_bitmap_start,s.block_bitmap_blocks,b,&used)==OPENFS_BITMAP_OK);if(!used){next_data=b;break;}}TEST_ASSERT(next_data!=0U);
