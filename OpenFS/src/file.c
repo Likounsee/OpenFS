@@ -101,9 +101,15 @@ static openfs_file_result_t validate_file(
         if (er != OPENFS_FILE_OK) return er;
         int valid = validate_extent_set(sb,extents,extent_count);
         uint64_t logical_end = extent_count == 0U ? 0U : extents[extent_count-1U].logical_start + extents[extent_count-1U].block_count;
+        uint64_t extent_blocks = 0U;
+        for(uint32_t n=0U;n<extent_count;n++){
+            if(extents[n].block_count>UINT64_MAX-extent_blocks){free(extents);return OPENFS_FILE_CORRUPT;}
+            extent_blocks+=extents[n].block_count;
+        }
         uint64_t logical_blocks = inode->size == 0U ? 0U :
             1U + (inode->size - 1U) / (uint64_t)sb->block_size;
-        if (!valid || logical_end > logical_blocks || logical_end == 0U && inode->blocks != 0U) {
+        if (!valid || extent_blocks != inode->blocks || logical_end > logical_blocks ||
+            (logical_end == 0U && inode->blocks != 0U)) {
             free(extents); return OPENFS_FILE_CORRUPT;
         }
         free(extents);
