@@ -161,7 +161,8 @@ int wmain(int argc,wchar_t **argv)
 
     uint64_t errors=0U;
     fsck_progress_state_t progress_state={0};
-    openfs_fsck_result_t result=openfs_fsck_with_progress(device,&sb,&errors,print_fsck_progress,&progress_state);
+    openfs_fsck_diagnostic_t diagnostic={0};
+    openfs_fsck_result_t result=openfs_fsck_with_progress_and_diagnostics(device,&sb,&errors,&diagnostic,print_fsck_progress,&progress_state);
 wprintf(L"\n");
     if(result!=OPENFS_FSCK_OK||errors!=0U){
         fwprintf(stderr,L"OpenFS fsck failed: result=%d errors=%llu WindowsError=%lu.\n",
