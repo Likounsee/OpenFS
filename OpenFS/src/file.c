@@ -962,6 +962,8 @@ static openfs_file_result_t file_write_unlocked(
         if (write_inode(device, sb, &original) != OPENFS_FILE_OK) ok = 0;
         if (device->flush(device->context) != OPENFS_IO_OK) ok = 0;
         free_write_backups(backups, backup_count);
+        free(old_root_data);
+        free(new_blocks);
         return ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
     }
     free_write_backups(backups, backup_count);
