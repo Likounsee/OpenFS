@@ -4,7 +4,7 @@
 #include "openfs/inode.h"
 #include "openfs/inode_alloc.h"
 
-#include <stdint.h>
+#include <stdint.h>\n#include <stdlib.h>
 
 static int inode_count(const openfs_superblock_t *s,uint64_t *out)
 {
@@ -35,15 +35,22 @@ openfs_orphan_result_t openfs_orphan_recover_all(openfs_block_device_t*d,const o
 {
     if(!openfs_block_device_is_valid(d)||s==NULL)return OPENFS_ORPHAN_INVALID_ARGUMENT;
     uint64_t count=0U;if(!inode_count(s,&count))return OPENFS_ORPHAN_CORRUPT;
+    if(s->inode_bitmap_blocks>SIZE_MAX/s->block_size)return OPENFS_ORPHAN_CORRUPT;
+    size_t bitmap_bytes=(size_t)(s->inode_bitmap_blocks*(uint64_t)s->block_size);
+    uint8_t *bitmap=(uint8_t*)malloc(bitmap_bytes);
+    if(bitmap==NULL)return OPENFS_ORPHAN_IO_ERROR;
+    if(d->read(d->context,s->inode_bitmap_start,s->inode_bitmap_blocks,bitmap)!=OPENFS_IO_OK){free(bitmap);return OPENFS_ORPHAN_IO_ERROR;}
     for(uint64_t ino=1U;ino<=count;ino++){
-        int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,ino-1U,&used)!=OPENFS_BITMAP_OK)return OPENFS_ORPHAN_IO_ERROR;
-        if(!used)continue;
+        uint64_t bit=ino-1U;
+        if(bit/8U>=bitmap_bytes)break;
+        if((bitmap[(size_t)(bit/8U)]&(uint8_t)(1U<<(bit%8U)))==0U)continue;
         openfs_inode_t inode;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,ino,count,&inode);
-        if(ir!=OPENFS_INODE_OK)return ir==OPENFS_INODE_CORRUPT?OPENFS_ORPHAN_CORRUPT:OPENFS_ORPHAN_IO_ERROR;
+        if(ir!=OPENFS_INODE_OK){free(bitmap);return ir==OPENFS_INODE_CORRUPT?OPENFS_ORPHAN_CORRUPT:OPENFS_ORPHAN_IO_ERROR;}
         if((inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U){
             openfs_orphan_result_t r=openfs_orphan_reclaim(d,s,ino);
-            if(r!=OPENFS_ORPHAN_OK)return r;
+            if(r!=OPENFS_ORPHAN_OK){free(bitmap);return r;}
         }
     }
+    free(bitmap);
     return OPENFS_ORPHAN_OK;
 }
