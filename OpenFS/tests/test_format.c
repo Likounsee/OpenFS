@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/format.h"
+#include "openfs/fsck.h"
 
 typedef struct { uint8_t *bytes; uint32_t block_size; uint64_t block_count; unsigned flushes; unsigned writes; } disk_t;
 
@@ -25,6 +26,7 @@ static void fast_vs_full_zero(void){
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={1U};
  assert(openfs_format_ex(&v,u,OPENFS_FORMAT_FLAG_NONE)==OPENFS_FORMAT_OK);
  openfs_superblock_t s; assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+ uint64_t errors=UINT64_MAX; assert(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK); assert(errors==0U);
  assert(d.bytes[(size_t)s.data_start*d.block_size]==0xA5);
  memset(d.bytes,0xA5,(size_t)d.block_count*d.block_size);
  assert(openfs_format_ex(&v,u,OPENFS_FORMAT_FLAG_FULL_ZERO)==OPENFS_FORMAT_OK);
