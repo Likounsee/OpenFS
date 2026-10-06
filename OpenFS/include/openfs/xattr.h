@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "openfs/format.h"
+#include "openfs/inode.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
