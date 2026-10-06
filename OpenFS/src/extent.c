@@ -83,7 +83,7 @@ static int validate_extent_order(const openfs_extent_t *e, uint32_t count)
     for(uint32_t n=0U;n<count;n++){
         if(e[n].block_count==0U||e[n].logical_start>UINT64_MAX-e[n].block_count||
            e[n].physical_start>UINT64_MAX-e[n].block_count)return 0;
-        if(n!=0U&&e[n].logical_start!=previous_end)return 0;
+        if(n!=0U&&e[n].logical_start<previous_end)return 0;
         for(uint32_t p=0U;p<n;p++)if(extent_overlap(&e[p],&e[n]))return 0;
         previous_end=e[n].logical_start+e[n].block_count;
     }
