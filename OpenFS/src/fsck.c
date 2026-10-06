@@ -46,6 +46,27 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
 
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
+typedef struct openfs_fsck_diagnostic {
+    const char *stage;
+    uint64_t index;
+    uint64_t total;
+    uint64_t count;
+} openfs_fsck_diagnostic_t;
+
+static void fsck_record_bad(uint64_t *bad,openfs_fsck_diagnostic_t *diag,const char *stage,uint64_t index,uint64_t total)
+{
+    if(bad==NULL)return;
+    (*bad)++;
+    if(diag!=NULL){
+        diag->count++;
+        if(diag->stage==NULL){
+            diag->stage=stage;
+            diag->index=index;
+            diag->total=total;
+        }
+    }
+}
+
 #define OPENFS_FSCK_IO_CHUNK (64U * 1024U * 1024U)
 
 #define OPENFS_FSCK_CACHE_SLOTS 16U
@@ -205,7 +226,7 @@ if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)retu
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
 FSCK_PROGRESS(10U,100U,"préparation de la validation");
-uint64_t bad=superblock_errors;
+uint64_t bad=superblock_errors;openfs_fsck_diagnostic_t diagnostic={0};if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.count=superblock_errors;}
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;
 if(openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root)!=OPENFS_INODE_OK){
