@@ -3,6 +3,25 @@
 
 #ifdef _WIN32
 #include <stdint.h>
+#include <winioctl.h>
+
+static int query_device_size(HANDLE handle,uint64_t *bytes)
+{
+    if(bytes==NULL)return 0;
+    GET_LENGTH_INFORMATION info;
+    DWORD returned=0U;
+    if(DeviceIoControl(handle,IOCTL_DISK_GET_LENGTH_INFO,NULL,0U,&info,(DWORD)sizeof(info),&returned,NULL)
+       && returned>=sizeof(info) && info.Length.QuadPart>=0){
+        *bytes=(uint64_t)info.Length.QuadPart;
+        return 1;
+    }
+    LARGE_INTEGER size;
+    if(GetFileSizeEx(handle,&size)&&size.QuadPart>=0){
+        *bytes=(uint64_t)size.QuadPart;
+        return 1;
+    }
+    return 0;
+}
 
 static openfs_io_result_t transfer(HANDLE handle,uint64_t offset64,void *buffer,DWORD bytes,int write)
 {
@@ -62,11 +81,10 @@ openfs_windows_adapter_result_t openfs_windows_adapter_open(
     DWORD access=writable?(GENERIC_READ|GENERIC_WRITE):GENERIC_READ;
     HANDLE h=CreateFileW(path,access,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OVERLAPPED,NULL);
     if(h==INVALID_HANDLE_VALUE)return OPENFS_WINDOWS_ADAPTER_IO_ERROR;
-    LARGE_INTEGER size;
-    if(!GetFileSizeEx(h,&size)||size.QuadPart<0){
+    uint64_t bytes=0U;
+    if(!query_device_size(h,&bytes)){
         CloseHandle(h);return OPENFS_WINDOWS_ADAPTER_IO_ERROR;
     }
-    uint64_t bytes=(uint64_t)size.QuadPart;
     if(bytes<(uint64_t)block_size||bytes%(uint64_t)block_size!=0U){
         CloseHandle(h);return OPENFS_WINDOWS_ADAPTER_UNSUPPORTED;
     }
