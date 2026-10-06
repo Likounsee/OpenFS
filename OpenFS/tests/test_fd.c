@@ -48,6 +48,7 @@ static void concurrency_namespace_test(openfs_block_device_t*dev)
     for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
 #endif
     for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
+    openfs_file_handle_t *h1=NULL,*h2=NULL;assert(openfs_fd_open(dev,&m.superblock,"/concurrent-0-0",OPENFS_FD_RDWR,0,&h1)==OPENFS_FD_OK);assert(openfs_fd_open(dev,&m.superblock,"/concurrent-0-0",OPENFS_FD_RDWR|OPENFS_FD_APPEND,0,&h2)==OPENFS_FD_OK);assert(openfs_fd_write(h1,"X",1U)==OPENFS_FD_OK);assert(openfs_fd_write(h2,"Y",1U)==OPENFS_FD_OK);int64_t p=0;char v[4]={0};size_t got2=0U;assert(openfs_fd_seek(h1,0,0,&p)==OPENFS_FD_OK);assert(openfs_fd_read(h1,v,sizeof(v),&got2)==OPENFS_FD_OK&&got2==2U&&memcmp(v,"XY",2U)==0);assert(openfs_fd_close(h1)==OPENFS_FD_OK&&openfs_fd_close(h2)==OPENFS_FD_OK);
     uint64_t errors=0U;assert(openfs_fsck(dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
 }
