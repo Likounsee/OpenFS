@@ -48,12 +48,20 @@ static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s=
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
 #define OPENFS_FSCK_IO_CHUNK (64U * 1024U * 1024U)
 
-typedef struct openfs_fsck_io_cache {
-    openfs_block_device_t *device;
+#define OPENFS_FSCK_CACHE_SLOTS 2U
+
+typedef struct openfs_fsck_io_cache_slot {
     uint8_t *buffer;
     uint64_t start_block;
     uint32_t block_count;
+    uint64_t last_use;
     int valid;
+} openfs_fsck_io_cache_slot_t;
+
+typedef struct openfs_fsck_io_cache {
+    openfs_block_device_t *device;
+    openfs_fsck_io_cache_slot_t slots[OPENFS_FSCK_CACHE_SLOTS];
+    uint64_t use_counter;
 } openfs_fsck_io_cache_t;
 
 static openfs_io_result_t fsck_cached_read(void *context,uint64_t block,uint32_t count,void *buffer)
@@ -70,19 +78,38 @@ static openfs_io_result_t fsck_cached_read(void *context,uint64_t block,uint32_t
     if(!add(aligned,chunk_blocks,&chunk_end))return OPENFS_IO_OUT_OF_RANGE;
     if(chunk_end>cache->device->block_count)chunk_end=cache->device->block_count;
     uint32_t loaded=(uint32_t)(chunk_end-aligned);
-    if(!cache->valid||cache->start_block!=aligned||cache->block_count!=loaded){
-        openfs_io_result_t r=cache->device->read(cache->device->context,aligned,loaded,cache->buffer);
-        if(r!=OPENFS_IO_OK){cache->valid=0;return r;}
-        cache->start_block=aligned;cache->block_count=loaded;cache->valid=1;
+    size_t selected=0U;
+    int found=-1;
+    for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++){
+        if(cache->slots[i].valid&&cache->slots[i].start_block==aligned&&cache->slots[i].block_count==loaded){
+            found=(int)i;
+            break;
+        }
     }
-    memcpy(buffer,cache->buffer+(size_t)(block-aligned)*(size_t)cache->device->block_size,(size_t)count*(size_t)cache->device->block_size);
+    if(found<0){
+        uint64_t oldest=UINT64_MAX;
+        for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++){
+            if(!cache->slots[i].valid){selected=i;break;}
+            if(cache->slots[i].last_use<oldest){oldest=cache->slots[i].last_use;selected=i;}
+        }
+        openfs_io_result_t r=cache->device->read(cache->device->context,aligned,loaded,cache->slots[selected].buffer);
+        if(r!=OPENFS_IO_OK){cache->slots[selected].valid=0;return r;}
+        cache->slots[selected].start_block=aligned;
+        cache->slots[selected].block_count=loaded;
+        cache->slots[selected].valid=1;
+        found=(int)selected;
+    }
+    cache->slots[found].last_use=++cache->use_counter;
+    memcpy(buffer,
+           cache->slots[found].buffer+(size_t)(block-aligned)*(size_t)cache->device->block_size,
+           (size_t)count*(size_t)cache->device->block_size);
     return OPENFS_IO_OK;
 }
 static openfs_io_result_t fsck_cached_write(void *context,uint64_t block,uint32_t count,const void *buffer)
 {
     openfs_fsck_io_cache_t *cache=(openfs_fsck_io_cache_t *)context;
     if(cache==NULL||cache->device==NULL)return OPENFS_IO_INVALID_ARGUMENT;
-    cache->valid=0;
+    for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)cache->slots[i].valid=0;
     return cache->device->write(cache->device->context,block,count,buffer);
 }
 static openfs_io_result_t fsck_cached_flush(void *context)
@@ -156,16 +183,21 @@ if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR
 FSCK_PROGRESS(5U,100U,"validation du journal");jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
 FSCK_PROGRESS(8U,100U,"initialisation du cache I/O");openfs_fsck_io_cache_t io_cache={0};
-uint8_t *io_buffer=malloc(OPENFS_FSCK_IO_CHUNK);
-if(io_buffer==NULL)return OPENFS_FSCK_IO_ERROR;
-io_cache.device=d;io_cache.buffer=io_buffer;
+for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++){
+    io_cache.slots[i].buffer=malloc(OPENFS_FSCK_IO_CHUNK);
+    if(io_cache.slots[i].buffer==NULL){
+        for(size_t j=0U;j<i;j++)free(io_cache.slots[j].buffer);
+        return OPENFS_FSCK_IO_ERROR;
+    }
+}
+io_cache.device=d;
 openfs_block_device_t cached_device=*d;
 cached_device.context=&io_cache;
 cached_device.read=fsck_cached_read;
 cached_device.write=fsck_cached_write;
 cached_device.flush=fsck_cached_flush;
 d=&cached_device;
-uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK){free(io_buffer);return OPENFS_FSCK_CORRUPT;}
+uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK){for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_CORRUPT;}
 uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 if(ref_bytes64>OPENFS_FSCK_MAX_REF_BYTES)return OPENFS_FSCK_IO_ERROR;
 uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
@@ -348,7 +380,7 @@ FSCK_PROGRESS(99U,100U,"finalisation");
 done:;
     free(dir_refs);
     free(refs);
-    free(io_buffer);
+    for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);
     FSCK_PROGRESS(100U,100U,"terminé");
     *errors=bad;
     result=result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);
