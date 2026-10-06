@@ -27,6 +27,7 @@ if(WIN32)
             "$ENV{ProgramFiles}/WinFsp/lib"
             "$ENV{ProgramFiles}/WinFsp/lib"
     )
+    add_library(openfs-windows-adapter STATIC windows/openfs_windows_adapter.c)
     if(OPENFS_WINFSP_INCLUDE_DIR AND OPENFS_WINFSP_LIBRARY)
         add_executable(openfs-mount-device windows/openfs_winfsp_mount.c)
         target_include_directories(openfs-mount-device PRIVATE
