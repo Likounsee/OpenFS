@@ -111,6 +111,32 @@ if(sb->block_size%OPENFS_INODE_SIZE!=0U)return validation_corrupt(reason,"block 
 openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t*d,const openfs_superblock_t*sb){return validate_superblock_ex(d,sb,NULL);}
 const char *openfs_validate_superblock_reason(const openfs_block_device_t*d,const openfs_superblock_t*sb){const char *reason=NULL;openfs_format_result_t r=validate_superblock_ex(d,sb,&reason);return r==OPENFS_FORMAT_CORRUPT?reason:NULL;}
 
+openfs_validation_code_t openfs_validate_superblock_code(const openfs_block_device_t*d,const openfs_superblock_t*sb){
+    const char *reason=NULL;
+    openfs_format_result_t r=validate_superblock_ex(d,sb,&reason);
+    if(r==OPENFS_FORMAT_OK)return OPENFS_VALIDATION_OK;
+    if(r==OPENFS_FORMAT_INVALID_ARGUMENT)return OPENFS_VALIDATION_INVALID_ARGUMENT;
+    if(reason==NULL)return OPENFS_VALIDATION_GEOMETRY;
+    if(strcmp(reason,"invalid format version")==0)return OPENFS_VALIDATION_FORMAT_VERSION;
+    if(strcmp(reason,"unsupported feature flags")==0)return OPENFS_VALIDATION_FEATURE_FLAGS;
+    if(strcmp(reason,"extent-tree feature requires format minor version 3")==0)return OPENFS_VALIDATION_EXTENT_VERSION;
+    if(strcmp(reason,"block size is not a multiple of inode size")==0)return OPENFS_VALIDATION_BLOCK_SIZE;
+    if(strcmp(reason,"invalid device geometry or root/generation fields")==0)return OPENFS_VALIDATION_GEOMETRY;
+    if(strcmp(reason,"invalid metadata or bitmap/table geometry")==0)return OPENFS_VALIDATION_METADATA_GEOMETRY;
+    if(strcmp(reason,"block bitmap does not end at inode bitmap")==0)return OPENFS_VALIDATION_BLOCK_BITMAP_CHAIN;
+    if(strcmp(reason,"inode bitmap does not end at inode table")==0)return OPENFS_VALIDATION_INODE_BITMAP_CHAIN;
+    if(strcmp(reason,"inode table does not end at journal")==0)return OPENFS_VALIDATION_INODE_TABLE_CHAIN;
+    if(strcmp(reason,"journal does not end at data region")==0)return OPENFS_VALIDATION_JOURNAL_CHAIN;
+    if(strcmp(reason,"data region does not end immediately before backup superblock")==0)return OPENFS_VALIDATION_DATA_END;
+    if(strcmp(reason,"journal or data region is too small or starts at block zero")==0)return OPENFS_VALIDATION_REGION_SIZE;
+    if(strcmp(reason,"metadata region does not end immediately before backup superblock")==0)return OPENFS_VALIDATION_METADATA_END;
+    if(strcmp(reason,"inode table byte size is invalid")==0)return OPENFS_VALIDATION_INODE_TABLE_SIZE;
+    if(strcmp(reason,"inode table is not an integral number of inodes")==0)return OPENFS_VALIDATION_INODE_COUNT;
+    if(strcmp(reason,"inode bitmap cannot represent the inode table")==0)return OPENFS_VALIDATION_INODE_BITMAP_CAPACITY;
+    if(strcmp(reason,"block bitmap cannot represent the device")==0)return OPENFS_VALIDATION_BLOCK_BITMAP_CAPACITY;
+    return OPENFS_VALIDATION_GEOMETRY;
+}
+
 openfs_format_result_t openfs_prepare_superblock(openfs_block_device_t*d,const uint8_t uuid[16],openfs_superblock_t*out){
     if(!openfs_block_device_is_valid(d)||uuid==NULL||out==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(d->block_size)||d->block_count<64U)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
