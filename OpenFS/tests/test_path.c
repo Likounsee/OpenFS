@@ -384,7 +384,7 @@ TEST_ASSERT(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);TEST_AS
         for(unsigned n=0U;n<5U;n++){
             TEST_ASSERT(openfs_file_write(&v,&s,&tree_dest_inode,(uint64_t)n*s.block_size,tree_data2,sizeof(tree_data2))==OPENFS_FILE_OK);
             TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,tree_dst,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&tree_dest_inode)==OPENFS_INODE_OK);
-            if(n<4U){char filler[64];(void)snprintf(filler,sizeof(filler),"/home/test/tree-rename-filler-%u",n);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);TEST_ASSERT(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}
+            if(n<4U){char filler[64];(void)snprintf(filler,sizeof(filler),"/home/test/tree-rename-filler-%u",n);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);uint8_t filler_byte=(uint8_t)(0x50U+n);TEST_ASSERT(openfs_file_write(&v,&s,&filler_inode,0U,&filler_byte,1U)==OPENFS_FILE_OK);}
         }
         TEST_ASSERT(tree_dest_inode.extent_count>OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
         uint64_t tree_dest_root=openfs_inode_get_extent_tree_root(&tree_dest_inode);TEST_ASSERT(tree_dest_root!=0U);
