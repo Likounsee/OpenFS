@@ -1,0 +1,4 @@
+#include "openfs/runtime.h"
+#include <string.h>
+int openfs_runtime_init(openfs_runtime_t*r){if(r==NULL)return 0;memset(r,0,sizeof(*r));if(openfs_mutex_init(&r->directory_lock)!=OPENFS_LOCK_OK)goto fail0;if(openfs_mutex_init(&r->inode_lock)!=OPENFS_LOCK_OK)goto fail1;if(openfs_mutex_init(&r->allocation_lock)!=OPENFS_LOCK_OK)goto fail2;if(openfs_mutex_init(&r->journal_lock)!=OPENFS_LOCK_OK)goto fail3;r->initialized=1;return 1;fail3:(void)openfs_mutex_destroy(&r->allocation_lock);fail2:(void)openfs_mutex_destroy(&r->inode_lock);fail1:(void)openfs_mutex_destroy(&r->directory_lock);fail0:return 0;}
+void openfs_runtime_destroy(openfs_runtime_t*r){if(r==NULL||!r->initialized)return;(void)openfs_mutex_destroy(&r->journal_lock);(void)openfs_mutex_destroy(&r->allocation_lock);(void)openfs_mutex_destroy(&r->inode_lock);(void)openfs_mutex_destroy(&r->directory_lock);r->initialized=0;}
