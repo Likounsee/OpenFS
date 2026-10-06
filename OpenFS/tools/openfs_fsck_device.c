@@ -33,15 +33,18 @@ static void print_fsck_progress(void *context,uint64_t done,uint64_t total,const
     fsck_progress_state_t *state=(fsck_progress_state_t *)context;
     if(state==NULL)return;
     if(total==0U)total=1U;
+
     ULONGLONG now=GetTickCount64();
     if(state->start_ms==0U)state->start_ms=now;
     ULONGLONG elapsed_ms=now-state->start_ms;
+
     if(!state->sample_ready&&elapsed_ms>=10000ULL){
         state->sample_ready=1;
         state->sample_ms=now;
         state->sample_done=done;
         state->sample_total=total;
     }
+
     wchar_t eta[32]=L"--:--";
     if(state->sample_ready&&done>state->sample_done&&total>done){
         ULONGLONG sample_elapsed=now-state->sample_ms;
@@ -51,14 +54,67 @@ static void print_fsck_progress(void *context,uint64_t done,uint64_t total,const
             format_duration(remaining,eta,sizeof(eta)/sizeof(eta[0]));
         }
     }
+
     uint64_t percent=done>=total?100U:(done*100U)/total;
     unsigned width=40U;
     unsigned filled=(unsigned)((percent*width)/100U);
-    fwprintf(stdout,L"\\rFSCK [");
-    for(unsigned i=0U;i<width;i++)fputwc(i<filled?L'#':L'-',stdout);
-    fwprintf(stdout,L"] %3llu%%  %hs  ETA %ls",
-             (unsigned long long)percent,stage!=NULL?stage:"",eta);
-    fflush(stdout);
+
+    wchar_t line[256];
+    int length=swprintf(
+        line,sizeof(line)/sizeof(line[0]),
+        L"FSCK  ["
+    );
+    if(length<0)return;
+
+    for(unsigned i=0U;i<width&&length<(int)(sizeof(line)/sizeof(line[0]))-1;i++)
+        line[length++]=(i<filled)?L'#':L'-';
+
+    int tail=swprintf(
+        line+length,
+        (sizeof(line)/sizeof(line[0]))-(size_t)length,
+        L"] %3llu%%  %hs  ETA %ls",
+        (unsigned long long)percent,
+        stage!=NULL?stage:"",
+        eta
+    );
+    if(tail<0)return;
+    length+=tail;
+
+    HANDLE output=GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD written=0U;
+    CONSOLE_SCREEN_BUFFER_INFO info;
+
+    if(output!=INVALID_HANDLE_VALUE&&GetConsoleMode(output,&written)&&
+       GetConsoleScreenBufferInfo(output,&info)){
+        COORD position={0,info.dwCursorPosition.Y};
+        SetConsoleCursorPosition(output,position);
+
+        DWORD count=(DWORD)length;
+        WriteConsoleW(output,line,count,&written,NULL);
+
+        DWORD width_left=info.dwSize.X>(SHORT)count?
+            (DWORD)(info.dwSize.X-(SHORT)count):0U;
+        while(width_left>0U){
+            WriteConsoleW(output,L" ",1U,&written,NULL);
+            width_left--;
+        }
+
+        SetConsoleCursorPosition(output,position);
+    }else{
+        HANDLE error_output=GetStdHandle(STD_ERROR_HANDLE);
+        (void)error_output;
+        DWORD bytes=0U;
+        WriteFile(output,"\r",1U,&bytes,NULL);
+        int needed=WideCharToMultiByte(CP_UTF8,0,line,length,NULL,0,NULL,NULL);
+        if(needed>0){
+            char *utf8=(char *)HeapAlloc(GetProcessHeap(),0,(SIZE_T)needed);
+            if(utf8!=NULL){
+                WideCharToMultiByte(CP_UTF8,0,line,length,utf8,needed,NULL,NULL);
+                WriteFile(output,utf8,(DWORD)needed,&bytes,NULL);
+                HeapFree(GetProcessHeap(),0,utf8);
+            }
+        }
+    }
 }
 
 int wmain(int argc,wchar_t **argv)
