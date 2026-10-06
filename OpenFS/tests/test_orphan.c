@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "openfs/dir.h"
 #include "openfs/bitmap.h"
 #include "openfs/fd.h"
@@ -24,7 +25,7 @@ static void test_open_unlink_close(openfs_block_device_t *dev,openfs_superblock_
     openfs_mount_t m;
     assert(openfs_mount(&m,dev)==OPENFS_MOUNT_OK);
     openfs_file_handle_t *h=NULL;
-    assert(openfs_fd_open(dev,&m.superblock,"/unlink-open",OPENFS_FD_CREAT|OPENFS_FD_RDWR,0644U,&h)==OPENFS_FD_OK);
+    {openfs_fd_result_t fr=openfs_fd_open(dev,&m.superblock,"/unlink-open",OPENFS_FD_CREAT|OPENFS_FD_RDWR,0644U,&h);if(fr!=OPENFS_FD_OK)fprintf(stderr,"orphan fd open result=%d\\n",(int)fr);assert(fr==OPENFS_FD_OK);}
     assert(openfs_fd_write(h,"orphan-data",11U)==OPENFS_FD_OK);
     openfs_inode_t st;assert(openfs_fd_stat(h,&st)==OPENFS_FD_OK);uint64_t ino=st.inode_number;uint64_t generation=st.generation;
     assert(openfs_path_unlink(dev,&m.superblock,"/unlink-open")==OPENFS_PATH_OK);
