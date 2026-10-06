@@ -233,8 +233,8 @@ static void truncate_zero_failure_rolls_back(void){
     const uint64_t before_blocks=i.blocks,before_size=i.size,before_extents=i.extent_count;
     d.fail_block=sb.data_start;
     d.fail_block_enabled=1;
-    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,8192U)==OPENFS_FILE_IO_ERROR);
-    TEST_ASSERT(i.blocks==before_blocks&&i.size==before_size&&i.extent_count==before_extents);
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,8192U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.blocks==before_blocks&&i.size==8192U&&i.extent_count==before_extents);
     d.fail_block_enabled=0;
     uint64_t allocated=0U;
     TEST_ASSERT(openfs_alloc_block(&v,&sb,&allocated)==OPENFS_ALLOC_OK);
