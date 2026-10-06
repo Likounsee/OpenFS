@@ -36,14 +36,14 @@ openfs_acl_result_t openfs_acl_check_access(openfs_block_device_t*d,const openfs
     if(in==NULL||req>7U)return OPENFS_ACL_INVALID_ARGUMENT;if(uid==0U)return OPENFS_ACL_OK;openfs_acl_entry_t e[ACL_MAX];uint32_t n=0U;openfs_acl_result_t r=load(d,s,in->inode_number,e,&n,0);if(r==OPENFS_ACL_NOT_FOUND){openfs_inode_result_t ir=openfs_inode_check_access(in,uid,gid,req);return ir==OPENFS_INODE_OK?OPENFS_ACL_OK:OPENFS_ACL_ACCESS_DENIED;}if(r!=OPENFS_ACL_OK)return r;uint16_t mask=mask_for(e,n),perms=0U;int matched=0;
     if(uid==in->uid){for(uint32_t i=0;i<n;i++)if(e[i].tag==OPENFS_ACL_USER_OBJ){perms=e[i].permissions;matched=1;break;}}
     else{for(uint32_t i=0;i<n;i++)if(e[i].tag==OPENFS_ACL_USER&&e[i].id==uid){perms=e[i].permissions&mask;matched=1;break;}}
-    if(!matched){uint16_t gp=0;int gm=0;for(uint32_t i=0;i<n;i++){if(e[i].tag==OPENFS_ACL_GROUP_OBJ&&e[i].id==gid){gp|=e[i].permissions;gm=1;}if(e[i].tag==OPENFS_ACL_GROUP&&e[i].id==gid){gp|=e[i].permissions;gm=1;}}if(gm){perms=gp&mask;matched=1;}}
+    if(!matched){uint16_t gp=0;int gm=0;for(uint32_t i=0;i<n;i++){if(e[i].tag==OPENFS_ACL_GROUP_OBJ){gp|=e[i].permissions;gm=1;}if(e[i].tag==OPENFS_ACL_GROUP&&e[i].id==gid){gp|=e[i].permissions;gm=1;}}if(gm){perms=gp&mask;matched=1;}}
     if(!matched)for(uint32_t i=0;i<n;i++)if(e[i].tag==OPENFS_ACL_OTHER){perms=e[i].permissions;matched=1;break;}
     return matched&&((perms&req)==req)?OPENFS_ACL_OK:OPENFS_ACL_ACCESS_DENIED;
 }
 static void inherit_adjust(openfs_acl_entry_t*e,uint32_t n,uint32_t mode){
     uint16_t owner=(uint16_t)((mode>>6U)&7U),group=(uint16_t)((mode>>3U)&7U),other=(uint16_t)(mode&7U);
-    for(uint32_t i=0;i<n;i++){if(e[i].tag==OPENFS_ACL_USER_OBJ)e[i].permissions=owner;else if(e[i].tag==OPENFS_ACL_OTHER)e[i].permissions=other;else if(e[i].tag==OPENFS_ACL_MASK||e[i].tag==OPENFS_ACL_GROUP_OBJ||e[i].tag==OPENFS_ACL_GROUP)e[i].permissions=(uint16_t)(e[i].permissions&group);else if(e[i].tag==OPENFS_ACL_USER)e[i].permissions=(uint16_t)(e[i].permissions&owner);}
+    for(uint32_t i=0;i<n;i++){if(e[i].tag==OPENFS_ACL_USER_OBJ)e[i].permissions=owner;else if(e[i].tag==OPENFS_ACL_OTHER)e[i].permissions=other;else if(e[i].tag==OPENFS_ACL_MASK||e[i].tag==OPENFS_ACL_GROUP_OBJ||e[i].tag==OPENFS_ACL_GROUP)e[i].permissions=(uint16_t)(e[i].permissions&group);else if(e[i].tag==OPENFS_ACL_USER)e[i].permissions=e[i].permissions;}
 }
 openfs_acl_result_t openfs_acl_inherit(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t parent,uint64_t child,uint32_t mode,int child_is_dir){
-    openfs_acl_entry_t e[ACL_MAX];uint32_t n=0;openfs_acl_result_t r=load(d,s,parent,e,&n,1);if(r==OPENFS_ACL_NOT_FOUND)return OPENFS_ACL_OK;if(r!=OPENFS_ACL_OK)return r;inherit_adjust(e,n,mode);r=store(d,s,child,e,n,0);if(r!=OPENFS_ACL_OK)return r;if(child_is_dir)return store(d,s,child,e,n,1);return OPENFS_ACL_OK;
+    openfs_acl_entry_t e[ACL_MAX],original[ACL_MAX];uint32_t n=0;openfs_acl_result_t r=load(d,s,parent,e,&n,1);if(r==OPENFS_ACL_NOT_FOUND)return OPENFS_ACL_OK;if(r!=OPENFS_ACL_OK)return r;memcpy(original,e,(size_t)n*sizeof(*e));inherit_adjust(e,n,mode);r=store(d,s,child,e,n,0);if(r!=OPENFS_ACL_OK)return r;if(child_is_dir)return store(d,s,child,original,n,1);return OPENFS_ACL_OK;
 }
