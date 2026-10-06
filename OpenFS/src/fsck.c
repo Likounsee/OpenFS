@@ -249,6 +249,9 @@ cached_device.read=fsck_cached_read;
 cached_device.write=fsck_cached_write;
 cached_device.flush=fsck_cached_flush;
 d=&cached_device;
+fsck_bitmap_snapshot_t inode_bitmap_snapshot={0};
+fsck_bitmap_snapshot_t block_bitmap_snapshot={0};
+if(!fsck_bitmap_snapshot_load(d,s->inode_bitmap_start,s->inode_bitmap_blocks,&inode_bitmap_snapshot)||!fsck_bitmap_snapshot_load(d,s->block_bitmap_start,s->block_bitmap_blocks,&block_bitmap_snapshot)){free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_IO_ERROR;}
 uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK){free(inode_bitmap_snapshot.data);
 free(block_bitmap_snapshot.data);
 for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_CORRUPT;}
