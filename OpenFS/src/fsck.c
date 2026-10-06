@@ -7,6 +7,7 @@
 #include "openfs/journal.h"
 #include "openfs/path.h"
 #include "openfs/xattr.h"
+#include "openfs/inode.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
