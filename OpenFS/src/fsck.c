@@ -6,6 +6,7 @@
 #include "openfs/crc32c.h"
 #include "openfs/journal.h"
 #include "openfs/path.h"
+#include "openfs/xattr.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -312,7 +313,9 @@ for(uint32_t i=0U;i<in.extent_count;i++){
     previous_logical_end=logical_end;
 }
 if(extent_total!=in.blocks)bad++;
-        if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE))!=0U)bad++;
+        uint64_t xattr_block=openfs_inode_get_xattr_block(&in);
+        if(xattr_block!=0U){int xattr_allocated=0;uint64_t xattr_end=0U;if(!add(s->data_start,s->data_blocks,&xattr_end)||xattr_block<s->data_start||xattr_block>=xattr_end)bad++;else if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,xattr_block,&xattr_allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}else{if(!xattr_allocated)bad++;uint64_t xrel=xattr_block-s->data_start;if(ref_test(refs,xrel))bad++;else if(!ref_mark(refs,xrel)){result=OPENFS_FSCK_CORRUPT;goto done;}openfs_xattr_result_t xr=openfs_xattr_validate_inode(d,s,&in);if(xr==OPENFS_XATTR_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}if(xr!=OPENFS_XATTR_OK)bad++;}}
+        if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE|OPENFS_INODE_FLAG_ORPHAN))!=0U)bad++;
         if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;
         if((in.flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
             if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;
