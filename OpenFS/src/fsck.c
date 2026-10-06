@@ -46,7 +46,7 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
 
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
-static void fsck_record_bad(uint64_t *bad,openfs_fsck_diagnostic_t *diag,const char *stage,uint64_t index,uint64_t total)
+static void fsck_record_bad(uint64_t *bad,openfs_fsck_diagnostic_t *diag,const char *stage,const char *reason,uint64_t index,uint64_t total)
 {
     if(bad==NULL)return;
     (*bad)++;
@@ -54,6 +54,7 @@ static void fsck_record_bad(uint64_t *bad,openfs_fsck_diagnostic_t *diag,const c
         diag->count++;
         if(diag->stage==NULL){
             diag->stage=stage;
+            diag->reason=reason;
             diag->index=index;
             diag->total=total;
         }
@@ -220,7 +221,7 @@ if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)retu
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
 FSCK_PROGRESS(10U,100U,"préparation de la validation");
-uint64_t bad=superblock_errors;if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.count=superblock_errors;}
+uint64_t bad=superblock_errors;if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.reason="superblock incohérent ou invalide";diagnostic.index=0U;diagnostic.total=2U;diagnostic.count=superblock_errors;}
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;
 if(openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root)!=OPENFS_INODE_OK){
@@ -233,9 +234,9 @@ if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,s->root_ino
 result=OPENFS_FSCK_IO_ERROR;
 goto done;
 }
-if(!root_allocated)bad++;
-for(uint64_t n=1U;n<=count;n++){if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(10U+(count==0U?35U:(35U*n)/count),100U,"inode validation");int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!used){continue;}openfs_inode_t in;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(ir!=OPENFS_INODE_OK){if(ir==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
-if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n||in.generation==0U||in.parent_inode==0U)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
+if(!root_allocated){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode bitmap";diagnostic.reason="inode racine marqué libre";diagnostic.index=s->root_inode;diagnostic.total=count;diagnostic.count=1U;}}
+for(uint64_t n=1U;n<=count;n++){if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(10U+(count==0U?35U:(35U*n)/count),100U,"inode validation");int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!used){continue;}openfs_inode_t in;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(ir!=OPENFS_INODE_OK){if(ir==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="inode invalide ou corrompu";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}continue;}
+if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n||in.generation==0U||in.parent_inode==0U){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="métadonnées d'inode invalides";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}}if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="inode libre avec des blocs attribués";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}}
 uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
 uint32_t inline_n=(in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U ? (in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX) : (in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_INLINE_EXTENT_MAX);
 if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
