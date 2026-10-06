@@ -6,6 +6,7 @@
 #include "openfs/file_lock.h"
 #include <limits.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 static openfs_fd_result_t map_path(openfs_path_result_t r){switch(r){case OPENFS_PATH_OK:return OPENFS_FD_OK;case OPENFS_PATH_NOT_FOUND:return OPENFS_FD_NOT_FOUND;case OPENFS_PATH_EXISTS:return OPENFS_FD_EXISTS;case OPENFS_PATH_ACCESS_DENIED:return OPENFS_FD_ACCESS_DENIED;case OPENFS_PATH_CORRUPT:return OPENFS_FD_CORRUPT;default:return OPENFS_FD_IO_ERROR;}}
 static openfs_fd_result_t inode_count(const openfs_superblock_t*s,uint64_t*out){if(s==NULL||out==NULL||s->block_size==0U)return OPENFS_FD_CORRUPT;if(s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FD_CORRUPT;*out=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *out==0U?OPENFS_FD_CORRUPT:OPENFS_FD_OK;}
