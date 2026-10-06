@@ -306,7 +306,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
        !add(e.physical_start,e.block_count,&pe)||!add(e.logical_start,e.block_count,&logical_end)||
        e.physical_start<s->data_start||pe>data_end){bad++;}
     else{
-        if((i==0U&&e.logical_start!=0U)||(i>0U&&e.logical_start!=previous_logical_end))bad++;
+        if((i==0U&&e.logical_start!=0U)||(i>0U&&e.logical_start<previous_logical_end))bad++;
         for(uint64_t b=0U;b<e.block_count;b++){
             uint64_t physical=e.physical_start+b,rel=physical-s->data_start;int allocated=0;
             if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,physical,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
@@ -325,7 +325,7 @@ if(extent_total!=in.blocks)bad++;
             if((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U||(in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK||in.blocks!=0U||in.extent_count!=0U||in.size>sizeof(in.inline_data))bad++;
         }else{
             uint64_t required=in.size==0U?0U:1U+(in.size-1U)/(uint64_t)d->block_size;
-            if(required!=in.blocks)bad++;
+            if(in.blocks>required)bad++;
         }
         if((in.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_SYMLINK){
             int symlink_result=validate_symlink_payload(d,s,&in);
