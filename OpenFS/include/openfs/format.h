@@ -2,6 +2,7 @@
 #define OPENFS_FORMAT_H
 #include <stdint.h>
 #include "openfs/block_device.h"
+struct openfs_runtime;
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -65,6 +66,8 @@ typedef struct openfs_superblock {
     uint64_t root_inode;
     uint64_t generation;
     uint8_t uuid[16];
+    /* Runtime-only pointer; never serialized to disk. */
+    struct openfs_runtime *runtime;
 } openfs_superblock_t;
 openfs_format_result_t openfs_format_ex(openfs_block_device_t *, const uint8_t uuid[16], uint32_t flags);
 openfs_format_result_t openfs_format(openfs_block_device_t *, const uint8_t uuid[16]);
