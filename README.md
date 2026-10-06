@@ -8,9 +8,16 @@ depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
 ## Current status
 
-OpenFS is in active hardening and integration work. The filesystem core is implemented and is being validated through regression tests, boundary tests, filesystem-checking tests, adapter tests, and continuous integration.
+OpenFS is in **active filesystem-core hardening**. The on-disk format, allocation,
+inodes, extents, directories, namespace operations, permissions, transactions,
+journal recovery, adapters, and fsck are already implemented. The current
+development phase is moving from single-threaded correctness toward a filesystem
+that can safely serve concurrent OS workloads.
 
-The project should be considered **advanced development / hardening**, not a final release. Release readiness depends on the complete test matrix being green and the remaining integration work being completed.
+OpenFS is **not release-ready yet**. The next major milestone is a thread-safe
+core with explicit locking semantics, followed by real file handles/descriptors,
+namespace race protection, security metadata, advanced allocation features,
+VFS integration, and finally native OS filesystem integration.
 
 ### Implemented
 
@@ -28,11 +35,11 @@ The project should be considered **advanced development / hardening**, not a fin
 - versioned v1.3 depth-0 extent-tree leaves with checksummed overflow extents and files beyond five extents;
 - extent-backed file read/write/truncate;
 - fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
-- absolute path traversal with `.`, `..`, and symlink handling;
+- absolute path traversal with ., .., and symlink handling;
 - create, mkdir, unlink, rename, hard links, and symbolic links;
 - parent-path symlink following for namespace mutations;
-- inode and path-level permission-bit access checks, root/superuser bypass, and automatic creation/content/metadata timestamps;
-- credential-aware namespace mutation APIs (create/mkdir/unlink/rename/chmod/timestamps), including directory execute checks during traversal;
+- inode and path-level permission-bit access checks, root/superuser bypass, and automatic timestamps;
+- credential-aware namespace mutation APIs;
 - credential-aware file read/write/truncate APIs and link/symlink creation APIs;
 - sticky-directory ownership checks for credential-aware unlink/rename;
 - filesystem mount/unmount with primary/backup superblock fallback;
@@ -41,75 +48,136 @@ The project should be considered **advanced development / hardening**, not a fin
 - journal checkpoint/reclamation;
 - transaction-aware namespace and file mutation support;
 - journal-full handling without partial transaction publication;
-- transaction fault-injection coverage for journal/data/flush/checkpoint failures;
-- namespace transaction coverage for link/symlink commit and abort paths;
-- transaction poisoning after failed transactional namespace/file mutations;
-- extent-tree allocation, readback, shrink, and checksum-corruption regression coverage beyond the five-inline-extent limit;
+- transaction fault-injection coverage;
+- extent-tree allocation, readback, shrink, and checksum-corruption regression coverage;
 - truncate-shrink ordering that preserves inode/block consistency when inode persistence fails;
 - recovery tests verifying committed transactions remain recoverable after final-write failures;
-- `fsck` consistency checking with allocation, extent, alias, inode, directory,
-  generation, and link-count invariants;
-- CMake build with GCC/Clang warning flags and MSVC-compatible warning configuration;
-- CMake build with GCC/Clang warning flags, Linux and ArchiaOS adapter contract tests, and automated GitHub Actions CI with Debug, CTest, and ASan/UBSan;
+- fsck consistency checking with allocation, extent, alias, inode, directory, generation, and link-count invariants;
+- CMake build with GCC/Clang/MSVC support;
+- Linux, Windows, and ArchiaOS adapter contracts;
+- automated GitHub Actions CI with Debug, CTest, and ASan/UBSan coverage.
 
-### Current audit status
+### Current hardening phase
 
-The current hardening pass checks corruption handling, crash consistency, rollback paths, permissions, symlink and directory semantics, on-disk invariants, overflow boundaries, adapters, and test/CI consistency. Confirmed findings are corrected with regression coverage.
-The current CMake configuration registers **25 CTest cases** on Linux and Windows (23 core tests plus the platform-independent ArchiaOS adapter test and the host adapter test). The final audit must verify that full matrix rather than relying on the historical 23/23 figure.
+The current development order is:
 
-### Remaining hardening / integration
+1. **Thread safety and internal locking**
+   - portable mutex/rwlock primitives;
+   - lock ownership and lock-order validation;
+   - mount lifecycle protection;
+   - inode, directory, allocation, and journal locking;
+   - concurrency regression tests;
+   - elimination of lock-order inversions and race-prone shared state.
 
-- ArchiaOS adapter integration against the actual ArchiaOS storage subsystem (the repository currently verifies only the documented callback contract);
-- Windows adapter integration is verified by the GitHub Actions Windows build and adapter integration test;
-- optional multi-level extent-tree nodes if a supported workload needs more than the current 169 overflow extents per 4 KiB leaf;
-- additional fsck repair capabilities (fsck remains deliberately read-only);
+2. **File handles / descriptors**
+   - open/close lifecycle;
+   - read/write/seek/truncate through handles;
+   - open flags and access modes;
+   - descriptor duplication where required;
+   - reference-counted objects;
+   - correct lifetime semantics when a pathname is unlinked.
 
-### v1.3 journal CRC compatibility
+3. **Namespace and security hardening**
+   - TOCTOU and path-race protection;
+   - stable inode/path lookup semantics;
+   - ACLs and ACL inheritance;
+   - extended attributes (xattrs);
+   - file locking;
+   - sparse files.
 
-The journal writer uses the current full-record CRC32C calculation. The reader also accepts the legacy v1.3 CRC span used by earlier development images, while requiring the legacy reserved tail bytes to remain zero. Thus legacy v1.3 journal records are backward-readable without changing the v1.3 format number. New records continue to use the full-record CRC.
+4. **Advanced filesystem features**
+   - copy-on-write;
+   - snapshots;
+   - snapshot rollback;
+   - user/group quotas;
+   - volume encryption and key management;
+   - compression.
 
-### Scope boundary
+5. **Integrity and repair**
+   - controlled fsck repair;
+   - periodic scrub;
+   - stronger corruption detection;
+   - assisted/automatic repair where safe;
+   - complete cross-checking of filesystem structures.
 
-The filesystem core is intentionally independent of the host OS. Linux and
-ArchiaOS adapters now implement and test the documented block-device contract;
-the Windows adapter is present and its documented callback contract is verified by the
-GitHub Actions Windows build and adapter integration test.
-- Core path APIs are not generally thread-safe/reentrant; callers must serialize concurrent path operations. The current extent-tree implementation deliberately stops at one
-checksummed leaf: a single 4 KiB leaf holds 169 overflow extents in addition to
-four inline extents, so deeper nodes are only needed if that documented limit
-is insufficient for a supported workload.
+6. **VFS and operating-system integration**
+   - stable VFS layer;
+   - definitive mount/unmount API;
+   - definitive block-device API;
+   - filesystem/page cache;
+   - OS credentials/process integration;
+   - stable public filesystem API;
+   - root filesystem support;
+   - boot support where an OS integration requires it.
 
-Any on-disk format evolution remains versioned and documented so existing v1.2
-images are not silently broken.
+7. **Native filesystem drivers**
+   - native Windows filesystem driver;
+   - Linux integration;
+   - ArchiaOS integration;
+   - other OS adapters where useful.
+
+The Windows driver is intentionally **not the immediate priority**. It will be
+built on top of stable file-handle, VFS, cache, locking, and error semantics.
+This avoids coupling kernel integration to APIs that are still evolving.
+
+## Locking architecture
+
+OpenFS now has portable internal lock primitives with an explicit lock hierarchy:
+
+    INODE
+      ↓
+    DIRECTORY
+      ↓
+    ALLOCATION
+      ↓
+    JOURNAL
+      ↓
+    MOUNT
+
+The hierarchy exists to prevent lock-order inversions and deadlocks. Lock
+integration is currently being expanded through the core; the presence of the
+lock primitives does **not** yet mean that every filesystem operation is
+thread-safe.
+
+Until this phase is fully completed, callers must not assume that all core path
+operations are concurrently safe.
+
+## Scope boundary
+
+The filesystem core remains independent of the host OS. OS-specific behavior
+belongs in adapters or, later, in native filesystem integrations.
+
+OpenFS is intended to become a **real general-purpose filesystem**, not merely
+a formatting library or a userspace demonstration. Features are prioritized
+according to what a general-purpose operating system actually needs.
 
 ## Project structure
 
-Everything belonging to the filesystem is inside `OpenFS/`:
+Everything belonging to the filesystem is inside OpenFS/:
 
-- `OpenFS/include/` — public API;
-- `OpenFS/src/` — filesystem implementation;
-- `OpenFS/tests/` — automated tests;
-- `OpenFS/docs/` — technical documentation.
+- OpenFS/include/ — public API;
+- OpenFS/src/ — filesystem implementation;
+- OpenFS/tests/ — automated tests;
+- OpenFS/docs/ — technical documentation.
 
-GitHub Actions configuration is kept in `.github/`.
+GitHub Actions configuration is kept in .github/.
 
 ## Architecture
 
-```text
-Operating System
-      |
-      v
-OpenFS adapter
-      |
-      v
-OpenFS core
-      |
-      v
-Block device API
-      |
-      v
-Disk / SSD / image / virtual disk
-```
+                    Operating System
+                           |
+                    VFS / Native API
+                           |
+                    OS integration
+                           |
+                    +-------------+
+                    |   OpenFS    |
+                    |    core     |
+                    +-------------+
+                           |
+                    Block device API
+                           |
+                  Disk / SSD / image
 
 The core must never call an OS-specific API directly.
 
@@ -130,23 +198,32 @@ For transaction durability, the intended WAL ordering is:
 A transaction that has reached durable COMMIT must remain recoverable even if a
 later final write, flush, or checkpoint operation fails.
 
-See `OpenFS/docs/architecture.md`, `OpenFS/docs/format.md`, `OpenFS/docs/extent-tree-v1.3.md`, and `OpenFS/docs/adapters.md`.
+## Verified robustness guarantees
 
-### Verified robustness guarantees
-
-The current CI-verified core includes persistent rollback tests for truncate grow/shrink
-failures, partial-tail zeroing failures, existing-file partial writes, extent-tree
-root allocation rollback, and allocation/free failures. The tests validate persistent
-inode state, allocation bitmaps, remountability, and fsck where the fixture is a
-fully reachable filesystem state.
+The current CI-verified core includes persistent rollback tests for truncate
+grow/shrink failures, partial-tail zeroing failures, existing-file partial
+writes, extent-tree root allocation rollback, and allocation/free failures.
+The tests validate persistent inode state, allocation bitmaps, remountability,
+and fsck where the fixture represents a fully reachable filesystem state.
 
 Journal checkpoint clearing is performed backwards. This is intentional: if a
 checkpoint is interrupted, the remaining journal prefix is still a syntactically
-valid prefix for replay instead of leaving a cleared first block followed by stale
-records. The final filesystem writes are flushed before checkpointing, so replaying
-a surviving committed prefix is safe.
+valid prefix for replay instead of leaving a cleared first block followed by
+stale records. Final filesystem writes are flushed before checkpointing.
 
-Direct file APIs attempt rollback on write/truncate persistence and flush failures.
-If the underlying device cannot complete the rollback or its final flush, the API
-returns a corruption-class error rather than claiming that the old state is
-durable. Transactional APIs remain the stronger crash-atomic interface.
+Direct file APIs attempt rollback on write/truncate persistence and flush
+failures. If the underlying device cannot complete the rollback or its final
+flush, the API returns a corruption-class error rather than claiming that the
+old state is durable. Transactional APIs remain the stronger crash-atomic
+interface.
+
+## Documentation
+
+See:
+
+- OpenFS/docs/architecture.md
+- OpenFS/docs/format.md
+- OpenFS/docs/extent-tree-v1.3.md
+- OpenFS/docs/adapters.md
+
+The documentation will evolve alongside the stable filesystem API and VFS.
