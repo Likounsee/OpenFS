@@ -11,7 +11,7 @@
 #include <string.h>
 
 #define OPENFS_FSCK_MAX_REF_BYTES (64U * 1024U * 1024U)
-#define OPENFS_FSCK_MAX_DIR_REFS (2U * 1024U * 1024U)
+#define OPENFS_FSCK_MAX_DIR_REFS (8U * 1024U * 1024U)
 static uint16_t sb_get16(const uint8_t*p){return (uint16_t)p[0]|((uint16_t)p[1]<<8U);}
 static uint32_t sb_get32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8U)|((uint32_t)p[2]<<16U)|((uint32_t)p[3]<<24U);}
 static uint64_t sb_get64(const uint8_t*p){uint64_t v=0U;for(unsigned k=0U;k<8U;k++)v|=(uint64_t)p[k]<<(8U*k);return v;}
