@@ -19,26 +19,41 @@ static int mulov(uint64_t a,uint64_t b,uint64_t*out){if(a!=0U&&b>UINT64_MAX/a)re
 static int ceildiv(uint64_t a,uint64_t b,uint64_t*out){if(b==0U||a>UINT64_MAX-(b-1U))return 1;*out=(a+b-1U)/b;return 0;}
 
 static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,uint64_t*it,uint64_t*jb){
+    /*
+     * Keep a sane fixed inode density instead of consuming all remaining
+     * metadata space as an inode table. 256-byte inodes at 16 KiB/inode
+     * is a conservative general-purpose filesystem density.
+     */
+    enum { OPENFS_BYTES_PER_INODE = 16384U };
     if(total<64U||bb==NULL||ib==NULL||it==NULL||jb==NULL)return 0;
     uint64_t bits=(uint64_t)bs*8U;
     if(ceildiv(total,bits,bb)||*bb==0U)return 0;
-    uint64_t journal=total/16U;if(journal<8U)journal=8U;{const uint64_t max_journal_blocks=(UINT64_C(256)*1024U*1024U)/bs;if(max_journal_blocks>=8U&&journal>max_journal_blocks)journal=max_journal_blocks;}
-    uint64_t data=total/4U;if(data<8U)data=8U;
-    uint64_t metadata=total-3U;
-    if(*bb+1U>metadata||journal>metadata-*bb-1U||data>metadata-*bb-1U-journal)return 0;
-    uint64_t inode_table=metadata-*bb-1U-journal-data;
-    if(inode_table<4U)return 0;
-    for(unsigned i=0U;i<16U;i++){
-        uint64_t inode_bytes=0U;
-        if(mulov(inode_table,(uint64_t)bs,&inode_bytes))return 0;
-        uint64_t inode_count=inode_bytes/OPENFS_INODE_SIZE;
-        if(ceildiv(inode_count,bits,ib)||*ib==0U)return 0;
-        if(*ib>metadata-*bb-journal-data)return 0;
-        uint64_t next=metadata-1U-*bb-*ib-journal-data;
-        if(next==inode_table){*it=inode_table;*jb=journal;return 1;}
-        inode_table=next;
+
+    uint64_t journal=total/16U;
+    if(journal<8U)journal=8U;
+    {
+        const uint64_t max_journal_blocks=(UINT64_C(256)*1024U*1024U)/bs;
+        if(max_journal_blocks>=8U&&journal>max_journal_blocks)journal=max_journal_blocks;
     }
-    return 0;
+
+    if((uint64_t)bs<OPENFS_INODE_SIZE)return 0;
+    uint64_t desired_inodes=0U,desired_inode_bytes=0U;
+    if(ceildiv(total,OPENFS_BYTES_PER_INODE,&desired_inodes)||desired_inodes==0U)return 0;
+    if(mulov(desired_inodes,(uint64_t)OPENFS_INODE_SIZE,&desired_inode_bytes))return 0;
+    if(ceildiv(desired_inode_bytes,(uint64_t)bs,it)||*it<4U)*it=4U;
+
+    uint64_t inode_table_bytes=0U,inode_count=0U;
+    if(mulov(*it,(uint64_t)bs,&inode_table_bytes))return 0;
+    inode_count=inode_table_bytes/OPENFS_INODE_SIZE;
+    if(inode_count==0U||ceildiv(inode_count,bits,ib)||*ib==0U)return 0;
+
+    uint64_t metadata=total-3U;
+    if(*bb>metadata||journal>metadata-*bb)return 0;
+    if(*ib>metadata-*bb-journal)return 0;
+    if(*it>metadata-*bb-journal-*ib)return 0;
+
+    uint64_t data=metadata-*bb-*ib-*it-journal;
+    return data>=8U;
 }
 
 static void encode(const openfs_superblock_t*sb,uint8_t*b){
