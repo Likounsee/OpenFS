@@ -34,8 +34,8 @@ int wmain(int argc,wchar_t **argv){
  if(openfs_file_write(d,&m.superblock,&in,0,data,len)!=OPENFS_FILE_OK||!verify(d,&m.superblock,ino,data,len)){fwprintf(stderr,L"write/read verification failed.\n");goto unmount;}
  if(openfs_path_rename(d,&m.superblock,"/openfs-usb-test/data.bin","/openfs-usb-test/data-renamed.bin")!=OPENFS_PATH_OK){fwprintf(stderr,L"rename failed.\n");goto unmount;}
  if(!lookup(d,&m.superblock,"/openfs-usb-test/data-renamed.bin",&ino)){fwprintf(stderr,L"renamed file lookup failed.\n");goto unmount;}
- if(openfs_path_unlink(d,&m.superblock,"/openfs-usb-test/data-renamed.bin")!=OPENFS_PATH_OK){fwprintf(stderr,L"file unlink failed.\n");goto unmount;}
  if(openfs_path_unlink(d,&m.superblock,"/openfs-usb-test")!=OPENFS_PATH_NOT_EMPTY){fwprintf(stderr,L"non-empty directory rejection failed.\n");goto unmount;}
+ if(openfs_path_unlink(d,&m.superblock,"/openfs-usb-test/data-renamed.bin")!=OPENFS_PATH_OK){fwprintf(stderr,L"file unlink failed.\n");goto unmount;}
  if(openfs_path_unlink(d,&m.superblock,"/openfs-usb-test")!=OPENFS_PATH_OK){fwprintf(stderr,L"directory unlink failed.\n");goto unmount;}
  if(openfs_sync(&m)!=OPENFS_MOUNT_OK){fwprintf(stderr,L"sync failed.\n");goto unmount;}if(openfs_unmount(&m)!=OPENFS_MOUNT_OK)goto done;
  if(openfs_mount(&m,d)!=OPENFS_MOUNT_OK){fwprintf(stderr,L"Remount failed.\n");goto done;}fr=openfs_fsck(d,&m.superblock,&checked);if(fr!=OPENFS_FSCK_OK){fwprintf(stderr,L"Post-remount fsck failed: %d\n",fr);goto unmount;}wprintf(L"OpenFS device test passed.\n");ok=1;
