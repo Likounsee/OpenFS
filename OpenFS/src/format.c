@@ -22,7 +22,7 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
     if(total<64U||bb==NULL||ib==NULL||it==NULL||jb==NULL)return 0;
     uint64_t bits=(uint64_t)bs*8U;
     if(ceildiv(total,bits,bb)||*bb==0U)return 0;
-    uint64_t journal=total/16U;if(journal<8U)journal=8U;
+    uint64_t journal=total/16U;if(journal<8U)journal=8U;{const uint64_t max_journal_blocks=(UINT64_C(256)*1024U*1024U)/bs;if(max_journal_blocks>=8U&&journal>max_journal_blocks)journal=max_journal_blocks;}
     uint64_t data=total/4U;if(data<8U)data=8U;
     uint64_t metadata=total-3U;
     if(*bb+1U>metadata||journal>metadata-*bb-1U||data>metadata-*bb-1U-journal)return 0;
@@ -98,8 +98,8 @@ openfs_format_result_t openfs_read_superblock(openfs_block_device_t*d,openfs_sup
     openfs_format_result_t r=decode(b,out);free(b);return r==OPENFS_FORMAT_OK?openfs_validate_superblock(d,out):r;
 }
 
-openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[16]){
-    if(!openfs_block_device_is_valid(d)||uuid==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
+openfs_format_result_t openfs_format_ex(openfs_block_device_t*d,const uint8_t uuid[16],uint32_t flags){
+    if(!openfs_block_device_is_valid(d)||uuid==NULL||(flags&~OPENFS_FORMAT_FLAG_FULL_ZERO)!=0U)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(d->block_size)||d->block_count<64U)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
     uint64_t bb=0U,ib=0U,it=0U,jb=0U;if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb))return OPENFS_FORMAT_TOO_SMALL;
     uint64_t metadata=d->block_count-3U;if(bb+ib>metadata||it>metadata-bb-ib||jb>metadata-bb-ib-it)return OPENFS_FORMAT_TOO_SMALL;
@@ -107,11 +107,14 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     openfs_superblock_t sb;memset(&sb,0,sizeof(sb));sb.version_major=OPENFS_FORMAT_VERSION_MAJOR;sb.version_minor=OPENFS_FORMAT_VERSION_MINOR;sb.feature_flags=OPENFS_FEATURE_EXTENT_TREE;sb.block_size=d->block_size;sb.total_blocks=d->block_count;
     sb.metadata_start=2U;sb.metadata_blocks=metadata;sb.block_bitmap_start=3U;sb.block_bitmap_blocks=bb;sb.inode_bitmap_start=3U+bb;sb.inode_bitmap_blocks=ib;sb.inode_table_start=sb.inode_bitmap_start+ib;sb.inode_table_blocks=it;sb.journal_start=sb.inode_table_start+it;sb.journal_blocks=jb;sb.data_start=sb.journal_start+jb;sb.data_blocks=data;sb.root_inode=1U;sb.generation=1U;memcpy(sb.uuid,uuid,16U);
     if(openfs_validate_superblock(d,&sb)!=OPENFS_FORMAT_OK)return OPENFS_FORMAT_CORRUPT;
-    enum { OPENFS_FORMAT_BATCH_BLOCKS = 32 };
+    enum { OPENFS_FORMAT_BATCH_BLOCKS = 256 };
     size_t zero_bytes=(size_t)OPENFS_FORMAT_BATCH_BLOCKS*(size_t)d->block_size;
     uint8_t*zero=calloc(1U,zero_bytes);if(zero==NULL)return OPENFS_FORMAT_IO_ERROR;
-    for(uint64_t b=2U;b<d->block_count-1U;){
-        uint64_t remaining=(d->block_count-1U)-b;
+    uint64_t zero_start=sb.journal_start;
+    uint64_t zero_end=sb.journal_start+sb.journal_blocks;
+    if((flags&OPENFS_FORMAT_FLAG_FULL_ZERO)!=0U){zero_start=2U;zero_end=d->block_count-1U;}
+    for(uint64_t b=zero_start;b<zero_end;){
+        uint64_t remaining=zero_end-b;
         uint32_t count=remaining>OPENFS_FORMAT_BATCH_BLOCKS?OPENFS_FORMAT_BATCH_BLOCKS:(uint32_t)remaining;
         if(d->write(d->context,b,count,zero)!=OPENFS_IO_OK){free(zero);return OPENFS_FORMAT_IO_ERROR;}
         b+=(uint64_t)count;
@@ -151,3 +154,5 @@ openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[
     int ok=d->write(d->context,0U,1U,buf)==OPENFS_IO_OK&&d->write(d->context,d->block_count-1U,1U,buf)==OPENFS_IO_OK; if(ok)ok=d->flush(d->context)==OPENFS_IO_OK; free(buf);
     return ok?OPENFS_FORMAT_OK:OPENFS_FORMAT_IO_ERROR;
 }
+
+openfs_format_result_t openfs_format(openfs_block_device_t*d,const uint8_t uuid[16]){return openfs_format_ex(d,uuid,OPENFS_FORMAT_FLAG_NONE);}
