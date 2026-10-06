@@ -27,7 +27,7 @@ This is an engineering estimate, not a release-readiness metric.
 ### Implemented
 
 - portable block-device API;
-- versioned v1.3 on-disk format;
+- versioned v1.3 on-disk format with fast formatting and optional full-zero formatting;
 - primary and backup superblocks;
 - root-directory default traversal permissions (0755);
 - CRC32C checks for metadata;
