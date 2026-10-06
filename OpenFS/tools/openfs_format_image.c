@@ -97,8 +97,8 @@ int main(int argc,char **argv)
         return 2;
     }
     path=argv[1];
-    if(!parse_u64(argv[2],&bytes)||bytes<64U*4096U){
-        fprintf(stderr,"Invalid image size; minimum is 64 blocks.\n");
+    if(!parse_u64(argv[2],&bytes)||bytes==0U){
+        fprintf(stderr,"Invalid image size.\n");
         return 2;
     }
     if(argc==4&&!parse_u32(argv[3],&block_size)){
@@ -114,6 +114,10 @@ int main(int argc,char **argv)
         return 2;
     }
     blocks=bytes/block_size;
+    if(blocks<64U){
+        fprintf(stderr,"Invalid image size; minimum is 64 blocks at the selected block size.\n");
+        return 2;
+    }
     file=fopen(path,"w+b");
     if(file==NULL){
         perror("fopen");
