@@ -18,13 +18,13 @@ endif()
 if(WIN32)
     find_path(OPENFS_WINFSP_INCLUDE_DIR fuse/fuse.h
         PATHS
-            "$ENV{ProgramFiles(x86)}/WinFsp/inc"
+            "$ENV{ProgramFiles}/WinFsp/inc;$ENV{ProgramFiles}/WinFsp/inc"
             "$ENV{ProgramFiles}/WinFsp/inc"
     )
     find_library(OPENFS_WINFSP_LIBRARY
         NAMES winfsp-x64
         PATHS
-            "$ENV{ProgramFiles(x86)}/WinFsp/lib"
+            "$ENV{ProgramFiles}/WinFsp/lib"
             "$ENV{ProgramFiles}/WinFsp/lib"
     )
     if(OPENFS_WINFSP_INCLUDE_DIR AND OPENFS_WINFSP_LIBRARY)
