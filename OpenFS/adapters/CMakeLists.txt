@@ -58,7 +58,13 @@ if(WIN32)
             COMMAND ${CMAKE_COMMAND} -E rm -f "${OPENFS_WINDOWS_IMAGE_TEST}"
         )
         set_tests_properties(openfs-windows-image-cleanup PROPERTIES
-            DEPENDS openfs-windows-image-device
+            FIXTURES_CLEANUP openfs-windows-image
+        )
+        set_tests_properties(openfs-windows-image-format PROPERTIES
+            FIXTURES_SETUP openfs-windows-image
+        )
+        set_tests_properties(openfs-windows-image-device PROPERTIES
+            FIXTURES_REQUIRED openfs-windows-image
         )
     endif()
 endif()
