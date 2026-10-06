@@ -3,6 +3,7 @@
 #include "openfs/runtime.h"
 #include "openfs/acl.h"
 #include "openfs/orphan.h"
+#include "openfs/file_lock.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,7 @@ openfs_fd_result_t openfs_fd_close(openfs_file_handle_t*h){if(h==NULL||!h->lock_
     uint64_t inode_number=h->inode.inode_number;
     uint64_t generation=h->inode.generation;
     (void)openfs_mutex_unlock(&h->lock);
+    openfs_file_lock_release_all(h);
     (void)openfs_mutex_destroy(&h->lock);h->lock_initialized=0;
     int registry_released=1;
     if(runtime!=NULL&&runtime->initialized)registry_released=openfs_runtime_handle_release(runtime,device,inode_number,generation);
