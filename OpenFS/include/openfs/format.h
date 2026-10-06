@@ -49,6 +49,8 @@ openfs_format_result_t openfs_format_ex(openfs_block_device_t *, const uint8_t u
 openfs_format_result_t openfs_format(openfs_block_device_t *, const uint8_t uuid[16]);
 openfs_format_result_t openfs_read_superblock(openfs_block_device_t *, openfs_superblock_t *);
 openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t *, const openfs_superblock_t *);
+const char *openfs_validate_superblock_reason(const openfs_block_device_t *, const openfs_superblock_t *);
+openfs_format_result_t openfs_prepare_superblock(openfs_block_device_t *, const uint8_t uuid[16], openfs_superblock_t *);
 #ifdef __cplusplus
 }
 #endif
