@@ -46,7 +46,8 @@ openfs_orphan_result_t openfs_orphan_recover_all(openfs_block_device_t*d,const o
         if(bit/8U>=bitmap_bytes)break;
         if((bitmap[(size_t)(bit/8U)]&(uint8_t)(1U<<(bit%8U)))==0U)continue;
         openfs_inode_t inode;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,ino,count,&inode);
-        if(ir!=OPENFS_INODE_OK){free(bitmap);return ir==OPENFS_INODE_CORRUPT?OPENFS_ORPHAN_CORRUPT:OPENFS_ORPHAN_IO_ERROR;}
+        if(ir==OPENFS_INODE_IO_ERROR){free(bitmap);return OPENFS_ORPHAN_IO_ERROR;}
+        if(ir!=OPENFS_INODE_OK)continue;
         if((inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U){
             openfs_orphan_result_t r=openfs_orphan_reclaim(d,s,ino);
             if(r!=OPENFS_ORPHAN_OK){free(bitmap);return r;}
