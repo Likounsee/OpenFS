@@ -25,15 +25,14 @@ static void test_open_unlink_close(openfs_block_device_t *dev,openfs_superblock_
     openfs_file_handle_t *h=NULL;
     assert(openfs_fd_open(dev,&m.superblock,"/unlink-open",OPENFS_FD_CREAT|OPENFS_FD_RDWR,0644U,&h)==OPENFS_FD_OK);
     assert(openfs_fd_write(h,"orphan-data",11U)==OPENFS_FD_OK);
-    uint64_t ino=openfs_fd_inode_number(h);
+    openfs_inode_t st;assert(openfs_fd_stat(h,&st)==OPENFS_FD_OK);uint64_t ino=st.inode_number;uint64_t generation=st.generation;
     assert(openfs_path_unlink(dev,&m.superblock,"/unlink-open")==OPENFS_PATH_OK);
     uint64_t missing=0U;
     assert(openfs_path_lookup(dev,&m.superblock,"/unlink-open",&missing)==OPENFS_PATH_NOT_FOUND);
     int64_t pos=0;size_t got=0;char data[32]={0};
     assert(openfs_fd_seek(h,0,0,&pos)==OPENFS_FD_OK);
     assert(openfs_fd_read(h,data,sizeof(data),&got)==OPENFS_FD_OK&&got==11U&&memcmp(data,"orphan-data",11U)==0);
-    assert(openfs_fd_stat(h,(openfs_inode_t[1]){0})==OPENFS_FD_OK);
-    assert(openfs_runtime_handle_count(&m.runtime,dev,ino,((openfs_inode_t[1]){0}).generation)==0U || 1U);
+    assert(openfs_runtime_handle_count(&m.runtime,dev,ino,generation)==1U);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_IO_ERROR);
     assert(openfs_fd_close(h)==OPENFS_FD_OK);
     uint64_t errors=0U;
