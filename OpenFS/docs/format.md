@@ -20,7 +20,7 @@ Block 1 is reserved. Block 2 is also reserved for future metadata. The metadata 
 4. journal area;
 5. data area.
 
-The final block is reserved for the backup superblock. Mount validates both copies and selects the valid copy; when only the backup is valid, the selected backup superblock is passed through to filesystem operations. The block bitmap marks every reserved block as used during formatting.
+The final block is reserved for the backup superblock. Mount validates both copies and selects the valid copy; when only the backup is valid, the selected backup superblock is passed through to filesystem operations. The block bitmap marks every reserved block as used during formatting. Formatting is a quick operation by default: unused inode-table and data blocks are not overwritten because their contents are unreachable after the new allocation maps are published. The journal is cleared before the new filesystem is published. A caller that requires a full wipe can request the explicit full-zero format mode.
 
 The inode bitmap size is calculated from the inode table size, so large filesystems can have more than one bitmap block. The bitmap has one bit per inode. Bit 0 is reserved for the root inode and is set during formatting.
 
@@ -84,3 +84,12 @@ rejects unknown feature bits and rejects the extent-tree feature when paired
 with a minor version older than 1.3. Images without that feature retain the
 legacy five-inline-extent interpretation. Reserved bytes are never reinterpreted
 without the corresponding feature flag.
+
+
+## Formatting modes
+
+`openfs_format()` uses the fast format mode. The formatter clears the journal, rebuilds both allocation bitmaps, initializes inode 1, and writes both superblocks. It does not erase every unused inode/data block.
+
+`openfs_format_ex()` accepts `OPENFS_FORMAT_FLAG_FULL_ZERO` for an explicit full zeroing pass. This mode is intended for callers that require the old full-device overwrite behavior; it is substantially slower on large devices.
+
+The journal is capped at 256 MiB (or the smaller geometry-derived minimum), avoiding an unnecessarily large journal on multi-hundred-gigabyte devices while retaining the existing transactional record format.
