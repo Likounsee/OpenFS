@@ -42,7 +42,7 @@ for(uint32_t n=0U;n<inline_count;n++){
     if(openfs_inode_get_extent(i,n,&e)!=OPENFS_EXTENT_OK||e.block_count==0U||
        e.logical_start>UINT64_MAX-e.block_count||e.physical_start>UINT64_MAX-e.block_count)return OPENFS_INODE_CORRUPT;
     if(n==0U){if(e.logical_start!=0U)return OPENFS_INODE_CORRUPT;}
-    else if(e.logical_start!=previous_logical_end)return OPENFS_INODE_CORRUPT;
+    else if(e.logical_start<previous_logical_end)return OPENFS_INODE_CORRUPT;
     for(uint32_t p=0U;p<n;p++){
         openfs_extent_t prior;
         if(openfs_inode_get_extent(i,p,&prior)!=OPENFS_EXTENT_OK||
@@ -51,8 +51,13 @@ for(uint32_t n=0U;n<inline_count;n++){
     }
     previous_logical_end=e.logical_start+e.block_count;
 }
-    if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U&&i->blocks!=previous_logical_end)return OPENFS_INODE_CORRUPT;
-    if((i->flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i->blocks<previous_logical_end)return OPENFS_INODE_CORRUPT;
+    uint64_t allocated_blocks=0U;
+    for(uint32_t n=0U;n<i->extent_count;n++){
+        openfs_extent_t e2;
+        if(openfs_inode_get_extent(i,n,&e2)!=OPENFS_EXTENT_OK||e2.block_count>UINT64_MAX-allocated_blocks)return OPENFS_INODE_CORRUPT;
+        allocated_blocks+=e2.block_count;
+    }
+    if(i->blocks!=allocated_blocks)return OPENFS_INODE_CORRUPT;
     return OPENFS_INODE_OK;
 }
 openfs_inode_result_t openfs_inode_read(const openfs_block_device_t*d,uint64_t start,uint64_t inode_number,uint64_t count,openfs_inode_t*out){if(!openfs_block_device_is_valid(d)||out==NULL)return OPENFS_INODE_INVALID_ARGUMENT;uint64_t block=0U;uint32_t within=0U;if(!locate(d,start,inode_number,count,&block,&within))return OPENFS_INODE_OUT_OF_RANGE;uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_INODE_IO_ERROR;if(d->read(d->context,start+block,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_INODE_IO_ERROR;}int ok=decode(b+within,out);if(ok&&out->inode_number!=inode_number)ok=0;if(!ok&&all_zero(b+within)){memset(out,0,sizeof(*out));out->inode_number=inode_number;out->generation=1U;ok=1;}free(b);return ok?openfs_inode_validate(out,count):OPENFS_INODE_CORRUPT;}
