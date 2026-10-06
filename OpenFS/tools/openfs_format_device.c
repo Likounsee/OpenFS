@@ -84,9 +84,8 @@ int wmain(int argc,wchar_t **argv)
     make_uuid(uuid);
     format_result=openfs_format(device,uuid);
     if(format_result!=OPENFS_FORMAT_OK){
-        fwprintf(stderr,L"OpenFS format failed: %d (Windows error %lu: %s)\n",(int)format_result,
-                 (unsigned long)openfs_windows_adapter_last_error(&adapter),
-                 _wcserror((int)openfs_windows_adapter_last_error(&adapter)));
+        fwprintf(stderr,L"OpenFS format failed: %d (Windows error %lu).\n",(int)format_result,
+                 (unsigned long)openfs_windows_adapter_last_error(&adapter));
         openfs_windows_adapter_close(&adapter);
         return 4;
     }
