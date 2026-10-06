@@ -24,6 +24,13 @@ if(WIN32)
     target_include_directories(openfs-format-image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
     target_link_libraries(openfs-format-image PRIVATE openfs)
     openfs_enable_warnings(openfs-format-image)
+    add_executable(openfs-usb-test ../tools/openfs_usb_test.c)
+    target_include_directories(openfs-usb-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/windows
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    )
+    target_link_libraries(openfs-usb-test PRIVATE openfs-windows-adapter)
+    openfs_enable_warnings(openfs-usb-test)
 
     if(OPENFS_BUILD_TESTS)
         add_executable(openfs-windows-adapter-test tests/test_windows_adapter.c)
