@@ -27,6 +27,7 @@ add_library(openfs STATIC
     src/transaction.c
     src/lock.c
     src/runtime.c
+    src/orphan.c
     src/fd.c
 )
 
@@ -147,6 +148,10 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-fd-test PRIVATE openfs Threads::Threads)
     openfs_enable_warnings(openfs-fd-test)
     add_test(NAME openfs-fd COMMAND openfs-fd-test)
+    add_executable(openfs-orphan-test tests/test_orphan.c)
+    target_link_libraries(openfs-orphan-test PRIVATE openfs Threads::Threads)
+    openfs_enable_warnings(openfs-orphan-test)
+    add_test(NAME openfs-orphan COMMAND openfs-orphan-test)
     add_executable(openfs-lock-test tests/test_lock.c)
     target_link_libraries(openfs-lock-test PRIVATE openfs Threads::Threads)
     openfs_enable_warnings(openfs-lock-test)
