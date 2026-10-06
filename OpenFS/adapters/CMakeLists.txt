@@ -50,9 +50,6 @@ if(WIN32)
             NAME openfs-windows-image-device
             COMMAND openfs-usb-test "${OPENFS_WINDOWS_IMAGE_TEST}" 65536
         )
-        set_tests_properties(openfs-windows-image-device PROPERTIES
-            DEPENDS openfs-windows-image-format
-        )
         add_test(
             NAME openfs-windows-image-cleanup
             COMMAND ${CMAKE_COMMAND} -E rm -f "${OPENFS_WINDOWS_IMAGE_TEST}"
