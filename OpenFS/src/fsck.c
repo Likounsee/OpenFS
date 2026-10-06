@@ -106,7 +106,17 @@ openfs_journal_t journal;openfs_journal_result_t jr=openfs_journal_open(&journal
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
 jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
-uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK)return OPENFS_FSCK_CORRUPT;
+openfs_fsck_io_cache_t io_cache={0};
+uint8_t *io_buffer=malloc(OPENFS_FSCK_IO_CHUNK);
+if(io_buffer==NULL)return OPENFS_FSCK_IO_ERROR;
+io_cache.device=d;io_cache.buffer=io_buffer;
+openfs_block_device_t cached_device=*d;
+cached_device.context=&io_cache;
+cached_device.read=fsck_cached_read;
+cached_device.write=fsck_cached_write;
+cached_device.flush=fsck_cached_flush;
+d=&cached_device;
+uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK){free(io_buffer);return OPENFS_FSCK_CORRUPT;}
 uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 if(ref_bytes64>OPENFS_FSCK_MAX_REF_BYTES)return OPENFS_FSCK_IO_ERROR;
 uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
@@ -286,4 +296,4 @@ if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size){result=OPENFS_FSCK_CORRUPT;g
 uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){
 for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
-done:free(dir_refs);free(refs);*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);}
+done:free(dir_refs);free(refs);free(io_buffer);*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);}
