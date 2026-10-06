@@ -334,7 +334,7 @@ TEST_ASSERT(openfs_path_chmod(&v,&s,"/home/test",0777U)==OPENFS_PATH_OK);TEST_AS
 }
 {
     uint64_t rsrc=0U;
-    for(unsigned i=0U;i<32U;i++){char p[96];(void)snprintf(p,sizeof(p),"/home/test/rename-rollback-filler-%u",i);uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);}
+    for(unsigned i=0U;i<32U;i++){char p[96];(void)snprintf(p,sizeof(p),"/home/test/rename-rollback-filler-%u",i);uint64_t ino=0U;openfs_path_result_t cr=openfs_path_create(&v,&s,p,OPENFS_INODE_MODE_REGULAR,&ino);if(cr!=OPENFS_PATH_OK)fprintf(stderr,"rename filler %u result=%d\\n",i,(int)cr);TEST_ASSERT(cr==OPENFS_PATH_OK);}
     TEST_ASSERT(openfs_path_mkdir(&v,&s,"/home/test/rename-rollback-dir",&rsrc)==OPENFS_PATH_OK);
     uint64_t parent_for_rollback=0U;TEST_ASSERT(openfs_path_lookup(&v,&s,"/home/test",&parent_for_rollback)==OPENFS_PATH_OK);
     uint64_t source_inode_block=s.inode_table_start+((rsrc-1U)*(uint64_t)OPENFS_INODE_SIZE)/s.block_size;
