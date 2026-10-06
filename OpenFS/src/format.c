@@ -55,7 +55,7 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
     if(*ib>metadata-*bb-journal)return 0;
     if(*it>metadata-*bb-journal-*ib)return 0;
 
-    uint64_t data=metadata-*bb-*ib-*it-journal;
+    uint64_t data=metadata-1U-*bb-*ib-*it-journal;
     return data>=8U;
 }
 
@@ -116,7 +116,7 @@ openfs_format_result_t openfs_prepare_superblock(openfs_block_device_t*d,const u
     if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(d->block_size)||d->block_count<64U)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
     uint64_t bb=0U,ib=0U,it=0U,jb=0U;if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb))return OPENFS_FORMAT_TOO_SMALL;
     uint64_t metadata=d->block_count-3U;if(bb+ib>metadata||it>metadata-bb-ib||jb>metadata-bb-ib-it)return OPENFS_FORMAT_TOO_SMALL;
-    uint64_t data=metadata-bb-ib-it-jb;if(data<8U)return OPENFS_FORMAT_TOO_SMALL;
+    uint64_t data=metadata-1U-bb-ib-it-jb;if(data<8U)return OPENFS_FORMAT_TOO_SMALL;
     memset(out,0,sizeof(*out));out->version_major=OPENFS_FORMAT_VERSION_MAJOR;out->version_minor=OPENFS_FORMAT_VERSION_MINOR;out->feature_flags=OPENFS_FEATURE_EXTENT_TREE;out->block_size=d->block_size;out->total_blocks=d->block_count;
     out->metadata_start=2U;out->metadata_blocks=metadata;out->block_bitmap_start=3U;out->block_bitmap_blocks=bb;out->inode_bitmap_start=3U+bb;out->inode_bitmap_blocks=ib;out->inode_table_start=out->inode_bitmap_start+ib;out->inode_table_blocks=it;out->journal_start=out->inode_table_start+it;out->journal_blocks=jb;out->data_start=out->journal_start+jb;out->data_blocks=data;out->root_inode=1U;out->generation=1U;memcpy(out->uuid,uuid,16U);
     return validate_superblock_ex(d,out,NULL);
