@@ -356,4 +356,4 @@ done:free(dir_refs);free(refs);free(io_buffer);FSCK_PROGRESS(100U,100U,"terminé
 }
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
     return openfs_fsck_with_progress(d,s,errors,NULL,NULL);
-}}
+}
