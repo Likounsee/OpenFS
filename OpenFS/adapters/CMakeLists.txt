@@ -63,6 +63,30 @@ if(WIN32)
         set_tests_properties(openfs-windows-image-device PROPERTIES
             FIXTURES_REQUIRED openfs-windows-image
         )
+        set(OPENFS_WINDOWS_FORMAT_DEVICE_TEST
+            ${CMAKE_CURRENT_BINARY_DIR}/openfs-ci-device.img
+        )
+        add_test(
+            NAME openfs-windows-device-format-image
+            COMMAND openfs-format-image "${OPENFS_WINDOWS_FORMAT_DEVICE_TEST}" 8388608 65536
+        )
+        add_test(
+            NAME openfs-windows-device-format
+            COMMAND openfs-format-device "${OPENFS_WINDOWS_FORMAT_DEVICE_TEST}" 65536
+        )
+        add_test(
+            NAME openfs-windows-device-format-cleanup
+            COMMAND ${CMAKE_COMMAND} -E rm -f "${OPENFS_WINDOWS_FORMAT_DEVICE_TEST}"
+        )
+        set_tests_properties(openfs-windows-device-format-cleanup PROPERTIES
+            FIXTURES_CLEANUP openfs-windows-device-format
+        )
+        set_tests_properties(openfs-windows-device-format-image PROPERTIES
+            FIXTURES_SETUP openfs-windows-device-format
+        )
+        set_tests_properties(openfs-windows-device-format PROPERTIES
+            FIXTURES_REQUIRED openfs-windows-device-format
+        )
     endif()
 endif()
 
