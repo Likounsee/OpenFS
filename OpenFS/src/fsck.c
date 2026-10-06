@@ -88,6 +88,52 @@ static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superbl
     return 1;
 }
 
+#define OPENFS_FSCK_IO_CHUNK (64U * 1024U * 1024U)
+
+typedef struct openfs_fsck_io_cache {
+    openfs_block_device_t *device;
+    uint8_t *buffer;
+    uint64_t start_block;
+    uint32_t block_count;
+    int valid;
+} openfs_fsck_io_cache_t;
+
+static openfs_io_result_t fsck_cached_read(void *context,uint64_t block,uint32_t count,void *buffer)
+{
+    openfs_fsck_io_cache_t *cache=(openfs_fsck_io_cache_t *)context;
+    if(cache==NULL||cache->device==NULL||buffer==NULL||count==0U)return OPENFS_IO_INVALID_ARGUMENT;
+    uint64_t chunk_blocks=(uint64_t)OPENFS_FSCK_IO_CHUNK/cache->device->block_size;
+    if(chunk_blocks==0U||chunk_blocks>UINT32_MAX||count>(uint32_t)chunk_blocks)
+        return cache->device->read(cache->device->context,block,count,buffer);
+    uint64_t end=0U;
+    if(!add(block,count,&end)||end>cache->device->block_count)return OPENFS_IO_OUT_OF_RANGE;
+    uint64_t aligned=block-(block%chunk_blocks);
+    uint64_t chunk_end=0U;
+    if(!add(aligned,chunk_blocks,&chunk_end))return OPENFS_IO_OUT_OF_RANGE;
+    if(chunk_end>cache->device->block_count)chunk_end=cache->device->block_count;
+    uint32_t loaded=(uint32_t)(chunk_end-aligned);
+    if(!cache->valid||cache->start_block!=aligned||cache->block_count!=loaded){
+        openfs_io_result_t r=cache->device->read(cache->device->context,aligned,loaded,cache->buffer);
+        if(r!=OPENFS_IO_OK){cache->valid=0;return r;}
+        cache->start_block=aligned;cache->block_count=loaded;cache->valid=1;
+    }
+    memcpy(buffer,cache->buffer+(size_t)(block-aligned)*(size_t)cache->device->block_size,(size_t)count*(size_t)cache->device->block_size);
+    return OPENFS_IO_OK;
+}
+static openfs_io_result_t fsck_cached_write(void *context,uint64_t block,uint32_t count,const void *buffer)
+{
+    openfs_fsck_io_cache_t *cache=(openfs_fsck_io_cache_t *)context;
+    if(cache==NULL||cache->device==NULL)return OPENFS_IO_INVALID_ARGUMENT;
+    cache->valid=0;
+    return cache->device->write(cache->device->context,block,count,buffer);
+}
+static openfs_io_result_t fsck_cached_flush(void *context)
+{
+    openfs_fsck_io_cache_t *cache=(openfs_fsck_io_cache_t *)context;
+    if(cache==NULL||cache->device==NULL)return OPENFS_IO_INVALID_ARGUMENT;
+    return cache->device->flush(cache->device->context);
+}
+
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
