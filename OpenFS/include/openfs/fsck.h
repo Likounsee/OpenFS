@@ -9,6 +9,7 @@ typedef enum { OPENFS_FSCK_OK=0, OPENFS_FSCK_INVALID_ARGUMENT=1, OPENFS_FSCK_COR
 typedef void (*openfs_fsck_progress_callback_t)(void *,uint64_t,uint64_t,const char *);
 typedef struct openfs_fsck_diagnostic {
     const char *stage;
+    const char *reason;
     uint64_t index;
     uint64_t total;
     uint64_t count;
