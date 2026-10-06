@@ -139,6 +139,7 @@ switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;cas
 openfs_fsck_result_t openfs_fsck_with_progress(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_progress_callback_t progress,void *progress_context){
 #define FSCK_PROGRESS(done,total,stage) do { if(progress!=NULL) progress(progress_context,(done),(total),(stage)); } while(0)
 FSCK_PROGRESS(0U,100U,"initialisation");
+FSCK_PROGRESS(1U,100U,"lecture des superblocs");
 if (errors != NULL) *errors = 0U;
 if(!openfs_block_device_is_valid(d)||s==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;
 if(openfs_validate_superblock(d,s)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
@@ -150,11 +151,11 @@ if(primary_result==OPENFS_FORMAT_IO_ERROR||backup_result==OPENFS_FORMAT_IO_ERROR
 if(primary_result!=OPENFS_FORMAT_OK)superblock_errors++;
 if(backup_result!=OPENFS_FORMAT_OK)superblock_errors++;
 if(primary_result==OPENFS_FORMAT_OK&&backup_result==OPENFS_FORMAT_OK&&!fsck_same_superblock_layout(&primary_copy,&backup_copy))superblock_errors++;
-openfs_journal_t journal;openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
+openfs_journal_t journal;FSCK_PROGRESS(3U,100U,"ouverture du journal");openfs_journal_result_t jr=openfs_journal_open(&journal,d,s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
-jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
+FSCK_PROGRESS(5U,100U,"validation du journal");jr=openfs_journal_replay(d,s,validate_journal_data,(void *)s);
 if(jr!=OPENFS_JOURNAL_OK)return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_FSCK_IO_ERROR:OPENFS_FSCK_CORRUPT;
-openfs_fsck_io_cache_t io_cache={0};
+FSCK_PROGRESS(8U,100U,"initialisation du cache I/O");openfs_fsck_io_cache_t io_cache={0};
 uint8_t *io_buffer=malloc(OPENFS_FSCK_IO_CHUNK);
 if(io_buffer==NULL)return OPENFS_FSCK_IO_ERROR;
 io_cache.device=d;io_cache.buffer=io_buffer;
@@ -171,6 +172,7 @@ uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)retur
 if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
+FSCK_PROGRESS(10U,100U,"préparation de la validation");
 uint64_t bad=superblock_errors;
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;
@@ -266,7 +268,7 @@ uint8_t*reachable=calloc((size_t)(count+1U),1U);
 uint64_t*queue=calloc((size_t)(count+1U),sizeof(*queue));
 if(reachable==NULL||queue==NULL){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
 uint64_t head=0U,tail=0U;
-FSCK_PROGRESS(65U,100U,"reachability validation");
+FSCK_PROGRESS(65U,100U,"validation de la cohérence et de la portée");
 if(s->root_inode==0U||s->root_inode>count){bad++;}else{
     reachable[s->root_inode]=1U;queue[tail++]=s->root_inode;
 }
@@ -339,7 +341,7 @@ if(!used){if(dir_refs[n]!=0U)bad++;continue;}
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
 if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
 }
-FSCK_PROGRESS(85U,100U,"bitmap validation");
+FSCK_PROGRESS(85U,100U,"validation des bitmaps et des blocs");
 for(uint64_t b=0U;b<s->data_start;b++){if(progress!=NULL&&(b==0U||(b%4096U)==0U||b+1U==s->data_start))FSCK_PROGRESS(85U+(s->data_start==0U?0U:(5U*b)/s->data_start),100U,"bitmap validation");int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!set)bad++;}
 if(s->data_start>UINT64_MAX-s->data_blocks){result=OPENFS_FSCK_CORRUPT;goto done;}uint64_t data_end=s->data_start+s->data_blocks;for(uint64_t b=s->data_start;b<data_end;b++){if(progress!=NULL&&(b==s->data_start||(b%4096U)==0U||b+1U==data_end))FSCK_PROGRESS(90U+(s->data_blocks==0U?0U:(5U*(b-s->data_start))/s->data_blocks),100U,"bitmap validation");int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set&&!ref_test(refs,b-s->data_start))bad++;}
 for(uint64_t b=data_end;b<d->block_count;b++){int set=0;if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(b==d->block_count-1U){if(!set)bad++;}else if(set)bad++;}
@@ -348,6 +350,7 @@ if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size){result=OPENFS_FSCK_CORRUPT;g
 uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){
 for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
+FSCK_PROGRESS(99U,100U,"finalisation");
 done:free(dir_refs);free(refs);free(io_buffer);FSCK_PROGRESS(100U,100U,"terminé");*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);
 #undef FSCK_PROGRESS
 }
