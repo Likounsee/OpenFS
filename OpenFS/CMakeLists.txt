@@ -26,6 +26,7 @@ add_library(openfs STATIC
     src/journal.c
     src/transaction.c
     src/lock.c
+    src/runtime.c
     src/fd.c
 )
 
