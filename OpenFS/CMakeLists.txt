@@ -24,6 +24,7 @@ add_library(openfs STATIC
     src/fsck.c
     src/journal.c
     src/transaction.c
+    src/lock.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -139,4 +140,8 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-stability-test PRIVATE openfs)
     openfs_enable_warnings(openfs-stability-test)
     add_test(NAME openfs-stability COMMAND openfs-stability-test)
+    add_executable(openfs-lock-test tests/test_lock.c)
+    target_link_libraries(openfs-lock-test PRIVATE openfs)
+    openfs_enable_warnings(openfs-lock-test)
+    add_test(NAME openfs-lock COMMAND openfs-lock-test)
 endif()
