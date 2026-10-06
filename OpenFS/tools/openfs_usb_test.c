@@ -17,7 +17,7 @@ static int lookup(openfs_block_device_t *d,const openfs_superblock_t *s,const ch
 static int verify(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino,const uint8_t *want,size_t len){
  openfs_inode_t in;uint8_t *gotbuf=(uint8_t*)malloc(len);size_t got=0;
  if(!gotbuf)return 0;
- if(openfs_inode_read(d,s->inode_table_start,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,ino,&in)!=OPENFS_INODE_OK){free(gotbuf);return 0;}
+ if(openfs_inode_read(d,s->inode_table_start,ino,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&in)!=OPENFS_INODE_OK){free(gotbuf);return 0;}
  if(openfs_file_read(d,s,&in,0,gotbuf,len,&got)!=OPENFS_FILE_OK||got!=len||memcmp(gotbuf,want,len)!=0){free(gotbuf);return 0;}
  free(gotbuf);return 1;
 }
@@ -30,7 +30,7 @@ int wmain(int argc,wchar_t **argv){
  pr=openfs_path_mkdir(d,&m.superblock,"/openfs-usb-test",&dir);if(pr!=OPENFS_PATH_OK&&pr!=OPENFS_PATH_EXISTS){fwprintf(stderr,L"mkdir failed: %d\n",pr);goto unmount;}if(!lookup(d,&m.superblock,"/openfs-usb-test",&dir)){fwprintf(stderr,L"directory lookup failed.\n");goto unmount;}
  pr=openfs_path_create(d,&m.superblock,"/openfs-usb-test/data.bin",OPENFS_INODE_MODE_REGULAR|0644U,&ino);if(pr!=OPENFS_PATH_OK){fwprintf(stderr,L"create failed: %d\n",pr);goto unmount;}
  data=(uint8_t*)malloc(len);if(!data){fwprintf(stderr,L"data allocation failed.\n");goto unmount;}for(size_t i=0;i<len;i++)data[i]=(uint8_t)((i*37U+11U)&255U);
- if(openfs_inode_read(d,m.superblock.inode_table_start,(m.superblock.inode_table_blocks*(uint64_t)m.superblock.block_size)/OPENFS_INODE_SIZE,ino,&in)!=OPENFS_INODE_OK){fwprintf(stderr,L"inode read failed before write.\n");goto unmount;}
+ if(openfs_inode_read(d,m.superblock.inode_table_start,ino,(m.superblock.inode_table_blocks*(uint64_t)m.superblock.block_size)/OPENFS_INODE_SIZE,&in)!=OPENFS_INODE_OK){fwprintf(stderr,L"inode read failed before write.\n");goto unmount;}
  if(openfs_file_write(d,&m.superblock,&in,0,data,len)!=OPENFS_FILE_OK||!verify(d,&m.superblock,ino,data,len)){fwprintf(stderr,L"write/read verification failed.\n");goto unmount;}
  if(openfs_path_rename(d,&m.superblock,"/openfs-usb-test/data.bin","/openfs-usb-test/data-renamed.bin")!=OPENFS_PATH_OK){fwprintf(stderr,L"rename failed.\n");goto unmount;}
  if(!lookup(d,&m.superblock,"/openfs-usb-test/data-renamed.bin",&ino)){fwprintf(stderr,L"renamed file lookup failed.\n");goto unmount;}
