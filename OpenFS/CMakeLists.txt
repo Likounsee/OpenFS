@@ -29,6 +29,7 @@ add_library(openfs STATIC
     src/runtime.c
     src/orphan.c
     src/fd.c
+    src/file_lock.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -156,4 +157,8 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-lock-test PRIVATE openfs Threads::Threads)
     openfs_enable_warnings(openfs-lock-test)
     add_test(NAME openfs-lock COMMAND openfs-lock-test)
+    add_executable(openfs-file-lock-test tests/test_file_lock.c)
+    target_link_libraries(openfs-file-lock-test PRIVATE openfs Threads::Threads)
+    openfs_enable_warnings(openfs-file-lock-test)
+    add_test(NAME openfs-file-lock COMMAND openfs-file-lock-test)
 endif()
