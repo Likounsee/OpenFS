@@ -413,7 +413,12 @@ for(uint64_t n=1U;n<=count;n++){
     if(!fsck_bitmap_snapshot_test(&inode_bitmap_snapshot,n-1U,&used)){
         free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;
     }
-    if(used&&!reachable[n])bad++;
+    if(used&&!reachable[n]){
+        openfs_inode_t orphan_inode;
+        if(openfs_inode_read(d,s->inode_table_start,n,count,&orphan_inode)==OPENFS_INODE_OK&&
+           (orphan_inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U&&orphan_inode.link_count==0U){}
+        else bad++;
+    }
     if(!used&&reachable[n])bad++;
 }
 free(queue);free(reachable);
@@ -421,7 +426,9 @@ for(uint64_t n=1U;n<=count;n++){
 int used=0;if(!fsck_bitmap_snapshot_test(&inode_bitmap_snapshot,n-1U,&used)){result=OPENFS_FSCK_IO_ERROR;goto done;}
 if(!used){if(dir_refs[n]!=0U)bad++;continue;}
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
-if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
+if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}
+else if((in.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U){if(dir_refs[n]!=0U||in.link_count!=0U)bad++;}
+else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
 }
 FSCK_PROGRESS(85U,100U,"validation des bitmaps et des blocs");
 for(uint64_t b=0U;b<s->data_start;b++){if(progress!=NULL&&(b==0U||(b%4096U)==0U||b+1U==s->data_start))FSCK_PROGRESS(85U+(s->data_start==0U?0U:(5U*b)/s->data_start),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!set)bad++;}
