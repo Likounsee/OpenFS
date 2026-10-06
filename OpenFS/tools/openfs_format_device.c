@@ -94,6 +94,14 @@ int wmain(int argc,wchar_t **argv)
     if(format_result!=OPENFS_FORMAT_OK){
         fwprintf(stderr,L"OpenFS format failed: %d (Windows error %lu).\n",(int)format_result,
                  (unsigned long)openfs_windows_adapter_last_error(&adapter));
+        if(format_result==OPENFS_FORMAT_CORRUPT){
+            openfs_superblock_t diagnostic={0};
+            openfs_format_result_t diagnostic_result=openfs_prepare_superblock(device,uuid,&diagnostic);
+            if(diagnostic_result==OPENFS_FORMAT_CORRUPT){
+                const char *reason=openfs_validate_superblock_reason(device,&diagnostic);
+                if(reason!=NULL)fprintf(stderr,"OpenFS validation diagnostic: %s\\n",reason);
+            }
+        }
         openfs_windows_adapter_close(&adapter);
         return 4;
     }
