@@ -188,7 +188,7 @@ goto done;
 }
 if(!root_allocated)bad++;
 for(uint64_t n=1U;n<=count;n++){if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(10U+(count==0U?35U:(35U*n)/count),100U,"inode validation");int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}openfs_inode_t in;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(ir!=OPENFS_INODE_OK){if(ir==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;continue;}
-if(used){if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n||in.generation==0U||in.parent_inode==0U)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
+if(!used){continue;}if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n||in.generation==0U||in.parent_inode==0U)bad++;if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U)bad++;
 uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
 uint32_t inline_n=(in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U ? (in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_TREE_INLINE_EXTENT_MAX) : (in.extent_count<OPENFS_INODE_INLINE_EXTENT_MAX?in.extent_count:OPENFS_INODE_INLINE_EXTENT_MAX);
 if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
@@ -239,13 +239,7 @@ if(extent_total!=in.blocks)bad++;
             if(symlink_result<0){result=OPENFS_FSCK_IO_ERROR;goto done;}
             if(symlink_result==0)bad++;
         }
-    }
-else{
-/* In fast-formatted volumes, unused inode-table slots may contain stale
- * bytes from a previous filesystem. The inode bitmap is authoritative;
- * unused inode payload must not be required to be zero. */
-continue;
-}}
+}
 for(uint64_t n=1U;n<=count;n++){
 if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(45U+(count==0U?20U:(20U*n)/count),100U,"directory validation");
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
