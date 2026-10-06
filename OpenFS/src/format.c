@@ -83,7 +83,7 @@ static openfs_format_result_t decode(const uint8_t*b,openfs_superblock_t*sb){
     sb->metadata_start=get64(b+36U);sb->metadata_blocks=get64(b+44U);sb->block_bitmap_start=get64(b+52U);sb->block_bitmap_blocks=get64(b+60U);
     sb->inode_bitmap_start=get64(b+68U);sb->inode_bitmap_blocks=get64(b+76U);sb->inode_table_start=get64(b+84U);sb->inode_table_blocks=get64(b+92U);
     sb->journal_start=get64(b+100U);sb->journal_blocks=get64(b+108U);sb->data_start=get64(b+116U);sb->data_blocks=get64(b+124U);
-    sb->root_inode=get64(b+132U);sb->generation=get64(b+140U);memcpy(sb->uuid,b+148U,16U);return OPENFS_FORMAT_OK;
+    sb->root_inode=get64(b+132U);sb->generation=get64(b+140U);memcpy(sb->uuid,b+148U,16U);sb->runtime=NULL;return OPENFS_FORMAT_OK;
 }
 
 static openfs_format_result_t validate_superblock_ex(const openfs_block_device_t*d,const openfs_superblock_t*sb,const char **reason){
