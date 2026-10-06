@@ -60,7 +60,7 @@ static void physical_boundaries(void){
 static void exact_api_full_and_last_commit(void){
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);openfs_journal_t j;uint64_t tx=0;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);assert(j.next_record==1U);
-    while(j.next_record+1U<j.journal_blocks)assert(openfs_journal_write(&j,&v,tx,"x",1U)==OPENFS_JOURNAL_OK);
+    while(j.next_record+1U<j.journal_blocks){\n        openfs_journal_result_t r=openfs_journal_write(&j,&v,tx,"x",1U);\n        assert(r==OPENFS_JOURNAL_OK);\n        if(r!=OPENFS_JOURNAL_OK)break;\n    }
     assert(j.next_record==j.journal_blocks-1U);assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);assert(j.next_record==j.journal_blocks);assert(j.commit_record_written==1U);assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_INVALID_ARGUMENT);assert(openfs_journal_write(&j,&v,tx,"x",1U)==OPENFS_JOURNAL_INVALID_ARGUMENT);assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);assert(j.next_record==0U);free(d.b);
 }
 int main(void){empty_boundary();physical_boundaries();exact_api_full_and_last_commit();return 0;}
