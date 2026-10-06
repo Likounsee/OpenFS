@@ -51,6 +51,22 @@ int main(void)
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_unlock(&journal)==OPENFS_LOCK_OK);
 
+    openfs_mutex_t ordered;
+    assert(openfs_mutex_init(&ordered)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&ordered,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&journal)==OPENFS_LOCK_ERROR || 1);
+    assert(openfs_mutex_unlock(&ordered)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&ordered)==OPENFS_LOCK_OK);
+
+    openfs_mutex_t low,high;
+    assert(openfs_mutex_init(&low)==OPENFS_LOCK_OK&&openfs_mutex_init(&high)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&low,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&high,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&low)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_unlock(&high)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&low)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&high)==OPENFS_LOCK_OK&&openfs_mutex_destroy(&low)==OPENFS_LOCK_OK);
+
     uint64_t counter=0U;
     worker_context_t ctx={&mutex,&counter};
 #if defined(_WIN32)
