@@ -168,6 +168,12 @@ wprintf(L"\n");
         fwprintf(stderr,L"OpenFS fsck failed: result=%d errors=%llu WindowsError=%lu.\n",
                  (int)result,(unsigned long long)errors,
                  (unsigned long)openfs_windows_adapter_last_error(&adapter));
+        if(diagnostic.stage!=NULL){
+            fwprintf(stderr,L"  First error stage: %hs\n",diagnostic.stage);
+            if(diagnostic.reason!=NULL)fwprintf(stderr,L"  Reason: %hs\n",diagnostic.reason);
+            fwprintf(stderr,L"  Index: %llu / %llu\n",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);
+            fwprintf(stderr,L"  Recorded errors: %llu\n",(unsigned long long)diagnostic.count);
+        }
         openfs_windows_adapter_close(&adapter);
         return 5;
     }
