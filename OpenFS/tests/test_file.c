@@ -2,6 +2,7 @@
 #include <stdio.h>
 #define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed: %s\n", #expr); abort(); } } while(0)
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/file.h"
@@ -158,7 +159,7 @@ static void sparse_write_zeroes_intermediate_blocks(void){
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&one,1U)==OPENFS_FILE_OK);
     for(unsigned n=0U;n<3U;n++){TEST_ASSERT(openfs_alloc_block(&v,&sb,&poisoned[n])==OPENFS_ALLOC_OK);TEST_ASSERT(poisoned[n]==sb.data_start+1U+n);memset(d.bytes+(size_t)(poisoned[n]*d.block_size),0xCCU,d.block_size);}
     for(unsigned n=0U;n<3U;n++)TEST_ASSERT(openfs_free_block(&v,&sb,poisoned[n])==OPENFS_ALLOC_OK);
-    TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_OK);
+    openfs_file_result_t sparse_result=openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U);fprintf(stderr,"sparse result=%d size=%" PRIu64 " blocks=%" PRIu64 " extents=%u\\n",(int)sparse_result,i.size,i.blocks,i.extent_count);TEST_ASSERT(sparse_result==OPENFS_FILE_OK);
     uint8_t *gap=calloc(3U,4096U);TEST_ASSERT(gap);size_t got=0U;TEST_ASSERT(openfs_file_read(&v,&sb,&i,4096U,gap,3U*4096U,&got)==OPENFS_FILE_OK&&got==3U*4096U);
     for(size_t n=0;n<3U*4096U;n++)TEST_ASSERT(gap[n]==0U);
     free(gap);free(d.bytes);
