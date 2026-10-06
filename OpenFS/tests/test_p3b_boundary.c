@@ -241,6 +241,7 @@ static void extent_boundary(void){
         assert(openfs_inode_set_extent(&inode,i,&e)==OPENFS_EXTENT_OK);
     }
     assert(openfs_inode_set_extent_tree_root(&inode,s.data_start)==OPENFS_EXTENT_OK);
+    assert(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,s.data_start,1)==OPENFS_BITMAP_OK);
     inode.extent_count=OPENFS_INODE_TREE_INLINE_EXTENT_MAX+169U;
 
     openfs_extent_t extents[169];
