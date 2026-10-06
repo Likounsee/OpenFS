@@ -90,11 +90,11 @@ openfs_windows_adapter_result_t openfs_windows_adapter_open(
     if(!query_device_size(h,&bytes)){
         CloseHandle(h);return OPENFS_WINDOWS_ADAPTER_IO_ERROR;
     }
-    if(bytes<(uint64_t)block_size||bytes%(uint64_t)block_size!=0U){
+    if(bytes<(uint64_t)block_size){
         CloseHandle(h);return OPENFS_WINDOWS_ADAPTER_UNSUPPORTED;
     }
     adapter->handle=h;adapter->writable=writable?1:0;adapter->last_error=ERROR_SUCCESS;adapter->device.context=adapter;
-    adapter->device.block_size=block_size;adapter->device.block_count=bytes/block_size;
+    adapter->device.block_size=block_size;adapter->device.block_count=bytes/(uint64_t)block_size;
     adapter->device.read=windows_read;adapter->device.write=windows_write;adapter->device.flush=windows_flush;
     return OPENFS_WINDOWS_ADAPTER_OK;
 }
