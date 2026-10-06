@@ -2,12 +2,55 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "openfs/mount.h"
+#include "openfs/fsck.h"
+#if defined(_WIN32)
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
+#endif
 #include "openfs/fd.h"
 #include "openfs/format.h"
 typedef struct{uint8_t*b;uint32_t bs;uint64_t n;}disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*out){disk_t*d=c;if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(out,d->b+(size_t)(f*d->bs),(size_t)n*d->bs);return OPENFS_IO_OK;}
 static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*in){disk_t*d=c;if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),in,(size_t)n*d->bs);return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){(void)c;return OPENFS_IO_OK;}
+typedef struct {openfs_block_device_t*dev;openfs_superblock_t*sb;unsigned id;unsigned failures;} create_ctx_t;
+#if defined(_WIN32)
+static unsigned __stdcall create_worker(void*arg)
+#else
+static void* create_worker(void*arg)
+#endif
+{
+    create_ctx_t*c=(create_ctx_t*)arg;
+    char path[96];
+    for(unsigned n=0U;n<32U;n++){(void)snprintf(path,sizeof(path),"/concurrent-%u-%u",c->id,n);uint64_t ino=0U;if(openfs_path_create(c->dev,c->sb,path,OPENFS_INODE_MODE_REGULAR|0644U,&ino)!=OPENFS_PATH_OK)c->failures++;}
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+static void concurrency_namespace_test(openfs_block_device_t*dev)
+{
+    openfs_mount_t m;assert(openfs_mount(&m,dev)==OPENFS_MOUNT_OK);
+    create_ctx_t ctx[4];memset(ctx,0,sizeof(ctx));
+#if defined(_WIN32)
+    HANDLE threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].dev=dev;ctx[i].sb=&m.superblock;ctx[i].id=i;uintptr_t h=_beginthreadex(NULL,0U,create_worker,&ctx[i],0U,NULL);assert(h!=0U);threads[i]=(HANDLE)h;}
+    assert(WaitForMultipleObjects(4,threads,TRUE,60000U)==WAIT_OBJECT_0);
+    for(unsigned i=0U;i<4U;i++)CloseHandle(threads[i]);
+#else
+    pthread_t threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].dev=dev;ctx[i].sb=&m.superblock;ctx[i].id=i;assert(pthread_create(&threads[i],NULL,create_worker,&ctx[i])==0);}
+    for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
+#endif
+    for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
+    uint64_t errors=0U;assert(openfs_fsck(dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+}
+
 int main(void){
  disk_t d={0};d.bs=4096U;d.n=128U;d.b=calloc((size_t)d.n,d.bs);assert(d.b);
  openfs_block_device_t dev={&d,d.bs,d.n,rd,wr,fl};openfs_superblock_t sb;uint8_t uuid[16]={0};
@@ -25,6 +68,7 @@ int main(void){
  assert(openfs_fd_truncate(dup,5U)==OPENFS_FD_OK);assert(openfs_fd_close(dup)==OPENFS_FD_OK);
  openfs_file_handle_t*r=NULL;assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_RDONLY,0,&r)==OPENFS_FD_OK);
  assert(openfs_fd_read(r,out,sizeof(out),&got)==OPENFS_FD_OK&&got==5U);assert(memcmp(out,"hello",5U)==0);assert(openfs_fd_close(r)==OPENFS_FD_OK);
+ concurrency_namespace_test(&dev);
  assert(openfs_fd_open(&dev,&sb,"/missing",OPENFS_FD_RDONLY,0,&r)==OPENFS_FD_NOT_FOUND);
  assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_CREAT|OPENFS_FD_EXCL|OPENFS_FD_RDWR,0,&r)==OPENFS_FD_EXISTS);
  free(d.b);return 0;
