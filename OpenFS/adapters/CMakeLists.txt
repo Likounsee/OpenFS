@@ -16,7 +16,33 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
-    add_library(openfs-windows-adapter STATIC windows/openfs_windows_adapter.c)
+    find_path(OPENFS_WINFSP_INCLUDE_DIR fuse/fuse.h
+        PATHS
+            "$ENV{ProgramFiles(x86)}/WinFsp/inc"
+            "$ENV{ProgramFiles}/WinFsp/inc"
+    )
+    find_library(OPENFS_WINFSP_LIBRARY
+        NAMES winfsp-x64
+        PATHS
+            "$ENV{ProgramFiles(x86)}/WinFsp/lib"
+            "$ENV{ProgramFiles}/WinFsp/lib"
+    )
+    if(OPENFS_WINFSP_INCLUDE_DIR AND OPENFS_WINFSP_LIBRARY)
+        add_executable(openfs-mount-device windows/openfs_winfsp_mount.c)
+        target_include_directories(openfs-mount-device PRIVATE
+            windows
+            ${CMAKE_CURRENT_SOURCE_DIR}/../include
+            ${OPENFS_WINFSP_INCLUDE_DIR}
+        )
+        target_link_libraries(openfs-mount-device PRIVATE
+            openfs-windows-adapter
+            ${OPENFS_WINFSP_LIBRARY}
+        )
+        openfs_enable_warnings(openfs-mount-device)
+    else()
+        message(STATUS "WinFsp developer files not found: openfs-mount-device will not be built")
+    endif()
+
     target_include_directories(openfs-windows-adapter PUBLIC windows ${CMAKE_CURRENT_SOURCE_DIR}/../include)
     target_link_libraries(openfs-windows-adapter PUBLIC openfs)
     openfs_enable_warnings(openfs-windows-adapter)
