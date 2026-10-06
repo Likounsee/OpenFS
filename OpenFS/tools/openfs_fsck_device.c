@@ -8,16 +8,56 @@
 #include "openfs/format.h"
 #include "openfs/fsck.h"
 
+typedef struct fsck_progress_state {
+    ULONGLONG start_ms;
+    ULONGLONG sample_ms;
+    uint64_t sample_done;
+    uint64_t sample_total;
+    int sample_ready;
+} fsck_progress_state_t;
+
+static void format_duration(double seconds,wchar_t *out,size_t out_count)
+{
+    if(out==NULL||out_count==0U)return;
+    if(seconds<0.0||seconds>86400000.0){wcsncpy(out,L"--:--",out_count-1U);out[out_count-1U]=L'\\0';return;}
+    unsigned long long total=(unsigned long long)(seconds+0.5);
+    unsigned long long hours=total/3600ULL;
+    unsigned long long minutes=(total%3600ULL)/60ULL;
+    unsigned long long secs=total%60ULL;
+    if(hours>0ULL)swprintf(out,out_count,L"%llu:%02llu:%02llu",hours,minutes,secs);
+    else swprintf(out,out_count,L"%02llu:%02llu",minutes,secs);
+}
+
 static void print_fsck_progress(void *context,uint64_t done,uint64_t total,const char *stage)
 {
-    (void)context;
+    fsck_progress_state_t *state=(fsck_progress_state_t *)context;
+    if(state==NULL)return;
     if(total==0U)total=1U;
+    ULONGLONG now=GetTickCount64();
+    if(state->start_ms==0U)state->start_ms=now;
+    ULONGLONG elapsed_ms=now-state->start_ms;
+    if(!state->sample_ready&&elapsed_ms>=10000ULL){
+        state->sample_ready=1;
+        state->sample_ms=now;
+        state->sample_done=done;
+        state->sample_total=total;
+    }
+    wchar_t eta[32]=L"--:--";
+    if(state->sample_ready&&done>state->sample_done&&total>done){
+        ULONGLONG sample_elapsed=now-state->sample_ms;
+        uint64_t progress_delta=done-state->sample_done;
+        if(sample_elapsed>0U&&progress_delta>0U){
+            double remaining=(double)(total-done)*(double)sample_elapsed/(double)progress_delta/1000.0;
+            format_duration(remaining,eta,sizeof(eta)/sizeof(eta[0]));
+        }
+    }
     uint64_t percent=done>=total?100U:(done*100U)/total;
     unsigned width=40U;
     unsigned filled=(unsigned)((percent*width)/100U);
-    fwprintf(stdout,L"\rFSCK [");
+    fwprintf(stdout,L"\\rFSCK [");
     for(unsigned i=0U;i<width;i++)fputwc(i<filled?L'#':L'-',stdout);
-    fwprintf(stdout,L"] %3llu%%  %hs", (unsigned long long)percent, stage!=NULL?stage:"");
+    fwprintf(stdout,L"] %3llu%%  %hs  ETA %ls",
+             (unsigned long long)percent,stage!=NULL?stage:"",eta);
     fflush(stdout);
 }
 
@@ -64,7 +104,8 @@ int wmain(int argc,wchar_t **argv)
     wprintf(L"Data blocks: %llu\n",(unsigned long long)sb.data_blocks);
 
     uint64_t errors=0U;
-    openfs_fsck_result_t result=openfs_fsck_with_progress(device,&sb,&errors,print_fsck_progress,NULL);
+    fsck_progress_state_t progress_state={0};
+    openfs_fsck_result_t result=openfs_fsck_with_progress(device,&sb,&errors,print_fsck_progress,&progress_state);
 wprintf(L"\n");
     if(result!=OPENFS_FSCK_OK||errors!=0U){
         fwprintf(stderr,L"OpenFS fsck failed: result=%d errors=%llu WindowsError=%lu.\n",
