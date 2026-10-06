@@ -6,23 +6,11 @@ work across operating systems through small OS-specific adapters.
 ArchiaOS is a planned integration, but the filesystem core itself does not
 depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
-## Development roadmap
+## Current status
 
-- **P0 — Foundations / Correctness:** CLOSED
-- **P1 — Transactions / Journal / Recovery:** CLOSED
-- **P2 — Crash-Cut Hardening:** CLOSED
-- **P3-A — Error Path / Double Failure:** CLOSED
-- **P3-B — Boundary Matrix:** CLOSED
-- **P3-C — Final Release Validation:** REOPENED — independent audit in progress
+OpenFS is in active hardening and integration work. The filesystem core is implemented and is being validated through regression tests, boundary tests, filesystem-checking tests, adapter tests, and continuous integration.
 
-## Where we are
-
-OpenFS has a substantial filesystem core implemented, but the previous P3-C release validation has been superseded by a new independent audit. The
-core remains an integration component rather than a turnkey mounted desktop
-filesystem. The current branch must not be considered release-ready until the reopened audit and its final CI validation are complete.
-
-Current overall progress is approximately **98% of the planned project scope**.
-This is an engineering estimate, not a release-readiness metric.
+The project should be considered **advanced development / hardening**, not a final release. Release readiness depends on the complete test matrix being green and the remaining integration work being completed.
 
 ### Implemented
 
@@ -66,7 +54,7 @@ This is an engineering estimate, not a release-readiness metric.
 
 ### Current audit status
 
-The reopened audit is actively checking corruption handling, crash consistency, rollback paths, permissions, symlink and directory semantics, on-disk invariants, overflow boundaries, adapters, and test/CI consistency. Confirmed findings are being corrected with regression coverage. Historical P3-C validation below is evidence of a previous state, not a current release decision.
+The current hardening pass checks corruption handling, crash consistency, rollback paths, permissions, symlink and directory semantics, on-disk invariants, overflow boundaries, adapters, and test/CI consistency. Confirmed findings are corrected with regression coverage.
 The current CMake configuration registers **25 CTest cases** on Linux and Windows (23 core tests plus the platform-independent ArchiaOS adapter test and the host adapter test). The final audit must verify that full matrix rather than relying on the historical 23/23 figure.
 
 ### Remaining hardening / integration
