@@ -18,14 +18,14 @@ static void destroy_handle(openfs_file_handle_t*h){if(h==NULL)return;if(h->lock_
 static openfs_fd_result_t open_common(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,uint32_t uid,uint32_t gid,int credentials,openfs_file_handle_t**out){
 if(out==NULL||!openfs_block_device_is_valid(d)||s==NULL||p==NULL)return OPENFS_FD_INVALID_ARGUMENT;*out=NULL;openfs_fd_result_t vr=validate_flags(flags);if(vr!=OPENFS_FD_OK)return vr;
 uint64_t ino=0U;openfs_path_result_t lr=credentials?openfs_path_lookup_as(d,s,p,uid,gid,&ino):openfs_path_lookup(d,s,p,&ino);
-if(lr==OPENFS_PATH_NOT_FOUND&&(flags&OPENFS_FD_CREAT)!=0U){openfs_path_result_t cr=credentials?openfs_path_create_as(d,s,p,mode,uid,gid,&ino):openfs_path_create(d,s,p,mode,&ino);if(cr!=OPENFS_PATH_OK)return map_path(cr);}
+if(lr==OPENFS_PATH_NOT_FOUND&&(flags&OPENFS_FD_CREAT)!=0U){openfs_path_result_t cr=credentials?openfs_path_create_as(d,s,p,mode,uid,gid,&ino):openfs_path_create(d,s,p,mode,&ino);if(cr!=OPENFS_PATH_OK){fprintf(stderr,"fd create path result=%d\\n",(int)cr);return map_path(cr);}}
 else if(lr!=OPENFS_PATH_OK)return map_path(lr);
 else if((flags&(OPENFS_FD_EXCL|OPENFS_FD_CREAT))==(OPENFS_FD_EXCL|OPENFS_FD_CREAT))return OPENFS_FD_EXISTS;
-openfs_inode_t inode;openfs_fd_result_t ir=load_inode(d,s,ino,&inode);if(ir!=OPENFS_FD_OK)return ir;if((inode.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_FREE)return OPENFS_FD_NOT_FOUND;
+openfs_inode_t inode;openfs_fd_result_t ir=load_inode(d,s,ino,&inode);if(ir!=OPENFS_FD_OK){fprintf(stderr,"fd load inode result=%d\\n",(int)ir);return ir;}if((inode.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_FREE)return OPENFS_FD_NOT_FOUND;
 if(credentials){uint8_t need=can_write(flags)?(can_read(flags)?6U:2U):4U;openfs_acl_result_t ar=openfs_acl_check_access(d,s,&inode,uid,gid,need);if(ar!=OPENFS_ACL_OK)return ar==OPENFS_ACL_ACCESS_DENIED?OPENFS_FD_ACCESS_DENIED:OPENFS_FD_CORRUPT;}
 openfs_file_handle_t*h=calloc(1,sizeof(*h));if(h==NULL)return OPENFS_FD_IO_ERROR;h->device=d;h->superblock=*s;h->inode=inode;h->flags=flags;h->references=1U;
-if(openfs_mutex_init(&h->lock)!=OPENFS_LOCK_OK){free(h);return OPENFS_FD_IO_ERROR;}h->lock_initialized=1;
-if(s->runtime!=NULL&&s->runtime->initialized&&!openfs_runtime_handle_acquire(s->runtime,d,inode.inode_number,inode.generation)){destroy_handle(h);return OPENFS_FD_IO_ERROR;}
+if(openfs_mutex_init(&h->lock)!=OPENFS_LOCK_OK){fprintf(stderr,"fd handle mutex init failed\\n");free(h);return OPENFS_FD_IO_ERROR;}h->lock_initialized=1;
+if(s->runtime!=NULL&&s->runtime->initialized&&!openfs_runtime_handle_acquire(s->runtime,d,inode.inode_number,inode.generation)){fprintf(stderr,"fd registry acquire failed ino=%llu gen=%llu\\n",(unsigned long long)inode.inode_number,(unsigned long long)inode.generation);destroy_handle(h);return OPENFS_FD_IO_ERROR;}
 if((flags&OPENFS_FD_TRUNC)!=0U){openfs_file_result_t fr=openfs_file_truncate(d,&h->superblock,&h->inode,0U);if(fr!=OPENFS_FILE_OK){if(s->runtime!=NULL&&s->runtime->initialized)(void)openfs_runtime_handle_release(s->runtime,d,inode.inode_number,inode.generation);destroy_handle(h);return fr==OPENFS_FILE_ACCESS_DENIED?OPENFS_FD_ACCESS_DENIED:fr==OPENFS_FILE_CORRUPT?OPENFS_FD_CORRUPT:OPENFS_FD_IO_ERROR;}}
 *out=h;return OPENFS_FD_OK;}
 openfs_fd_result_t openfs_fd_open(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,openfs_file_handle_t**out){return open_common(d,s,p,flags,mode,0U,0U,0,out);}
