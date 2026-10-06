@@ -40,6 +40,8 @@ VFS integration, and finally native OS filesystem integration.
 - parent-path symlink following for namespace mutations;
 - inode and path-level permission-bit access checks, root/superuser bypass, and automatic timestamps;
 - credential-aware namespace mutation APIs;
+- extended attributes with checksummed metadata blocks;
+- POSIX-style ACLs with inheritance and ACL-aware access checks;
 - credential-aware file read/write/truncate APIs and link/symlink creation APIs;
 - sticky-directory ownership checks for credential-aware unlink/rename;
 - filesystem mount/unmount with primary/backup superblock fallback;
@@ -82,8 +84,8 @@ The current development order is:
 3. **Namespace and security hardening — started**
    - TOCTOU and path-race protection;
    - stable inode/path lookup semantics;
-   - ACLs and ACL inheritance;
-   - extended attributes (xattrs);
+   - ACLs and ACL inheritance (implemented);
+   - extended attributes (xattrs) (implemented);
    - file locking;
    - sparse files.
 
