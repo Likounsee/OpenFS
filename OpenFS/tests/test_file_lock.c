@@ -39,6 +39,7 @@ int main(void){
     assert(openfs_file_lock(b,200U,10U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
 
     assert(openfs_file_unlock(a,0U,100U)==OPENFS_FILE_LOCK_OK);
+    assert(openfs_file_unlock(b,50U,10U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_lock(b,50U,10U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_unlock(b,50U,10U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_unlock(b,50U,10U)==OPENFS_FILE_LOCK_NOT_FOUND);
