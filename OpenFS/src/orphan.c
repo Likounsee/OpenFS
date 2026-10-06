@@ -4,7 +4,8 @@
 #include "openfs/inode.h"
 #include "openfs/inode_alloc.h"
 
-#include <stdint.h>\n#include <stdlib.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 static int inode_count(const openfs_superblock_t *s,uint64_t *out)
 {
