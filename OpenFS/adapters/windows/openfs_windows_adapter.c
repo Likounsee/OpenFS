@@ -40,7 +40,7 @@ static openfs_io_result_t transfer(openfs_windows_adapter_t *adapter,uint64_t of
         ok=GetOverlappedResult(adapter->handle,&ov,&done,TRUE);
         if(!ok)adapter->last_error=GetLastError();
     }else{
-        ok=GetOverlappedResult(handle,&ov,&done,TRUE);
+        ok=GetOverlappedResult(adapter->handle,&ov,&done,TRUE);
         if(!ok)adapter->last_error=GetLastError();
     }
     CloseHandle(ov.hEvent);
