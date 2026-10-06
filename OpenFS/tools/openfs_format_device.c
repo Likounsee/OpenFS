@@ -97,9 +97,10 @@ int wmain(int argc,wchar_t **argv)
         if(format_result==OPENFS_FORMAT_CORRUPT){
             openfs_superblock_t diagnostic={0};
             openfs_format_result_t diagnostic_result=openfs_prepare_superblock(device,uuid,&diagnostic);
+            fprintf(stderr,"OpenFS layout diagnostic result: %d\\n",(int)diagnostic_result);
             if(diagnostic_result==OPENFS_FORMAT_CORRUPT){
                 const char *reason=openfs_validate_superblock_reason(device,&diagnostic);
-                if(reason!=NULL)fprintf(stderr,"OpenFS validation diagnostic: %s\\n",reason);
+                fprintf(stderr,"OpenFS validation diagnostic: %s\\n",reason!=NULL?reason:"unknown validation failure");
             }
         }
         openfs_windows_adapter_close(&adapter);
