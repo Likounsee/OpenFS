@@ -46,13 +46,6 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
 
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
-typedef struct openfs_fsck_diagnostic {
-    const char *stage;
-    uint64_t index;
-    uint64_t total;
-    uint64_t count;
-} openfs_fsck_diagnostic_t;
-
 static void fsck_record_bad(uint64_t *bad,openfs_fsck_diagnostic_t *diag,const char *stage,uint64_t index,uint64_t total)
 {
     if(bad==NULL)return;
