@@ -1,5 +1,6 @@
 #include "openfs/allocator.h"
 #include "openfs/bitmap.h"
+#include "openfs/runtime.h"
 static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block,int value){
     if(d==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count||sb->block_bitmap_start>=d->block_count||sb->block_bitmap_blocks==0U||sb->block_bitmap_blocks>d->block_count-sb->block_bitmap_start)return OPENFS_ALLOC_CORRUPT;
