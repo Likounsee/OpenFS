@@ -38,6 +38,28 @@ if(WIN32)
         target_link_libraries(openfs-windows-adapter-test PRIVATE openfs-windows-adapter)
         openfs_enable_warnings(openfs-windows-adapter-test)
         add_test(NAME openfs-windows-adapter COMMAND openfs-windows-adapter-test)
+
+        set(OPENFS_WINDOWS_IMAGE_TEST
+            ${CMAKE_CURRENT_BINARY_DIR}/openfs-ci-image.img
+        )
+        add_test(
+            NAME openfs-windows-image-format
+            COMMAND openfs-format-image "${OPENFS_WINDOWS_IMAGE_TEST}" 4194304 65536
+        )
+        add_test(
+            NAME openfs-windows-image-device
+            COMMAND openfs-usb-test "${OPENFS_WINDOWS_IMAGE_TEST}" 65536
+        )
+        set_tests_properties(openfs-windows-image-device PROPERTIES
+            DEPENDS openfs-windows-image-format
+        )
+        add_test(
+            NAME openfs-windows-image-cleanup
+            COMMAND ${CMAKE_COMMAND} -E rm -f "${OPENFS_WINDOWS_IMAGE_TEST}"
+        )
+        set_tests_properties(openfs-windows-image-cleanup PROPERTIES
+            DEPENDS openfs-windows-image-device
+        )
     endif()
 endif()
 
