@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
-#define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed: %s\n", #expr); abort(); } } while(0)
+#define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed at line %d: %s\n", __LINE__, #expr); abort(); } } while(0)
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
