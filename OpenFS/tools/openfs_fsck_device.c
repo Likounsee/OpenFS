@@ -8,6 +8,19 @@
 #include "openfs/format.h"
 #include "openfs/fsck.h"
 
+static void print_fsck_progress(void *context,uint64_t done,uint64_t total,const char *stage)
+{
+    (void)context;
+    if(total==0U)total=1U;
+    uint64_t percent=done>=total?100U:(done*100U)/total;
+    unsigned width=40U;
+    unsigned filled=(unsigned)((percent*width)/100U);
+    fwprintf(stdout,L"\rFSCK [");
+    for(unsigned i=0U;i<width;i++)fputwc(i<filled?L'#':L'-',stdout);
+    fwprintf(stdout,L"] %3llu%%  %hs", (unsigned long long)percent, stage!=NULL?stage:"");
+    fflush(stdout);
+}
+
 int wmain(int argc,wchar_t **argv)
 {
     if(argc!=2){
@@ -51,7 +64,8 @@ int wmain(int argc,wchar_t **argv)
     wprintf(L"Data blocks: %llu\n",(unsigned long long)sb.data_blocks);
 
     uint64_t errors=0U;
-    openfs_fsck_result_t result=openfs_fsck(device,&sb,&errors);
+    openfs_fsck_result_t result=openfs_fsck_with_progress(device,&sb,&errors,print_fsck_progress,NULL);
+wprintf(L"\n");
     if(result!=OPENFS_FSCK_OK||errors!=0U){
         fwprintf(stderr,L"OpenFS fsck failed: result=%d errors=%llu WindowsError=%lu.\n",
                  (int)result,(unsigned long long)errors,
