@@ -15,7 +15,6 @@ static openfs_acl_result_t validate(const openfs_acl_entry_t*e,uint32_t n){
     if(e==NULL||n==0U||n>ACL_MAX)return OPENFS_ACL_INVALID_ARGUMENT;
     uint32_t counts[6]={0};int named=0;
     for(uint32_t i=0;i<n;i++){if(!tag_valid(e[i].tag)||e[i].permissions>7U)return OPENFS_ACL_INVALID_ARGUMENT;unsigned k=0U;switch(e[i].tag){case OPENFS_ACL_USER_OBJ:k=0;break;case OPENFS_ACL_USER:k=1;named=1;break;case OPENFS_ACL_GROUP_OBJ:k=2;break;case OPENFS_ACL_GROUP:k=3;named=1;break;case OPENFS_ACL_MASK:k=4;break;default:k=5;break;}counts[k]++;if((e[i].tag==OPENFS_ACL_USER||e[i].tag==OPENFS_ACL_GROUP)&&e[i].id==UINT32_MAX)return OPENFS_ACL_INVALID_ARGUMENT;}
-    }
     if(counts[0]!=1U||counts[2]!=1U||counts[5]!=1U)return OPENFS_ACL_INVALID_ARGUMENT;
     if(named&&counts[4]!=1U)return OPENFS_ACL_INVALID_ARGUMENT;
     if(!named&&counts[4]>1U)return OPENFS_ACL_INVALID_ARGUMENT;
