@@ -46,48 +46,6 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
 
 static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s==NULL||s->block_size==0U||s->inode_table_blocks>UINT64_MAX/s->block_size)return OPENFS_FSCK_CORRUPT;*n=(s->inode_table_blocks*s->block_size)/OPENFS_INODE_SIZE;return *n?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT;}
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
-static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
-static int ref_test(const uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;return (refs[(size_t)byte]&(uint8_t)(1U<<(index%8U)))!=0U;}
-static int decode_dir_entry(const uint8_t*r,uint64_t*ino,uint64_t*gen,uint8_t*type){
-if(memcmp(r,"ODIR1",5U)!=0)return 0;
-uint32_t stored=(uint32_t)r[252U]|((uint32_t)r[253U]<<8U)|((uint32_t)r[254U]<<16U)|((uint32_t)r[255U]<<24U);
-if(stored!=openfs_crc32c(r,252U))return -1;
-uint32_t len=r[7U];if(len==0U||len>OPENFS_DIR_NAME_MAX)return -1;
-for(uint32_t i=0U;i<len;i++){if(r[24U+i]=='/'||r[24U+i]=='\0')return -1;}
-if((len==1U&&r[24U]=='.')||(len==2U&&r[24U]=='.'&&r[25U]=='.'))return -1;
-*ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];for(uint32_t i=len+24U;i<252U;i++)if(r[i]!=0U)return -1;return 1;}
-static int same_dir_name(const uint8_t*a,const uint8_t*b){uint32_t la=a[7U],lb=b[7U];return la==lb&&memcmp(a+24U,b+24U,la)==0;}
-static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
-{
-    (void)tx;
-    const openfs_superblock_t *s=ctx;
-    if(s==NULL||data==NULL||len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
-    uint64_t target=0U;for(unsigned k=0U;k<8U;k++)target|=(uint64_t)data[8U+k]<<(8U*k);
-    uint32_t offset=(uint32_t)data[16U]|((uint32_t)data[17U]<<8U)|((uint32_t)data[18U]<<16U)|((uint32_t)data[19U]<<24U);
-    uint32_t count=(uint32_t)data[20U]|((uint32_t)data[21U]<<8U)|((uint32_t)data[22U]<<16U)|((uint32_t)data[23U]<<24U);
-    if(target>=s->total_blocks||target==0U||target==s->total_blocks-1U||count==0U||count!=len-24U||
-       offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||
-       (target>=s->journal_start&&target-s->journal_start<s->journal_blocks))return OPENFS_JOURNAL_CORRUPT;
-    return OPENFS_JOURNAL_OK;
-}
-
-static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*in)
-{
-    if(d==NULL||s==NULL||in==NULL||in->size==0U||in->size>=OPENFS_PATH_MAX)return 0;
-    if((in->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
-        for(uint64_t n=0U;n<in->size;n++)if(in->inline_data[n]=='\0')return 0;
-        return 1;
-    }
-    uint8_t *target=malloc((size_t)in->size);
-    if(target==NULL)return -1;
-    size_t got=0U;
-    openfs_file_result_t fr=openfs_file_read(d,s,in,0U,target,(size_t)in->size,&got);
-    if(fr!=OPENFS_FILE_OK||got!=in->size){free(target);return fr==OPENFS_FILE_IO_ERROR?-1:0;}
-    for(uint64_t n=0U;n<in->size;n++)if(target[n]=='\0'){free(target);return 0;}
-    free(target);
-    return 1;
-}
-
 #define OPENFS_FSCK_IO_CHUNK (64U * 1024U * 1024U)
 
 typedef struct openfs_fsck_io_cache {
@@ -132,6 +90,48 @@ static openfs_io_result_t fsck_cached_flush(void *context)
     openfs_fsck_io_cache_t *cache=(openfs_fsck_io_cache_t *)context;
     if(cache==NULL||cache->device==NULL)return OPENFS_IO_INVALID_ARGUMENT;
     return cache->device->flush(cache->device->context);
+}
+
+static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
+static int ref_test(const uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;return (refs[(size_t)byte]&(uint8_t)(1U<<(index%8U)))!=0U;}
+static int decode_dir_entry(const uint8_t*r,uint64_t*ino,uint64_t*gen,uint8_t*type){
+if(memcmp(r,"ODIR1",5U)!=0)return 0;
+uint32_t stored=(uint32_t)r[252U]|((uint32_t)r[253U]<<8U)|((uint32_t)r[254U]<<16U)|((uint32_t)r[255U]<<24U);
+if(stored!=openfs_crc32c(r,252U))return -1;
+uint32_t len=r[7U];if(len==0U||len>OPENFS_DIR_NAME_MAX)return -1;
+for(uint32_t i=0U;i<len;i++){if(r[24U+i]=='/'||r[24U+i]=='\0')return -1;}
+if((len==1U&&r[24U]=='.')||(len==2U&&r[24U]=='.'&&r[25U]=='.'))return -1;
+*ino=0U;*gen=0U;for(unsigned i=0U;i<8U;i++){*ino|=(uint64_t)r[8U+i]<<(8U*i);*gen|=(uint64_t)r[16U+i]<<(8U*i);}*type=r[6U];for(uint32_t i=len+24U;i<252U;i++)if(r[i]!=0U)return -1;return 1;}
+static int same_dir_name(const uint8_t*a,const uint8_t*b){uint32_t la=a[7U],lb=b[7U];return la==lb&&memcmp(a+24U,b+24U,la)==0;}
+static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
+{
+    (void)tx;
+    const openfs_superblock_t *s=ctx;
+    if(s==NULL||data==NULL||len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
+    uint64_t target=0U;for(unsigned k=0U;k<8U;k++)target|=(uint64_t)data[8U+k]<<(8U*k);
+    uint32_t offset=(uint32_t)data[16U]|((uint32_t)data[17U]<<8U)|((uint32_t)data[18U]<<16U)|((uint32_t)data[19U]<<24U);
+    uint32_t count=(uint32_t)data[20U]|((uint32_t)data[21U]<<8U)|((uint32_t)data[22U]<<16U)|((uint32_t)data[23U]<<24U);
+    if(target>=s->total_blocks||target==0U||target==s->total_blocks-1U||count==0U||count!=len-24U||
+       offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||
+       (target>=s->journal_start&&target-s->journal_start<s->journal_blocks))return OPENFS_JOURNAL_CORRUPT;
+    return OPENFS_JOURNAL_OK;
+}
+
+static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*in)
+{
+    if(d==NULL||s==NULL||in==NULL||in->size==0U||in->size>=OPENFS_PATH_MAX)return 0;
+    if((in->flags&OPENFS_INODE_FLAG_INLINE_DATA)!=0U){
+        for(uint64_t n=0U;n<in->size;n++)if(in->inline_data[n]=='\0')return 0;
+        return 1;
+    }
+    uint8_t *target=malloc((size_t)in->size);
+    if(target==NULL)return -1;
+    size_t got=0U;
+    openfs_file_result_t fr=openfs_file_read(d,s,in,0U,target,(size_t)in->size,&got);
+    if(fr!=OPENFS_FILE_OK||got!=in->size){free(target);return fr==OPENFS_FILE_IO_ERROR?-1:0;}
+    for(uint64_t n=0U;n<in->size;n++)if(target[n]=='\0'){free(target);return 0;}
+    free(target);
+    return 1;
 }
 
 static uint8_t inode_dir_type(uint32_t mode){
