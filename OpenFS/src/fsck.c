@@ -178,7 +178,7 @@ static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superbl
 
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
-#define FSCK_PROGRESS(done,total,stage) do { if(diagnostic.stage==NULL||diagnostic.count==0U) diagnostic.stage=(stage); if(progress!=NULL) progress(progress_context,(done),(total),(stage)); } while(0)
+#define FSCK_PROGRESS(done,total,stage) do { if(progress!=NULL) progress(progress_context,(done),(total),(stage)); } while(0)
 openfs_fsck_result_t openfs_fsck_with_progress_and_diagnostics(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_diagnostic_t *diagnostic_out,openfs_fsck_progress_callback_t progress,void *progress_context){
 openfs_fsck_diagnostic_t diagnostic={0};
 FSCK_PROGRESS(0U,100U,"initialisation");
@@ -235,6 +235,7 @@ result=OPENFS_FSCK_IO_ERROR;
 goto done;
 }
 if(!root_allocated){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode bitmap";diagnostic.reason="inode racine marqué libre";diagnostic.index=s->root_inode;diagnostic.total=count;diagnostic.count=1U;}}
+uint64_t inode_section_bad=bad;
 for(uint64_t n=1U;n<=count;n++){if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(10U+(count==0U?35U:(35U*n)/count),100U,"inode validation");int used=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!used){continue;}openfs_inode_t in;openfs_inode_result_t ir=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(ir!=OPENFS_INODE_OK){if(ir==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="inode invalide ou corrompu";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}continue;}
 if(in.mode==OPENFS_INODE_MODE_FREE||in.link_count==0U||in.inode_number!=n||in.generation==0U||in.parent_inode==0U){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="métadonnées d'inode invalides";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}}if(in.mode==OPENFS_INODE_MODE_FREE&&in.blocks!=0U){bad++;if(diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="inode libre avec des blocs attribués";diagnostic.index=n;diagnostic.total=count;diagnostic.count=1U;}}
 uint64_t extent_total=0U;uint64_t previous_logical_end=0U;
@@ -288,6 +289,7 @@ if(extent_total!=in.blocks)bad++;
             if(symlink_result==0)bad++;
         }
 }
+if(bad>inode_section_bad&&diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="une ou plusieurs incohérences d'inode";diagnostic.index=0U;diagnostic.total=count;diagnostic.count=bad-inode_section_bad;}
 for(uint64_t n=1U;n<=count;n++){
 if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(45U+(count==0U?20U:(20U*n)/count),100U,"directory validation");
 openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
@@ -306,6 +308,7 @@ if(target.generation!=generation||type!=inode_dir_type(target.mode)){bad++;conti
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&target.parent_inode!=n)bad++;
 if(dir_refs[target_ino]==UINT64_MAX)bad++;else dir_refs[target_ino]++;
 }}
+if(bad>inode_section_bad&&diagnostic.stage==NULL){diagnostic.stage="directory validation";diagnostic.reason="une ou plusieurs incohérences de répertoire";diagnostic.index=0U;diagnostic.total=count;diagnostic.count=bad-inode_section_bad;}
 uint8_t*reachable=calloc((size_t)(count+1U),1U);
 uint64_t*queue=calloc((size_t)(count+1U),sizeof(*queue));
 if(reachable==NULL||queue==NULL){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
