@@ -163,7 +163,10 @@ static void sparse_write_zeroes_intermediate_blocks(void){
 }
 static void file_read_rejects_unallocated_extent(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t value=0x5AU,out=0U;size_t got=0U;
+    uint64_t ino=0U;assert(openfs_path_create(&v,&sb,"/file-read-corrupt",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;assert(openfs_inode_read(&v,sb.inode_table_start,ino,inode_count,&i)==OPENFS_INODE_OK);
+    uint8_t value=0x5AU,out=0U;size_t got=0U;
     assert(openfs_file_write(&v,&sb,&i,0U,&value,1U)==OPENFS_FILE_OK);
     openfs_extent_t e;assert(openfs_inode_get_extent(&i,0U,&e)==OPENFS_EXTENT_OK);
     assert(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,e.physical_start,0)==OPENFS_BITMAP_OK);
