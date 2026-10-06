@@ -54,7 +54,6 @@ int main(void)
     openfs_mutex_t ordered;
     assert(openfs_mutex_init(&ordered)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&ordered,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
-    assert(openfs_mutex_unlock(&journal)==OPENFS_LOCK_ERROR || 1);
     assert(openfs_mutex_unlock(&ordered)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&ordered)==OPENFS_LOCK_OK);
 
