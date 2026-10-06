@@ -12,6 +12,7 @@
 typedef struct image_context {
     FILE *file;
     uint64_t size;
+    uint32_t block_size;
 } image_context_t;
 
 static int seek64(FILE *file, uint64_t offset)
@@ -27,11 +28,9 @@ static int seek64(FILE *file, uint64_t offset)
 static openfs_io_result_t image_read(void *context, uint64_t block, uint32_t count, void *buffer)
 {
     image_context_t *ctx=(image_context_t *)context;
-    uint64_t bytes=(uint64_t)count*4096U;
-    (void)bytes;
     if(ctx==NULL||ctx->file==NULL||buffer==NULL)return OPENFS_IO_INVALID_ARGUMENT;
-    if(!seek64(ctx->file,block*4096U))return OPENFS_IO_IO_ERROR;
-    if(fread(buffer,4096U,count,ctx->file)!=count)return OPENFS_IO_IO_ERROR;
+    if(!seek64(ctx->file,block*(uint64_t)ctx->block_size))return OPENFS_IO_IO_ERROR;
+    if(fread(buffer,ctx->block_size,count,ctx->file)!=count)return OPENFS_IO_IO_ERROR;
     return OPENFS_IO_OK;
 }
 
@@ -39,8 +38,8 @@ static openfs_io_result_t image_write(void *context, uint64_t block, uint32_t co
 {
     image_context_t *ctx=(image_context_t *)context;
     if(ctx==NULL||ctx->file==NULL||buffer==NULL)return OPENFS_IO_INVALID_ARGUMENT;
-    if(!seek64(ctx->file,block*ctx->size/ctx->size*4096U))return OPENFS_IO_IO_ERROR;
-    if(fwrite(buffer,4096U,count,ctx->file)!=count)return OPENFS_IO_IO_ERROR;
+    if(!seek64(ctx->file,block*(uint64_t)ctx->block_size))return OPENFS_IO_IO_ERROR;
+    if(fwrite(buffer,ctx->block_size,count,ctx->file)!=count)return OPENFS_IO_IO_ERROR;
     return OPENFS_IO_OK;
 }
 
@@ -128,6 +127,7 @@ int main(int argc,char **argv)
     memset(&ctx,0,sizeof(ctx));
     ctx.file=file;
     ctx.size=bytes;
+    ctx.block_size=block_size;
 
     memset(&device,0,sizeof(device));
     device.context=&ctx;
