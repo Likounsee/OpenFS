@@ -19,6 +19,18 @@ static void format_remount(void){
  assert(s.block_size==4096U&&s.total_blocks==128U&&s.root_inode==1U); assert((s.feature_flags&OPENFS_FEATURE_EXTENT_TREE)!=0U); assert(memcmp(s.uuid,u,16U)==0);
  assert(memcmp(d.bytes+((d.block_count-1U)*d.block_size),d.bytes,d.block_size)==0); free(d.bytes);
 }
+static void fast_vs_full_zero(void){
+ disk_t d={.block_size=4096U,.block_count=128U}; d.bytes=malloc((size_t)d.block_count*d.block_size); assert(d.bytes);
+ memset(d.bytes,0xA5,(size_t)d.block_count*d.block_size);
+ openfs_block_device_t v=dev(&d); const uint8_t u[16]={1U};
+ assert(openfs_format_ex(&v,u,OPENFS_FORMAT_FLAG_NONE)==OPENFS_FORMAT_OK);
+ openfs_superblock_t s; assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+ assert(d.bytes[(size_t)s.data_start*d.block_size]==0xA5);
+ memset(d.bytes,0xA5,(size_t)d.block_count*d.block_size);
+ assert(openfs_format_ex(&v,u,OPENFS_FORMAT_FLAG_FULL_ZERO)==OPENFS_FORMAT_OK);
+ assert(d.bytes[(size_t)s.data_start*d.block_size]==0U);
+ free(d.bytes);
+}
 static void checksum(void){
  disk_t d={.block_size=4096U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
@@ -44,4 +56,4 @@ static void geometry(void){
  disk_t d={.block_size=3000U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_UNSUPPORTED_DEVICE); free(d.bytes);
 }
-int main(void){format_remount();checksum();layout_validation();feature_validation();block_bitmap_capacity();layout_boundary_format();geometry();return 0;}
+int main(void){format_remount();fast_vs_full_zero();checksum();layout_validation();feature_validation();block_bitmap_capacity();layout_boundary_format();geometry();return 0;}
