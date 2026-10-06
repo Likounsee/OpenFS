@@ -450,6 +450,8 @@ FSCK_PROGRESS(99U,100U,"finalisation");
 done:;
     free(dir_refs);
     free(refs);
+    free(inode_bitmap_snapshot.data);
+    free(block_bitmap_snapshot.data);
     for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);
     FSCK_PROGRESS(100U,100U,"terminé");
     *errors=bad;
