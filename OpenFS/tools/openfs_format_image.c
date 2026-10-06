@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include "openfs/format.h"
 #include "openfs/fsck.h"
+#include "openfs/inode.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -85,6 +86,7 @@ int main(int argc,char **argv)
     const char *path;
     uint64_t blocks=0U;
     uint32_t block_size=65536U;
+    int run_fsck=0;
     uint64_t bytes=0U;
     FILE *file;
     image_context_t ctx;
@@ -92,8 +94,8 @@ int main(int argc,char **argv)
     uint8_t uuid[16];
     openfs_format_result_t result;
 
-    if(argc<3||argc>4){
-        fprintf(stderr,"Usage: %s <image> <size_bytes> [block_size]\n",argv[0]);
+    if(argc<3||argc>5){
+        fprintf(stderr,"Usage: %s <image> <size_bytes> [block_size] [--fsck]\n",argv[0]);
         return 2;
     }
     path=argv[1];
@@ -101,9 +103,12 @@ int main(int argc,char **argv)
         fprintf(stderr,"Invalid image size.\n");
         return 2;
     }
-    if(argc==4&&!parse_u32(argv[3],&block_size)){
-        fprintf(stderr,"Invalid block size.\n");
-        return 2;
+    for(int i=3;i<argc;i++){
+        if(strcmp(argv[i],"--fsck")==0){run_fsck=1;continue;}
+        if(i!=3||!parse_u32(argv[i],&block_size)){
+            fprintf(stderr,"Invalid block size or option.\n");
+            return 2;
+        }
     }
     if(block_size<OPENFS_MIN_BLOCK_SIZE||block_size>OPENFS_MAX_BLOCK_SIZE||(block_size&(block_size-1U))!=0U){
         fprintf(stderr,"Block size must be a power of two from %u to %u.\n",OPENFS_MIN_BLOCK_SIZE,OPENFS_MAX_BLOCK_SIZE);
@@ -160,7 +165,16 @@ int main(int argc,char **argv)
             fclose(file);
             return 1;
         }
-        if(openfs_fsck(&device,&superblock,&checked)!=OPENFS_FSCK_OK){
+        uint64_t inode_count=(superblock.inode_table_blocks*(uint64_t)superblock.block_size)/OPENFS_INODE_SIZE;
+        openfs_inode_t root;
+        if(openfs_inode_read(&device,superblock.inode_table_start,superblock.root_inode,inode_count,&root)!=OPENFS_INODE_OK||
+           root.inode_number!=superblock.root_inode||
+           (root.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY){
+            fprintf(stderr,"OpenFS root inode verification failed.\n");
+            fclose(file);
+            return 1;
+        }
+        if(run_fsck&&openfs_fsck(&device,&superblock,&checked)!=OPENFS_FSCK_OK){
             fprintf(stderr,"OpenFS format fsck verification failed.\n");
             fclose(file);
             return 1;
