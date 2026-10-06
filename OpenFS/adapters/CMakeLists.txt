@@ -21,6 +21,13 @@ if(WIN32)
     target_link_libraries(openfs-windows-adapter PUBLIC openfs)
     openfs_enable_warnings(openfs-windows-adapter)
     add_executable(openfs-format-image ../tools/openfs_format_image.c)
+    add_executable(openfs-format-device ../tools/openfs_format_device.c)
+    target_include_directories(openfs-format-device PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/windows
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    )
+    target_link_libraries(openfs-format-device PRIVATE openfs-windows-adapter)
+    openfs_enable_warnings(openfs-format-device)
     target_include_directories(openfs-format-image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
     target_link_libraries(openfs-format-image PRIVATE openfs)
     openfs_enable_warnings(openfs-format-image)
