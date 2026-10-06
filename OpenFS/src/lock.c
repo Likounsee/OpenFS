@@ -47,7 +47,7 @@ EnterCriticalSection(&mi(m)->native);mi(m)->owner=lock_thread_id();mi(m)->depth+
 if(pthread_mutex_lock(&mi(m)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}mi(m)->owner=pthread_self();mi(m)->owned=1;mi(m)->depth++;return OPENFS_LOCK_OK;
 #endif
 }
-openfs_lock_result_t openfs_mutex_trylock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(rank);if(r!=OPENFS_LOCK_OK)return r;
+openfs_lock_result_t openfs_mutex_trylock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
 if(!TryEnterCriticalSection(&mi(m)->native)){rank_cancel();return OPENFS_LOCK_ERROR;}mi(m)->owner=lock_thread_id();mi(m)->depth++;return OPENFS_LOCK_OK;
 #else
