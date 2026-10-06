@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int inode_count(const openfs_superblock_t *s,uint64_t *out)
 {
