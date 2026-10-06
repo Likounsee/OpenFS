@@ -41,16 +41,20 @@ int wmain(int argc,wchar_t **argv)
     uint8_t uuid[16];
     uint64_t checked=0U;
     uint32_t block_size=65536U;
+    uint32_t format_flags=OPENFS_FORMAT_FLAG_NONE;
     openfs_format_result_t format_result;
     openfs_windows_adapter_result_t adapter_result;
 
-    if(argc<2||argc>3){
-        fwprintf(stderr,L"Usage: %s <device> [block_size]\n",argv[0]);
+    if(argc<2||argc>4){
+        fwprintf(stderr,L"Usage: %s <device> [block_size] [--full-zero]\n",argv[0]);
         return 2;
     }
-    if(argc==3&&!parse_block_size(argv[2],&block_size)){
-        fwprintf(stderr,L"Invalid block size.\n");
-        return 2;
+    for(int i=2;i<argc;i++){
+        if(wcscmp(argv[i],L"--full-zero")==0){format_flags|=OPENFS_FORMAT_FLAG_FULL_ZERO;continue;}
+        if(i!=2||!parse_block_size(argv[i],&block_size)){
+            fwprintf(stderr,L"Invalid block size or option.\n");
+            return 2;
+        }
     }
     if(block_size<OPENFS_MIN_BLOCK_SIZE||block_size>OPENFS_MAX_BLOCK_SIZE||
        (block_size&(block_size-1U))!=0U){
@@ -80,9 +84,10 @@ int wmain(int argc,wchar_t **argv)
             (unsigned long long)(device->block_count*(uint64_t)device->block_size));
     wprintf(L"Block size: %u bytes\n",device->block_size);
     wprintf(L"Blocks: %llu\n",(unsigned long long)device->block_count);
+    wprintf(L"Format mode: %s\n",(format_flags&OPENFS_FORMAT_FLAG_FULL_ZERO)!=0U?L"full zero":L"fast");
 
     make_uuid(uuid);
-    format_result=openfs_format(device,uuid);
+    format_result=openfs_format_ex(device,uuid,format_flags);
     if(format_result!=OPENFS_FORMAT_OK){
         fwprintf(stderr,L"OpenFS format failed: %d (Windows error %lu).\n",(int)format_result,
                  (unsigned long)openfs_windows_adapter_last_error(&adapter));
