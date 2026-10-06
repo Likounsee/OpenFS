@@ -351,9 +351,16 @@ uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(in
 uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){
 for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
 FSCK_PROGRESS(99U,100U,"finalisation");
-done:free(dir_refs);free(refs);free(io_buffer);FSCK_PROGRESS(100U,100U,"terminé");*errors=bad;return result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);
-#undef FSCK_PROGRESS
+done:
+    free(dir_refs);
+    free(refs);
+    free(io_buffer);
+    FSCK_PROGRESS(100U,100U,"terminé");
+    *errors=bad;
+    result=result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);
+    return result;
 }
+#undef FSCK_PROGRESS
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
     return openfs_fsck_with_progress(d,s,errors,NULL,NULL);
 }
