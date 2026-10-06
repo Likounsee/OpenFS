@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE 700
 #include "openfs/lock.h"
 #include <stdint.h>
 #if defined(_WIN32)
