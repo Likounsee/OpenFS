@@ -297,7 +297,7 @@ static openfs_dir_result_t dir_remove_unlocked(
 }
 
 static int directory_lock(const openfs_superblock_t *s){return s!=NULL&&s->runtime!=NULL&&s->runtime->initialized;}
-openfs_dir_result_t openfs_dir_lookup(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,const char*n,openfs_dir_entry_t*e)
+openfs_dir_result_t openfs_dir_lookup(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,const char*n,openfs_dir_entry_t*e)
 {
     if(!directory_lock(s))return dir_lookup_unlocked(d,s,i,n,e);
     if(openfs_mutex_lock(&s->runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK)return OPENFS_DIR_IO_ERROR;
