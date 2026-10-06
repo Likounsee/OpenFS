@@ -3,6 +3,7 @@
 
 #include "openfs/format.h"
 #include "openfs/journal.h"
+#include "openfs/lock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,8 @@ typedef struct {
     openfs_superblock_t superblock;
     int mounted;
     openfs_journal_t journal;
+    openfs_rwlock_t state_lock;
+    int state_lock_initialized;
 } openfs_mount_t;
 
 openfs_mount_result_t openfs_mount(openfs_mount_t *, openfs_block_device_t *);
