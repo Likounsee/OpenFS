@@ -27,7 +27,8 @@ openfs_orphan_result_t openfs_orphan_reclaim(openfs_block_device_t*d,const openf
     if((inode.flags&OPENFS_INODE_FLAG_ORPHAN)==0U||inode.link_count!=0U)return OPENFS_ORPHAN_NOT_ORPHAN;
     openfs_file_result_t fr=openfs_file_truncate(d,s,&inode,0U);
     if(fr!=OPENFS_FILE_OK)return fr==OPENFS_FILE_CORRUPT?OPENFS_ORPHAN_CORRUPT:OPENFS_ORPHAN_IO_ERROR;
-    inode.mode=OPENFS_INODE_MODE_FREE;inode.link_count=0U;inode.parent_inode=0U;inode.flags=0U;inode.extent_count=0U;inode.blocks=0U;inode.size=0U;inode.uid=0U;inode.gid=0U;inode.atime_ns=0U;inode.mtime_ns=0U;inode.ctime_ns=0U;
+    inode.mode=OPENFS_INODE_MODE_FREE;inode.link_count=0U;inode.parent_inode=0U;inode.flags=0U;inode.extent_count=0U;inode.blocks=0U;inode.size=0U;inode.uid=0U;inode.gid=0U;inode.atime_ns=0U;inode.mtime_ns=0U;inode.ctime_ns=0U;memset(inode.inline_data,0,sizeof(inode.inline_data));memset(inode.reserved,0,sizeof(inode.reserved));
+    if(openfs_inode_write(d,s->inode_table_start,count,&inode)!=OPENFS_INODE_OK)return OPENFS_ORPHAN_IO_ERROR;
     if(openfs_inode_free(d,s,ino)!=OPENFS_INODE_ALLOC_OK)return OPENFS_ORPHAN_IO_ERROR;
     return d->flush(d->context)==OPENFS_IO_OK?OPENFS_ORPHAN_OK:OPENFS_ORPHAN_IO_ERROR;
 }
