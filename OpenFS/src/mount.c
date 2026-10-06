@@ -116,7 +116,6 @@ openfs_mount_result_t openfs_sync(openfs_mount_t *mount)
 {
     if(mount==NULL||!mount->mounted||mount->device==NULL||!mount->state_lock_initialized)return OPENFS_MOUNT_INVALID_ARGUMENT;
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK)return OPENFS_MOUNT_IO_ERROR;
-    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){openfs_rwlock_unlock(&mount->state_lock);return OPENFS_MOUNT_IO_ERROR;}
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
     openfs_rwlock_unlock(&mount->state_lock);return r;
 }
@@ -124,6 +123,7 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
 {
     if(mount==NULL||!mount->mounted||!mount->state_lock_initialized)return OPENFS_MOUNT_INVALID_ARGUMENT;
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK)return OPENFS_MOUNT_IO_ERROR;
+    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){openfs_rwlock_unlock(&mount->state_lock);return OPENFS_MOUNT_IO_ERROR;}
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
     if(r!=OPENFS_MOUNT_OK){openfs_rwlock_unlock(&mount->state_lock);return r;}
     mount->mounted=0;mount->device=NULL;mount->superblock.runtime=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
