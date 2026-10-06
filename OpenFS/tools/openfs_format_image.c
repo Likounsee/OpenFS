@@ -139,12 +139,27 @@ int main(int argc,char **argv)
 
     make_uuid(uuid);
     result=openfs_format(&device,uuid);
-    fclose(file);
-
     if(result!=OPENFS_FORMAT_OK){
         fprintf(stderr,"OpenFS format failed: %d\n",(int)result);
+        fclose(file);
         return 1;
     }
+
+    {
+        openfs_superblock_t superblock;
+        result=openfs_read_superblock(&device,&superblock);
+        if(result!=OPENFS_FORMAT_OK||superblock.total_blocks!=blocks||superblock.block_size!=block_size||
+           memcmp(superblock.uuid,uuid,sizeof(uuid))!=0){
+            fprintf(stderr,"OpenFS format verification failed: %d\n",(int)result);
+            fclose(file);
+            return 1;
+        }
+    }
+    if(fclose(file)!=0){
+        fprintf(stderr,"OpenFS image close failed.\n");
+        return 1;
+    }
+
     printf("OpenFS image formatted successfully.\n");
     printf("Image: %s\n",path);
     printf("Size: %" PRIu64 " bytes\n",bytes);
