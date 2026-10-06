@@ -7,6 +7,7 @@
 
 #include "openfs_windows_adapter.h"
 #include "openfs/format.h"
+#include "openfs/inode.h"
 #include "openfs/fsck.h"
 
 static int parse_block_size(const wchar_t *s,uint32_t *out)
@@ -42,15 +43,17 @@ int wmain(int argc,wchar_t **argv)
     uint64_t checked=0U;
     uint32_t block_size=65536U;
     uint32_t format_flags=OPENFS_FORMAT_FLAG_NONE;
+    int run_fsck=0;
     openfs_format_result_t format_result;
     openfs_windows_adapter_result_t adapter_result;
 
     if(argc<2||argc>4){
-        fwprintf(stderr,L"Usage: %s <device> [block_size] [--full-zero]\n",argv[0]);
+        fwprintf(stderr,L"Usage: %s <device> [block_size] [--full-zero] [--fsck]\n",argv[0]);
         return 2;
     }
     for(int i=2;i<argc;i++){
         if(wcscmp(argv[i],L"--full-zero")==0){format_flags|=OPENFS_FORMAT_FLAG_FULL_ZERO;continue;}
+        if(wcscmp(argv[i],L"--fsck")==0){run_fsck=1;continue;}
         if(i!=2||!parse_block_size(argv[i],&block_size)){
             fwprintf(stderr,L"Invalid block size or option.\n");
             return 2;
@@ -104,7 +107,16 @@ int wmain(int argc,wchar_t **argv)
         return 5;
     }
 
-    if(openfs_fsck(device,&superblock,&checked)!=OPENFS_FSCK_OK){
+    uint64_t inode_count=(superblock.inode_table_blocks*(uint64_t)superblock.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t root;
+    if(openfs_inode_read(device,superblock.inode_table_start,superblock.root_inode,inode_count,&root)!=OPENFS_INODE_OK||
+       root.inode_number!=superblock.root_inode||
+       (root.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY){
+        fwprintf(stderr,L"OpenFS root inode verification failed.\n");
+        openfs_windows_adapter_close(&adapter);
+        return 5;
+    }
+    if(run_fsck&&openfs_fsck(device,&superblock,&checked)!=OPENFS_FSCK_OK){
         fwprintf(stderr,L"OpenFS fsck verification failed.\n");
         openfs_windows_adapter_close(&adapter);
         return 5;
