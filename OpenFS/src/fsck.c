@@ -136,8 +136,8 @@ static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superbl
 
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
-openfs_fsck_result_t openfs_fsck_with_progress(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_progress_callback_t progress,void *progress_context){
 #define FSCK_PROGRESS(done,total,stage) do { if(progress!=NULL) progress(progress_context,(done),(total),(stage)); } while(0)
+openfs_fsck_result_t openfs_fsck_with_progress(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_progress_callback_t progress,void *progress_context){
 FSCK_PROGRESS(0U,100U,"initialisation");
 FSCK_PROGRESS(1U,100U,"lecture des superblocs");
 if (errors != NULL) *errors = 0U;
@@ -360,7 +360,6 @@ done:
     result=result!=OPENFS_FSCK_OK?result:(bad==0U?OPENFS_FSCK_OK:OPENFS_FSCK_CORRUPT);
     return result;
 }
-#undef FSCK_PROGRESS
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
     return openfs_fsck_with_progress(d,s,errors,NULL,NULL);
 }
