@@ -97,10 +97,27 @@ int wmain(int argc,wchar_t **argv)
         if(format_result==OPENFS_FORMAT_CORRUPT){
             openfs_superblock_t diagnostic={0};
             openfs_format_result_t diagnostic_result=openfs_prepare_superblock(device,uuid,&diagnostic);
-            fprintf(stderr,"OpenFS layout diagnostic result: %d\\n",(int)diagnostic_result);\n            fprintf(stderr,"Layout: bb=%llu ib=%llu it=%llu jb=%llu metadata=%llu data=%llu | starts: ib=%llu it=%llu journal=%llu data=%llu | ends: journal=%llu data=%llu metadata=%llu expected=%llu\\n",\n                    (unsigned long long)diagnostic.block_bitmap_blocks,\n                    (unsigned long long)diagnostic.inode_bitmap_blocks,\n                    (unsigned long long)diagnostic.inode_table_blocks,\n                    (unsigned long long)diagnostic.journal_blocks,\n                    (unsigned long long)diagnostic.metadata_blocks,\n                    (unsigned long long)diagnostic.data_blocks,\n                    (unsigned long long)diagnostic.inode_bitmap_start,\n                    (unsigned long long)diagnostic.inode_table_start,\n                    (unsigned long long)diagnostic.journal_start,\n                    (unsigned long long)diagnostic.data_start,\n                    (unsigned long long)(diagnostic.journal_start+diagnostic.journal_blocks),\n                    (unsigned long long)(diagnostic.data_start+diagnostic.data_blocks),\n                    (unsigned long long)(diagnostic.metadata_start+diagnostic.metadata_blocks),\n                    (unsigned long long)(diagnostic.total_blocks-1U));
+            fprintf(stderr,"OpenFS layout diagnostic result: %d\n",(int)diagnostic_result);
+            fprintf(stderr,"Layout: bb=%llu ib=%llu it=%llu jb=%llu metadata=%llu data=%llu | starts: ib=%llu it=%llu journal=%llu data=%llu | ends: journal=%llu data=%llu metadata=%llu expected=%llu\n",
+                    (unsigned long long)diagnostic.block_bitmap_blocks,
+                    (unsigned long long)diagnostic.inode_bitmap_blocks,
+                    (unsigned long long)diagnostic.inode_table_blocks,
+                    (unsigned long long)diagnostic.journal_blocks,
+                    (unsigned long long)diagnostic.metadata_blocks,
+                    (unsigned long long)diagnostic.data_blocks,
+                    (unsigned long long)diagnostic.inode_bitmap_start,
+                    (unsigned long long)diagnostic.inode_table_start,
+                    (unsigned long long)diagnostic.journal_start,
+                    (unsigned long long)diagnostic.data_start,
+                    (unsigned long long)(diagnostic.journal_start+diagnostic.journal_blocks),
+                    (unsigned long long)(diagnostic.data_start+diagnostic.data_blocks),
+                    (unsigned long long)(diagnostic.metadata_start+diagnostic.metadata_blocks),
+                    (unsigned long long)(diagnostic.total_blocks-1U));
             if(diagnostic_result==OPENFS_FORMAT_CORRUPT){
                 const char *reason=openfs_validate_superblock_reason(device,&diagnostic);
-                openfs_validation_code_t code=openfs_validate_superblock_code(device,&diagnostic);\n                fprintf(stderr,"OpenFS validation diagnostic: code=%d reason=%s\n",(int)code,reason!=NULL?reason:"unknown validation failure");
+                openfs_validation_code_t code=openfs_validate_superblock_code(device,&diagnostic);
+                fprintf(stderr,"OpenFS validation diagnostic: code=%d reason=%s\n",
+                        (int)code,reason!=NULL?reason:"unknown validation failure");
             }
         }
         openfs_windows_adapter_close(&adapter);
