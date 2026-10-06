@@ -469,7 +469,7 @@ static openfs_path_result_t require_access(openfs_block_device_t *d,const openfs
 {
     openfs_inode_t in;
     openfs_path_result_t in_result=read_inode(d,s,ino,&in);if(in_result!=OPENFS_PATH_OK)return in_result;
-    openfs_inode_result_t ar=openfs_inode_check_access(&in,uid,gid,requested);
+    openfs_acl_result_t ar=openfs_acl_check_access(d,s,&in,uid,gid,requested);
     return ar==OPENFS_ACL_OK?OPENFS_PATH_OK:(ar==OPENFS_ACL_ACCESS_DENIED?OPENFS_PATH_ACCESS_DENIED:OPENFS_PATH_CORRUPT);
 }
 static openfs_path_result_t parent_access(openfs_block_device_t *d,const openfs_superblock_t *s,const char *p,uint32_t uid,uint32_t gid,uint64_t *parent)
