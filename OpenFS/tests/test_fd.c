@@ -55,7 +55,7 @@ static void concurrency_namespace_test(openfs_block_device_t*dev)
 }
 
 int main(void){
- disk_t d={0};d.bs=4096U;d.n=128U;d.b=calloc((size_t)d.n,d.bs);assert(d.b);
+ disk_t d={0};d.bs=4096U;d.n=1024U;d.b=calloc((size_t)d.n,d.bs);assert(d.b);
  openfs_block_device_t dev={&d,d.bs,d.n,rd,wr,fl};openfs_superblock_t sb;uint8_t uuid[16]={0};
  assert(openfs_format(&dev,uuid)==OPENFS_FORMAT_OK);assert(openfs_read_superblock(&dev,&sb)==OPENFS_FORMAT_OK);
  openfs_file_handle_t*h=NULL;assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644,&h)==OPENFS_FD_OK);
