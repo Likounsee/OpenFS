@@ -76,7 +76,8 @@ openfs_file_lock_result_t openfs_file_unlock(openfs_file_handle_t *h,uint64_t st
     registry_unlock(h);return OPENFS_FILE_LOCK_NOT_FOUND;
 }
 openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t *conflict_type){
-    if(conflict_type==NULL)return OPENFS_FILE_LOCK_INVALID_ARGUMENT;*conflict_type=0U;
+    if(conflict_type==NULL)return OPENFS_FILE_LOCK_INVALID_ARGUMENT;
+    *conflict_type=0U;
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t lr=registry_lock(h);if(lr!=OPENFS_FILE_LOCK_OK)return lr;
     for(openfs_file_lock_entry_t *e=entries(h->superblock.runtime);e!=NULL;e=e->next){
