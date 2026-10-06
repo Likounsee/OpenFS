@@ -87,9 +87,9 @@ openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,uint64_t
     registry_unlock(h);return OPENFS_FILE_LOCK_OK;
 }
 void openfs_file_lock_release_all(openfs_file_handle_t *h){
-    if(!handle_open(h))return;
-    if(registry_lock(h)!=OPENFS_FILE_LOCK_OK)return;
+    if(h==NULL||h->superblock.runtime==NULL||!h->superblock.runtime->initialized)return;
+    if(openfs_mutex_lock(&h->superblock.runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return;
     openfs_file_lock_entry_t **pp=(openfs_file_lock_entry_t **)&h->superblock.runtime->file_locks;
     while(*pp!=NULL){openfs_file_lock_entry_t *e=*pp;if(e->owner==h){*pp=e->next;free(e);continue;}pp=&e->next;}
-    registry_unlock(h);
+    (void)openfs_mutex_unlock(&h->superblock.runtime->file_lock_registry_lock);
 }
