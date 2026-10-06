@@ -1,6 +1,7 @@
 #include "openfs/file.h"
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
+#include "openfs/runtime.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -372,7 +373,7 @@ static openfs_file_result_t zero_block(
     return io == OPENFS_IO_OK ? OPENFS_FILE_OK : OPENFS_FILE_IO_ERROR;
 }
 
-openfs_file_result_t openfs_file_truncate(
+static openfs_file_result_t file_truncate_unlocked(
     openfs_block_device_t *device,
     const openfs_superblock_t *sb,
     openfs_inode_t *inode,
@@ -557,7 +558,7 @@ openfs_file_result_t openfs_file_truncate(
     return OPENFS_FILE_OK;
 }
 
-openfs_file_result_t openfs_file_read(    const openfs_block_device_t *device,
+static openfs_file_result_t file_read_unlocked(    const openfs_block_device_t *device,
     const openfs_superblock_t *sb,
     const openfs_inode_t *inode,
     uint64_t offset,
@@ -640,7 +641,7 @@ static int restore_write_backups(openfs_block_device_t *device,const openfs_writ
     return 1;
 }
 
-openfs_file_result_t openfs_file_write(
+static openfs_file_result_t file_write_unlocked(
     openfs_block_device_t *device,
     const openfs_superblock_t *sb,
     openfs_inode_t *inode,
@@ -846,3 +847,22 @@ openfs_file_result_t openfs_file_truncate_as(openfs_block_device_t*d,const openf
 }
 openfs_file_result_t openfs_file_write_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t o,const void*b,size_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_write(d,s,i,o,b,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
 openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_truncate(d,s,i,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
+static int inode_lock_enabled(const openfs_superblock_t*s){return s!=NULL&&s->runtime!=NULL&&s->runtime->initialized;}
+openfs_file_result_t openfs_file_read(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t off,void*b,size_t n,size_t*got)
+{
+    if(!inode_lock_enabled(s))return file_read_unlocked(d,s,i,off,b,n,got);
+    if(openfs_mutex_lock(&s->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return OPENFS_FILE_IO_ERROR;
+    openfs_file_result_t r=file_read_unlocked(d,s,i,off,b,n,got);(void)openfs_mutex_unlock(&s->runtime->inode_lock);return r;
+}
+openfs_file_result_t openfs_file_write(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t off,const void*b,size_t n)
+{
+    if(!inode_lock_enabled(s))return file_write_unlocked(d,s,i,off,b,n);
+    if(openfs_mutex_lock(&s->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return OPENFS_FILE_IO_ERROR;
+    openfs_file_result_t r=file_write_unlocked(d,s,i,off,b,n);(void)openfs_mutex_unlock(&s->runtime->inode_lock);return r;
+}
+openfs_file_result_t openfs_file_truncate(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n)
+{
+    if(!inode_lock_enabled(s))return file_truncate_unlocked(d,s,i,n);
+    if(openfs_mutex_lock(&s->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return OPENFS_FILE_IO_ERROR;
+    openfs_file_result_t r=file_truncate_unlocked(d,s,i,n);(void)openfs_mutex_unlock(&s->runtime->inode_lock);return r;
+}
