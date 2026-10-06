@@ -163,6 +163,18 @@ static void sparse_write_zeroes_intermediate_blocks(void){
     for(size_t n=0;n<3U*4096U;n++)TEST_ASSERT(gap[n]==0U);
     free(gap);free(d.bytes);
 }
+static void sparse_truncate_extension_keeps_holes(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t first=0x31U;size_t got=0U;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&first,1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,4U*4096U+1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==4U*4096U+1U&&i.blocks==1U);
+    uint8_t *gap=calloc(1U,4U*4096U-1U);TEST_ASSERT(gap);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,1U,gap,4U*4096U-1U,&got)==OPENFS_FILE_OK&&got==4U*4096U-1U);
+    for(size_t n=0U;n<4U*4096U-1U;n++)TEST_ASSERT(gap[n]==0U);
+    free(gap);free(d.bytes);
+}
+
 static void file_read_rejects_unallocated_extent(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/file-read-corrupt",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
