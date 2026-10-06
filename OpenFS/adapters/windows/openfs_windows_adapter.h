@@ -25,6 +25,9 @@ typedef struct {
     HANDLE handle;
 #endif
     int writable;
+#ifdef _WIN32
+    DWORD last_error;
+#endif
     openfs_block_device_t device;
 } openfs_windows_adapter_t;
 
@@ -39,6 +42,8 @@ openfs_windows_adapter_result_t openfs_windows_adapter_close(
 
 openfs_block_device_t *openfs_windows_adapter_device(
     openfs_windows_adapter_t *adapter);
+
+DWORD openfs_windows_adapter_last_error(const openfs_windows_adapter_t *adapter);
 
 #ifdef __cplusplus
 }
