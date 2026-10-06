@@ -33,11 +33,11 @@ static openfs_io_result_t transfer(openfs_windows_adapter_t *adapter,uint64_t of
     ov.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);
     if(ov.hEvent==NULL){adapter->last_error=GetLastError();return OPENFS_IO_IO_ERROR;}
     DWORD done=0U;
-    BOOL ok=write?WriteFile(handle,buffer,bytes,NULL,&ov):ReadFile(handle,buffer,bytes,NULL,&ov);
+    BOOL ok=write?WriteFile(adapter->handle,buffer,bytes,NULL,&ov):ReadFile(adapter->handle,buffer,bytes,NULL,&ov);
     if(!ok){
         DWORD error=GetLastError();
         if(error!=ERROR_IO_PENDING){adapter->last_error=error;CloseHandle(ov.hEvent);return OPENFS_IO_IO_ERROR;}
-        ok=GetOverlappedResult(handle,&ov,&done,TRUE);
+        ok=GetOverlappedResult(adapter->handle,&ov,&done,TRUE);
         if(!ok)adapter->last_error=GetLastError();
     }else{
         ok=GetOverlappedResult(handle,&ov,&done,TRUE);
@@ -109,6 +109,11 @@ openfs_windows_adapter_result_t openfs_windows_adapter_close(openfs_windows_adap
 openfs_block_device_t *openfs_windows_adapter_device(openfs_windows_adapter_t *adapter)
 {
     return adapter==NULL?NULL:&adapter->device;
+}
+
+DWORD openfs_windows_adapter_last_error(const openfs_windows_adapter_t *adapter)
+{
+    return adapter==NULL?ERROR_INVALID_PARAMETER:adapter->last_error;
 }
 #else
 /* The implementation is intentionally inert on non-Windows hosts. */
