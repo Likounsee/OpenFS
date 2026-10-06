@@ -13,6 +13,7 @@ openfs_xattr_result_t openfs_xattr_get(openfs_block_device_t *,const openfs_supe
 openfs_xattr_result_t openfs_xattr_set(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,const char *,const void *,size_t,uint32_t);
 openfs_xattr_result_t openfs_xattr_remove(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,const char *);
 openfs_xattr_result_t openfs_xattr_list(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,char *,size_t,size_t *);
+openfs_xattr_result_t openfs_xattr_validate_inode(const openfs_block_device_t *,const openfs_superblock_t *,const openfs_inode_t *);
 #ifdef __cplusplus
 }
 #endif
