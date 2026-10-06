@@ -56,9 +56,9 @@ int e=pthread_mutex_trylock(&mi(m)->native);if(e!=0){rank_cancel();return OPENFS
 }
 openfs_lock_result_t openfs_mutex_unlock(openfs_mutex_t*m){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
-if(mi(m)->owner!=lock_thread_id()||mi(m)->depth==0U)return OPENFS_LOCK_ERROR;if(--mi(m)->depth==0U)mi(m)->owner=0;LeaveCriticalSection(&mi(m)->native);if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;return OPENFS_LOCK_OK;
+if(mi(m)->owner!=lock_thread_id()||mi(m)->depth==0U)return OPENFS_LOCK_ERROR;if(--mi(m)->depth==0U){mi(m)->owner=0;LeaveCriticalSection(&mi(m)->native);if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;}else{LeaveCriticalSection(&mi(m)->native);}return OPENFS_LOCK_OK;
 #else
-if(!mi(m)->owned||mi(m)->depth==0U||!same_thread(mi(m)->owner,pthread_self()))return OPENFS_LOCK_ERROR;if(--mi(m)->depth==0U)mi(m)->owned=0;if(pthread_mutex_unlock(&mi(m)->native)!=0)return OPENFS_LOCK_ERROR;if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;return OPENFS_LOCK_OK;
+if(!mi(m)->owned||mi(m)->depth==0U||!same_thread(mi(m)->owner,pthread_self()))return OPENFS_LOCK_ERROR;if(--mi(m)->depth==0U){mi(m)->owned=0;if(pthread_mutex_unlock(&mi(m)->native)!=0)return OPENFS_LOCK_ERROR;if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;}else{if(pthread_mutex_unlock(&mi(m)->native)!=0)return OPENFS_LOCK_ERROR;}return OPENFS_LOCK_OK;
 #endif
 }
 openfs_lock_result_t openfs_rwlock_init(openfs_rwlock_t*l){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
@@ -75,28 +75,28 @@ ri(l)->writer=0;ri(l)->write_depth=0;return OPENFS_LOCK_OK;
 return pthread_rwlock_destroy(&ri(l)->native)==0?OPENFS_LOCK_OK:OPENFS_LOCK_ERROR;
 #endif
 }
-openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
+openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l)return OPENFS_LOCK_DEADLOCK;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
 AcquireSRWLockShared(&ri(l)->native);return OPENFS_LOCK_OK;
 #else
 if(pthread_rwlock_rdlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}return OPENFS_LOCK_OK;
 #endif
 }
-openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
+openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l)return OPENFS_LOCK_DEADLOCK;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
 AcquireSRWLockExclusive(&ri(l)->native);ri(l)->writer=lock_thread_id();ri(l)->write_depth++;return OPENFS_LOCK_OK;
 #else
 if(pthread_rwlock_wrlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}ri(l)->writer=pthread_self();ri(l)->writer_owned=1;ri(l)->write_depth++;return OPENFS_LOCK_OK;
 #endif
 }
-openfs_lock_result_t openfs_rwlock_try_read_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
+openfs_lock_result_t openfs_rwlock_try_read_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l)return OPENFS_LOCK_DEADLOCK;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
 if(!TryAcquireSRWLockShared(&ri(l)->native)){rank_cancel();return OPENFS_LOCK_ERROR;}return OPENFS_LOCK_OK;
 #else
 if(pthread_rwlock_tryrdlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}return OPENFS_LOCK_OK;
 #endif
 }
-openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
+openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l)return OPENFS_LOCK_DEADLOCK;openfs_lock_result_t r=rank_enter(l,rank);if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
 if(!TryAcquireSRWLockExclusive(&ri(l)->native)){rank_cancel();return OPENFS_LOCK_ERROR;}ri(l)->writer=lock_thread_id();ri(l)->write_depth++;return OPENFS_LOCK_OK;
 #else
