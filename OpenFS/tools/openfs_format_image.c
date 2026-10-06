@@ -4,6 +4,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include "openfs/format.h"
+#include "openfs/fsck.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -147,10 +148,16 @@ int main(int argc,char **argv)
 
     {
         openfs_superblock_t superblock;
+        uint64_t checked=0U;
         result=openfs_read_superblock(&device,&superblock);
         if(result!=OPENFS_FORMAT_OK||superblock.total_blocks!=blocks||superblock.block_size!=block_size||
            memcmp(superblock.uuid,uuid,sizeof(uuid))!=0){
             fprintf(stderr,"OpenFS format verification failed: %d\n",(int)result);
+            fclose(file);
+            return 1;
+        }
+        if(openfs_fsck(&device,&superblock,&checked)!=OPENFS_FSCK_OK){
+            fprintf(stderr,"OpenFS format fsck verification failed.\n");
             fclose(file);
             return 1;
         }
