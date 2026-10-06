@@ -48,7 +48,7 @@ static openfs_fsck_result_t icount(const openfs_superblock_t*s,uint64_t*n){if(s=
 static int add(uint64_t a,uint64_t b,uint64_t*o){if(b>UINT64_MAX-a)return 0;*o=a+b;return 1;}
 #define OPENFS_FSCK_IO_CHUNK (64U * 1024U * 1024U)
 
-#define OPENFS_FSCK_CACHE_SLOTS 2U
+#define OPENFS_FSCK_CACHE_SLOTS 16U
 
 typedef struct openfs_fsck_io_cache_slot {
     uint8_t *buffer;
