@@ -12,6 +12,13 @@
 #include "openfs/mount.h"
 #include "openfs/path.h"
 
+static int is_physical_drive(const wchar_t *s,unsigned long long *number){
+ const wchar_t prefix[]=L"\\\\.\\PhysicalDrive";wchar_t *end=NULL;unsigned long long n;
+ if(!s||_wcsnicmp(s,prefix,sizeof(prefix)/sizeof(prefix[0])-1U)!=0)return 0;
+ n=wcstoull(s+(sizeof(prefix)/sizeof(prefix[0])-1U),&end,10);
+ if(end==s+(sizeof(prefix)/sizeof(prefix[0])-1U)||*end!=L'\\0')return 0;
+ if(number)*number=n;return 1;
+}
 static int parse_bs(const wchar_t *s,uint32_t *out){wchar_t *e=NULL;unsigned long long v;if(!s||!out)return 0;v=wcstoull(s,&e,10);if(e==s||*e||v>UINT32_MAX)return 0;*out=(uint32_t)v;return 1;}
 static int lookup(openfs_block_device_t *d,const openfs_superblock_t *s,const char *p,uint64_t *i){return openfs_path_lookup(d,s,p,i)==OPENFS_PATH_OK;}
 static int verify(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t ino,const uint8_t *want,size_t len){
@@ -23,7 +30,11 @@ static int verify(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t
 }
 int wmain(int argc,wchar_t **argv){
  openfs_windows_adapter_t a;openfs_block_device_t *d;openfs_mount_t m;openfs_inode_t in;uint32_t bs=65536;uint64_t ino=0,dir=0,checked=0;size_t len=131072;uint8_t *data=NULL;openfs_path_result_t pr;openfs_fsck_result_t fr;int ok=0;
- memset(&m,0,sizeof(m));if(argc<2||argc>3){wprintf(L"Usage: openfs-usb-test.exe <device> [block_size]\n");return 2;}if(argc==3&&!parse_bs(argv[2],&bs))return 2;
+ unsigned long long physical_number=0ULL;int physical=is_physical_drive(argc>1?argv[1]:NULL,&physical_number);
+ memset(&m,0,sizeof(m));if(argc<2||argc>4){wprintf(L"Usage: openfs-usb-test.exe <device> [block_size] [--confirm-usb]\\n");return 2;}
+ if(argc>=3&&wcscmp(argv[2],L"--confirm-usb")!=0&&!parse_bs(argv[2],&bs))return 2;
+ if(argc==4&&wcscmp(argv[3],L"--confirm-usb")!=0)return 2;
+ if(physical){int confirmed=(argc>=3&&wcscmp(argv[2],L"--confirm-usb")==0)||(argc==4&&wcscmp(argv[3],L"--confirm-usb")==0);if(physical_number==0ULL){fwprintf(stderr,L"Refusing PhysicalDrive0.\\n");return 2;}if(!confirmed){fwprintf(stderr,L"Physical disks require --confirm-usb.\\n");return 2;}}
  memset(&a,0,sizeof(a));a.handle=INVALID_HANDLE_VALUE;if(openfs_windows_adapter_open(&a,argv[1],bs,1)!=OPENFS_WINDOWS_ADAPTER_OK){fwprintf(stderr,L"Cannot open device; run as Administrator.\n");return 3;}d=openfs_windows_adapter_device(&a);
  if(openfs_mount(&m,d)!=OPENFS_MOUNT_OK){fwprintf(stderr,L"Mount failed.\n");goto done;}wprintf(L"Mounted: %llu blocks, %u-byte blocks.\n",(unsigned long long)m.superblock.total_blocks,m.superblock.block_size);
  fr=openfs_fsck(d,&m.superblock,&checked);if(fr!=OPENFS_FSCK_OK){fwprintf(stderr,L"Initial fsck failed: %d\n",fr);goto unmount;}
