@@ -44,7 +44,7 @@ if(WIN32)
         )
         add_test(
             NAME openfs-windows-image-format
-            COMMAND openfs-format-image "${OPENFS_WINDOWS_IMAGE_TEST}" 4194304 65536
+            COMMAND openfs-format-image "${OPENFS_WINDOWS_IMAGE_TEST}" 33554432 65536
         )
         add_test(
             NAME openfs-windows-image-device
