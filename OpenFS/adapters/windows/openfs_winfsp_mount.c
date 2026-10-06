@@ -13,6 +13,7 @@
 #include "openfs/file.h"
 #include "openfs/inode.h"
 #include "openfs/dir.h"
+#include "openfs/crc32c.h"
 
 typedef struct {
     openfs_windows_adapter_t adapter;
@@ -287,7 +288,7 @@ static int openfs_access(const char *path, int mask)
 {
     openfs_winfsp_context_t *ctx = ctx_from_fuse();
     if (ctx == NULL) return -EIO;
-    if ((mask & (W_OK | X_OK)) != 0) return -EROFS;
+    if ((mask & 3) != 0) return -EROFS;
     openfs_inode_t inode;
     return lookup_inode(ctx, path, &inode);
 }
@@ -323,13 +324,13 @@ static int openfs_read_only_simple(const char *path)
     return -EROFS;
 }
 
-static int openfs_init(struct fuse_conn_info *conn)
+static void *openfs_init(struct fuse_conn_info *conn)
 {
     if (conn != NULL) {
         conn->want |= FSP_FUSE_CAP_READ_ONLY;
         conn->want |= FUSE_CAP_BIG_WRITES;
     }
-    return 0;
+    return NULL;
 }
 
 static struct fuse_operations openfs_operations = {
