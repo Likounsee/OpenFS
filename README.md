@@ -67,6 +67,7 @@ The current development order is:
    - mount lifecycle protection;
    - inode, directory, allocation, and journal locking;
    - concurrency regression tests;
+   - coarse-grained namespace/path serialization to close multi-step TOCTOU windows;
    - elimination of lock-order inversions and race-prone shared state.
 
 2. **File handles / descriptors — implementation started**
@@ -77,7 +78,7 @@ The current development order is:
    - reference-counted objects;
    - correct lifetime semantics when a pathname is unlinked.
 
-3. **Namespace and security hardening**
+3. **Namespace and security hardening — started**
    - TOCTOU and path-race protection;
    - stable inode/path lookup semantics;
    - ACLs and ACL inheritance;
