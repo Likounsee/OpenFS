@@ -26,6 +26,7 @@ add_library(openfs STATIC
     src/journal.c
     src/transaction.c
     src/lock.c
+    src/fd.c
 )
 
 target_include_directories(openfs PUBLIC
@@ -141,6 +142,10 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-stability-test PRIVATE openfs)
     openfs_enable_warnings(openfs-stability-test)
     add_test(NAME openfs-stability COMMAND openfs-stability-test)
+    add_executable(openfs-fd-test tests/test_fd.c)
+    target_link_libraries(openfs-fd-test PRIVATE openfs Threads::Threads)
+    openfs_enable_warnings(openfs-fd-test)
+    add_test(NAME openfs-fd COMMAND openfs-fd-test)
     add_executable(openfs-lock-test tests/test_lock.c)
     target_link_libraries(openfs-lock-test PRIVATE openfs Threads::Threads)
     openfs_enable_warnings(openfs-lock-test)
