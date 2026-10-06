@@ -45,6 +45,7 @@ typedef struct openfs_superblock {
     uint64_t generation;
     uint8_t uuid[16];
 } openfs_superblock_t;
+openfs_format_result_t openfs_format_ex(openfs_block_device_t *, const uint8_t uuid[16], uint32_t flags);
 openfs_format_result_t openfs_format(openfs_block_device_t *, const uint8_t uuid[16]);
 openfs_format_result_t openfs_read_superblock(openfs_block_device_t *, openfs_superblock_t *);
 openfs_format_result_t openfs_validate_superblock(const openfs_block_device_t *, const openfs_superblock_t *);
