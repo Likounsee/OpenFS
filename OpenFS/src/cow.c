@@ -167,12 +167,12 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
 
     uint64_t incremented_blocks=0U;
     for(uint32_t i=0U;i<count;i++){
-        if(ext[i].block_count>UINT64_MAX-incremented_blocks){r=OPENFS_COW_OUT_OF_RANGE;break;}
-        incremented_blocks+=ext[i].block_count;
         for(uint64_t n=0U;n<ext[i].block_count;n++){
             uint64_t block=ext[i].physical_start+n;
             uint16_t refs=0U;
-            if(openfs_cow_refcount_inc(d,sb,block,&refs)!=OPENFS_COW_OK){incremented_blocks--;r=OPENFS_COW_CORRUPT;break;}
+            if(incremented_blocks==UINT64_MAX){r=OPENFS_COW_OUT_OF_RANGE;break;}
+            if(openfs_cow_refcount_inc(d,sb,block,&refs)!=OPENFS_COW_OK){r=OPENFS_COW_CORRUPT;break;}
+            incremented_blocks++;
         }
         if(r!=OPENFS_COW_OK)break;
     }
