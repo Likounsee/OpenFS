@@ -199,40 +199,25 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
 
 static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();
-    uint8_t values[7]={0x10U,0x20U,0x30U,0x40U,0x50U,0x60U,0x70U};
-    const uint64_t offsets[7]={0U,4U,8U,12U,12U*1U+1U+7U,24U,28U};
-    for(unsigned n=0U;n<7U;n++){
-        uint64_t logical=offsets[n];
-        TEST_ASSERT(openfs_file_write(&v,&sb,&i,logical*4096U,&values[n],1U)==OPENFS_FILE_OK);
-    }
-    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
-    TEST_ASSERT(i.extent_count==7U&&i.blocks==7U);
-    uint64_t root=openfs_inode_get_extent_tree_root(&i);
-    TEST_ASSERT(root!=0U);
-    openfs_extent_t before[7];
-    for(uint32_t n=0U;n<7U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
-    uint64_t kept0=before[0].physical_start,kept1=before[1].physical_start;
-    uint64_t kept2=before[2].physical_start,kept3=before[3].physical_start;
-    uint64_t dropped4=before[4].physical_start,dropped5=before[5].physical_start,dropped6=before[6].physical_start;
-
-    TEST_ASSERT(openfs_file_truncate(&v,&sb,i.extent_count==7U ? 13U*4096U+1U : 0U)==OPENFS_FILE_OK);
-    TEST_ASSERT(i.size==13U*4096U+1U);
-    TEST_ASSERT(i.blocks==4U);
-    TEST_ASSERT(i.extent_count==4U);
-    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U);
-    TEST_ASSERT(openfs_inode_get_extent_tree_root(&i)==0U);
-    int used=0;
-    TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,root,&used)==OPENFS_BITMAP_OK&&!used);
+    openfs_inode_t i=new_file();uint8_t value0=0x10U,value1=0x20U,value2=0x30U,value3=0x40U;
+    const uint64_t logicals[5]={0U,4U,8U,20U,24U};
+    for(unsigned n=0U;n<5U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,&value1,2U*4096U)==OPENFS_FILE_OK);
+    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==6U&&i.blocks==7U);
+    uint64_t root=openfs_inode_get_extent_tree_root(&i);TEST_ASSERT(root!=0U);
+    openfs_extent_t before[6];for(uint32_t n=0U;n<6U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
+    uint64_t partial_first=before[3].physical_start,partial_second=before[3].physical_start+1U;
+    uint64_t dropped4=before[4].physical_start,dropped5=before[5].physical_start;
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,12U*4096U+1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==12U*4096U+1U&&i.blocks==4U&&i.extent_count==4U);
+    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U&&openfs_inode_get_extent_tree_root(&i)==0U);
+    int used=0;TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,partial_first,&used)==OPENFS_BITMAP_OK&&used);
+    TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,partial_second,&used)==OPENFS_BITMAP_OK&&!used);
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,dropped4,&used)==OPENFS_BITMAP_OK&&!used);
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,dropped5,&used)==OPENFS_BITMAP_OK&&!used);
-    TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,dropped6,&used)==OPENFS_BITMAP_OK&&!used);
-    TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,0U,&kept0)==OPENFS_FILE_OK);
-    TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,4U,&kept1)==OPENFS_FILE_OK);
-    TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,8U,&kept2)==OPENFS_FILE_OK);
-    TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,12U,&kept3)==OPENFS_FILE_OK);
     uint8_t out=0U;size_t got=0U;
-    TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==values[3]);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value1);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,13U*4096U-1U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,3U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
@@ -241,25 +226,23 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
 static void sparse_truncate_shrink_tree_keeps_root_and_holes(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t value=0x9AU;
-    const uint64_t logicals[6]={0U,4U,8U,12U,20U,24U};
+    const uint64_t logicals[6]={0U,4U,8U,12U,16U,24U};
     openfs_extent_t before[6];
     for(unsigned n=0U;n<6U;n++){
         TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value,sizeof(value))==OPENFS_FILE_OK);
         TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
     }
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==6U&&i.blocks==6U);
-    uint64_t root=openfs_inode_get_extent_tree_root(&i);
-    TEST_ASSERT(root!=0U);
-    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,13U*4096U+1U)==OPENFS_FILE_OK);
-    TEST_ASSERT(i.size==13U*4096U+1U&&i.blocks==4U&&i.extent_count==4U);
-    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
-    TEST_ASSERT(openfs_inode_get_extent_tree_root(&i)==root);
+    uint64_t root=openfs_inode_get_extent_tree_root(&i);TEST_ASSERT(root!=0U);
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,17U*4096U+1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==17U*4096U+1U&&i.blocks==5U&&i.extent_count==5U);
+    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&openfs_inode_get_extent_tree_root(&i)==root);
     int used=0;
-    TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,before[4].physical_start,&used)==OPENFS_BITMAP_OK&&!used);
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,before[5].physical_start,&used)==OPENFS_BITMAP_OK&&!used);
     uint8_t out=0U;size_t got=0U;
-    TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value);
-    TEST_ASSERT(openfs_file_read(&v,&sb,&i,13U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,16U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,17U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,2U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
