@@ -70,7 +70,7 @@ static void runtime_admission_unmount_barrier_regression(void)
 #endif
         assert(i+1U<100000U);
     }
-    assert(openfs_runtime_leave(r),1);
+    openfs_runtime_leave(r);
 #if defined(_WIN32)
     assert(WaitForSingleObject((HANDLE)thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)thread);
 #else
