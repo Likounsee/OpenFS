@@ -22,14 +22,11 @@ typedef struct openfs_runtime {
 int openfs_runtime_enter(openfs_runtime_t *);
 void openfs_runtime_leave(openfs_runtime_t *);
 int openfs_runtime_init(openfs_runtime_t *);
-int openfs_runtime_begin_shutdown(openfs_runtime_t *);
-void openfs_runtime_cancel_shutdown(openfs_runtime_t *);
 void openfs_runtime_destroy(openfs_runtime_t *);
 int openfs_runtime_handle_acquire(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 int openfs_runtime_handle_release(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t *);
-uint64_t openfs_runtime_handle_count_all_quiescent(openfs_runtime_t *);
 #ifdef __cplusplus
 }
 #endif
