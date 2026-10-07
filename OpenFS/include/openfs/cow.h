@@ -4,6 +4,7 @@
 #include "openfs/block_device.h"
 #include "openfs/format.h"
 #include "openfs/inode.h"
+typedef struct openfs_inode openfs_inode_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
