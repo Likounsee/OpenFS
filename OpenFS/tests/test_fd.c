@@ -110,7 +110,7 @@ int main(void){
  assert(openfs_fd_close(h)==OPENFS_FD_OK);
  assert(openfs_fd_seek(dup,0,0,&pos)==OPENFS_FD_OK);
  memset(out,0,sizeof(out));assert(openfs_fd_read(dup,out,sizeof(out),&got)==OPENFS_FD_OK&&got==sizeof(hello));assert(memcmp(out,"hello OpenFS!",sizeof(hello)-1U)==0);
- assert(openfs_fd_truncate(dup,5U)==OPENFS_FD_OK);assert(openfs_fd_close(dup)==OPENFS_FD_OK);
+ assert(openfs_fd_truncate(dup,5U)==OPENFS_FD_OK);assert(openfs_fd_close(dup)==OPENFS_FD_OK);assert(openfs_fd_close(dup)==OPENFS_FD_CLOSED);assert(openfs_fd_inode_number(dup)==0U);
  openfs_file_handle_t*r=NULL;assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_RDONLY,0,&r)==OPENFS_FD_OK);
  assert(openfs_fd_read(r,out,sizeof(out),&got)==OPENFS_FD_OK&&got==5U);assert(memcmp(out,"hello",5U)==0);assert(openfs_fd_close(r)==OPENFS_FD_OK);
  concurrent_handle_io_test(&dev,&sb); concurrency_namespace_test(&dev);
