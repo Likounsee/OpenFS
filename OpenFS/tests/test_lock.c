@@ -92,7 +92,15 @@ int main(void)
     assert(openfs_rwlock_read_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
+#if defined(_WIN32)
+    assert(openfs_rwlock_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_try_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
+#else
+    assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
+#endif
     assert(openfs_rwlock_destroy(&lock)==OPENFS_LOCK_OK);
     puts("openfs lock tests passed");
     return 0;
