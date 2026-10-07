@@ -15,6 +15,7 @@ typedef struct openfs_runtime {
     openfs_mutex_t file_lock_registry_lock;
     void *open_handles;
     void *file_locks;
+    void *retired_handles;
     uint64_t active_users;
     int accepting;
     int initialized;
@@ -28,6 +29,7 @@ int openfs_runtime_handle_acquire(openfs_runtime_t *, const void *, uint64_t, ui
 int openfs_runtime_handle_release(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t *);
+int openfs_runtime_retire_handle(openfs_runtime_t *, void *);
 #ifdef __cplusplus
 }
 #endif
