@@ -78,7 +78,7 @@ openfs_lock_result_t openfs_rwlock_destroy(openfs_rwlock_t*l){if(l==NULL)return 
 #if defined(_WIN32)
 if(ri(l)->write_depth!=0U)return OPENFS_LOCK_ERROR;ri(l)->writer=0;ri(l)->write_depth=0;return OPENFS_LOCK_OK;
 #else
-if(ri(l)->writer_owned&&ri(l)->write_depth!=0U)return OPENFS_LOCK_ERROR;return pthread_rwlock_destroy(&ri(l)->native)==0?OPENFS_LOCK_OK:OPENFS_LOCK_ERROR;
+return pthread_rwlock_destroy(&ri(l)->native)==0?OPENFS_LOCK_OK:OPENFS_LOCK_ERROR;
 #endif
 }
 openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){
