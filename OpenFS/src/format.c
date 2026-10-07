@@ -19,14 +19,14 @@ static int mulov(uint64_t a,uint64_t b,uint64_t*out){if(a!=0U&&b>UINT64_MAX/a)re
 static int ceildiv(uint64_t a,uint64_t b,uint64_t*out){if(b==0U||a>UINT64_MAX-(b-1U))return 1;*out=(a+b-1U)/b;return 0;}
 static openfs_format_result_t validation_corrupt(const char **reason,const char *text){if(reason!=NULL)*reason=text;return OPENFS_FORMAT_CORRUPT;}
 
-static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,uint64_t*it,uint64_t*jb){
+static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,uint64_t*it,uint64_t*jb,uint64_t*rb){
     /*
      * Keep a sane fixed inode density instead of consuming all remaining
      * metadata space as an inode table. 256-byte inodes at 16 KiB/inode
      * is a conservative general-purpose filesystem density.
      */
     enum { OPENFS_BYTES_PER_INODE = 16384U };
-    if(total<64U||bb==NULL||ib==NULL||it==NULL||jb==NULL)return 0;
+    if(total<64U||bb==NULL||ib==NULL||it==NULL||jb==NULL||rb==NULL)return 0;
     uint64_t bits=(uint64_t)bs*8U;
     if(ceildiv(total,bits,bb)||*bb==0U)return 0;
 
@@ -57,8 +57,21 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
     if(*ib>metadata-*bb-journal)return 0;
     if(*it>metadata-*bb-journal-*ib)return 0;
 
-    uint64_t data=metadata-1U-*bb-*ib-*it-journal;
-    return data>=8U;
+    uint64_t base_data=metadata-1U-*bb-*ib-*it-journal;
+    if(base_data<8U)return 0;
+    uint64_t entries_per_block=(uint64_t)bs/2U;
+    if(entries_per_block==0U)return 0;
+    uint64_t refblocks=0U;
+    if(ceildiv(base_data,entries_per_block,&refblocks))return 0;
+    for(unsigned pass=0U;pass<4U;pass++){
+        if(refblocks>=base_data)return 0;
+        uint64_t data=base_data-refblocks;
+        uint64_t next=0U;
+        if(ceildiv(data,entries_per_block,&next))return 0;
+        if(next==refblocks){*rb=refblocks;return data>=8U;}
+        refblocks=next;
+    }
+    return 0;
 }
 
 static void encode(const openfs_superblock_t*sb,uint8_t*b){
@@ -89,8 +102,9 @@ static openfs_format_result_t decode(const uint8_t*b,openfs_superblock_t*sb){
 static openfs_format_result_t validate_superblock_ex(const openfs_block_device_t*d,const openfs_superblock_t*sb,const char **reason){
     if(!openfs_block_device_is_valid(d)||sb==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(sb->version_major!=OPENFS_FORMAT_VERSION_MAJOR||sb->version_minor>OPENFS_FORMAT_VERSION_MINOR)return validation_corrupt(reason,"invalid format version");
-    if((sb->feature_flags&~OPENFS_FEATURE_EXTENT_TREE)!=0U)return validation_corrupt(reason,"unsupported feature flags");
+    if((sb->feature_flags&~(OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW))!=0U)return validation_corrupt(reason,"unsupported feature flags");
     if((sb->feature_flags&OPENFS_FEATURE_EXTENT_TREE)!=0U&&sb->version_minor<3U)return validation_corrupt(reason,"extent-tree feature requires format minor version 3");
+    if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U&&sb->version_minor<4U)return validation_corrupt(reason,"CoW feature requires format minor version 4");
     if(sb->block_size<OPENFS_MIN_BLOCK_SIZE||sb->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(sb->block_size)||sb->block_size!=d->block_size)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
 if(sb->block_size%OPENFS_INODE_SIZE!=0U)return validation_corrupt(reason,"block size is not a multiple of inode size");
     if(sb->total_blocks!=d->block_count||sb->total_blocks<64U||sb->root_inode==0U||sb->generation==0U)return validation_corrupt(reason,"invalid device geometry or root/generation fields");
@@ -99,7 +113,15 @@ if(sb->block_size%OPENFS_INODE_SIZE!=0U)return validation_corrupt(reason,"block 
     if(addov(sb->block_bitmap_start,sb->block_bitmap_blocks,&end)||end!=sb->inode_bitmap_start)return validation_corrupt(reason,"block bitmap does not end at inode bitmap");
     if(addov(sb->inode_bitmap_start,sb->inode_bitmap_blocks,&end)||end!=sb->inode_table_start)return validation_corrupt(reason,"inode bitmap does not end at inode table");
     if(addov(sb->inode_table_start,sb->inode_table_blocks,&end)||end!=sb->journal_start)return validation_corrupt(reason,"inode table does not end at journal");
-    if(addov(sb->journal_start,sb->journal_blocks,&end)||end!=sb->data_start)return validation_corrupt(reason,"journal does not end at data region");
+    if(addov(sb->journal_start,sb->journal_blocks,&end))return validation_corrupt(reason,"journal chain is invalid");
+    if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U){
+        if(sb->refcount_start!=end||sb->refcount_blocks==0U)return validation_corrupt(reason,"journal does not end at refcount table");
+        if(addov(sb->refcount_start,sb->refcount_blocks,&end)||end!=sb->data_start)return validation_corrupt(reason,"refcount table does not end at data region");
+        uint64_t refcap=0U;if(mulov(sb->refcount_blocks,(uint64_t)sb->block_size/2U,&refcap)||refcap<sb->data_blocks)return validation_corrupt(reason,"refcount table cannot represent data blocks");
+    }else{
+        if(sb->refcount_start!=0U||sb->refcount_blocks!=0U)return validation_corrupt(reason,"legacy format has unexpected refcount geometry");
+        if(end!=sb->data_start)return validation_corrupt(reason,"journal does not end at data region");
+    }
     if(addov(sb->data_start,sb->data_blocks,&end)||end!=sb->total_blocks-1U)return validation_corrupt(reason,"data region does not end immediately before backup superblock");
     if(sb->journal_blocks<8U||sb->data_blocks<8U||sb->journal_start==0U||sb->data_start==0U)return validation_corrupt(reason,"journal or data region is too small or starts at block zero");
     uint64_t meta_end=0U; if(addov(sb->metadata_start,sb->metadata_blocks,&meta_end)||meta_end!=sb->total_blocks-1U)return validation_corrupt(reason,"metadata region does not end immediately before backup superblock");
@@ -136,17 +158,19 @@ openfs_validation_code_t openfs_validate_superblock_code(const openfs_block_devi
     if(strcmp(reason,"inode table is not an integral number of inodes")==0)return OPENFS_VALIDATION_INODE_COUNT;
     if(strcmp(reason,"inode bitmap cannot represent the inode table")==0)return OPENFS_VALIDATION_INODE_BITMAP_CAPACITY;
     if(strcmp(reason,"block bitmap cannot represent the device")==0)return OPENFS_VALIDATION_BLOCK_BITMAP_CAPACITY;
+    if(strcmp(reason,"journal does not end at refcount table")==0||strcmp(reason,"refcount table does not end at data region")==0)return OPENFS_VALIDATION_REFCOUNT_CHAIN;
+    if(strcmp(reason,"refcount table cannot represent data blocks")==0)return OPENFS_VALIDATION_REFCOUNT_CAPACITY;
     return OPENFS_VALIDATION_GEOMETRY;
 }
 
 openfs_format_result_t openfs_prepare_superblock(openfs_block_device_t*d,const uint8_t uuid[16],openfs_superblock_t*out){
     if(!openfs_block_device_is_valid(d)||uuid==NULL||out==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(d->block_size<OPENFS_SUPERBLOCK_SIZE||d->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(d->block_size)||d->block_count<64U)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
-    uint64_t bb=0U,ib=0U,it=0U,jb=0U;if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb))return OPENFS_FORMAT_TOO_SMALL;
+    uint64_t bb=0U,ib=0U,it=0U,jb=0U,rb=0U;if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb,&rb))return OPENFS_FORMAT_TOO_SMALL;
     uint64_t metadata=d->block_count-3U;if(bb+ib>metadata||it>metadata-bb-ib||jb>metadata-bb-ib-it)return OPENFS_FORMAT_TOO_SMALL;
     uint64_t data=metadata-1U-bb-ib-it-jb-rb;if(data<8U)return OPENFS_FORMAT_TOO_SMALL;
-    memset(out,0,sizeof(*out));out->version_major=OPENFS_FORMAT_VERSION_MAJOR;out->version_minor=OPENFS_FORMAT_VERSION_MINOR;out->feature_flags=OPENFS_FEATURE_EXTENT_TREE;out->block_size=d->block_size;out->total_blocks=d->block_count;
-    out->metadata_start=2U;out->metadata_blocks=metadata;out->block_bitmap_start=3U;out->block_bitmap_blocks=bb;out->inode_bitmap_start=3U+bb;out->inode_bitmap_blocks=ib;out->inode_table_start=out->inode_bitmap_start+ib;out->inode_table_blocks=it;out->journal_start=out->inode_table_start+it;out->journal_blocks=jb;out->data_start=out->journal_start+jb;out->data_blocks=data;out->root_inode=1U;out->generation=1U;memcpy(out->uuid,uuid,16U);
+    memset(out,0,sizeof(*out));out->version_major=OPENFS_FORMAT_VERSION_MAJOR;out->version_minor=OPENFS_FORMAT_VERSION_MINOR;out->feature_flags=OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW;out->block_size=d->block_size;out->total_blocks=d->block_count;
+    out->metadata_start=2U;out->metadata_blocks=metadata;out->block_bitmap_start=3U;out->block_bitmap_blocks=bb;out->inode_bitmap_start=3U+bb;out->inode_bitmap_blocks=ib;out->inode_table_start=out->inode_bitmap_start+ib;out->inode_table_blocks=it;out->journal_start=out->inode_table_start+it;out->journal_blocks=jb;out->refcount_start=out->journal_start+jb;out->refcount_blocks=rb;out->data_start=out->refcount_start+rb;out->data_blocks=data;out->root_inode=1U;out->generation=1U;memcpy(out->uuid,uuid,16U);
     return validate_superblock_ex(d,out,NULL);
 }
 
