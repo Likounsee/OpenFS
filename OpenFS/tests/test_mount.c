@@ -60,6 +60,20 @@ static void *runtime_destroy_worker(void *arg)
 #endif
 }
 
+static void runtime_shutdown_handle_admission_regression(void)
+{
+    openfs_runtime_t runtime;
+    int device_marker=0;
+    assert(openfs_runtime_init(&runtime)==1);
+    assert(openfs_runtime_handle_acquire(&runtime,&device_marker,1U,1U)==1);
+    assert(openfs_runtime_shutdown_if_unused(&runtime)==0);
+    assert(runtime.initialized!=0&&runtime.accepting!=0);
+    assert(openfs_runtime_handle_count_all(&runtime)==1U);
+    assert(openfs_runtime_handle_release(&runtime,&device_marker,1U,1U)==1);
+    assert(openfs_runtime_shutdown_if_unused(&runtime)==1);
+    assert(runtime.initialized==0&&runtime.accepting==0);
+}
+
 static void concurrent_runtime_destroy_regression(void)
 {
     openfs_runtime_t runtime;
@@ -257,6 +271,7 @@ static void backup_superblock_extent_tree_regression(void)
 }
 
 int main(void){
+ runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  concurrent_double_unmount_regression();
  concurrent_unmount_runtime_lock_regression();
