@@ -6,7 +6,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
 {
@@ -263,7 +262,7 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
         openfs_extent_result_t tree_result =
             openfs_extent_tree_write(d,sb,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,
                                      n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
-        fprintf(stderr,"sparse tree_result=%d root=%llu count=%u\\n",(int)tree_result,(unsigned long long)root,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
+
         if (tree_result != OPENFS_EXTENT_OK) {
             int restored = newroot ||
                 d->write(d->context, root, 1U, old_tree) == OPENFS_IO_OK;
@@ -799,7 +798,6 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
         (uint64_t *)calloc((size_t)span,sizeof(uint64_t));
     if(new_blocks==NULL&&span!=0U){free(ext);return OPENFS_FILE_IO_ERROR;}
     uint64_t added=0U;
-    fprintf(stderr,"sparse_prepare range first=%llu last=%llu span=%llu n=%u\\n",(unsigned long long)first,(unsigned long long)last,(unsigned long long)span,n);
     for(uint64_t logical=first;;logical++){
         if(!sparse_find(ext,n,logical,NULL)){
             uint64_t physical=0U;
@@ -834,7 +832,6 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
     r=store_all_extents(d,sb,&tmp,ext,n);
     free(ext);
     if(r!=OPENFS_FILE_OK){
-        fprintf(stderr,"sparse_prepare store_all_extents failed: %d n=%u blocks=%llu root=%llu\\n",(int)r,n,(unsigned long long)tmp.blocks,(unsigned long long)openfs_inode_get_extent_tree_root(&tmp));
         if(old_root!=0U&&old_root_data!=NULL)(void)d->write(d->context,old_root,1U,old_root_data);
         sparse_free_blocks(d,sb,new_blocks,added);free(old_root_data);free(new_blocks);return r;
     }
@@ -938,7 +935,6 @@ static openfs_file_result_t file_write_unlocked(
         uint64_t physical = 0U;
         r = map_block_on_disk(device, sb, inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_allocated_block(device, sb, physical) != OPENFS_FILE_OK) {
-            if(first_logical==16U) fprintf(stderr,"sparse map failed r=%d physical=%llu\\n",(int)r,(unsigned long long)physical);
             free(block);
             int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count) == OPENFS_FILE_OK;
             *inode = original;
@@ -1002,7 +998,6 @@ static openfs_file_result_t file_write_unlocked(
         return (restored && rollback_ok) ? r : OPENFS_FILE_CORRUPT;
     }
     if (device->flush(device->context) != OPENFS_IO_OK) {
-        if(first_logical==16U) fprintf(stderr,"sparse final flush failed\\n");
         int ok = 1;
         if (!restore_write_backups(device, backups, backup_count)) ok = 0;
         if (sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count) != OPENFS_FILE_OK) ok = 0;
