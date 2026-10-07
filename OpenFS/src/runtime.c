@@ -247,16 +247,17 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
     }
 
     if(require_unused){
-        if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){
-            runtime_lifecycle_unlock();
-            return 0;
-        }
+        /*
+         * Admission is already closed and active_users reached zero, so the
+         * handle registry cannot change.  Do not take handle_registry_lock
+         * here: runtime-bound locks reject new admission once accepting is
+         * false.
+         */
         uint64_t handles=0U;
         for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){
             if(UINT64_MAX-handles<e->references){handles=UINT64_MAX;break;}
             handles+=e->references;
         }
-        (void)openfs_mutex_unlock(&r->handle_registry_lock);
         if(handles!=0U){
             if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK){
                 r->destroying=0;
