@@ -38,7 +38,7 @@ static void registry_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&
 openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t type,uint32_t flags){
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t hl=handle_lock(h);if(hl!=OPENFS_FILE_LOCK_OK)return hl;
-    if(type=OPENFS_FILE_LOCK_SHARED&&type!=OPENFS_FILE_LOCK_EXCLUSIVE)return OPENFS_FILE_LOCK_INVALID_ARGUMENT;
+    if(type!=OPENFS_FILE_LOCK_SHARED&&type!=OPENFS_FILE_LOCK_EXCLUSIVE){handle_unlock(h);return OPENFS_FILE_LOCK_INVALID_ARGUMENT;}
     if((flags&~OPENFS_FILE_LOCK_BLOCK)!=0U){handle_unlock(h);return OPENFS_FILE_LOCK_INVALID_ARGUMENT;}
     for(;;){
         openfs_file_lock_result_t lr=registry_lock(h);if(lr!=OPENFS_FILE_LOCK_OK){handle_unlock(h);return lr;}
@@ -46,7 +46,7 @@ openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,uint64_t star
         for(openfs_file_lock_entry_t *e=entries(h->superblock.runtime);e!=NULL;e=e->next)if(conflicts(e,h,start,length,type)){conflict=1;break;}
         if(!conflict){
             openfs_file_lock_entry_t *e=calloc(1,sizeof(*e));
-            if(e==NULL){registry_unlock(h);return OPENFS_FILE_LOCK_IO_ERROR;}
+            if(e==NULL){registry_unlock(h);handle_unlock(h);return OPENFS_FILE_LOCK_IO_ERROR;}
             e->device=h->device;e->inode_number=h->inode.inode_number;e->generation=h->inode.generation;
             e->owner=h;e->start=start;e->length=length;e->type=type;e->next=entries(h->superblock.runtime);
             h->superblock.runtime->file_locks=e;registry_unlock(h);handle_unlock(h);return OPENFS_FILE_LOCK_OK;
@@ -79,7 +79,7 @@ openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,uint64_t
     *conflict_type=0U;
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t hl=handle_lock(h);if(hl!=OPENFS_FILE_LOCK_OK)return hl;
-    openfs_file_lock_result_t lr=registry_lock(h);if(lr!=OPENFS_FILE_LOCK_OK)return lr;
+    openfs_file_lock_result_t lr=registry_lock(h);if(lr!=OPENFS_FILE_LOCK_OK){handle_unlock(h);return lr;}
     for(openfs_file_lock_entry_t *e=entries(h->superblock.runtime);e!=NULL;e=e->next){
         if(e->device==h->device&&e->inode_number==h->inode.inode_number&&e->generation==h->inode.generation&&e->owner!=h&&overlaps(e->start,e->length,start,length)){
             *conflict_type=e->type;registry_unlock(h);handle_unlock(h);return OPENFS_FILE_LOCK_CONFLICT;
