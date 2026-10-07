@@ -34,6 +34,43 @@ static void* create_worker(void*arg)
     return NULL;
 #endif
 }
+typedef struct { openfs_file_handle_t *h; unsigned failures; } fd_worker_ctx_t;
+#if defined(_WIN32)
+static unsigned __stdcall fd_worker(void *arg)
+#else
+static void *fd_worker(void *arg)
+#endif
+{
+    fd_worker_ctx_t *c=(fd_worker_ctx_t*)arg;
+    for(unsigned i=0U;i<64U;i++){
+        if(openfs_fd_seek(c->h,0,0,(int64_t[1]){0})!=OPENFS_FD_OK)c->failures++;
+        if(openfs_fd_write(c->h,"Z",1U)!=OPENFS_FD_OK)c->failures++;
+    }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+static void concurrent_handle_io_test(openfs_block_device_t *dev, openfs_superblock_t *sb)
+{
+    openfs_file_handle_t *h=NULL;
+    assert(openfs_fd_open(dev,sb,"/fd-concurrent",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&h)==OPENFS_FD_OK);
+    fd_worker_ctx_t ctx[4]; memset(ctx,0,sizeof(ctx));
+#if defined(_WIN32)
+    HANDLE threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].h=h;uintptr_t th=_beginthreadex(NULL,0U,fd_worker,&ctx[i],0U,NULL);assert(th!=0U);threads[i]=(HANDLE)th;}
+    assert(WaitForMultipleObjects(4,threads,TRUE,60000U)==WAIT_OBJECT_0);
+    for(unsigned i=0U;i<4U;i++)CloseHandle(threads[i]);
+#else
+    pthread_t threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].h=h;assert(pthread_create(&threads[i],NULL,fd_worker,&ctx[i])==0);}
+    for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
+#endif
+    for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
+    assert(openfs_fd_close(h)==OPENFS_FD_OK);
+}
+
 static void concurrency_namespace_test(openfs_block_device_t*dev)
 {
     openfs_mount_t m;assert(openfs_mount(&m,dev)==OPENFS_MOUNT_OK);
@@ -71,7 +108,7 @@ int main(void){
  assert(openfs_fd_truncate(dup,5U)==OPENFS_FD_OK);assert(openfs_fd_close(dup)==OPENFS_FD_OK);
  openfs_file_handle_t*r=NULL;assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_RDONLY,0,&r)==OPENFS_FD_OK);
  assert(openfs_fd_read(r,out,sizeof(out),&got)==OPENFS_FD_OK&&got==5U);assert(memcmp(out,"hello",5U)==0);assert(openfs_fd_close(r)==OPENFS_FD_OK);
- concurrency_namespace_test(&dev);
+ concurrent_handle_io_test(&dev,&sb); concurrency_namespace_test(&dev);
  assert(openfs_fd_open(&dev,&sb,"/missing",OPENFS_FD_RDONLY,0,&r)==OPENFS_FD_NOT_FOUND);
  assert(openfs_fd_open(&dev,&sb,"/fd-test",OPENFS_FD_CREAT|OPENFS_FD_EXCL|OPENFS_FD_RDWR,0,&r)==OPENFS_FD_EXISTS);
  free(d.b);return 0;
