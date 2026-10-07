@@ -798,6 +798,7 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
         (uint64_t *)calloc((size_t)span,sizeof(uint64_t));
     if(new_blocks==NULL&&span!=0U){free(ext);return OPENFS_FILE_IO_ERROR;}
     uint64_t added=0U;
+    fprintf(stderr,"sparse_prepare range first=%llu last=%llu span=%llu n=%u\\n",(unsigned long long)first,(unsigned long long)last,(unsigned long long)span,n);
     for(uint64_t logical=first;;logical++){
         if(!sparse_find(ext,n,logical,NULL)){
             uint64_t physical=0U;
