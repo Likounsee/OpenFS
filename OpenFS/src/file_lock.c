@@ -33,7 +33,7 @@ static int conflicts(const openfs_file_lock_entry_t *e,const openfs_file_handle_
 static int handle_open(const openfs_file_handle_t *h){return h!=NULL&&h->lock_initialized&&!h->closed&&h->references!=0U&&h->superblock.runtime!=NULL;}
 static openfs_file_lock_result_t handle_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
 static void handle_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&h->lock);}
-static openfs_file_lock_result_t registry_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->superblock.runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
+static openfs_file_lock_result_t registry_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->superblock.runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
 static void registry_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&h->superblock.runtime->file_lock_registry_lock);}
 openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t type,uint32_t flags){
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
@@ -91,7 +91,7 @@ void openfs_file_lock_release_all(openfs_file_handle_t *h){
     if(h==NULL||h->superblock.runtime==NULL)return;
     openfs_runtime_t *runtime=h->superblock.runtime;
     if(!openfs_runtime_enter(runtime))return;
-    if(openfs_mutex_lock(&runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(runtime);return;}
+    if(openfs_mutex_lock(&runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){openfs_runtime_leave(runtime);return;}
     openfs_file_lock_entry_t **pp=(openfs_file_lock_entry_t **)&h->superblock.runtime->file_locks;
     while(*pp!=NULL){openfs_file_lock_entry_t *e=*pp;if(e->owner==h){*pp=e->next;free(e);continue;}pp=&e->next;}
     (void)openfs_mutex_unlock(&runtime->file_lock_registry_lock);
