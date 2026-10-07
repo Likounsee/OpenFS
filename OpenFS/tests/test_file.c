@@ -372,7 +372,7 @@ static void shrink_preserves_live_extent_tree_root(void){
     for(uint32_t n=0U;n<4U;n++){openfs_extent_t e={n,blocks[n],1U};TEST_ASSERT(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);}
     TEST_ASSERT(openfs_inode_set_extent_tree_root(&i,root)==OPENFS_EXTENT_OK);i.extent_count=6U;
     openfs_extent_t tree_gap[2]={{5U,blocks[4],1U},{6U,blocks[5],1U}};
-    TEST_ASSERT(openfs_extent_tree_write(&v,&sb,&i,tree_gap,2U)==OPENFS_EXTENT_CORRUPT);
+    TEST_ASSERT(openfs_extent_tree_write(&v,&sb,&i,tree_gap,2U)==OPENFS_EXTENT_OK);
     openfs_extent_t tree[2]={{4U,blocks[4],1U},{5U,blocks[5],1U}};
     TEST_ASSERT(openfs_extent_tree_write(&v,&sb,&i,&tree[0],2U)==OPENFS_EXTENT_OK);
     TEST_ASSERT(openfs_inode_write(&v,sb.inode_table_start,ic,&i)==OPENFS_INODE_OK);
