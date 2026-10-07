@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -176,7 +177,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
         return (pr==OPENFS_FORMAT_IO_ERROR||br==OPENFS_FORMAT_IO_ERROR)?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     }
     if(pr==OPENFS_FORMAT_OK&&br==OPENFS_FORMAT_OK){
-        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);mount_lifecycle_unlock();return OPENFS_MOUNT_CORRUPT;}
+        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: superblock read\n");fprintf(stderr,"mount corrupt: layout mismatch\n");fprintf(stderr,"mount corrupt: superblock validation\n");return OPENFS_MOUNT_CORRUPT;}
         mount->superblock=(backup.generation>primary.generation)?backup:primary;
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
@@ -186,12 +187,12 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     if(!openfs_runtime_init(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     mount->superblock.runtime=&mount->runtime;
     openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
-    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
+    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: journal replay\n");return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
     if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     openfs_orphan_result_t orphan_result=openfs_orphan_recover_all(device,&mount->superblock);
     if(orphan_result!=OPENFS_ORPHAN_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
-    openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;}
+    openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: journal checkpoint\n");return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;}
     mount->mounted=1;
     registry_entry->next=openfs_mount_registry;
     openfs_mount_registry=registry_entry;
