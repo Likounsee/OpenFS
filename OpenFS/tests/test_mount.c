@@ -87,6 +87,24 @@ typedef struct {
     volatile int stop;
 } runtime_stress_context_t;
 
+static int runtime_stress_stop(const runtime_stress_context_t *ctx)
+{
+#if defined(_WIN32)
+    return InterlockedCompareExchange((volatile LONG *)&ctx->stop,0L,0L)!=0L;
+#else
+    return __sync_fetch_and_add((int *)&ctx->stop,0)!=0;
+#endif
+}
+
+static void runtime_stress_request_stop(runtime_stress_context_t *ctx)
+{
+#if defined(_WIN32)
+    InterlockedExchange((volatile LONG *)&ctx->stop,1L);
+#else
+    __sync_lock_test_and_set((int *)&ctx->stop,1);
+#endif
+}
+
 #if defined(_WIN32)
 static unsigned __stdcall runtime_stress_worker(void *arg)
 #else
@@ -94,7 +112,7 @@ static void *runtime_stress_worker(void *arg)
 #endif
 {
     runtime_stress_context_t *ctx=(runtime_stress_context_t *)arg;
-    while(!ctx->stop){
+    while(!runtime_stress_stop(ctx)){
         if(!openfs_runtime_enter(ctx->runtime))break;
         assert(openfs_mutex_lock(&ctx->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
         assert(openfs_mutex_unlock(&ctx->runtime->inode_lock)==OPENFS_LOCK_OK);
@@ -149,7 +167,7 @@ static void concurrent_runtime_admission_stress(void)
 #endif
         assert(i+1U<100000U);
     }
-    ctx.stop=1;
+    runtime_stress_request_stop(&ctx);
 #if defined(_WIN32)
     for(unsigned i=0U;i<8U;i++){assert(WaitForSingleObject(workers[i],60000U)==WAIT_OBJECT_0);CloseHandle(workers[i]);}
     assert(WaitForSingleObject((HANDLE)unmount_thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)unmount_thread);
