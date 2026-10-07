@@ -64,7 +64,7 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count,
             }
             if (d->fail_once) {
                 d->fail_once = 0;
-            } else {
+                d->fail_enabled = 0;
                 return OPENFS_IO_IO_ERROR;
             }
             return OPENFS_IO_IO_ERROR;
