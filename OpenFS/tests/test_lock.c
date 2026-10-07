@@ -39,6 +39,7 @@ int main(void)
     openfs_mutex_t mutex;
     assert(openfs_mutex_init(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&mutex)==OPENFS_LOCK_ERROR);
     assert(openfs_mutex_trylock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
@@ -113,6 +114,7 @@ int main(void)
     assert(openfs_rwlock_read_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_unlock(&lock)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_destroy(&lock)==OPENFS_LOCK_ERROR);
 #if defined(_WIN32)
     assert(openfs_rwlock_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_try_write_lock(&lock,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
