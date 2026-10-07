@@ -70,6 +70,7 @@ static void concurrent_handle_io_test(openfs_block_device_t *dev, openfs_superbl
 #else
     pthread_t threads[4];
     for(unsigned i=0U;i<4U;i++){ctx[i].h=h;assert(pthread_create(&threads[i],NULL,fd_worker,&ctx[i])==0);}
+    assert(openfs_fd_close(h)==OPENFS_FD_OK);
     for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
 #endif
     for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
