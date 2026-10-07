@@ -66,6 +66,8 @@ static void runtime_shutdown_handle_admission_regression(void)
     int device_marker=0;
     assert(openfs_runtime_init(&runtime)==1);
     assert(openfs_runtime_handle_acquire(&runtime,&device_marker,1U,1U)==1);
+    openfs_runtime_destroy(&runtime);
+    assert(runtime.initialized!=0&&runtime.accepting!=0);
     assert(openfs_runtime_shutdown_if_unused(&runtime)==0);
     assert(runtime.initialized!=0&&runtime.accepting!=0);
     assert(openfs_runtime_handle_count_all(&runtime)==1U);
