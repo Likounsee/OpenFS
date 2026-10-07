@@ -52,7 +52,7 @@ for(unsigned level=0U;level<6U;level++){
     TEST_ASSERT(openfs_path_lookup(&v,&s,probe,&ino)==OPENFS_PATH_NOT_FOUND);
     probe_len++;
 }
-char parent_probe[OPENFS_PATH_MAX];memcpy(parent_probe,path,used);parent_probe[used-1U]='\\0';uint64_t parent_ino=0U;fprintf(stderr,"LU-PARENT\\n");TEST_ASSERT(openfs_path_lookup(&v,&s,parent_probe,&parent_ino)==OPENFS_PATH_OK);openfs_inode_t parent_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,parent_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&parent_inode)==OPENFS_INODE_OK);openfs_dir_entry_t missing_entry;fprintf(stderr,"LU-DIRLOOKUP\\n");TEST_ASSERT(openfs_dir_lookup(&v,&s,&parent_inode,"x",&missing_entry)==OPENFS_DIR_NOT_FOUND);fprintf(stderr,"LU-DIRLOOKUP-DONE\\n");TEST_ASSERT(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);
+char parent_probe[OPENFS_PATH_MAX];memcpy(parent_probe,path,used);parent_probe[used-1U]='\\0';uint64_t parent_ino=0U;fprintf(stderr,"LU-PARENT\\n");openfs_path_result_t parent_result=openfs_path_lookup(&v,&s,parent_probe,&parent_ino);fprintf(stderr,"LU-PARENT-RESULT=%d\\n",(int)parent_result);TEST_ASSERT(parent_result==OPENFS_PATH_OK);openfs_inode_t parent_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,parent_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&parent_inode)==OPENFS_INODE_OK);openfs_dir_entry_t missing_entry;fprintf(stderr,"LU-DIRLOOKUP\\n");TEST_ASSERT(openfs_dir_lookup(&v,&s,&parent_inode,"x",&missing_entry)==OPENFS_DIR_NOT_FOUND);fprintf(stderr,"LU-DIRLOOKUP-DONE\\n");TEST_ASSERT(openfs_path_lookup(&v,&s,path,&ino)==OPENFS_PATH_NOT_FOUND);
 free(d.b);
 }
 static void trailing_slash_regressions(void)
