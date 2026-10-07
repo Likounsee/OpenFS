@@ -85,6 +85,11 @@ typedef struct openfs_file_lock_runtime_entry {
     void *entry;
     struct openfs_file_lock_runtime_entry *next;
 } openfs_file_lock_runtime_entry_t;
+
+typedef struct openfs_retired_handle_entry {
+    void *handle;
+    struct openfs_retired_handle_entry *next;
+} openfs_retired_handle_entry_t;
 static openfs_handle_entry_t *entries(openfs_runtime_t *r){return (openfs_handle_entry_t *)r->open_handles;}
 int openfs_runtime_handle_acquire(openfs_runtime_t*r,const void*d,uint64_t ino,uint64_t generation){
     if(r==NULL||d==NULL||ino==0U||generation==0U)return 0;
@@ -148,6 +153,27 @@ uint64_t openfs_runtime_handle_count_all(openfs_runtime_t*r){
     (void)openfs_mutex_unlock(&r->handle_registry_lock);
     openfs_runtime_leave(r);
     return count;
+}
+int openfs_runtime_retire_handle(openfs_runtime_t*r,void*handle)
+{
+    if(r==NULL||handle==NULL)return 0;
+    if(!openfs_runtime_enter(r))return 0;
+    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){
+        openfs_runtime_leave(r);
+        return 0;
+    }
+    openfs_retired_handle_entry_t *entry=(openfs_retired_handle_entry_t*)calloc(1U,sizeof(*entry));
+    if(entry==NULL){
+        (void)openfs_mutex_unlock(&r->handle_registry_lock);
+        openfs_runtime_leave(r);
+        return 0;
+    }
+    entry->handle=handle;
+    entry->next=(openfs_retired_handle_entry_t*)r->retired_handles;
+    r->retired_handles=entry;
+    (void)openfs_mutex_unlock(&r->handle_registry_lock);
+    openfs_runtime_leave(r);
+    return 1;
 }
 int openfs_runtime_init(openfs_runtime_t*r)
 {
@@ -227,6 +253,14 @@ void openfs_runtime_destroy(openfs_runtime_t*r)
     unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
     openfs_handle_entry_t *e=entries(r);while(e!=NULL){openfs_handle_entry_t*n=e->next;free(e);e=n;}
     r->open_handles=NULL;r->file_locks=NULL;
+    openfs_retired_handle_entry_t *retired=(openfs_retired_handle_entry_t*)r->retired_handles;
+    while(retired!=NULL){
+        openfs_retired_handle_entry_t *next=retired->next;
+        free(retired->handle);
+        free(retired);
+        retired=next;
+    }
+    r->retired_handles=NULL;
     (void)openfs_mutex_destroy(&r->file_lock_registry_lock);
     (void)openfs_mutex_destroy(&r->handle_registry_lock);
     (void)openfs_mutex_destroy(&r->journal_lock);
