@@ -147,31 +147,6 @@ static void handle_inode_unlock(openfs_file_handle_t *h)
 }
 
 
-static openfs_fd_result_t handle_inode_lock(openfs_file_handle_t *h)
-{
-    if (h == NULL) return OPENFS_FD_INVALID_ARGUMENT;
-    if (h->superblock.runtime == NULL) return OPENFS_FD_OK;
-    if (openfs_mutex_lock(&h->superblock.runtime->inode_lock, OPENFS_LOCK_RANK_INODE) != OPENFS_LOCK_OK)
-        return OPENFS_FD_IO_ERROR;
-    uint64_t count = (h->superblock.inode_table_blocks * (uint64_t)h->superblock.block_size) / OPENFS_INODE_SIZE;
-    openfs_inode_t current;
-    openfs_inode_result_t ir = openfs_inode_read(h->device, h->superblock.inode_table_start,
-                                                  h->inode.inode_number, count, &current);
-    if (ir != OPENFS_INODE_OK || current.generation != h->inode.generation) {
-        (void)openfs_mutex_unlock(&h->superblock.runtime->inode_lock);
-        return ir == OPENFS_INODE_IO_ERROR ? OPENFS_FD_IO_ERROR : OPENFS_FD_CORRUPT;
-    }
-    h->inode = current;
-    return OPENFS_FD_OK;
-}
-
-static void handle_inode_unlock(openfs_file_handle_t *h)
-{
-    if (h != NULL && h->superblock.runtime != NULL)
-        (void)openfs_mutex_unlock(&h->superblock.runtime->inode_lock);
-}
-
-
 openfs_fd_result_t openfs_fd_open(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,openfs_file_handle_t**out){return open_common(d,s,p,flags,mode,0U,0U,0,out);}
 openfs_fd_result_t openfs_fd_open_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,uint32_t uid,uint32_t gid,openfs_file_handle_t**out){return open_common(d,s,p,flags,mode,uid,gid,1,out);}
 openfs_fd_result_t openfs_fd_retain(openfs_file_handle_t*h){openfs_fd_result_t r=handle_lock(h);if(r!=OPENFS_FD_OK)return r;if(h->closed||h->references==0U){(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_CLOSED;}if(h->references==UINT32_MAX){(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_IO_ERROR;}h->references++;(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_OK;}
