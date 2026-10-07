@@ -134,7 +134,8 @@ static void concurrent_double_unmount_regression(void)
     HANDLE ta=(HANDLE)_beginthreadex(NULL,0U,unmount_worker,&a,0U,NULL);
     HANDLE tb=(HANDLE)_beginthreadex(NULL,0U,unmount_worker,&b,0U,NULL);
     assert(ta!=NULL&&tb!=NULL);
-    assert(WaitForMultipleObjects(2,(HANDLE[2]){ta,tb},TRUE,60000U)==WAIT_OBJECT_0);
+    HANDLE handles[2]={ta,tb};
+    assert(WaitForMultipleObjects(2,handles,TRUE,60000U)==WAIT_OBJECT_0);
     CloseHandle(ta);CloseHandle(tb);
 #else
     pthread_t ta,tb;
