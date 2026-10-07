@@ -47,19 +47,44 @@ int openfs_runtime_handle_acquire(openfs_runtime_t*r,const void*d,uint64_t ino,u
     if(r==NULL||d==NULL||ino==0U||generation==0U)return 0;
     if(!openfs_runtime_enter(r))return 0;
     if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(r);return 0;}
-    openfs_handle_entry_t *e=
-    while(e!=NULL){if(e->device==d&&e->inode_number==ino&&e->generation==generation){if(e->references==UINT64_MAX){(void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return 0;}e->references++;(void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return 1;}e=e->next;}
+    openfs_handle_entry_t *e=entries(r);
+    while(e!=NULL){
+        if(e->device==d&&e->inode_number==ino&&e->generation==generation){
+            if(e->references==UINT64_MAX){(void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return 0;}
+            e->references++;
+            (void)openfs_mutex_unlock(&r->handle_registry_lock);
+            openfs_runtime_leave(r);
+            return 1;
+        }
+        e=e->next;
+    }
     e=(openfs_handle_entry_t*)calloc(1,sizeof(*e));
-    if(e==NULL){(void)openfs_mutex_unlock(&r->handle_registry_lock);return 0;}
+    if(e==NULL){(void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return 0;}
     e->device=d;e->inode_number=ino;e->generation=generation;e->references=1U;e->next=entries(r);r->open_handles=e;
-    (void)openfs_mutex_unlock(&r->handle_registry_lock);return 1;
+    (void)openfs_mutex_unlock(&r->handle_registry_lock);
+    openfs_runtime_leave(r);
+    return 1;
 }
 int openfs_runtime_handle_release(openfs_runtime_t*r,const void*d,uint64_t ino,uint64_t generation){
-    if(r==NULL||!r->initialized||d==NULL||ino==0U||generation==0U)return 0;
-    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return 0;
+    if(r==NULL||d==NULL||ino==0U||generation==0U)return 0;
+    if(!openfs_runtime_enter(r))return 0;
+    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(r);return 0;}
     openfs_handle_entry_t **pp=(openfs_handle_entry_t**)&r->open_handles;
-    while(*pp!=NULL){openfs_handle_entry_t *e=*pp;if(e->device==d&&e->inode_number==ino&&e->generation==generation){if(e->references==0U){(void)openfs_mutex_unlock(&r->handle_registry_lock);return 0;}e->references--;if(e->references==0U){*pp=e->next;free(e);} (void)openfs_mutex_unlock(&r->handle_registry_lock);return 1;}pp=&e->next;}
-    (void)openfs_mutex_unlock(&r->handle_registry_lock);return 0;
+    while(*pp!=NULL){
+        openfs_handle_entry_t *e=*pp;
+        if(e->device==d&&e->inode_number==ino&&e->generation==generation){
+            if(e->references==0U){(void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return 0;}
+            e->references--;
+            if(e->references==0U){*pp=e->next;free(e);}
+            (void)openfs_mutex_unlock(&r->handle_registry_lock);
+            openfs_runtime_leave(r);
+            return 1;
+        }
+        pp=&e->next;
+    }
+    (void)openfs_mutex_unlock(&r->handle_registry_lock);
+    openfs_runtime_leave(r);
+    return 0;
 }
 uint64_t openfs_runtime_handle_count(openfs_runtime_t*r,const void*d,uint64_t ino,uint64_t generation){
     if(r==NULL||d==NULL)return 0U;
@@ -69,10 +94,17 @@ uint64_t openfs_runtime_handle_count(openfs_runtime_t*r,const void*d,uint64_t in
     (void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return count;
 }
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t*r){
-    if(r==NULL||!r->initialized)return 0U;
-    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return UINT64_MAX;
-    uint64_t count=0U;for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){if(UINT64_MAX-count<e->references){count=UINT64_MAX;break;}count+=e->references;}
-    (void)openfs_mutex_unlock(&r->handle_registry_lock);return count;
+    if(r==NULL)return 0U;
+    if(!openfs_runtime_enter(r))return UINT64_MAX;
+    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(r);return UINT64_MAX;}
+    uint64_t count=0U;
+    for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){
+        if(UINT64_MAX-count<e->references){count=UINT64_MAX;break;}
+        count+=e->references;
+    }
+    (void)openfs_mutex_unlock(&r->handle_registry_lock);
+    openfs_runtime_leave(r);
+    return count;
 }
 int openfs_runtime_init(openfs_runtime_t*r){
     if(r==NULL)return 0;memset(r,0,sizeof(*r));
