@@ -186,7 +186,11 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     openfs_inode_t created;
     uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
     openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,new_ino,inode_count,&created);
-    if(ir!=OPENFS_INODE_OK){free(ext);cow_unlock_inode(sb);return OPENFS_COW_CORRUPT;}
+    if(ir!=OPENFS_INODE_OK){
+        (void)openfs_inode_free(d,sb,new_ino);
+        free(ext);cow_unlock_inode(sb);
+        return ir==OPENFS_INODE_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;
+    }
     uint64_t new_generation=created.generation;
     created=*source;
     created.inode_number=new_ino;
