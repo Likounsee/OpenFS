@@ -51,6 +51,15 @@ int main(void)
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_unlock(&journal)==OPENFS_LOCK_OK);
 
+    /* A file-handle lock is below the inode hierarchy level, so an append operation may safely acquire the inode lock while retaining its handle lock. */
+    openfs_mutex_t handle_order;
+    assert(openfs_mutex_init(&handle_order)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&handle_order,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&handle_order)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&handle_order)==OPENFS_LOCK_OK);
+
     openfs_mutex_t ordered;
     assert(openfs_mutex_init(&ordered)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&ordered,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
