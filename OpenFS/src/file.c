@@ -1001,6 +1001,7 @@ static openfs_file_result_t file_write_unlocked(
         return (restored && rollback_ok) ? r : OPENFS_FILE_CORRUPT;
     }
     if (device->flush(device->context) != OPENFS_IO_OK) {
+        if(first_logical==16U) fprintf(stderr,"sparse final flush failed\\n");
         int ok = 1;
         if (!restore_write_backups(device, backups, backup_count)) ok = 0;
         if (sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count) != OPENFS_FILE_OK) ok = 0;
