@@ -175,6 +175,19 @@ static void sparse_truncate_extension_keeps_holes(void){
     free(gap);free(d.bytes);
 }
 
+static void sparse_truncate_shrink_zeros_discarded_tail(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t data[4096U];memset(data,0xA5U,sizeof(data));
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    uint64_t physical=0U;TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,0U,&physical)==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,100U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==100U&&i.blocks==1U);
+    TEST_ASSERT(d.bytes[(size_t)(physical*d.block_size)+99U]==0xA5U);
+    for(size_t n=100U;n<d.block_size;n++)
+        TEST_ASSERT(d.bytes[(size_t)(physical*d.block_size)+n]==0U);
+    free(d.bytes);
+}
+
 static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t values[4]={0x11U,0x22U,0x33U,0x44U};
@@ -626,6 +639,6 @@ int main(void){
     file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
-    sparse_write_zeroes_intermediate_blocks();sparse_truncate_extension_keeps_holes();sparse_truncate_shrink_reclaims_only_mapped_blocks();sparse_truncate_shrink_tree_to_inline_preserves_holes();sparse_truncate_shrink_tree_keeps_root_and_holes();
+    sparse_write_zeroes_intermediate_blocks();sparse_truncate_extension_keeps_holes();sparse_truncate_shrink_zeros_discarded_tail();sparse_truncate_shrink_reclaims_only_mapped_blocks();sparse_truncate_shrink_tree_to_inline_preserves_holes();sparse_truncate_shrink_tree_keeps_root_and_holes();
     partial_write_rollback_failure_is_corruption();
 shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();map_bounds();return 0;}
