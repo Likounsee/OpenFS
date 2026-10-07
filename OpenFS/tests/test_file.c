@@ -202,10 +202,10 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-tree-inline",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
     uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,inode_count,&i)==OPENFS_INODE_OK);
-    uint8_t value0=0x10U,value1=0x20U;
+    uint8_t value0=0x10U,value1[2U*4096U];memset(value1,0x20U,sizeof(value1));
     const uint64_t logicals[3]={0U,4U,8U};
     for(unsigned n=0U;n<3U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
-    TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,&value1,2U*4096U)==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,value1,sizeof(value1))==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,20U*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==5U&&i.blocks==6U);
     TEST_ASSERT(i.size==20U*4096U+1U);
@@ -222,7 +222,7 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     int used=0;TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,partial_first,&used)==OPENFS_BITMAP_OK&&used);
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,partial_second,&used)==OPENFS_BITMAP_OK&&!used);
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,dropped4,&used)==OPENFS_BITMAP_OK&&!used);
-    TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value1);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value1[0]);
     out=0xFFU;got=0U;
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,10U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,3U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
