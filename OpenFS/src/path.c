@@ -171,7 +171,7 @@ if(target.link_count==1U&&original_root!=0U){
 }
 openfs_dir_result_t rr=openfs_dir_remove(d,s,&pi,name);if(rr!=OPENFS_DIR_OK){free(parent_inode_backup);free(root_backup);return map_dir_result(rr);}
 uint64_t open_handle_count=0U;
-if(s->runtime!=NULL&&s->runtime->initialized){
+if(s->runtime!=NULL){
     open_handle_count=openfs_runtime_handle_count(s->runtime,d,target.inode_number,target.generation);
     if(open_handle_count==UINT64_MAX){free(parent_inode_backup);free(root_backup);return OPENFS_PATH_IO_ERROR;}
 }
