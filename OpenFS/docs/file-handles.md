@@ -41,16 +41,29 @@ Concurrent operations are supported while at least one valid reference exists.
 A caller must not race a final close against an operation that has not first
 acquired its own reference.
 
-## Current limitation
+## Namespace lifetime
 
-The first implementation deliberately does not yet implement the full
-persistent orphan/unlink protocol. In particular, an inode whose final
-directory link is removed must eventually be governed by a persistent orphan
-mechanism so that open-but-unlinked files remain safe across crashes.
+Open-but-unlinked files are tracked through the runtime handle registry and
+persistent orphan mechanism. The final handle reference releases the runtime
+registry entry and, when the inode is marked orphaned and no references remain,
+reclaims the inode's storage. The orphan protocol is journal-aware and is
+recovered during mount.
 
-That work belongs to the next namespace-lifetime phase. The current handle API
-therefore must not be treated as the final implementation of POSIX/Windows
-unlink-while-open semantics.
+The handle API still requires the caller to retain a reference before handing
+a raw handle pointer to another thread. This is necessary because the final
+close is allowed to destroy the object itself.
+
+## Concurrency
+
+Handle operations use the HANDLE lock rank and refresh the inode snapshot
+under the INODE lock before operations whose result depends on current inode
+state. This prevents one open-file object from writing a stale size or extent
+map after another handle has modified the inode.
+
+Runtime-owned registries are protected by runtime admission and their own
+registry locks. Namespace operations are admitted into the runtime before the
+directory lock is acquired, so unmount can safely close admission and wait for
+active users to drain.
 
 ## Design direction
 
