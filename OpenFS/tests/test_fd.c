@@ -64,6 +64,7 @@ static void concurrent_handle_io_test(openfs_block_device_t *dev, openfs_superbl
 #if defined(_WIN32)
     HANDLE threads[4];
     for(unsigned i=0U;i<4U;i++){ctx[i].h=h;uintptr_t th=_beginthreadex(NULL,0U,fd_worker,&ctx[i],0U,NULL);assert(th!=0U);threads[i]=(HANDLE)th;}
+    assert(openfs_fd_close(h)==OPENFS_FD_OK);
     assert(WaitForMultipleObjects(4,threads,TRUE,60000U)==WAIT_OBJECT_0);
     for(unsigned i=0U;i<4U;i++)CloseHandle(threads[i]);
 #else
@@ -71,7 +72,6 @@ static void concurrent_handle_io_test(openfs_block_device_t *dev, openfs_superbl
     for(unsigned i=0U;i<4U;i++){ctx[i].h=h;assert(pthread_create(&threads[i],NULL,fd_worker,&ctx[i])==0);}
     for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
 #endif
-    assert(openfs_fd_close(h)==OPENFS_FD_OK);
     for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
 }
 
