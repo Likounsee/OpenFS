@@ -5,7 +5,8 @@
 
 #include <limits.h>
 #include <stdlib.h>
-#include <string.h>\n#include <stdio.h>
+#include <string.h>
+#include <stdio.h>
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
 {
