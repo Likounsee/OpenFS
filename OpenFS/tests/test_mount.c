@@ -59,7 +59,7 @@ static void runtime_admission_unmount_barrier_regression(void)
 #endif
     /* The worker must close runtime admission before waiting for our active pin. */
     for(unsigned i=0U;i<100000U;i++){
-        assert(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK);
+        assert(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK);
         int accepting=r->accepting;
         assert(openfs_mutex_unlock(&r->lifecycle_lock)==OPENFS_LOCK_OK);
         if(!accepting)break;
