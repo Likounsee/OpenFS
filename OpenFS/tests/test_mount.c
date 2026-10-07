@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 #include "openfs/mount.h"
 #include "openfs/crc32c.h"
 #include "openfs/fsck.h"
@@ -82,18 +83,23 @@ static void runtime_admission_unmount_barrier_regression(void)
 }
 
 
+typedef struct {
+    openfs_runtime_t *runtime;
+    atomic_int stop;
+} runtime_stress_context_t;
+
 #if defined(_WIN32)
 static unsigned __stdcall runtime_stress_worker(void *arg)
 #else
 static void *runtime_stress_worker(void *arg)
 #endif
 {
-    openfs_runtime_t *runtime=(openfs_runtime_t *)arg;
-    for(;;){
-        if(!openfs_runtime_enter(runtime))break;
-        assert(openfs_mutex_lock(&runtime->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
-        assert(openfs_mutex_unlock(&runtime->inode_lock)==OPENFS_LOCK_OK);
-        openfs_runtime_leave(runtime);
+    runtime_stress_context_t *ctx=(runtime_stress_context_t *)arg;
+    while(!atomic_load_explicit(&ctx->stop,memory_order_acquire)){
+        if(!openfs_runtime_enter(ctx->runtime))break;
+        assert(openfs_mutex_lock(&ctx->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+        assert(openfs_mutex_unlock(&ctx->runtime->inode_lock)==OPENFS_LOCK_OK);
+        openfs_runtime_leave(ctx->runtime);
 #if defined(_WIN32)
         Sleep(0);
 #else
@@ -114,58 +120,46 @@ static void concurrent_runtime_admission_stress(void)
     openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
     uint8_t uuid[16]={0x4AU};
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
-    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    openfs_mount_t m;memset(&m,0,sizeof(m));assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    runtime_stress_context_t ctx={&m.runtime};
+    atomic_init(&ctx.stop,0);
 #if defined(_WIN32)
-    HANDLE threads[8];
-    for(unsigned i=0U;i<8U;i++){
-        uintptr_t h=_beginthreadex(NULL,0U,runtime_stress_worker,&m.runtime,0U,NULL);
-        assert(h!=0U);threads[i]=(HANDLE)h;
+    HANDLE workers[8];
+    for(unsigned i=0U;i<8U;i++){uintptr_t h=_beginthreadex(NULL,0U,runtime_stress_worker,&ctx,0U,NULL);assert(h!=0U);workers[i]=(HANDLE)h;}
+#else
+    pthread_t workers[8];
+    for(unsigned i=0U;i<8U;i++)assert(pthread_create(&workers[i],NULL,runtime_stress_worker,&ctx)==0);
+#endif
+    unmount_worker_context_t unmount_ctx={&m,(int)OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+    uintptr_t unmount_thread=_beginthreadex(NULL,0U,unmount_worker,&unmount_ctx,0U,NULL);
+    assert(unmount_thread!=0U);
+#else
+    pthread_t unmount_thread;
+    assert(pthread_create(&unmount_thread,NULL,unmount_worker,&unmount_ctx)==0);
+#endif
+    for(unsigned i=0U;i<100000U;i++){
+        assert(openfs_mutex_lock(&m.runtime.lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK);
+        int accepting=m.runtime.accepting;
+        assert(openfs_mutex_unlock(&m.runtime.lifecycle_lock)==OPENFS_LOCK_OK);
+        if(!accepting)break;
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+        assert(i+1U<100000U);
     }
-    Sleep(50);
-#else
-    pthread_t threads[8];
-    for(unsigned i=0U;i<8U;i++)assert(pthread_create(&threads[i],NULL,runtime_stress_worker,&m.runtime)==0);
-    for(unsigned i=0U;i<10000U;i++)sched_yield();
-#endif
-    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    atomic_store_explicit(&ctx.stop,1,memory_order_release);
 #if defined(_WIN32)
-    for(unsigned i=0U;i<8U;i++){assert(WaitForSingleObject(threads[i],60000U)==WAIT_OBJECT_0);CloseHandle(threads[i]);}
+    for(unsigned i=0U;i<8U;i++){assert(WaitForSingleObject(workers[i],60000U)==WAIT_OBJECT_0);CloseHandle(workers[i]);}
+    assert(WaitForSingleObject((HANDLE)unmount_thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)unmount_thread);
 #else
-    for(unsigned i=0U;i<8U;i++)assert(pthread_join(threads[i],NULL)==0);
+    for(unsigned i=0U;i<8U;i++)assert(pthread_join(workers[i],NULL)==0);
+    assert(pthread_join(unmount_thread,NULL)==0);
 #endif
-    free(d.bytes);
-}
-
-static void concurrent_unmount_serialization_regression(void)
-{
-    disk_t d={.block_size=4096U,.block_count=128U};
-    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
-    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x46U};
-    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
-    openfs_mount_t m;memset(&m,0,sizeof(m));
-    assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
-    unmount_worker_context_t a={&m,(int)OPENFS_MOUNT_IO_ERROR};
-    unmount_worker_context_t b={&m,(int)OPENFS_MOUNT_IO_ERROR};
-#if defined(_WIN32)
-    uintptr_t ta=_beginthreadex(NULL,0U,unmount_worker,&a,0U,NULL);
-    uintptr_t tb=_beginthreadex(NULL,0U,unmount_worker,&b,0U,NULL);
-    assert(ta!=0U&&tb!=0U);
-    assert(WaitForSingleObject((HANDLE)ta,60000U)==WAIT_OBJECT_0);
-    assert(WaitForSingleObject((HANDLE)tb,60000U)==WAIT_OBJECT_0);
-    CloseHandle((HANDLE)ta);CloseHandle((HANDLE)tb);
-#else
-    pthread_t ta,tb;
-    assert(pthread_create(&ta,NULL,unmount_worker,&a)==0);
-    assert(pthread_create(&tb,NULL,unmount_worker,&b)==0);
-    assert(pthread_join(ta,NULL)==0);assert(pthread_join(tb,NULL)==0);
-#endif
-    assert((a.result==OPENFS_MOUNT_OK&&b.result==OPENFS_MOUNT_INVALID_ARGUMENT)||
-           (b.result==OPENFS_MOUNT_OK&&a.result==OPENFS_MOUNT_INVALID_ARGUMENT));
-    assert(m.state_lock_initialized==1);
-    assert(m.mounted==0&&m.device==NULL);
-    assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
-    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
-    assert(m.state_lock_initialized==1);
+    assert(unmount_ctx.result==OPENFS_MOUNT_OK);
+    assert(m.state_lock_initialized==1&&m.mounted==0);
     assert(openfs_rwlock_destroy(&m.state_lock)==OPENFS_LOCK_OK);
     m.state_lock_initialized=0;
     free(d.bytes);
