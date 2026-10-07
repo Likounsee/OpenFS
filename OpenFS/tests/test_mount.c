@@ -94,6 +94,7 @@ static void concurrent_unmount_runtime_lock_regression(void)
     assert(openfs_mutex_lock(&r->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&r->inode_lock)==OPENFS_LOCK_OK);
     openfs_runtime_leave(r);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     assert(openfs_sync(&m)==OPENFS_MOUNT_INVALID_ARGUMENT);
     assert(r->initialized==0&&r->accepting==0);
     free(d.bytes);
