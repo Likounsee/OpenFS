@@ -82,10 +82,20 @@ int openfs_runtime_enter(openfs_runtime_t *r)
     if(r==NULL)return 0;
     if(tls_runtime==r){++tls_runtime_depth;return 1;}
     if(tls_runtime!=NULL)return 0;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    if(!runtime_lifecycle_ensure())return 0;
+    if(openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    if(!runtime_registry_contains(r)){
+        (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
+        return 0;
+    }
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK){
+        (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
+        return 0;
+    }
     int ok=r->initialized&&r->accepting;
     if(ok){if(r->active_users==UINT64_MAX)ok=0;else ++r->active_users;}
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
     if(!ok)return 0;
     tls_runtime=r;tls_runtime_depth=1U;return 1;
 }
