@@ -235,7 +235,7 @@ openfs_extent_result_t openfs_extent_tree_write(
             &previous_inline) != OPENFS_EXTENT_OK ||
         previous_inline.logical_start > UINT64_MAX - previous_inline.block_count ||
         previous_inline.physical_start > UINT64_MAX - previous_inline.block_count ||
-        extents[0].logical_start != previous_inline.logical_start + previous_inline.block_count) {
+        extents[0].logical_start < previous_inline.logical_start + previous_inline.block_count) {
         return OPENFS_EXTENT_CORRUPT;
     }
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
