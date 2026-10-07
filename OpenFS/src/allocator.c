@@ -1,6 +1,7 @@
 #include "openfs/allocator.h"
 #include "openfs/bitmap.h"
 #include "openfs/runtime.h"
+#include "openfs/cow.h"
 static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block,int value){
     if(d==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count||sb->block_bitmap_start>=d->block_count||sb->block_bitmap_blocks==0U||sb->block_bitmap_blocks>d->block_count-sb->block_bitmap_start)return OPENFS_ALLOC_CORRUPT;
@@ -36,12 +37,39 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
                 return rollback_ok?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
             }
+            if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U){
+                openfs_cow_result_t cr=openfs_cow_refcount_set(d,sb,b,1U);
+                if(cr!=OPENFS_COW_OK){
+                    int rollback_ok=openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,0)==OPENFS_BITMAP_OK;
+                    if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                    return rollback_ok?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
+                }
+            }
             *out=b; return OPENFS_ALLOC_OK;
         }
     }
     return OPENFS_ALLOC_OUT_OF_SPACE;
 }
-static openfs_alloc_result_t free_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block){return set_block(d,sb,block,0);}
+static openfs_alloc_result_t free_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block)
+{
+    if((sb->feature_flags&OPENFS_FEATURE_COW)==0U)return set_block(d,sb,block,0);
+    uint16_t refs=0U;
+    openfs_cow_result_t cr=openfs_cow_refcount_get(d,sb,block,&refs);
+    if(cr!=OPENFS_COW_OK)return cr==OPENFS_COW_UNSUPPORTED?set_block(d,sb,block,0):OPENFS_ALLOC_CORRUPT;
+    if(refs==0U)return OPENFS_ALLOC_CORRUPT;
+    if(refs>1U){
+        cr=openfs_cow_refcount_dec(d,sb,block,NULL);
+        return cr==OPENFS_COW_OK?OPENFS_ALLOC_OK:OPENFS_ALLOC_CORRUPT;
+    }
+    cr=openfs_cow_refcount_set(d,sb,block,0U);
+    if(cr!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;
+    openfs_alloc_result_t r=set_block(d,sb,block,0);
+    if(r!=OPENFS_ALLOC_OK){
+        (void)openfs_cow_refcount_set(d,sb,block,1U);
+        return r;
+    }
+    return OPENFS_ALLOC_OK;
+}
 
 static openfs_alloc_result_t lock_allocation(const openfs_superblock_t *sb)
 {
