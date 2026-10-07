@@ -67,10 +67,16 @@ static openfs_xattr_result_t build_block(uint8_t*b,uint32_t bs,uint64_t generati
     p32(src+20U,(uint32_t)out);p32(src+24U,count);p32(src+28U,0U);p32(src+28U,openfs_crc32c(src,bs));memcpy(b,src,bs);free(src);return OPENFS_XATTR_OK;
 }
 static openfs_xattr_result_t lock_inode(const openfs_superblock_t*s){
-    if(s!=NULL&&s->runtime!=NULL&&s->runtime->initialized&&openfs_mutex_lock(&s->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)return OPENFS_XATTR_IO_ERROR;
+    if(s==NULL||s->runtime==NULL)return OPENFS_XATTR_OK;
+    if(!openfs_runtime_enter(s->runtime))return OPENFS_XATTR_IO_ERROR;
+    if(openfs_mutex_lock(&s->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(s->runtime);return OPENFS_XATTR_IO_ERROR;}
     return OPENFS_XATTR_OK;
 }
-static void unlock_inode(const openfs_superblock_t*s){if(s!=NULL&&s->runtime!=NULL&&s->runtime->initialized)(void)openfs_mutex_unlock(&s->runtime->inode_lock);}
+static void unlock_inode(const openfs_superblock_t*s){
+    if(s==NULL||s->runtime==NULL)return;
+    (void)openfs_mutex_unlock(&s->runtime->inode_lock);
+    openfs_runtime_leave(s->runtime);
+}
 
 openfs_xattr_result_t openfs_xattr_validate_inode(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*in){if(!openfs_block_device_is_valid(d)||s==NULL||in==NULL)return OPENFS_XATTR_INVALID_ARGUMENT;uint64_t xb=openfs_inode_get_xattr_block(in);if(xb==0U)return OPENFS_XATTR_OK;if(!valid_xblock(d,s,xb))return OPENFS_XATTR_CORRUPT;uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_XATTR_IO_ERROR;if(d->read(d->context,xb,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_XATTR_IO_ERROR;}openfs_xattr_result_t r=decode_block(b,d->block_size,in->generation);free(b);return r;}
 
