@@ -46,7 +46,7 @@ int main(void)
     assert(openfs_file_read(&v,&m.superblock,&clone_check,0U,out,sizeof(out),&got)==OPENFS_FILE_OK&&got==sizeof(out)&&out[0]=='B');
 
     assert(openfs_free_block(&v,&m.superblock,clone_extent.physical_start)==OPENFS_ALLOC_OK);
-    clone_check.flags=0U;clone_check.extent_count=0U;clone_check.blocks=0U;clone_check.link_count=0U;clone_check.mode=OPENFS_INODE_MODE_FREE;
+    clone_check.flags=0U;clone_check.extent_count=0U;clone_check.blocks=0U;clone_check.link_count=0U;clone_check.size=0U;clone_check.mode=OPENFS_INODE_MODE_FREE;
     assert(openfs_inode_write(&v,m.superblock.inode_table_start,count,&clone_check)==OPENFS_INODE_OK);
     assert(openfs_inode_free(&v,&m.superblock,clone_ino)==OPENFS_INODE_ALLOC_OK);
     uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
