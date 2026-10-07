@@ -43,23 +43,25 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
 }
 static openfs_alloc_result_t free_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block){return set_block(d,sb,block,0);}
 
-static int allocation_lock(const openfs_superblock_t *sb)
+static openfs_alloc_result_t lock_allocation(const openfs_superblock_t *sb)
 {
-    return sb!=NULL&&sb->runtime!=NULL&&sb->runtime->initialized;
+    if(sb==NULL||sb->runtime==NULL)return OPENFS_ALLOC_OK;
+    if(!openfs_runtime_enter(sb->runtime))return OPENFS_ALLOC_IO_ERROR;
+    if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){openfs_runtime_leave(sb->runtime);return OPENFS_ALLOC_IO_ERROR;}
+    return OPENFS_ALLOC_OK;
+}
+static void unlock_allocation(const openfs_superblock_t *sb){
+    if(sb==NULL||sb->runtime==NULL)return;
+    (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);
+    openfs_runtime_leave(sb->runtime);
 }
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out)
 {
-    if(!allocation_lock(sb))return alloc_block_unlocked(d,sb,out);
-    if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)return OPENFS_ALLOC_IO_ERROR;
-    openfs_alloc_result_t r=alloc_block_unlocked(d,sb,out);
-    (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);
-    return r;
+    openfs_alloc_result_t lr=lock_allocation(sb);if(lr!=OPENFS_ALLOC_OK)return lr;
+    openfs_alloc_result_t r=alloc_block_unlocked(d,sb,out);unlock_allocation(sb);return r;
 }
 openfs_alloc_result_t openfs_free_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block)
 {
-    if(!allocation_lock(sb))return free_block_unlocked(d,sb,block);
-    if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)return OPENFS_ALLOC_IO_ERROR;
-    openfs_alloc_result_t r=free_block_unlocked(d,sb,block);
-    (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);
-    return r;
+    openfs_alloc_result_t lr=lock_allocation(sb);if(lr!=OPENFS_ALLOC_OK)return lr;
+    openfs_alloc_result_t r=free_block_unlocked(d,sb,block);unlock_allocation(sb);return r;
 }
