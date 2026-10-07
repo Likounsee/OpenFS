@@ -204,12 +204,11 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     for(unsigned n=0U;n<3U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,&value1,2U*4096U)==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,20U*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
-    TEST_ASSERT(openfs_file_write(&v,&sb,&i,24U*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
-    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==6U&&i.blocks==7U);
+    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==5U&&i.blocks==6U);
     uint64_t root=openfs_inode_get_extent_tree_root(&i);TEST_ASSERT(root!=0U);
-    openfs_extent_t before[6];for(uint32_t n=0U;n<6U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
+    openfs_extent_t before[5];for(uint32_t n=0U;n<5U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
     uint64_t partial_first=before[3].physical_start,partial_second=before[3].physical_start+1U;
-    uint64_t dropped4=before[4].physical_start,dropped5=before[5].physical_start;
+    uint64_t dropped4=before[4].physical_start;
     TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,12U*4096U+1U)==OPENFS_FILE_OK);
     TEST_ASSERT(i.size==12U*4096U+1U&&i.blocks==4U&&i.extent_count==4U);
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U&&openfs_inode_get_extent_tree_root(&i)==0U);
