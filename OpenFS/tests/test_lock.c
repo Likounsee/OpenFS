@@ -60,6 +60,18 @@ int main(void)
     assert(openfs_mutex_unlock(&handle_order)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&handle_order)==OPENFS_LOCK_OK);
 
+    /* Registry locks sit above inode locks but below allocation/journal. */
+    openfs_mutex_t registry_order;
+    assert(openfs_mutex_init(&registry_order)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&registry_order,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&registry_order)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&registry_order,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_unlock(&registry_order)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&registry_order)==OPENFS_LOCK_OK);
+
     openfs_mutex_t ordered;
     assert(openfs_mutex_init(&ordered)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&ordered,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
