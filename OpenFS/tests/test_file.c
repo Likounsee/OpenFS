@@ -199,7 +199,10 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
 
 static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t value0=0x10U,value1=0x20U;
+    uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-tree-inline",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,inode_count,&i)==OPENFS_INODE_OK);
+    uint8_t value0=0x10U,value1=0x20U;
     const uint64_t logicals[3]={0U,4U,8U};
     for(unsigned n=0U;n<3U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,&value1,2U*4096U)==OPENFS_FILE_OK);
@@ -228,9 +231,11 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
 }
 
 static void sparse_truncate_shrink_tree_keeps_root_and_holes(void){
-    fprintf(stderr,"sparse-tree-keep: start\\n");
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t value=0x9AU;
+    uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-tree-root",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,inode_count,&i)==OPENFS_INODE_OK);
+    uint8_t value=0x9AU;
     const uint64_t logicals[6]={0U,4U,8U,12U,16U,24U};
     openfs_extent_t before[6];
     for(unsigned n=0U;n<6U;n++){
@@ -238,10 +243,8 @@ static void sparse_truncate_shrink_tree_keeps_root_and_holes(void){
         TEST_ASSERT(n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX ? openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK : openfs_extent_tree_read(&v,&sb,&i,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX,&before[n])==OPENFS_EXTENT_OK);
     }
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==6U&&i.blocks==6U);
-    fprintf(stderr,"sparse-tree-keep: before truncate\\n");
     uint64_t root=openfs_inode_get_extent_tree_root(&i);TEST_ASSERT(root!=0U);
     TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,17U*4096U+1U)==OPENFS_FILE_OK);
-    fprintf(stderr,"sparse-tree-keep: after truncate\\n");
     TEST_ASSERT(i.size==17U*4096U+1U&&i.blocks==5U&&i.extent_count==5U);
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&openfs_inode_get_extent_tree_root(&i)==root);
     int used=0;
@@ -250,9 +253,7 @@ static void sparse_truncate_shrink_tree_keeps_root_and_holes(void){
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,16U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,17U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,2U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
-    uint64_t errors=0U;openfs_fsck_result_t fsck_result=openfs_fsck(&v,&sb,&errors);
-    if(fsck_result!=OPENFS_FSCK_OK||errors!=0U)fprintf(stderr,"sparse-tree-keep: fsck result=%d errors=%llu\\n",(int)fsck_result,(unsigned long long)errors);
-    TEST_ASSERT(fsck_result==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 
