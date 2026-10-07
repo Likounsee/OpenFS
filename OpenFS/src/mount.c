@@ -116,7 +116,7 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
     out->block_bitmap_start=get64(raw+52U);out->block_bitmap_blocks=get64(raw+60U);out->inode_bitmap_start=get64(raw+68U);out->inode_bitmap_blocks=get64(raw+76U);
     out->inode_table_start=get64(raw+84U);out->inode_table_blocks=get64(raw+92U);out->journal_start=get64(raw+100U);out->journal_blocks=get64(raw+108U);
     out->data_start=get64(raw+116U);out->data_blocks=get64(raw+124U);out->root_inode=get64(raw+132U);out->generation=get64(raw+140U);
-    memcpy(out->uuid,raw+148U,16U);free(raw);
+    memcpy(out->uuid,raw+148U,16U);out->refcount_start=get64(raw+164U);out->refcount_blocks=get64(raw+172U);free(raw);
     return openfs_validate_superblock(d,out);
 }
 
