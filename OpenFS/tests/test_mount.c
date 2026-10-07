@@ -41,6 +41,36 @@ static void *unmount_worker(void *arg)
 #endif
 }
 
+static void concurrent_double_unmount_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x51U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+
+    unmount_worker_context_t a={&m,(int)OPENFS_MOUNT_IO_ERROR};
+    unmount_worker_context_t b={&m,(int)OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+    HANDLE ta=(HANDLE)_beginthreadex(NULL,0U,unmount_worker,&a,0U,NULL);
+    HANDLE tb=(HANDLE)_beginthreadex(NULL,0U,unmount_worker,&b,0U,NULL);
+    assert(ta!=NULL&&tb!=NULL);
+    assert(WaitForMultipleObjects(2,(HANDLE[2]){ta,tb},TRUE,60000U)==WAIT_OBJECT_0);
+    CloseHandle(ta);CloseHandle(tb);
+#else
+    pthread_t ta,tb;
+    assert(pthread_create(&ta,NULL,unmount_worker,&a)==0);
+    assert(pthread_create(&tb,NULL,unmount_worker,&b)==0);
+    assert(pthread_join(ta,NULL)==0);
+    assert(pthread_join(tb,NULL)==0);
+#endif
+    assert((a.result==OPENFS_MOUNT_OK&&b.result==OPENFS_MOUNT_INVALID_ARGUMENT) ||
+           (b.result==OPENFS_MOUNT_OK&&a.result==OPENFS_MOUNT_INVALID_ARGUMENT));
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_INVALID_ARGUMENT);
+    free(d.bytes);
+}
+
 static void runtime_admission_unmount_barrier_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=128U};
@@ -165,6 +195,7 @@ static void backup_superblock_extent_tree_regression(void)
 }
 
 int main(void){
+ concurrent_double_unmount_regression();
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
  disk_t d={.block_size=4096U,.block_count=128U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
