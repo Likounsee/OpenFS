@@ -250,7 +250,9 @@ static void sparse_truncate_shrink_tree_keeps_root_and_holes(void){
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,16U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,17U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,2U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
-    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;openfs_fsck_result_t fsck_result=openfs_fsck(&v,&sb,&errors);
+    if(fsck_result!=OPENFS_FSCK_OK||errors!=0U)fprintf(stderr,"sparse-tree-keep: fsck result=%d errors=%llu\\n",(int)fsck_result,(unsigned long long)errors);
+    TEST_ASSERT(fsck_result==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 
