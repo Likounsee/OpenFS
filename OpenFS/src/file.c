@@ -589,7 +589,7 @@ static openfs_file_result_t file_truncate_unlocked(
                 int ok=1;
                 if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
                 for(uint64_t k=0U;k<removed;k++){
-                    if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
+                    if(!restore_released_block(device,sb,freed[k]))ok=0;
                 }
                 if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
                 if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
@@ -603,7 +603,7 @@ static openfs_file_result_t file_truncate_unlocked(
         if(device->flush(device->context)!=OPENFS_IO_OK){
             int ok=1;
             for(uint64_t k=0U;k<removed;k++){
-                if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
+                if(!restore_released_block(device,sb,freed[k]))ok=0;
             }
             if(root_freed&&!restore_released_block(device,sb,old_root))ok=0;
             if(old_root!=0U&&new_root==old_root&&old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
