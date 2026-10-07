@@ -9,6 +9,7 @@
 #include "openfs/inode_alloc.h"
 #include "openfs/path.h"
 #include "openfs/fd.h"
+#include "openfs/cow.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -185,6 +186,50 @@ static void stale_superblock_is_rejected_after_unmount(void)
     free(d.bytes);
 }
 
+typedef struct {openfs_block_device_t *device;openfs_superblock_t *superblock;uint64_t block;unsigned failures;} cow_ref_worker_context_t;
+#if defined(_WIN32)
+static unsigned __stdcall cow_ref_worker(void *arg)
+#else
+static void *cow_ref_worker(void *arg)
+#endif
+{
+    cow_ref_worker_context_t *ctx=(cow_ref_worker_context_t *)arg;
+    for(unsigned i=0U;i<64U;i++)if(openfs_cow_refcount_inc(ctx->device,ctx->superblock,ctx->block,NULL)!=OPENFS_COW_OK)ctx->failures++;
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+static void concurrent_cow_refcount_update_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x47U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    uint64_t block=0U;assert(openfs_alloc_block(&v,&m.superblock,&block)==OPENFS_ALLOC_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,block,(uint16_t[1]){0})==OPENFS_COW_OK);
+    cow_ref_worker_context_t ctx[4];memset(ctx,0,sizeof(ctx));
+#if defined(_WIN32)
+    HANDLE threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].device=&v;ctx[i].superblock=&m.superblock;ctx[i].block=block;uintptr_t h=_beginthreadex(NULL,0U,cow_ref_worker,&ctx[i],0U,NULL);assert(h!=0U);threads[i]=(HANDLE)h;}
+    assert(WaitForMultipleObjects(4,threads,TRUE,60000U)==WAIT_OBJECT_0);
+    for(unsigned i=0U;i<4U;i++)CloseHandle(threads[i]);
+#else
+    pthread_t threads[4];
+    for(unsigned i=0U;i<4U;i++){ctx[i].device=&v;ctx[i].superblock=&m.superblock;ctx[i].block=block;assert(pthread_create(&threads[i],NULL,cow_ref_worker,&ctx[i])==0);}
+    for(unsigned i=0U;i<4U;i++)assert(pthread_join(threads[i],NULL)==0);
+#endif
+    for(unsigned i=0U;i<4U;i++)assert(ctx[i].failures==0U);
+    uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,block,&refs)==OPENFS_COW_OK&&refs==257U);
+    for(unsigned i=0U;i<256U;i++)assert(openfs_cow_refcount_dec(&v,&m.superblock,block,NULL)==OPENFS_COW_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,block,&refs)==OPENFS_COW_OK&&refs==1U);
+    assert(openfs_free_block(&v,&m.superblock,block)==OPENFS_ALLOC_OK);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
+}
+
 static void stale_runtime_admission_is_rejected(void)
 {
     openfs_runtime_t runtime;
@@ -322,6 +367,7 @@ int main(void){
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
+ concurrent_cow_refcount_update_regression();
  stale_runtime_admission_is_rejected();
  stale_superblock_is_rejected_after_unmount();
  concurrent_double_unmount_regression();
