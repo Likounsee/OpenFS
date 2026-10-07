@@ -938,6 +938,7 @@ static openfs_file_result_t file_write_unlocked(
         uint64_t physical = 0U;
         r = map_block_on_disk(device, sb, inode, logical, &physical);
         if (r != OPENFS_FILE_OK || validate_allocated_block(device, sb, physical) != OPENFS_FILE_OK) {
+            if(first_logical==16U) fprintf(stderr,"sparse map failed r=%d physical=%llu\\n",(int)r,(unsigned long long)physical);
             free(block);
             int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count) == OPENFS_FILE_OK;
             *inode = original;
