@@ -572,7 +572,7 @@ static openfs_file_result_t file_truncate_unlocked(
                 int ok=1;
                 if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
                 for(uint64_t k=0U;k<n;k++){
-                    if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
+                    if(!restore_released_block(device,sb,freed[k]))ok=0;
                 }
                 if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
                 if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
@@ -604,7 +604,7 @@ static openfs_file_result_t file_truncate_unlocked(
             for(uint64_t k=0U;k<removed;k++){
                 if(openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,freed[k],1)!=OPENFS_BITMAP_OK)ok=0;
             }
-            if(root_freed&&openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,old_root,1)!=OPENFS_BITMAP_OK)ok=0;
+            if(root_freed&&!restore_released_block(device,sb,old_root))ok=0;
             if(old_root!=0U&&new_root==old_root&&old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
             if(shrink_tail_saved&&device->write(device->context,shrink_tail_physical,1U,shrink_tail_backup)!=OPENFS_IO_OK)ok=0;
             if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
@@ -800,6 +800,21 @@ static void sparse_free_blocks(openfs_block_device_t *d,const openfs_superblock_
 {
     if(d==NULL||sb==NULL||blocks==NULL)return;
     for(uint64_t i=0U;i<count;i++)(void)openfs_free_block(d,sb,blocks[i]);
+}
+
+static int restore_released_block(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block)
+{
+    if(d==NULL||sb==NULL)return 0;
+    if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U){
+        uint16_t refs=0U;
+        if(openfs_cow_refcount_get(d,sb,block,&refs)!=OPENFS_COW_OK)return 0;
+        if(refs==0U){if(openfs_cow_refcount_set(d,sb,block,1U)!=OPENFS_COW_OK)return 0;}
+        else if(refs==OPENFS_COW_MAX_REFCOUNT||openfs_cow_refcount_inc(d,sb,block,NULL)!=OPENFS_COW_OK)return 0;
+    }
+    int allocated=0;
+    if(openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,block,&allocated)!=OPENFS_BITMAP_OK)return 0;
+    if(!allocated&&openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,block,1)!=OPENFS_BITMAP_OK)return 0;
+    return d->flush(d->context)==OPENFS_IO_OK;
 }
 
 static openfs_file_result_t sparse_restore_layout(openfs_block_device_t *d,
