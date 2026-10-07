@@ -2,7 +2,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -117,7 +116,7 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
     out->block_bitmap_start=get64(raw+52U);out->block_bitmap_blocks=get64(raw+60U);out->inode_bitmap_start=get64(raw+68U);out->inode_bitmap_blocks=get64(raw+76U);
     out->inode_table_start=get64(raw+84U);out->inode_table_blocks=get64(raw+92U);out->journal_start=get64(raw+100U);out->journal_blocks=get64(raw+108U);
     out->data_start=get64(raw+116U);out->data_blocks=get64(raw+124U);out->root_inode=get64(raw+132U);out->generation=get64(raw+140U);
-    memcpy(out->uuid,raw+148U,16U);free(raw);
+    memcpy(out->uuid,raw+148U,16U);out->refcount_start=get64(raw+164U);out->refcount_blocks=get64(raw+172U);free(raw);
     return openfs_validate_superblock(d,out);
 }
 
@@ -177,7 +176,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
         return (pr==OPENFS_FORMAT_IO_ERROR||br==OPENFS_FORMAT_IO_ERROR)?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     }
     if(pr==OPENFS_FORMAT_OK&&br==OPENFS_FORMAT_OK){
-        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: superblock read\n");fprintf(stderr,"mount corrupt: layout mismatch\n");fprintf(stderr,"mount corrupt: superblock validation\n");return OPENFS_MOUNT_CORRUPT;}
+        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);mount_lifecycle_unlock();return OPENFS_MOUNT_CORRUPT;}
         mount->superblock=(backup.generation>primary.generation)?backup:primary;
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
@@ -187,12 +186,12 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     if(!openfs_runtime_init(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     mount->superblock.runtime=&mount->runtime;
     openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
-    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: journal replay\n");return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
+    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
     if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     openfs_orphan_result_t orphan_result=openfs_orphan_recover_all(device,&mount->superblock);
     if(orphan_result!=OPENFS_ORPHAN_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
-    openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();fprintf(stderr,"mount corrupt: journal checkpoint\n");return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;}
+    openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(&mount->journal,device);if(checkpoint_result!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_MOUNT_CORRUPT:OPENFS_MOUNT_IO_ERROR;}
     mount->mounted=1;
     registry_entry->next=openfs_mount_registry;
     openfs_mount_registry=registry_entry;
@@ -218,7 +217,7 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
     if(r!=OPENFS_MOUNT_OK){openfs_rwlock_unlock(&mount->state_lock);mount_lifecycle_unlock();return r;}
     if(!openfs_runtime_shutdown_if_unused(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
-    mount->mounted=0;mount->device=NULL;mount->superblock.runtime=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
+    mount->mounted=0;mount->device=NULL;/* Keep the last superblock/runtime pointer immutable after shutdown; runtime admission rejects stale copies. */memset(&mount->journal,0,sizeof(mount->journal));
     openfs_rwlock_unlock(&mount->state_lock);
     openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;
     mount_registry_remove(mount);
