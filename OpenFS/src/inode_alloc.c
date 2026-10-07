@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
+#include "openfs/runtime.h"
 
 static openfs_inode_alloc_result_t inode_count(
     const openfs_superblock_t *sb,
@@ -30,7 +31,7 @@ static openfs_inode_alloc_result_t valid(
         sb->inode_table_start >= d->block_count || sb->inode_table_blocks > d->block_count - sb->inode_table_start) {
         return OPENFS_INODE_ALLOC_CORRUPT;
     }
-    return OPENFS_INODE_ALLOC_OK;
+    if(admitted){(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);}return OPENFS_INODE_ALLOC_OK;
 }
 
 openfs_inode_alloc_result_t openfs_inode_alloc(
@@ -40,6 +41,9 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
     uint32_t mode,
     uint64_t *out)
 {
+    int admitted=0;
+    if(sb!=NULL&&sb->runtime!=NULL){if(!openfs_runtime_enter(sb->runtime))return OPENFS_INODE_ALLOC_IO_ERROR;admitted=1;
+        if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){openfs_runtime_leave(sb->runtime);return OPENFS_INODE_ALLOC_IO_ERROR;}}
     openfs_inode_alloc_result_t r = valid(d, sb);
     if (r != OPENFS_INODE_ALLOC_OK || out == NULL || parent == 0U) {
         return r != OPENFS_INODE_ALLOC_OK ? r : OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
@@ -118,7 +122,7 @@ openfs_inode_alloc_result_t openfs_inode_alloc(
         *out = n;
         return OPENFS_INODE_ALLOC_OK;
     }
-    return OPENFS_INODE_ALLOC_OUT_OF_SPACE;
+    if(admitted){(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);}return OPENFS_INODE_ALLOC_OUT_OF_SPACE;
 }
 
 openfs_inode_alloc_result_t openfs_inode_free(
@@ -126,6 +130,8 @@ openfs_inode_alloc_result_t openfs_inode_free(
     const openfs_superblock_t *sb,
     uint64_t n)
 {
+    int admitted=0;
+    if(sb!=NULL&&sb->runtime!=NULL){if(!openfs_runtime_enter(sb->runtime))return OPENFS_INODE_ALLOC_IO_ERROR;admitted=1;if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){openfs_runtime_leave(sb->runtime);return OPENFS_INODE_ALLOC_IO_ERROR;}}
     openfs_inode_alloc_result_t r = valid(d, sb);
     if (r != OPENFS_INODE_ALLOC_OK || n == 0U) {
         return r != OPENFS_INODE_ALLOC_OK ? r : OPENFS_INODE_ALLOC_INVALID_ARGUMENT;
