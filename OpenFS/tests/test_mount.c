@@ -168,6 +168,16 @@ static void concurrent_double_unmount_regression(void)
     free(d.bytes);
 }
 
+static void stale_runtime_admission_is_rejected(void)
+{
+    openfs_runtime_t runtime;
+    assert(openfs_runtime_init(&runtime)==1);
+    assert(openfs_runtime_enter(&runtime)==1);
+    openfs_runtime_leave(&runtime);
+    openfs_runtime_destroy(&runtime);
+    assert(openfs_runtime_enter(&runtime)==0);
+}
+
 static void runtime_admission_unmount_barrier_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=128U};
@@ -295,6 +305,7 @@ int main(void){
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
+ stale_runtime_admission_is_rejected();
  concurrent_double_unmount_regression();
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
