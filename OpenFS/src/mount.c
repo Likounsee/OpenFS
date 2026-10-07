@@ -140,7 +140,7 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
         openfs_rwlock_unlock(&mount->state_lock);
         return OPENFS_MOUNT_IO_ERROR;
     }
-    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){
+    if(openfs_runtime_handle_count_all_quiescent(&mount->runtime)!=0U){
         openfs_runtime_cancel_shutdown(&mount->runtime);
         openfs_rwlock_unlock(&mount->state_lock);
         return OPENFS_MOUNT_IO_ERROR;
