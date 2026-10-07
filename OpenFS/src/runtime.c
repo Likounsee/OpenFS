@@ -10,7 +10,7 @@ int openfs_runtime_enter(openfs_runtime_t *r)
     if(r==NULL)return 0;
     if(tls_runtime==r){++tls_runtime_depth;return 1;}
     if(tls_runtime!=NULL)return 0;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
     int ok=r->initialized&&r->accepting;
     if(ok){if(r->active_users==UINT64_MAX)ok=0;else ++r->active_users;}
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
@@ -24,7 +24,7 @@ void openfs_runtime_leave(openfs_runtime_t *r)
     --tls_runtime_depth;
     if(tls_runtime_depth!=0U)return;
     tls_runtime=NULL;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
     if(r->active_users!=0U)--r->active_users;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
 }
@@ -127,16 +127,16 @@ fail0:return 0;
 }
 void openfs_runtime_destroy(openfs_runtime_t*r){
     if(r==NULL||!r->initialized)return;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
     r->accepting=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
     for(;;){
-        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
         uint64_t active=r->active_users;
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
         if(active==0U)break;
     }
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK){r->initialized=0;(void)openfs_mutex_unlock(&r->lifecycle_lock);}
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK){r->initialized=0;(void)openfs_mutex_unlock(&r->lifecycle_lock);}
     unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
     openfs_handle_entry_t *e=entries(r);while(e!=NULL){openfs_handle_entry_t*n=e->next;free(e);e=n;}
     r->open_handles=NULL;r->file_locks=NULL;
