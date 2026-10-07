@@ -51,9 +51,10 @@ openfs_fd_result_t openfs_fd_close(openfs_file_handle_t*h){if(h==NULL||!h->lock_
     (void)openfs_mutex_unlock(&h->lock);
     openfs_file_lock_release_all(h);
     (void)openfs_mutex_destroy(&h->lock);h->lock_initialized=0;
+    int runtime_pinned=runtime!=NULL&&openfs_runtime_enter(runtime);
     int registry_released=1;
-    if(runtime!=NULL&&runtime->initialized)registry_released=openfs_runtime_handle_release(runtime,device,inode_number,generation);
-    if(registry_released&&runtime!=NULL&&runtime->initialized){
+    if(runtime_pinned)registry_released=openfs_runtime_handle_release(runtime,device,inode_number,generation);
+    if(registry_released&&runtime_pinned){
         openfs_inode_t current;
         uint64_t count=0U;
         if(inode_count(&h->superblock,&count)==OPENFS_FD_OK&&
@@ -62,6 +63,7 @@ openfs_fd_result_t openfs_fd_close(openfs_file_handle_t*h){if(h==NULL||!h->lock_
             (void)openfs_orphan_reclaim(device,&h->superblock,inode_number);
         }
     }
+    if(runtime_pinned)openfs_runtime_leave(runtime);
     free(h);return OPENFS_FD_OK;}
 openfs_fd_result_t openfs_fd_dup(openfs_file_handle_t*h,openfs_file_handle_t**out){if(out==NULL)return OPENFS_FD_INVALID_ARGUMENT;*out=NULL;openfs_fd_result_t r=handle_lock(h);if(r!=OPENFS_FD_OK)return r;if(h->closed||h->references==0U){(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_CLOSED;}if(h->references==UINT32_MAX){(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_IO_ERROR;}h->references++;*out=h;(void)openfs_mutex_unlock(&h->lock);return OPENFS_FD_OK;}
 openfs_fd_result_t openfs_fd_read(openfs_file_handle_t*h,void*b,size_t n,size_t*got)
@@ -120,7 +122,7 @@ openfs_fd_result_t openfs_fd_stat(openfs_file_handle_t*h,openfs_inode_t*out)
     (void)openfs_mutex_unlock(&h->lock);return r;
 }
 
-uint64_t openfs_fd_inode_number(const openfs_file_handle_t*h){return h==NULL?0U:h->inode.inode_number;}
+uint64_t openfs_fd_inode_number(const openfs_file_handle_t*h){if(h==NULL||!h->lock_initialized)return 0U;openfs_file_handle_t *mutable=(openfs_file_handle_t*)h;if(openfs_mutex_lock(&mutable->lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0U;uint64_t n=(mutable->closed||mutable->references==0U)?0U:mutable->inode.inode_number;(void)openfs_mutex_unlock(&mutable->lock);return n;}
 
 
 
