@@ -29,6 +29,7 @@ int openfs_runtime_handle_acquire(openfs_runtime_t *, const void *, uint64_t, ui
 int openfs_runtime_handle_release(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count(openfs_runtime_t *, const void *, uint64_t, uint64_t);
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t *);
+uint64_t openfs_runtime_handle_count_all_quiescent(openfs_runtime_t *);
 #ifdef __cplusplus
 }
 #endif
