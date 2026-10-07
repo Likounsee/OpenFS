@@ -35,7 +35,11 @@ The handle has a reference count. Closing one reference does not destroy the
 underlying object while other references still exist.
 
 The handle mutex serializes offset and inode-snapshot updates performed through
-that open-file object.
+that open-file object. A reference must be retained before another thread or
+component receives a handle pointer; the final close may destroy the object.
+Concurrent operations are supported while at least one valid reference exists.
+A caller must not race a final close against an operation that has not first
+acquired its own reference.
 
 ## Current limitation
 
