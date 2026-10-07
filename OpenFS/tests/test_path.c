@@ -170,7 +170,7 @@ TEST_ASSERT(openfs_path_chmod(&v,&s,"/home/test",0755U)==OPENFS_PATH_OK);TEST_AS
     TEST_ASSERT(openfs_path_rename(&v,&s,"/home/r-replace-parent/src","/home/r-replace-parent2/dst")==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_path_lookup(&v,&s,"/home/r-replace-parent/src",&q)==OPENFS_PATH_NOT_FOUND);
     TEST_ASSERT(openfs_path_lookup(&v,&s,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);
-    {openfs_mount_t remount;TEST_ASSERT(openfs_mount(&remount,&v)==OPENFS_MOUNT_OK);TEST_ASSERT(openfs_path_lookup(&v,&remount.superblock,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);TEST_ASSERT(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
+    {openfs_mount_t remount;openfs_mount_result_t remount_result=openfs_mount(&remount,&v);if(remount_result!=OPENFS_MOUNT_OK)fprintf(stderr,"remount=%d reason=%s\n",(int)remount_result,openfs_validate_superblock_reason(&v,&s));TEST_ASSERT(remount_result==OPENFS_MOUNT_OK);TEST_ASSERT(openfs_path_lookup(&v,&remount.superblock,"/home/r-replace-parent2/dst",&q)==OPENFS_PATH_OK&&q==a);uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&remount.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);TEST_ASSERT(openfs_unmount(&remount)==OPENFS_MOUNT_OK);}
 }
 {
     uint64_t src=0U,dst=0U;TEST_ASSERT(openfs_path_create(&v,&s,"/home/test/rb-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);TEST_ASSERT(openfs_path_create(&v,&s,"/home/test/rb-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
