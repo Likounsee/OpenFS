@@ -18,6 +18,7 @@ typedef struct openfs_runtime {
     uint64_t active_users;
     int accepting;
     int initialized;
+    int destroying;
 } openfs_runtime_t;
 int openfs_runtime_enter(openfs_runtime_t *);
 void openfs_runtime_leave(openfs_runtime_t *);
