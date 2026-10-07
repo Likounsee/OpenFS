@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <stdio.h>
 #include "openfs/time.h"
 #include "openfs/runtime.h"
 #include "openfs/orphan.h"
