@@ -24,6 +24,7 @@ typedef struct {
     openfs_journal_t journal;
     openfs_rwlock_t state_lock;
     int state_lock_initialized;
+    uint64_t state_lock_magic;
     openfs_runtime_t runtime;
 } openfs_mount_t;
 
