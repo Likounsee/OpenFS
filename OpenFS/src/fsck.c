@@ -217,7 +217,7 @@ static int validate_symlink_payload(openfs_block_device_t*d,const openfs_superbl
 static uint8_t inode_dir_type(uint32_t mode){
 switch(mode&OPENFS_INODE_TYPE_MASK){case OPENFS_INODE_MODE_REGULAR:return 1U;case OPENFS_INODE_MODE_DIRECTORY:return 2U;case OPENFS_INODE_MODE_SYMLINK:return 3U;default:return 0U;}}
 #define FSCK_PROGRESS(done,total,stage) do { if(progress!=NULL) progress(progress_context,(done),(total),(stage)); } while(0)
-openfs_fsck_result_t openfs_fsck_with_progress_and_diagnostics(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_diagnostic_t *diagnostic_out,openfs_fsck_progress_callback_t progress,void *progress_context){
+static openfs_fsck_result_t fsck_core(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_diagnostic_t *diagnostic_out,openfs_fsck_progress_callback_t progress,void *progress_context){
 openfs_fsck_diagnostic_t diagnostic={0};
 FSCK_PROGRESS(0U,100U,"initialisation");
 FSCK_PROGRESS(1U,100U,"lecture des superblocs");
