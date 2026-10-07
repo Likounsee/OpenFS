@@ -41,6 +41,68 @@ static void *unmount_worker(void *arg)
 #endif
 }
 
+typedef struct {
+    openfs_runtime_t *runtime;
+} runtime_destroy_worker_context_t;
+
+#if defined(_WIN32)
+static unsigned __stdcall runtime_destroy_worker(void *arg)
+#else
+static void *runtime_destroy_worker(void *arg)
+#endif
+{
+    runtime_destroy_worker_context_t *ctx=(runtime_destroy_worker_context_t *)arg;
+    openfs_runtime_destroy(ctx->runtime);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+static void concurrent_runtime_destroy_regression(void)
+{
+    openfs_runtime_t runtime;
+    assert(openfs_runtime_init(&runtime)==1);
+    assert(openfs_runtime_enter(&runtime)==1);
+
+    runtime_destroy_worker_context_t ctx={&runtime};
+#if defined(_WIN32)
+    HANDLE a=(HANDLE)_beginthreadex(NULL,0U,runtime_destroy_worker,&ctx,0U,NULL);
+    HANDLE b=(HANDLE)_beginthreadex(NULL,0U,runtime_destroy_worker,&ctx,0U,NULL);
+    assert(a!=NULL&&b!=NULL);
+#else
+    pthread_t a,b;
+    assert(pthread_create(&a,NULL,runtime_destroy_worker,&ctx)==0);
+    assert(pthread_create(&b,NULL,runtime_destroy_worker,&ctx)==0);
+#endif
+
+    for(unsigned i=0U;i<100000U;i++){
+        assert(openfs_mutex_lock(&runtime.lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK);
+        int accepting=runtime.accepting;
+        assert(openfs_mutex_unlock(&runtime.lifecycle_lock)==OPENFS_LOCK_OK);
+        if(!accepting)break;
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+        assert(i+1U<100000U);
+    }
+
+    openfs_runtime_leave(&runtime);
+#if defined(_WIN32)
+    assert(WaitForSingleObject(a,60000U)==WAIT_OBJECT_0);
+    assert(WaitForSingleObject(b,60000U)==WAIT_OBJECT_0);
+    CloseHandle(a);CloseHandle(b);
+#else
+    assert(pthread_join(a,NULL)==0);
+    assert(pthread_join(b,NULL)==0);
+#endif
+    assert(runtime.initialized==0);
+    assert(runtime.accepting==0);
+}
+
 static void concurrent_double_unmount_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=128U};
@@ -195,6 +257,7 @@ static void backup_superblock_extent_tree_regression(void)
 }
 
 int main(void){
+ concurrent_runtime_destroy_regression();
  concurrent_double_unmount_regression();
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
