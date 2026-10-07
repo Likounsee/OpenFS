@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
 #include "openfs/mount.h"
 #include "openfs/crc32c.h"
 #include "openfs/fsck.h"
@@ -85,7 +84,7 @@ static void runtime_admission_unmount_barrier_regression(void)
 
 typedef struct {
     openfs_runtime_t *runtime;
-    atomic_int stop;
+    volatile int stop;
 } runtime_stress_context_t;
 
 #if defined(_WIN32)
@@ -95,7 +94,7 @@ static void *runtime_stress_worker(void *arg)
 #endif
 {
     runtime_stress_context_t *ctx=(runtime_stress_context_t *)arg;
-    while(!atomic_load_explicit(&ctx->stop,memory_order_acquire)){
+    while(!ctx->stop){
         if(!openfs_runtime_enter(ctx->runtime))break;
         assert(openfs_mutex_lock(&ctx->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
         assert(openfs_mutex_unlock(&ctx->runtime->inode_lock)==OPENFS_LOCK_OK);
@@ -122,7 +121,7 @@ static void concurrent_runtime_admission_stress(void)
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
     openfs_mount_t m;memset(&m,0,sizeof(m));assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
     runtime_stress_context_t ctx={&m.runtime};
-    atomic_init(&ctx.stop,0);
+    ctx.stop=0;
 #if defined(_WIN32)
     HANDLE workers[8];
     for(unsigned i=0U;i<8U;i++){uintptr_t h=_beginthreadex(NULL,0U,runtime_stress_worker,&ctx,0U,NULL);assert(h!=0U);workers[i]=(HANDLE)h;}
@@ -150,7 +149,7 @@ static void concurrent_runtime_admission_stress(void)
 #endif
         assert(i+1U<100000U);
     }
-    atomic_store_explicit(&ctx.stop,1,memory_order_release);
+    ctx.stop=1;
 #if defined(_WIN32)
     for(unsigned i=0U;i<8U;i++){assert(WaitForSingleObject(workers[i],60000U)==WAIT_OBJECT_0);CloseHandle(workers[i]);}
     assert(WaitForSingleObject((HANDLE)unmount_thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)unmount_thread);
