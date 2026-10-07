@@ -24,6 +24,35 @@ static openfs_io_result_t fl(void*c){((disk_t*)c)->flushes++;return OPENFS_IO_OK
 
 typedef struct {
     openfs_mount_t *mount;
+    unsigned invalid_after_unmount;
+} sync_worker_context_t;
+
+#if defined(_WIN32)
+static unsigned __stdcall sync_worker(void *arg)
+#else
+static void *sync_worker(void *arg)
+#endif
+{
+    sync_worker_context_t *ctx=(sync_worker_context_t *)arg;
+    for(unsigned i=0U;i<10000U;i++){
+        openfs_mount_result_t r=openfs_sync(ctx->mount);
+        if(r==OPENFS_MOUNT_INVALID_ARGUMENT)ctx->invalid_after_unmount++;
+        else assert(r==OPENFS_MOUNT_OK);
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+typedef struct {
+    openfs_mount_t *mount;
     int result;
 } unmount_worker_context_t;
 #if defined(_WIN32)
@@ -94,7 +123,21 @@ static void concurrent_unmount_runtime_lock_regression(void)
     assert(openfs_mutex_lock(&r->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&r->inode_lock)==OPENFS_LOCK_OK);
     openfs_runtime_leave(r);
+    sync_worker_context_t sync_ctx={&m,0U};
+#if defined(_WIN32)
+    uintptr_t sync_thread=_beginthreadex(NULL,0U,sync_worker,&sync_ctx,0U,NULL);assert(sync_thread!=0U);
+    Sleep(5);
+#else
+    pthread_t sync_thread;assert(pthread_create(&sync_thread,NULL,sync_worker,&sync_ctx)==0);sched_yield();
+#endif
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+#if defined(_WIN32)
+    assert(WaitForSingleObject((HANDLE)sync_thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)sync_thread);
+#else
+    assert(pthread_join(sync_thread,NULL)==0);
+#endif
+    assert(sync_ctx.invalid_after_unmount!=0U);
+    assert(openfs_sync(&m)==OPENFS_MOUNT_INVALID_ARGUMENT);
     assert(r->initialized==0&&r->accepting==0);
     free(d.bytes);
 }
