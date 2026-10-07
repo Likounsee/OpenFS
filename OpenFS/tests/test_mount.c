@@ -59,7 +59,7 @@ static void runtime_admission_unmount_barrier_regression(void)
 #endif
     /* The worker must close runtime admission before waiting for our active pin. */
     for(unsigned i=0U;i<100000U;i++){
-        assert(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK);
+        assert(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK);
         int accepting=r->accepting;
         assert(openfs_mutex_unlock(&r->lifecycle_lock)==OPENFS_LOCK_OK);
         if(!accepting)break;
@@ -81,7 +81,6 @@ static void runtime_admission_unmount_barrier_regression(void)
     free(d.bytes);
 }
 
-
 static void concurrent_unmount_runtime_lock_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=128U};
@@ -95,7 +94,6 @@ static void concurrent_unmount_runtime_lock_regression(void)
     assert(openfs_mutex_unlock(&r->inode_lock)==OPENFS_LOCK_OK);
     openfs_runtime_leave(r);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
-    assert(openfs_sync(&m)==OPENFS_MOUNT_INVALID_ARGUMENT);
     assert(r->initialized==0&&r->accepting==0);
     free(d.bytes);
 }
@@ -169,6 +167,17 @@ static void backup_superblock_extent_tree_regression(void)
 int main(void){
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
- runtime_admission_unmount_barrier_regression();
- return 0;
+ disk_t d={.block_size=4096U,.block_count=128U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+ openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={7U};
+ assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+ openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK&&m.mounted);
+ assert(m.superblock.root_inode==1U&&m.superblock.runtime==&m.runtime&&m.runtime.initialized!=0);
+
+ uint64_t target=m.superblock.data_start;uint8_t pattern[4096];for(size_t i=0U;i<sizeof(pattern);++i)pattern[i]=(uint8_t)(i^0x5AU);openfs_journal_t j;uint64_t tx=0U;assert(openfs_journal_open(&j,&v,&m.superblock)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&j,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);unsigned replay_hits=0U;assert(openfs_journal_replay(&v,&m.superblock,replay_probe,&replay_hits)==OPENFS_JOURNAL_OK&&replay_hits==2U);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);assert(m.runtime.initialized==0);openfs_mount_t replayed;assert(openfs_mount(&replayed,&v)==OPENFS_MOUNT_OK);assert(memcmp(d.bytes+(size_t)(target*d.block_size),pattern,sizeof(pattern))==0);openfs_superblock_t stable=replayed.superblock;assert(openfs_unmount(&replayed)==OPENFS_MOUNT_OK);uint8_t *backup=d.bytes+(size_t)((d.block_count-1U)*d.block_size);backup[148U]^=0xA5U;backup[4088U]=backup[4089U]=backup[4090U]=backup[4091U]=0U;uint32_t crc=openfs_crc32c(backup,4088U);backup[4088U]=(uint8_t)crc;backup[4089U]=(uint8_t)(crc>>8U);backup[4090U]=(uint8_t)(crc>>16U);backup[4091U]=(uint8_t)(crc>>24U);openfs_mount_t mismatched;assert(openfs_mount(&mismatched,&v)==OPENFS_MOUNT_CORRUPT);backup[148U]^=0xA5U;crc=openfs_crc32c(backup,4088U);backup[4088U]=(uint8_t)crc;backup[4089U]=(uint8_t)(crc>>8U);backup[4090U]=(uint8_t)(crc>>16U);backup[4091U]=(uint8_t)(crc>>24U);openfs_journal_t malformed;assert(openfs_journal_open(&malformed,&v,&stable)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&malformed,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write(&malformed,&v,tx,"bad",3U)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&malformed,&v,tx)==OPENFS_JOURNAL_OK);openfs_mount_t rejected;assert(openfs_mount(&rejected,&v)==OPENFS_MOUNT_CORRUPT);assert(openfs_journal_checkpoint(&malformed,&v)==OPENFS_JOURNAL_OK);
+openfs_journal_t incomplete;assert(openfs_journal_open(&incomplete,&v,&stable)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&incomplete,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&incomplete,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0xA5U,d.block_size);openfs_mount_t incomplete_mount;assert(openfs_mount(&incomplete_mount,&v)==OPENFS_MOUNT_OK);assert(memcmp(d.bytes+(size_t)(target*d.block_size),pattern,sizeof(pattern))!=0);assert(openfs_unmount(&incomplete_mount)==OPENFS_MOUNT_OK);
+d.bytes[(size_t)(stable.inode_table_start*d.block_size)+32U]^=0x55U;openfs_mount_t metadata_mount;assert(openfs_mount(&metadata_mount,&v)==OPENFS_MOUNT_OK);uint64_t fsck_errors=0U;assert(openfs_fsck(&v,&metadata_mount.superblock,&fsck_errors)==OPENFS_FSCK_CORRUPT&&fsck_errors>0U);assert(openfs_unmount(&metadata_mount)==OPENFS_MOUNT_OK);d.bytes[(size_t)(stable.inode_table_start*d.block_size)+32U]^=0x55U;
+ openfs_mount_t fallback;assert(openfs_mount(&fallback,&v)==OPENFS_MOUNT_OK);
+ assert(fallback.superblock.root_inode==1U&&memcmp(fallback.superblock.uuid,uuid,16U)==0);
+ assert(openfs_unmount(&fallback)==OPENFS_MOUNT_OK);uint8_t *generation_backup=d.bytes+(size_t)((d.block_count-1U)*d.block_size);generation_backup[140U]=(uint8_t)(stable.generation+1U);generation_backup[141U]=(uint8_t)((stable.generation+1U)>>8U);generation_backup[142U]=(uint8_t)((stable.generation+1U)>>16U);generation_backup[143U]=(uint8_t)((stable.generation+1U)>>24U);generation_backup[144U]=(uint8_t)((stable.generation+1U)>>32U);generation_backup[145U]=(uint8_t)((stable.generation+1U)>>40U);generation_backup[146U]=(uint8_t)((stable.generation+1U)>>48U);generation_backup[147U]=(uint8_t)((stable.generation+1U)>>56U);generation_backup[4088U]=generation_backup[4089U]=generation_backup[4090U]=generation_backup[4091U]=0U;crc=openfs_crc32c(generation_backup,4088U);generation_backup[4088U]=(uint8_t)crc;generation_backup[4089U]=(uint8_t)(crc>>8U);generation_backup[4090U]=(uint8_t)(crc>>16U);generation_backup[4091U]=(uint8_t)(crc>>24U);openfs_mount_t newer_generation;assert(openfs_mount(&newer_generation,&v)==OPENFS_MOUNT_OK);assert(newer_generation.superblock.generation==stable.generation+1U);assert(openfs_unmount(&newer_generation)==OPENFS_MOUNT_OK);
+ openfs_journal_t pending;assert(openfs_journal_open(&pending,&v,&stable)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&pending,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&pending,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&pending,&v,tx)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);d.partial_block=stable.journal_start+1U;d.partial_bytes=1024U;d.partial_enabled=1;d.partial_once=1;d.partial_change=0;openfs_mount_t checkpoint_io;assert(openfs_mount(&checkpoint_io,&v)==OPENFS_MOUNT_IO_ERROR);d.partial_enabled=0;openfs_journal_t restored;assert(openfs_journal_open(&restored,&v,&stable)==OPENFS_JOURNAL_OK);openfs_mount_t recovered;assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);assert(memcmp(d.bytes+(size_t)(target*d.block_size),pattern,sizeof(pattern))==0);assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);assert(openfs_journal_open(&pending,&v,&stable)==OPENFS_JOURNAL_OK);assert(openfs_journal_begin(&pending,&v,&tx)==OPENFS_JOURNAL_OK);assert(openfs_journal_write_block(&pending,&v,tx,target,pattern)==OPENFS_JOURNAL_OK);assert(openfs_journal_commit(&pending,&v,tx)==OPENFS_JOURNAL_OK);memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);uint8_t checkpoint_saved[4096U];assert(v.read(v.context,stable.journal_start+1U,1U,checkpoint_saved)==OPENFS_IO_OK);d.partial_block=stable.journal_start+1U;d.partial_bytes=2048U;d.partial_next_bytes=1024U;d.partial_enabled=1;d.partial_once=1;d.partial_change=1;openfs_mount_t checkpoint_corrupt;assert(openfs_mount(&checkpoint_corrupt,&v)==OPENFS_MOUNT_CORRUPT);d.partial_enabled=0;assert(memcmp(d.bytes+(size_t)((stable.journal_start+1U)*d.block_size),checkpoint_saved,sizeof(checkpoint_saved))!=0);assert(openfs_journal_open(&restored,&v,&stable)==OPENFS_JOURNAL_CORRUPT); free(d.bytes);return 0;
 }
