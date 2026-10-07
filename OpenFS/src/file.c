@@ -2,6 +2,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
 #include "openfs/runtime.h"
+#include "openfs/cow.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -803,7 +804,8 @@ static void sparse_free_blocks(openfs_block_device_t *d,const openfs_superblock_
 
 static openfs_file_result_t sparse_restore_layout(openfs_block_device_t *d,
     const openfs_superblock_t *sb,openfs_inode_t *inode,const openfs_inode_t *original,
-    const uint8_t *old_root_data,uint64_t old_root,const uint64_t *new_blocks,uint64_t new_count)
+    const uint8_t *old_root_data,uint64_t old_root,const uint64_t *new_blocks,uint64_t new_count,
+    const uint64_t *cow_old_blocks,const uint64_t *cow_new_blocks,uint64_t cow_count)
 {
     if(d==NULL||sb==NULL||inode==NULL||original==NULL)return OPENFS_FILE_INVALID_ARGUMENT;
     uint64_t current_root=openfs_inode_get_extent_tree_root(inode);
@@ -815,6 +817,10 @@ static openfs_file_result_t sparse_restore_layout(openfs_block_device_t *d,
         if(d->write(d->context,old_root,1U,old_root_data)!=OPENFS_IO_OK)ok=0;
     }
     sparse_free_blocks(d,sb,new_blocks,new_count);
+    sparse_free_blocks(d,sb,cow_new_blocks,cow_count);
+    for(uint64_t i=cow_count;i>0U;i--){
+        if(openfs_cow_refcount_inc(d,sb,cow_old_blocks[i-1U],NULL)!=OPENFS_COW_OK)ok=0;
+    }
     *inode=*original;
     if(write_inode(d,sb,original)!=OPENFS_FILE_OK)ok=0;
     if(d->flush(d->context)!=OPENFS_IO_OK)ok=0;
@@ -824,67 +830,156 @@ static openfs_file_result_t sparse_restore_layout(openfs_block_device_t *d,
 static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
     const openfs_superblock_t *sb,openfs_inode_t *inode,uint64_t first,uint64_t last,
     const openfs_inode_t *original,uint64_t **new_blocks_out,uint64_t *new_count_out,
-    uint8_t **old_root_data_out,uint64_t *old_root_out)
+    uint8_t **old_root_data_out,uint64_t *old_root_out,uint64_t **cow_old_blocks_out,
+    uint64_t **cow_new_blocks_out,uint64_t *cow_count_out)
 {
     if(d==NULL||sb==NULL||inode==NULL||original==NULL||new_blocks_out==NULL||new_count_out==NULL||
-       old_root_data_out==NULL||old_root_out==NULL)
+       old_root_data_out==NULL||old_root_out==NULL||cow_old_blocks_out==NULL||
+       cow_new_blocks_out==NULL||cow_count_out==NULL)
         return OPENFS_FILE_INVALID_ARGUMENT;
-    *new_blocks_out=NULL;*new_count_out=0U;*old_root_data_out=NULL;
-    *old_root_out=openfs_inode_get_extent_tree_root(original);
+    *new_blocks_out=NULL;*new_count_out=0U;*old_root_data_out=NULL;*old_root_out=openfs_inode_get_extent_tree_root(original);
+    *cow_old_blocks_out=NULL;*cow_new_blocks_out=NULL;*cow_count_out=0U;
     openfs_extent_t *ext=NULL;uint32_t n=0U;
     openfs_file_result_t r=load_all_extents(d,sb,inode,&ext,&n);
     if(r!=OPENFS_FILE_OK)return r;
     uint64_t span=last-first+1U;
-    if(span>UINT64_MAX-(uint64_t)n){free(ext);return OPENFS_FILE_OUT_OF_RANGE;}
-    uint64_t cap64=(uint64_t)n+span;
-    if(cap64>UINT32_MAX||cap64>SIZE_MAX/sizeof(openfs_extent_t)){free(ext);return OPENFS_FILE_OUT_OF_RANGE;}
-    openfs_extent_t *work=realloc(ext,(size_t)cap64*sizeof(*work));
-    if(work==NULL&&cap64!=0U){free(ext);return OPENFS_FILE_IO_ERROR;}
-    ext=work;
-    uint64_t *new_blocks=span>SIZE_MAX/sizeof(uint64_t)?NULL:
-        (uint64_t *)calloc((size_t)span,sizeof(uint64_t));
-    if(new_blocks==NULL&&span!=0U){free(ext);return OPENFS_FILE_IO_ERROR;}
-    uint64_t added=0U;
+    if(span>UINT64_MAX-(uint64_t)n-2U||span>SIZE_MAX/sizeof(openfs_extent_t)){free(ext);return OPENFS_FILE_OUT_OF_RANGE;}
+    uint64_t cap64=(uint64_t)n+span+2U;
+    openfs_extent_t *work=(openfs_extent_t*)calloc((size_t)cap64,sizeof(*work));
+    if(work==NULL){free(ext);return OPENFS_FILE_IO_ERROR;}
+    uint64_t list_cap=span;
+    if(list_cap>SIZE_MAX/sizeof(uint64_t)){free(work);free(ext);return OPENFS_FILE_OUT_OF_RANGE;}
+    uint64_t *new_blocks=list_cap==0U?NULL:(uint64_t*)calloc((size_t)list_cap,sizeof(uint64_t));
+    uint64_t *cow_old=list_cap==0U?NULL:(uint64_t*)calloc((size_t)list_cap,sizeof(uint64_t));
+    uint64_t *cow_new=list_cap==0U?NULL:(uint64_t*)calloc((size_t)list_cap,sizeof(uint64_t));
+    if((list_cap!=0U)&&(new_blocks==NULL||cow_old==NULL||cow_new==NULL)){
+        free(new_blocks);free(cow_old);free(cow_new);free(work);free(ext);return OPENFS_FILE_IO_ERROR;
+    }
+    uint32_t out_n=0U;uint64_t cow_count=0U;
+    int cow_enabled=(sb->feature_flags&OPENFS_FEATURE_COW)!=0U;
+    for(uint32_t i=0U;i<n;i++){
+        openfs_extent_t e=ext[i];
+        uint64_t e_end=e.logical_start+e.block_count;
+        if(!cow_enabled||e_end<=first||e.logical_start>last){
+            if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+            work[out_n++]=e;continue;
+        }
+        uint64_t overlap_start=e.logical_start>first?e.logical_start:first;
+        uint64_t overlap_end=e_end<(last+1U)?e_end:last+1U;
+        if(overlap_start>e.logical_start){
+            work[out_n++]=(openfs_extent_t){e.logical_start,e.physical_start,overlap_start-e.logical_start};
+        }
+        uint64_t run_logical=0U,run_physical=0U,run_count=0U;
+        for(uint64_t logical=overlap_start;logical<overlap_end;logical++){
+            uint64_t old_physical=e.physical_start+(logical-e.logical_start);
+            uint16_t refs=0U;
+            openfs_cow_result_t cr=openfs_cow_refcount_get(d,sb,old_physical,&refs);
+            if(cr!=OPENFS_COW_OK){r=OPENFS_FILE_CORRUPT;break;}
+            if(refs==0U){r=OPENFS_FILE_CORRUPT;break;}
+            if(refs>1U){
+                if(run_count!=0U){
+                    if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+                    work[out_n++]=(openfs_extent_t){run_logical,run_physical,run_count};
+                    run_count=0U;
+                }
+                uint64_t replacement=0U;
+                openfs_alloc_result_t ar=openfs_alloc_block(d,sb,&replacement);
+                if(ar!=OPENFS_ALLOC_OK){r=ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:OPENFS_FILE_IO_ERROR;break;}
+                uint8_t *block=(uint8_t*)malloc(d->block_size);
+                if(block==NULL||d->read(d->context,old_physical,1U,block)!=OPENFS_IO_OK||
+                   d->write(d->context,replacement,1U,block)!=OPENFS_IO_OK||
+                   d->flush(d->context)!=OPENFS_IO_OK){
+                    free(block);(void)openfs_free_block(d,sb,replacement);r=OPENFS_FILE_IO_ERROR;break;
+                }
+                free(block);
+                if(openfs_cow_refcount_dec(d,sb,old_physical,NULL)!=OPENFS_COW_OK){
+                    (void)openfs_free_block(d,sb,replacement);r=OPENFS_FILE_CORRUPT;break;
+                }
+                if(cow_count>=list_cap){(void)openfs_cow_refcount_inc(d,sb,old_physical,NULL);(void)openfs_free_block(d,sb,replacement);r=OPENFS_FILE_OUT_OF_RANGE;break;}
+                cow_old[cow_count]=old_physical;cow_new[cow_count]=replacement;cow_count++;
+                if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+                work[out_n++]=(openfs_extent_t){logical,replacement,1U};
+            }else{
+                if(run_count==0U){run_logical=logical;run_physical=old_physical;run_count=1U;}
+                else if(run_logical+run_count==logical&&run_physical+run_count==old_physical){run_count++;}
+                else{
+                    if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+                    work[out_n++]=(openfs_extent_t){run_logical,run_physical,run_count};
+                    run_logical=logical;run_physical=old_physical;run_count=1U;
+                }
+            }
+        }
+        if(r!=OPENFS_FILE_OK)break;
+        if(run_count!=0U){
+            if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+            work[out_n++]=(openfs_extent_t){run_logical,run_physical,run_count};
+        }
+        if(overlap_end<e_end){
+            if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+            work[out_n++]=(openfs_extent_t){overlap_end,e.physical_start+(overlap_end-e.logical_start),e_end-overlap_end};
+        }
+    }
+    free(ext);
+    if(r!=OPENFS_FILE_OK){
+        sparse_free_blocks(d,sb,cow_new,cow_count);
+        for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+        free(new_blocks);free(cow_old);free(cow_new);free(work);return r;
+    }
     for(uint64_t logical=first;;logical++){
-        if(!sparse_find(ext,n,logical,NULL)){
+        if(!sparse_find(work,out_n,logical,NULL)){
             uint64_t physical=0U;
             openfs_alloc_result_t ar=openfs_alloc_block(d,sb,&physical);
             if(ar!=OPENFS_ALLOC_OK){
-                sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);
-                return ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:
-                    ar==OPENFS_ALLOC_CORRUPT?OPENFS_FILE_CORRUPT:OPENFS_FILE_IO_ERROR;
+                sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+                for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+                free(new_blocks);free(cow_old);free(cow_new);free(work);
+                return ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:OPENFS_FILE_IO_ERROR;
             }
             if(zero_block(d,physical)!=OPENFS_FILE_OK){
-                (void)openfs_free_block(d,sb,physical);sparse_free_blocks(d,sb,new_blocks,added);
-                free(new_blocks);free(ext);return OPENFS_FILE_IO_ERROR;
+                (void)openfs_free_block(d,sb,physical);
+                sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+                for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+                free(new_blocks);free(cow_old);free(cow_new);free(work);
+                return OPENFS_FILE_IO_ERROR;
             }
-            ext[n++]=(openfs_extent_t){logical,physical,1U};
-            new_blocks[added++]=physical;
+            if(*new_count_out>=list_cap){
+                (void)openfs_free_block(d,sb,physical);
+                sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+                for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+                free(new_blocks);free(cow_old);free(cow_new);free(work);
+                return OPENFS_FILE_OUT_OF_RANGE;
+            }
+            new_blocks[(*new_count_out)++]=physical;
+            if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
+            work[out_n++]=(openfs_extent_t){logical,physical,1U};
         }
         if(logical==last)break;
     }
-    r=sparse_normalize(ext,&n);
-    if(r!=OPENFS_FILE_OK){sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);return r;}
+    r=sparse_normalize(work,&out_n);
+    if(r!=OPENFS_FILE_OK){
+        sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+        for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+        free(new_blocks);free(cow_old);free(cow_new);free(work);return r;
+    }
     openfs_inode_t tmp=*inode;
-    tmp.blocks=original->blocks+added;
-    if(tmp.blocks<original->blocks){sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);return OPENFS_FILE_OUT_OF_RANGE;}
-    uint64_t old_root=*old_root_out;
-    uint8_t *old_root_data=NULL;
-    if(old_root!=0U){
-        old_root_data=(uint8_t *)malloc(d->block_size);
-        if(old_root_data==NULL||d->read(d->context,old_root,1U,old_root_data)!=OPENFS_IO_OK){
-            free(old_root_data);sparse_free_blocks(d,sb,new_blocks,added);free(new_blocks);free(ext);return OPENFS_FILE_IO_ERROR;
+    tmp.blocks=original->blocks+*new_count_out;
+    if(tmp.blocks<original->blocks){r=OPENFS_FILE_OUT_OF_RANGE;}
+    if(r==OPENFS_FILE_OK)r=store_all_extents(d,sb,&tmp,work,out_n);
+    free(work);
+    if(r!=OPENFS_FILE_OK){
+        sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+        for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+        free(new_blocks);free(cow_old);free(cow_new);return r;
+    }
+    if(*old_root_out!=0U){
+        *old_root_data_out=(uint8_t*)malloc(d->block_size);
+        if(*old_root_data_out==NULL||d->read(d->context,*old_root_out,1U,*old_root_data_out)!=OPENFS_IO_OK){
+            free(*old_root_data_out);*old_root_data_out=NULL;sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
+            for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+            free(new_blocks);free(cow_old);free(cow_new);return OPENFS_FILE_IO_ERROR;
         }
     }
-    r=store_all_extents(d,sb,&tmp,ext,n);
-    free(ext);
-    if(r!=OPENFS_FILE_OK){
-        if(old_root!=0U&&old_root_data!=NULL)(void)d->write(d->context,old_root,1U,old_root_data);
-        sparse_free_blocks(d,sb,new_blocks,added);free(old_root_data);free(new_blocks);return r;
-    }
-    *inode=tmp;
-    *old_root_data_out=old_root_data;
-    *new_blocks_out=new_blocks;*new_count_out=added;
+    *inode=tmp;*new_blocks_out=new_blocks;*cow_old_blocks_out=cow_old;*cow_new_blocks_out=cow_new;*cow_count_out=cow_count;
     return OPENFS_FILE_OK;
 }
 
