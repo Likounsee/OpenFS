@@ -10,6 +10,7 @@ option(OPENFS_BUILD_TESTS "Build OpenFS tests" ON)
 
 add_library(openfs STATIC
     src/crc32c.c
+    src/cow.c
     src/time.c
     src/format.c
     src/inode.c
