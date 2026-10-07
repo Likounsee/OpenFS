@@ -133,7 +133,18 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
     if(mount==NULL||mount->state_lock_initialized!=1||mount->state_lock_magic!=OPENFS_MOUNT_LOCK_MAGIC)return OPENFS_MOUNT_INVALID_ARGUMENT;
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK)return OPENFS_MOUNT_IO_ERROR;
     if(!mount->mounted||mount->device==NULL){openfs_rwlock_unlock(&mount->state_lock);return OPENFS_MOUNT_INVALID_ARGUMENT;}
-    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){openfs_rwlock_unlock(&mount->state_lock);return OPENFS_MOUNT_IO_ERROR;}
+    /* Close runtime admission before the final device flush.  This prevents a
+       new namespace/handle operation from starting while unmount tears down
+       the runtime-owned state.  Existing users remain pinned until they leave. */
+    if(!openfs_runtime_begin_shutdown(&mount->runtime)){
+        openfs_rwlock_unlock(&mount->state_lock);
+        return OPENFS_MOUNT_IO_ERROR;
+    }
+    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){
+        openfs_runtime_cancel_shutdown(&mount->runtime);
+        openfs_rwlock_unlock(&mount->state_lock);
+        return OPENFS_MOUNT_IO_ERROR;
+    }
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
     if(r!=OPENFS_MOUNT_OK){openfs_rwlock_unlock(&mount->state_lock);return r;}
     mount->mounted=0;mount->device=NULL;mount->superblock.runtime=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
