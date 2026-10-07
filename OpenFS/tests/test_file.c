@@ -183,7 +183,6 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
     for(unsigned n=0U;n<4U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&values[n],1U)==OPENFS_FILE_OK);
     TEST_ASSERT(i.blocks==4U&&i.extent_count==4U&&(i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U);
     for(unsigned n=0U;n<4U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
-    uint64_t old_root=0U;
     TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,8U*4096U+1U)==OPENFS_FILE_OK);
     TEST_ASSERT(i.size==8U*4096U+1U&&i.blocks==3U&&i.extent_count==3U);
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U);
