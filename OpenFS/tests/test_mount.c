@@ -81,6 +81,73 @@ static void runtime_admission_unmount_barrier_regression(void)
     free(d.bytes);
 }
 
+
+typedef struct {
+    openfs_runtime_t *runtime;
+    volatile int stop;
+    volatile unsigned entered;
+} runtime_stress_context_t;
+
+#if defined(_WIN32)
+static unsigned __stdcall runtime_stress_worker(void *arg)
+#else
+static void *runtime_stress_worker(void *arg)
+#endif
+{
+    runtime_stress_context_t *ctx=(runtime_stress_context_t *)arg;
+    for(;;){
+        if(!openfs_runtime_enter(ctx->runtime))break;
+#if defined(_WIN32)
+        InterlockedIncrement((volatile LONG *)&ctx->entered);
+#else
+        __sync_fetch_and_add(&ctx->entered,1U);
+#endif
+        assert(openfs_mutex_lock(&ctx->runtime->inode_lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+        assert(openfs_mutex_unlock(&ctx->runtime->inode_lock)==OPENFS_LOCK_OK);
+        openfs_runtime_leave(ctx->runtime);
+        if(ctx->stop)break;
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+static void concurrent_runtime_admission_stress(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4AU};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    runtime_stress_context_t ctx={&m.runtime,0,0U};
+#if defined(_WIN32)
+    HANDLE threads[8];
+    for(unsigned i=0U;i<8U;i++){uintptr_t h=_beginthreadex(NULL,0U,runtime_stress_worker,&ctx,0U,NULL);assert(h!=0U);threads[i]=(HANDLE)h;}
+    for(unsigned i=0U;i<10000U&&ctx.entered<8U;i++)Sleep(0);
+#else
+    pthread_t threads[8];
+    for(unsigned i=0U;i<8U;i++)assert(pthread_create(&threads[i],NULL,runtime_stress_worker,&ctx)==0);
+    for(unsigned i=0U;i<10000U&&ctx.entered<8U;i++)sched_yield();
+#endif
+    assert(ctx.entered!=0U);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    ctx.stop=1;
+#if defined(_WIN32)
+    for(unsigned i=0U;i<8U;i++){assert(WaitForSingleObject(threads[i],60000U)==WAIT_OBJECT_0);CloseHandle(threads[i]);}
+#else
+    for(unsigned i=0U;i<8U;i++)assert(pthread_join(threads[i],NULL)==0);
+#endif
+    free(d.bytes);
+}
+
 static void concurrent_unmount_runtime_lock_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=128U};
@@ -165,6 +232,7 @@ static void backup_superblock_extent_tree_regression(void)
 }
 
 int main(void){
+ concurrent_runtime_admission_stress();
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
  disk_t d={.block_size=4096U,.block_count=128U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
