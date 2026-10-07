@@ -26,7 +26,9 @@ jobs:
       - name: Build
         run: cmake --build build-${{ matrix.compiler }} --parallel
       - name: Test
-        run: ctest --test-dir build-${{ matrix.compiler }} --output-on-failure --timeout 180
+        run: |
+          timeout 45s ./build-${{ matrix.compiler }}/openfs-path-test
+          ctest --test-dir build-${{ matrix.compiler }} --output-on-failure --timeout 180
       - name: Sanitizers
         run: |
           cmake -S OpenFS -B build-${{ matrix.compiler }}-asan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
