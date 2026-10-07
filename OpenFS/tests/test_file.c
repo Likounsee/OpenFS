@@ -175,6 +175,38 @@ static void sparse_truncate_extension_keeps_holes(void){
     free(gap);free(d.bytes);
 }
 
+static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t values[5]={0x11U,0x22U,0x33U,0x44U,0x55U};
+    const uint64_t logicals[5]={0U,4U,8U,12U,16U};
+    openfs_extent_t before[5];
+    for(unsigned n=0U;n<5U;n++){
+        TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&values[n],1U)==OPENFS_FILE_OK);
+    }
+    TEST_ASSERT(i.blocks==5U&&i.extent_count==5U&&(i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
+    for(unsigned n=0U;n<5U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
+    uint64_t old_root=openfs_inode_get_extent_tree_root(&i);
+    TEST_ASSERT(old_root!=0U);
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,8U*4096U+1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==8U*4096U+1U&&i.blocks==3U&&i.extent_count==3U);
+    TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)==0U);
+    for(unsigned n=0U;n<3U;n++){
+        int allocated=0;
+        TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,before[n].physical_start,&allocated)==OPENFS_BITMAP_OK&&allocated);
+    }
+    for(unsigned n=3U;n<5U;n++){
+        int allocated=1;
+        TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,before[n].physical_start,&allocated)==OPENFS_BITMAP_OK&&!allocated);
+    }
+    int root_allocated=1;
+    TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,old_root,&root_allocated)==OPENFS_BITMAP_OK&&!root_allocated);
+    uint8_t out=0U;size_t got=0U;
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,8U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==values[2]);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,3U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
+
 static void file_read_rejects_unallocated_extent(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/file-read-corrupt",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
@@ -544,6 +576,6 @@ int main(void){
     file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
-    sparse_write_zeroes_intermediate_blocks();sparse_truncate_extension_keeps_holes();
+    sparse_write_zeroes_intermediate_blocks();sparse_truncate_extension_keeps_holes();sparse_truncate_shrink_reclaims_only_mapped_blocks();
     partial_write_rollback_failure_is_corruption();
 shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();map_bounds();return 0;}
