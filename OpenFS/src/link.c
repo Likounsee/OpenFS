@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "openfs/time.h"
+#include "openfs/runtime.h"
+#define LINK_LOCKED_CALL(sb,...) do{if((sb)==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_runtime_t *_runtime=(sb)->runtime;if(_runtime==NULL)return (__VA_ARGS__);if(!openfs_runtime_enter(_runtime))return OPENFS_PATH_IO_ERROR;if(openfs_mutex_lock(&_runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK){openfs_runtime_leave(_runtime);return OPENFS_PATH_IO_ERROR;}openfs_path_result_t _r=(__VA_ARGS__);(void)openfs_mutex_unlock(&_runtime->directory_lock);openfs_runtime_leave(_runtime);return _r;}while(0)
+
 static char *next_path_component(char *path,size_t len,size_t *pos)
 {
     if(path==NULL||pos==NULL)return NULL;
@@ -68,7 +71,7 @@ static openfs_path_result_t lookup_link_source(openfs_block_device_t*d,const ope
     *out=entry.inode_number;return OPENFS_PATH_OK;
 }
 
-openfs_path_result_t openfs_link(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp)
+static openfs_path_result_t openfs_link_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp)
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||oldp==NULL||newp==NULL||newp[0]!='/')return OPENFS_PATH_INVALID_ARGUMENT;
     uint64_t ino=0U;openfs_path_result_t lr=openfs_path_lookup(d,s,oldp,&ino);if(lr==OPENFS_PATH_NOT_DIRECTORY)lr=lookup_link_source(d,s,oldp,&ino,0);if(lr!=OPENFS_PATH_OK)return lr;
@@ -89,6 +92,11 @@ if(d->flush(d->context)!=OPENFS_IO_OK){
     return rollback_ok?OPENFS_PATH_IO_ERROR:OPENFS_PATH_CORRUPT;
 }
 return OPENFS_PATH_OK;}
+
+openfs_path_result_t openfs_link(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp)
+{
+    LINK_LOCKED_CALL(s,openfs_link_unlocked(d,s,oldp,newp));
+}
 
 static openfs_path_result_t symlink_internal(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp,uint32_t uid,uint32_t gid){
 size_t link_len=linkp==NULL?0U:strlen(linkp);if(link_len>1U&&linkp[link_len-1U]=='/')return OPENFS_PATH_NOT_DIRECTORY;
@@ -120,7 +128,7 @@ if(len<=sizeof(in.inline_data)){
     if(fw!=OPENFS_FILE_OK){if(!symlink_rollback_created(d,s,parent,linkp,ino,&original_parent))return OPENFS_PATH_CORRUPT;return map_file_result(fw);}
 }
 return OPENFS_PATH_OK;}
-openfs_path_result_t openfs_readlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap)
+static openfs_path_result_t openfs_readlink_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap)
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL||out==NULL||cap==0U)return OPENFS_PATH_INVALID_ARGUMENT;
     uint64_t ino=0U;openfs_path_result_t lr=lookup_link_source(d,s,p,&ino,0);if(lr!=OPENFS_PATH_OK){size_t path_len=strlen(p);return (lr==OPENFS_PATH_INVALID_ARGUMENT&&path_len>0U&&p[path_len-1U]=='/')?OPENFS_PATH_NOT_DIRECTORY:lr;}
@@ -137,7 +145,12 @@ openfs_path_result_t openfs_readlink(openfs_block_device_t*d,const openfs_superb
     for(uint64_t n=0U;n<in.size;n++)if(out[n]=='\0')return OPENFS_PATH_CORRUPT;
     out[in.size]='\0';return OPENFS_PATH_OK;
 }
-openfs_path_result_t openfs_resolve_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap,uint32_t depth){
+openfs_path_result_t openfs_readlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap)
+{
+    LINK_LOCKED_CALL(s,openfs_readlink_unlocked(d,s,p,out,cap));
+}
+
+static openfs_path_result_t openfs_resolve_symlink_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap,uint32_t depth){
 if(!openfs_block_device_is_valid(d)||s==NULL||p==NULL||out==NULL||cap==0U)return OPENFS_PATH_INVALID_ARGUMENT;
 if(depth>40U)return OPENFS_PATH_SYMLINK_LOOP;
 char normalized[OPENFS_PATH_MAX];size_t normalized_len=strlen(p);if(normalized_len>=OPENFS_PATH_MAX)return OPENFS_PATH_NAME_TOO_LONG;while(normalized_len>1U&&p[normalized_len-1U]=='/')--normalized_len;memcpy(normalized,p,normalized_len);normalized[normalized_len]='\0';
@@ -147,6 +160,11 @@ if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_SYMLINK){size_t n=strlen(
 uint64_t target_cap64=in.size==UINT64_MAX?0U:in.size+1U;if(in.size>=OPENFS_PATH_MAX)return OPENFS_PATH_CORRUPT;if(target_cap64==0U||target_cap64>(uint64_t)SIZE_MAX)return OPENFS_PATH_NO_SPACE;char *target=malloc((size_t)target_cap64);if(target==NULL)return OPENFS_PATH_NO_SPACE;openfs_path_result_t r=openfs_readlink(d,s,normalized,target,target_cap64);if(r!=OPENFS_PATH_OK){free(target);return r;}
 size_t tl=strlen(target);if(target[0]=='/'){if((uint64_t)tl+1U>cap){free(target);return OPENFS_PATH_NO_SPACE;}r=openfs_resolve_symlink(d,s,target,out,cap,depth+1U);free(target);return r;}
 size_t pl=strlen(normalized);size_t cut=pl;while(cut>0U&&normalized[cut-1U]!='/')--cut;if(cut==0U){free(target);return OPENFS_PATH_INVALID_ARGUMENT;}size_t base_len=(cut==1U)?1U:cut;if(base_len>SIZE_MAX-tl-2U){free(target);return OPENFS_PATH_NO_SPACE;}size_t needed=base_len+tl+2U;if((uint64_t)needed>cap){free(target);return OPENFS_PATH_NO_SPACE;}char *combined=malloc(needed);if(combined==NULL){free(target);return OPENFS_PATH_NO_SPACE;}size_t used=0U;if(cut==1U){combined[0]='/';used=1U;}else{memcpy(combined,normalized,cut);used=cut;if(used>1U&&combined[used-1U]!='/')combined[used++]='/';}memcpy(combined+used,target,tl+1U);free(target);r=openfs_resolve_symlink(d,s,combined,out,cap,depth+1U);free(combined);return r;
+}
+
+openfs_path_result_t openfs_resolve_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,char*out,uint64_t cap,uint32_t depth)
+{
+    LINK_LOCKED_CALL(s,openfs_resolve_symlink_unlocked(d,s,p,out,cap,depth));
 }
 
 static openfs_path_result_t credentialed_parent_access_mode(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint8_t parent_requested)
@@ -185,19 +203,36 @@ static openfs_path_result_t link_parent_access(openfs_block_device_t*d,const ope
     if(l==0U||l>=OPENFS_PATH_MAX||slash==0U)return OPENFS_PATH_INVALID_ARGUMENT;
     return credentialed_parent_access(d,s,p,uid,gid);
 }
-openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
+static openfs_path_result_t openfs_link_as_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
     if(a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
     openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;
     r=credentialed_parent_access_mode(d,s,a,uid,gid,1U);if(r!=OPENFS_PATH_OK)return r;
     return openfs_link(d,s,a,b);
 }
-openfs_path_result_t openfs_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp){return symlink_internal(d,s,target,linkp,0U,0U);}
-openfs_path_result_t openfs_symlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
+static openfs_path_result_t openfs_symlink_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp){return symlink_internal(d,s,target,linkp,0U,0U);}
+openfs_path_result_t openfs_link_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
+{
+    LINK_LOCKED_CALL(s,openfs_link_as_unlocked(d,s,a,b,uid,gid));
+}
+
+openfs_path_result_t openfs_symlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*target,const char*linkp)
+{
+    LINK_LOCKED_CALL(s,openfs_symlink_unlocked(d,s,target,linkp));
+}
+
+static openfs_path_result_t openfs_symlink_as_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
 {
     if(a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
     openfs_path_result_t r=link_parent_access(d,s,b,uid,gid);if(r!=OPENFS_PATH_OK)return r;return symlink_internal(d,s,a,b,uid,gid);
 }
 
+openfs_path_result_t openfs_symlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
+{
+    LINK_LOCKED_CALL(s,openfs_symlink_as_unlocked(d,s,a,b,uid,gid));
+}
+
 openfs_path_result_t openfs_link_tx(openfs_transaction_t*t,const openfs_superblock_t*s,const char*a,const char*b){if(t==NULL||s==NULL||a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_path_result_t r=openfs_link(d,s,a,b);if(r!=OPENFS_PATH_OK)t->failed=1;return r;}
 openfs_path_result_t openfs_symlink_tx(openfs_transaction_t*t,const openfs_superblock_t*s,const char*a,const char*b){if(t==NULL||s==NULL||a==NULL||b==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_PATH_INVALID_ARGUMENT;openfs_path_result_t r=openfs_symlink(d,s,a,b);if(r!=OPENFS_PATH_OK)t->failed=1;return r;}
+
+#undef LINK_LOCKED_CALL
