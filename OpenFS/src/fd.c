@@ -123,3 +123,27 @@ openfs_fd_result_t openfs_fd_stat(openfs_file_handle_t*h,openfs_inode_t*out)
 uint64_t openfs_fd_inode_number(const openfs_file_handle_t*h){return h==NULL?0U:h->inode.inode_number;}
 
 
+
+static openfs_fd_result_t handle_inode_lock(openfs_file_handle_t *h)
+{
+    if (h == NULL) return OPENFS_FD_INVALID_ARGUMENT;
+    if (h->superblock.runtime == NULL) return OPENFS_FD_OK;
+    if (openfs_mutex_lock(&h->superblock.runtime->inode_lock, OPENFS_LOCK_RANK_INODE) != OPENFS_LOCK_OK)
+        return OPENFS_FD_IO_ERROR;
+    uint64_t count = (h->superblock.inode_table_blocks * (uint64_t)h->superblock.block_size) / OPENFS_INODE_SIZE;
+    openfs_inode_t current;
+    openfs_inode_result_t ir = openfs_inode_read(h->device, h->superblock.inode_table_start,
+                                                  h->inode.inode_number, count, &current);
+    if (ir != OPENFS_INODE_OK || current.generation != h->inode.generation) {
+        (void)openfs_mutex_unlock(&h->superblock.runtime->inode_lock);
+        return ir == OPENFS_INODE_IO_ERROR ? OPENFS_FD_IO_ERROR : OPENFS_FD_CORRUPT;
+    }
+    h->inode = current;
+    return OPENFS_FD_OK;
+}
+
+static void handle_inode_unlock(openfs_file_handle_t *h)
+{
+    if (h != NULL && h->superblock.runtime != NULL)
+        (void)openfs_mutex_unlock(&h->superblock.runtime->inode_lock);
+}
