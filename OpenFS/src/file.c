@@ -46,6 +46,7 @@ static openfs_file_result_t inode_table_count(
 
 static openfs_file_result_t load_all_extents(const openfs_block_device_t*,const openfs_superblock_t*,const openfs_inode_t*,openfs_extent_t**,uint32_t*);
 static int validate_extent_set(const openfs_superblock_t*,const openfs_extent_t*,uint32_t);
+static int restore_released_block(openfs_block_device_t*,const openfs_superblock_t*,uint64_t);
 
 static openfs_file_result_t validate_file(
     const openfs_block_device_t *device,
