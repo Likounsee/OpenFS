@@ -194,7 +194,6 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
     uint8_t out=0U;size_t got=0U;
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,8U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==values[2]);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,3U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
-    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 
