@@ -66,7 +66,6 @@ openfs_cow_result_t openfs_cow_refcount_get(openfs_block_device_t *d,const openf
 openfs_cow_result_t openfs_cow_refcount_set(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t value)
 {
     openfs_cow_result_t lr=lock_cow(sb);if(lr!=OPENFS_COW_OK)return lr;
-    if(value>OPENFS_COW_MAX_REFCOUNT){unlock_cow(sb);return OPENFS_COW_OVERFLOW;}
     uint64_t table=0U;uint32_t off=0U;openfs_cow_result_t r=entry_location(d,sb,block,&table,&off);
     if(r==OPENFS_COW_OK){
         uint8_t *buf=(uint8_t*)malloc(d->block_size);
