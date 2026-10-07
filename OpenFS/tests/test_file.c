@@ -12,6 +12,7 @@
 #include "openfs/mount.h"
 #include "openfs/allocator.h"
 #include "openfs/crc32c.h"
+#include "openfs/cow.h"
 
 typedef struct {
     uint8_t *bytes;
@@ -354,7 +355,7 @@ static void truncate_shrink_inode_write_failure_keeps_blocks(void){
 static void extent_tree_large_file(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     openfs_inode_t i=new_file();uint8_t block[4096U];memset(block,0xC3U,sizeof(block));
-    for(uint64_t n=0U;n<10U;n++) TEST_ASSERT(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+n,1)==OPENFS_BITMAP_OK);
+    for(uint64_t n=0U;n<10U;n++){TEST_ASSERT(openfs_bitmap_set(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+n,1)==OPENFS_BITMAP_OK);TEST_ASSERT(openfs_cow_refcount_set(&v,&sb,sb.data_start+n,1U)==OPENFS_COW_OK);}
     for(uint32_t n=0U;n<OPENFS_INODE_TREE_INLINE_EXTENT_MAX;n++){
         openfs_extent_t e={n,sb.data_start+(uint64_t)n*2U,1U};
         TEST_ASSERT(openfs_inode_set_extent(&i,n,&e)==OPENFS_EXTENT_OK);
