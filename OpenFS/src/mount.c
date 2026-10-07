@@ -211,7 +211,7 @@ openfs_mount_result_t openfs_sync(openfs_mount_t *mount)
 openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
 {
     if(mount==NULL)return OPENFS_MOUNT_INVALID_ARGUMENT;
-    mount_lifecycle_lock();
+    if(!mount_lifecycle_lock())return OPENFS_MOUNT_IO_ERROR;
     if(!mount_registry_contains(mount)||!mount->mounted||!mount->state_lock_initialized){mount_lifecycle_unlock();return OPENFS_MOUNT_INVALID_ARGUMENT;}
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK){mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
