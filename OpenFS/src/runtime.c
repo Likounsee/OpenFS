@@ -125,6 +125,29 @@ fail2:(void)openfs_mutex_destroy(&r->directory_lock);
 fail1:(void)openfs_mutex_destroy(&r->lifecycle_lock);
 fail0:return 0;
 }
+int openfs_runtime_begin_shutdown(openfs_runtime_t *r)
+{
+    if(r==NULL)return 0;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
+    if(!r->initialized){(void)openfs_mutex_unlock(&r->lifecycle_lock);return 0;}
+    r->accepting=0;
+    (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    for(;;){
+        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
+        uint64_t active=r->active_users;
+        (void)openfs_mutex_unlock(&r->lifecycle_lock);
+        if(active==0U)return 1;
+    }
+}
+void openfs_runtime_cancel_shutdown(openfs_runtime_t *r)
+{
+    if(r==NULL)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK){
+        if(r->initialized)r->accepting=1;
+        (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    }
+}
+
 void openfs_runtime_destroy(openfs_runtime_t*r){
     if(r==NULL||!r->initialized)return;
     if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
