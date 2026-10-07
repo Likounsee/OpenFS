@@ -2,14 +2,43 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 #include "openfs/crc32c.h"
 #include "openfs/journal.h"
 #include "openfs/orphan.h"
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
-static atomic_flag openfs_mount_lifecycle_guard = ATOMIC_FLAG_INIT;
+static openfs_mutex_t openfs_mount_lifecycle_guard;
+static int openfs_mount_lifecycle_guard_ready;
+
+#if defined(_WIN32)
+static INIT_ONCE openfs_mount_lifecycle_once=INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK openfs_mount_lifecycle_init_once(PINIT_ONCE once,PVOID parameter,PVOID context)
+{
+    (void)once;(void)parameter;(void)context;
+    openfs_mount_lifecycle_guard_ready=openfs_mutex_init(&openfs_mount_lifecycle_guard)==OPENFS_LOCK_OK;
+    return TRUE;
+}
+static int openfs_mount_lifecycle_ensure(void)
+{
+    return InitOnceExecuteOnce(&openfs_mount_lifecycle_once,openfs_mount_lifecycle_init_once,NULL,NULL)!=0&&openfs_mount_lifecycle_guard_ready;
+}
+#else
+static pthread_once_t openfs_mount_lifecycle_once=PTHREAD_ONCE_INIT;
+static void openfs_mount_lifecycle_init_once(void)
+{
+    openfs_mount_lifecycle_guard_ready=openfs_mutex_init(&openfs_mount_lifecycle_guard)==OPENFS_LOCK_OK;
+}
+static int openfs_mount_lifecycle_ensure(void)
+{
+    return pthread_once(&openfs_mount_lifecycle_once,openfs_mount_lifecycle_init_once)==0&&openfs_mount_lifecycle_guard_ready;
+}
+#endif
 
 typedef struct openfs_mount_registry_entry {
     openfs_mount_t *mount;
@@ -18,15 +47,15 @@ typedef struct openfs_mount_registry_entry {
 
 static openfs_mount_registry_entry_t *openfs_mount_registry;
 
-static void mount_lifecycle_lock(void)
+static int mount_lifecycle_lock(void)
 {
-    while (atomic_flag_test_and_set_explicit(&openfs_mount_lifecycle_guard, memory_order_acquire)) {
-    }
+    if(!openfs_mount_lifecycle_ensure())return 0;
+    return openfs_mutex_lock(&openfs_mount_lifecycle_guard,OPENFS_LOCK_RANK_MOUNT)==OPENFS_LOCK_OK;
 }
 
 static void mount_lifecycle_unlock(void)
 {
-    atomic_flag_clear_explicit(&openfs_mount_lifecycle_guard, memory_order_release);
+    (void)openfs_mutex_unlock(&openfs_mount_lifecycle_guard);
 }
 
 static int mount_registry_contains(openfs_mount_t *mount)
@@ -123,7 +152,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
 {
     if(mount==NULL||!openfs_block_device_is_valid(device))return OPENFS_MOUNT_INVALID_ARGUMENT;
     if(device->block_count<2U||device->block_size<OPENFS_SUPERBLOCK_SIZE)return OPENFS_MOUNT_CORRUPT;
-    mount_lifecycle_lock();
+    if(!mount_lifecycle_lock())return OPENFS_MOUNT_IO_ERROR;
     if (mount_registry_contains(mount)) {
         mount_lifecycle_unlock();
         return OPENFS_MOUNT_INVALID_ARGUMENT;
@@ -173,7 +202,7 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
 openfs_mount_result_t openfs_sync(openfs_mount_t *mount)
 {
     if(mount==NULL)return OPENFS_MOUNT_INVALID_ARGUMENT;
-    mount_lifecycle_lock();
+    if(!mount_lifecycle_lock())return OPENFS_MOUNT_IO_ERROR;
     if(!mount_registry_contains(mount)||!mount->mounted||mount->device==NULL||!mount->state_lock_initialized){mount_lifecycle_unlock();return OPENFS_MOUNT_INVALID_ARGUMENT;}
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK){mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
