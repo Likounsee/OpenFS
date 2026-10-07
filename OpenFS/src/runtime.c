@@ -95,15 +95,27 @@ uint64_t openfs_runtime_handle_count(openfs_runtime_t*r,const void*d,uint64_t in
 }
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t*r){
     if(r==NULL)return 0U;
-    if(!openfs_runtime_enter(r))return UINT64_MAX;
-    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(r);return UINT64_MAX;}
+    int pinned=openfs_runtime_enter(r);
+    if(!pinned){
+        /* During an orderly shutdown admission is closed and no new users can
+           enter.  The shutdown barrier has already drained existing users,
+           so the registry can be inspected under its own lock. */
+        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return UINT64_MAX;
+        int quiescent=r->initialized&&!r->accepting&&r->active_users==0U;
+        (void)openfs_mutex_unlock(&r->lifecycle_lock);
+        if(!quiescent)return UINT64_MAX;
+    }
+    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){
+        if(pinned)openfs_runtime_leave(r);
+        return UINT64_MAX;
+    }
     uint64_t count=0U;
     for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){
         if(UINT64_MAX-count<e->references){count=UINT64_MAX;break;}
         count+=e->references;
     }
     (void)openfs_mutex_unlock(&r->handle_registry_lock);
-    openfs_runtime_leave(r);
+    if(pinned)openfs_runtime_leave(r);
     return count;
 }
 int openfs_runtime_init(openfs_runtime_t*r){
