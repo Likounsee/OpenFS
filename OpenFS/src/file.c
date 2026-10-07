@@ -263,6 +263,7 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
         openfs_extent_result_t tree_result =
             openfs_extent_tree_write(d,sb,&tmp,a+OPENFS_INODE_TREE_INLINE_EXTENT_MAX,
                                      n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
+        fprintf(stderr,"sparse tree_result=%d root=%llu count=%u\\n",(int)tree_result,(unsigned long long)root,n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX);
         if (tree_result != OPENFS_EXTENT_OK) {
             int restored = newroot ||
                 d->write(d->context, root, 1U, old_tree) == OPENFS_IO_OK;
