@@ -35,11 +35,7 @@ The handle has a reference count. Closing one reference does not destroy the
 underlying object while other references still exist.
 
 The handle mutex serializes offset and inode-snapshot updates performed through
-that open-file object. A reference must be retained before another thread or
-component receives a handle pointer; the final close may destroy the object.
-Concurrent operations are supported while at least one valid reference exists.
-A caller must not race a final close against an operation that has not first
-acquired its own reference.
+that open-file object. A reference should still be retained before another thread or component receives a handle pointer, but mounted-runtime handles now have an additional quiescent lifetime barrier: the final close marks the object closed and retires it instead of immediately destroying its mutex. Concurrent close/stat/read/write waiters can therefore safely observe the closed state. The runtime reclaims retired handle objects only after admission is closed and active runtime users have drained.
 
 ## Namespace lifetime
 
