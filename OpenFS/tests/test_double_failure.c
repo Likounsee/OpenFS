@@ -295,6 +295,48 @@ static int truncate_rollback_after_partial_free(void)
     return 0;
 }
 
+static int truncate_rollback_after_root_free_failure(void)
+{
+    disk_t d; openfs_block_device_t v; openfs_superblock_t s;
+    uint64_t ino = 0U;
+    openfs_inode_t inode;
+    uint8_t block[BS];
+    memset(block, 0x3DU, sizeof(block));
+    setup(&d, &v, &s);
+
+    assert(openfs_path_create(&v, &s, "/truncate-root-rollback",
+                              OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
+    assert(openfs_inode_read(&v, s.inode_table_start, ino, inode_count(&s), &inode) == OPENFS_INODE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 0U, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 2U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 4U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 6U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 8U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert((inode.flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U);
+    assert(inode.extent_count == OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U);
+
+    uint8_t *before = snapshot_disk(&d);
+    d.fail_block = s.block_bitmap_start;
+    d.fail_enabled = 1;
+    d.skip_writes = 4U;
+    d.fail_once = 1;
+
+    assert(openfs_file_truncate(&v, &s, &inode, BS) == OPENFS_FILE_IO_ERROR);
+    d.fail_enabled = 0;
+    d.fail_once = 0;
+    d.fail_flush = 0;
+    assert(recovery_oracle(&d, before, 0) == HARDENING_ORACLE_RECOVERED);
+    assert(openfs_inode_read(&v, s.inode_table_start, ino, inode_count(&s), &inode) == OPENFS_INODE_OK);
+    assert(inode.size == 9U * BS);
+    assert(inode.blocks == 5U);
+    assert((inode.flags & OPENFS_INODE_FLAG_EXTENT_TREE) != 0U);
+    assert(inode.extent_count == OPENFS_INODE_TREE_INLINE_EXTENT_MAX + 1U);
+
+    free(before);
+    free(d.bytes);
+    return 0;
+}
+
 static int inode_rollback_write_failure(void)
 {
     disk_t d; openfs_block_device_t v; openfs_superblock_t s;
@@ -486,6 +528,7 @@ int main(void)
     assert(write_rollback_flush_failure() == 0);
     assert(allocator_rollback_write_failure() == 0);
     assert(truncate_rollback_after_partial_free() == 0);
+    assert(truncate_rollback_after_root_free_failure() == 0);
     assert(inode_rollback_write_failure() == 0);
     assert(create_rollback_write_failure() == 0);
     assert(unlink_rollback_write_failure() == 0);
