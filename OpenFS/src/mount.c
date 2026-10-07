@@ -94,21 +94,21 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
     openfs_format_result_t pr=read_at(device,0U,&primary);
     openfs_format_result_t br=read_at(device,device->block_count-1U,&backup);
     if(pr!=OPENFS_FORMAT_OK&&br!=OPENFS_FORMAT_OK){
-        openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;
+        openfs_rwlock_unlock(&mount->state_lock);
         return (pr==OPENFS_FORMAT_IO_ERROR||br==OPENFS_FORMAT_IO_ERROR)?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;
     }
     if(pr==OPENFS_FORMAT_OK&&br==OPENFS_FORMAT_OK){
-        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;return OPENFS_MOUNT_CORRUPT;}
+        if(!same_layout(&primary,&backup)){openfs_rwlock_unlock(&mount->state_lock);return OPENFS_MOUNT_CORRUPT;}
         mount->superblock=(backup.generation>primary.generation)?backup:primary;
     }else{
         mount->superblock=(pr==OPENFS_FORMAT_OK)?primary:backup;
     }
     mount->device=device;
-    if(openfs_validate_superblock(device,&mount->superblock)!=OPENFS_FORMAT_OK){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_CORRUPT;}
-    if(!openfs_runtime_init(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_IO_ERROR;}
+    if(openfs_validate_superblock(device,&mount->superblock)!=OPENFS_FORMAT_OK){openfs_rwlock_unlock(&mount->state_lock);memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_CORRUPT;}
+    if(!openfs_runtime_init(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);memset(mount,0,sizeof(*mount));return OPENFS_MOUNT_IO_ERROR;}
     mount->superblock.runtime=&mount->runtime;
     openfs_journal_result_t jr=openfs_journal_open(&mount->journal,device,&mount->superblock);
-    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
+    if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     jr=openfs_journal_replay(device,&mount->superblock,replay_block,mount);
     if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
     openfs_orphan_result_t orphan_result=openfs_orphan_recover_all(device,&mount->superblock);
