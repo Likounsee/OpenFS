@@ -165,14 +165,14 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,new_ino,inode_count,&created);
     if(ir!=OPENFS_INODE_OK){free(ext);cow_unlock_inode(sb);return OPENFS_COW_CORRUPT;}
 
-    uint64_t shared_blocks=0U;
+    uint64_t incremented_blocks=0U;
     for(uint32_t i=0U;i<count;i++){
-        if(ext[i].block_count>UINT64_MAX-shared_blocks){r=OPENFS_COW_OUT_OF_RANGE;break;}
-        shared_blocks+=ext[i].block_count;
+        if(ext[i].block_count>UINT64_MAX-incremented_blocks){r=OPENFS_COW_OUT_OF_RANGE;break;}
+        incremented_blocks+=ext[i].block_count;
         for(uint64_t n=0U;n<ext[i].block_count;n++){
             uint64_t block=ext[i].physical_start+n;
             uint16_t refs=0U;
-            if(openfs_cow_refcount_inc(d,sb,block,&refs)!=OPENFS_COW_OK){r=OPENFS_COW_CORRUPT;break;}
+            if(openfs_cow_refcount_inc(d,sb,block,&refs)!=OPENFS_COW_OK){incremented_blocks--;r=OPENFS_COW_CORRUPT;break;}
         }
         if(r!=OPENFS_COW_OK)break;
     }
@@ -203,9 +203,11 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
 
     if(r!=OPENFS_COW_OK){
         if(new_root!=0U)(void)openfs_free_block(d,sb,new_root);
-        for(uint32_t i=0U;i<count;i++){
-            for(uint64_t n=0U;n<ext[i].block_count;n++)
-                (void)openfs_cow_refcount_dec(d,sb,ext[i].physical_start+n,NULL);
+        uint64_t remaining=incremented_blocks;
+        for(uint32_t i=0U;i<count&&remaining!=0U;i++){
+            uint64_t take=ext[i].block_count<remaining?ext[i].block_count:remaining;
+            for(uint64_t n=0U;n<take;n++)(void)openfs_cow_refcount_dec(d,sb,ext[i].physical_start+n,NULL);
+            remaining-=take;
         }
         created.mode=OPENFS_INODE_MODE_FREE;created.link_count=0U;
         (void)openfs_inode_write(d,sb->inode_table_start,inode_count,&created);
