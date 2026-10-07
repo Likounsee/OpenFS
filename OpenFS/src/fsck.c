@@ -8,6 +8,7 @@
 #include "openfs/path.h"
 #include "openfs/xattr.h"
 #include "openfs/inode.h"
+#include "openfs/runtime.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -460,10 +461,16 @@ done:;
     return result;
 }
 
+
+openfs_fsck_result_t openfs_fsck_with_progress_and_diagnostics(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_diagnostic_t*diagnostic_out,openfs_fsck_progress_callback_t progress,void*progress_context){
+    if(s==NULL||s->runtime==NULL)return fsck_core(d,s,errors,diagnostic_out,progress,progress_context);
+    if(!openfs_runtime_enter(s->runtime))return OPENFS_FSCK_IO_ERROR;
+    openfs_fsck_result_t r=fsck_core(d,s,errors,diagnostic_out,progress,progress_context);
+    openfs_runtime_leave(s->runtime);return r;
+}
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors){
     return openfs_fsck_with_progress(d,s,errors,NULL,NULL);
 }
-
 openfs_fsck_result_t openfs_fsck_with_progress(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t*errors,openfs_fsck_progress_callback_t progress,void *progress_context){
     return openfs_fsck_with_progress_and_diagnostics(d,s,errors,NULL,progress,progress_context);
 }
