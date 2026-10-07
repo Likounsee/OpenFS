@@ -420,6 +420,30 @@ static openfs_file_result_t file_truncate_unlocked(
         r=load_all_extents(device,sb,&original,&extents,&extent_count);
         if(r!=OPENFS_FILE_OK){free(tail_backup);return r;}
 
+        uint64_t shrink_tail_physical=0U;
+        uint8_t *shrink_tail_backup=NULL;
+        int shrink_tail_saved=0;
+        if(new_size!=0U && (new_size % device->block_size)!=0U){
+            uint64_t tail_logical=new_size/device->block_size;
+            openfs_file_result_t mr=map_block_on_disk(device,sb,&original,tail_logical,&shrink_tail_physical);
+            if(mr!=OPENFS_FILE_OK && mr!=OPENFS_FILE_OUT_OF_RANGE){
+                free(extents);free(tail_backup);return mr;
+            }
+            if(mr==OPENFS_FILE_OK){
+                if(validate_allocated_block(device,sb,shrink_tail_physical)!=OPENFS_FILE_OK){
+                    free(extents);free(tail_backup);return OPENFS_FILE_CORRUPT;
+                }
+                shrink_tail_backup=malloc(device->block_size);
+                if(shrink_tail_backup==NULL){
+                    free(extents);free(tail_backup);return OPENFS_FILE_IO_ERROR;
+                }
+                if(device->read(device->context,shrink_tail_physical,1U,shrink_tail_backup)!=OPENFS_IO_OK){
+                    free(shrink_tail_backup);free(extents);free(tail_backup);return OPENFS_FILE_IO_ERROR;
+                }
+                shrink_tail_saved=1;
+            }
+        }
+
         uint64_t new_allocated=0U;
         for(uint32_t n=0U;n<extent_count;n++){
             openfs_extent_t *e=&extents[n];
@@ -493,8 +517,29 @@ static openfs_file_result_t file_truncate_unlocked(
             int ok=1;
             if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
             if(ok&&device->flush(device->context)!=OPENFS_IO_OK)ok=0;
-            free(old_tree_block);free(freed);free(tail_backup);*inode=original;
+            free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
             return ok?r:OPENFS_FILE_CORRUPT;
+        }
+
+        if(shrink_tail_saved){
+            uint8_t *block=malloc(device->block_size);
+            if(block==NULL){
+                int ok=1;
+                if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+                if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+                free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
+                return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+            }
+            memcpy(block,shrink_tail_backup,device->block_size);
+            memset(block+(size_t)(new_size%device->block_size),0U,
+                   device->block_size-(size_t)(new_size%device->block_size));
+            if(device->write(device->context,shrink_tail_physical,1U,block)!=OPENFS_IO_OK){
+                int ok=device->write(device->context,shrink_tail_physical,1U,shrink_tail_backup)==OPENFS_IO_OK;
+                if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
+                free(block);free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
+                return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+            }
+            free(block);
         }
 
         reduced.size=new_size;
@@ -507,7 +552,8 @@ static openfs_file_result_t file_truncate_unlocked(
                 if(device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
                 else if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
             }
-            free(old_tree_block);free(freed);free(tail_backup);*inode=original;
+            if(shrink_tail_saved&&device->write(device->context,shrink_tail_physical,1U,shrink_tail_backup)!=OPENFS_IO_OK)ok=0;
+            free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
             return ok?r:OPENFS_FILE_CORRUPT;
         }
 
@@ -559,13 +605,14 @@ static openfs_file_result_t file_truncate_unlocked(
             }
             if(root_freed&&openfs_bitmap_set(device,sb->block_bitmap_start,sb->block_bitmap_blocks,old_root,1)!=OPENFS_BITMAP_OK)ok=0;
             if(old_root!=0U&&new_root==old_root&&old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(shrink_tail_saved&&device->write(device->context,shrink_tail_physical,1U,shrink_tail_backup)!=OPENFS_IO_OK)ok=0;
             if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
             if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
             *inode=original;
-            free(old_tree_block);free(freed);free(tail_backup);
+            free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);
             return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
         }
-        free(old_tree_block);free(freed);free(tail_backup);
+        free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);
         return OPENFS_FILE_OK;
     }
 
