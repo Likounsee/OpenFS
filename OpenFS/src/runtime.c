@@ -1,6 +1,7 @@
 #include "openfs/runtime.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 static _Thread_local openfs_runtime_t *tls_runtime;
 static _Thread_local unsigned tls_runtime_depth;
@@ -151,11 +152,12 @@ int openfs_runtime_begin_shutdown(openfs_runtime_t *r)
     if(!r->initialized){(void)openfs_mutex_unlock(&r->lifecycle_lock);return 0;}
     r->accepting=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    fprintf(stderr,"RT-BEGIN active=%llu\\n",(unsigned long long)r->active_users);
     for(;;){
         if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
         uint64_t active=r->active_users;
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
-        if(active==0U)return 1;
+        if(active==0U){fprintf(stderr,"RT-BEGIN-DONE\\n");return 1;}
     }
 }
 void openfs_runtime_cancel_shutdown(openfs_runtime_t *r)
@@ -169,6 +171,7 @@ void openfs_runtime_cancel_shutdown(openfs_runtime_t *r)
 
 void openfs_runtime_destroy(openfs_runtime_t*r){
     if(r==NULL||!r->initialized)return;
+    fprintf(stderr,"RT-DESTROY active=%llu\\n",(unsigned long long)r->active_users);
     if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
     r->accepting=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
