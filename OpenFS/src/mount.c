@@ -185,11 +185,10 @@ openfs_mount_result_t openfs_unmount(openfs_mount_t *mount)
     mount_lifecycle_lock();
     if(!mount_registry_contains(mount)||!mount->mounted||!mount->state_lock_initialized){mount_lifecycle_unlock();return OPENFS_MOUNT_INVALID_ARGUMENT;}
     if(openfs_rwlock_write_lock(&mount->state_lock,OPENFS_LOCK_RANK_MOUNT)!=OPENFS_LOCK_OK){mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
-    if(openfs_runtime_handle_count_all(&mount->runtime)!=0U){openfs_rwlock_unlock(&mount->state_lock);mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     openfs_mount_result_t r=mount->device->flush(mount->device->context)==OPENFS_IO_OK?OPENFS_MOUNT_OK:OPENFS_MOUNT_IO_ERROR;
     if(r!=OPENFS_MOUNT_OK){openfs_rwlock_unlock(&mount->state_lock);mount_lifecycle_unlock();return r;}
+    if(!openfs_runtime_shutdown_if_unused(&mount->runtime)){openfs_rwlock_unlock(&mount->state_lock);mount_lifecycle_unlock();return OPENFS_MOUNT_IO_ERROR;}
     mount->mounted=0;mount->device=NULL;mount->superblock.runtime=NULL;memset(&mount->superblock,0,sizeof(mount->superblock));memset(&mount->journal,0,sizeof(mount->journal));
-    openfs_runtime_destroy(&mount->runtime);
     openfs_rwlock_unlock(&mount->state_lock);
     openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;
     mount_registry_remove(mount);
