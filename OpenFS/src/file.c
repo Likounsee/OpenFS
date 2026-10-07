@@ -993,6 +993,7 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
     if(r!=OPENFS_FILE_OK){
         sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
         for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+        free(*old_root_data_out);*old_root_data_out=NULL;
         free(new_blocks);free(cow_old);free(cow_new);return r;
     }
     *inode=tmp;*new_blocks_out=new_blocks;*cow_old_blocks_out=cow_old;*cow_new_blocks_out=cow_new;*cow_count_out=cow_count;
