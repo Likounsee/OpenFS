@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "openfs/mount.h"
 #include "openfs/path.h"
 #include "openfs/file.h"
