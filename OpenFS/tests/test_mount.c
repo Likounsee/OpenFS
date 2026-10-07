@@ -168,5 +168,7 @@ static void backup_superblock_extent_tree_regression(void)
 
 int main(void){
  concurrent_unmount_runtime_lock_regression();
+ backup_superblock_extent_tree_regression();
+ runtime_admission_unmount_barrier_regression();
  return 0;
 }
