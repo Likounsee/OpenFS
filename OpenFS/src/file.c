@@ -5,7 +5,7 @@
 
 #include <limits.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h>\n#include <stdio.h>
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
 {
@@ -831,6 +831,7 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
     r=store_all_extents(d,sb,&tmp,ext,n);
     free(ext);
     if(r!=OPENFS_FILE_OK){
+        fprintf(stderr,"sparse_prepare store_all_extents failed: %d n=%u blocks=%llu root=%llu\\n",(int)r,n,(unsigned long long)tmp.blocks,(unsigned long long)openfs_inode_get_extent_tree_root(&tmp));
         if(old_root!=0U&&old_root_data!=NULL)(void)d->write(d->context,old_root,1U,old_root_data);
         sparse_free_blocks(d,sb,new_blocks,added);free(old_root_data);free(new_blocks);return r;
     }
