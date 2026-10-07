@@ -73,6 +73,7 @@ static void unmount_open_handle_regression(void)
     assert(openfs_fd_open(&v,&m.superblock,"/held",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&h)==OPENFS_FD_OK);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_IO_ERROR);
     assert(openfs_fd_close(h)==OPENFS_FD_OK);
+    assert(openfs_fd_close(h)==OPENFS_FD_CLOSED);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(d.bytes);
 }
