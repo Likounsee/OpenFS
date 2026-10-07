@@ -27,6 +27,7 @@ typedef struct {
     int fail_enabled;
     int partial_once;
     size_t partial_bytes;
+    int fail_once;
     int fail_flush;
 } disk_t;
 
@@ -60,6 +61,11 @@ static openfs_io_result_t wr(void *ctx, uint64_t first, uint32_t count,
                 if (partial == 0U || partial >= bytes) partial = bytes / 2U;
                 memcpy(d->bytes + (size_t)(first * d->block_size), in, partial);
                 d->partial_once = 0;
+            }
+            if (d->fail_once) {
+                d->fail_once = 0;
+            } else {
+                return OPENFS_IO_IO_ERROR;
             }
             return OPENFS_IO_IO_ERROR;
         }
@@ -246,6 +252,43 @@ static int allocator_rollback_write_failure(void)
     d.fail_enabled = 0;
     d.fail_flush = 0;
     assert(recovery_oracle(&d, before, 1) != HARDENING_ORACLE_UNEXPECTED);
+
+    free(before);
+    free(d.bytes);
+    return 0;
+}
+
+static int truncate_rollback_after_partial_free(void)
+{
+    disk_t d; openfs_block_device_t v; openfs_superblock_t s;
+    uint64_t ino = 0U;
+    openfs_inode_t inode;
+    uint8_t block[BS];
+    memset(block, 0x6CU, sizeof(block));
+    setup(&d, &v, &s);
+
+    assert(openfs_path_create(&v, &s, "/truncate-free-rollback",
+                              OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
+    assert(openfs_inode_read(&v, s.inode_table_start, ino, inode_count(&s), &inode) == OPENFS_INODE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 0U, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 2U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &s, &inode, 3U * BS, block, sizeof(block)) == OPENFS_FILE_OK);
+
+    uint8_t *before = snapshot_disk(&d);
+    d.fail_block = s.block_bitmap_start;
+    d.fail_enabled = 1;
+    d.skip_writes = 1U;
+    d.fail_once = 1;
+
+    assert(openfs_file_truncate(&v, &s, &inode, BS) == OPENFS_FILE_IO_ERROR);
+    d.fail_enabled = 0;
+    d.fail_once = 0;
+    d.fail_flush = 0;
+    assert(recovery_oracle(&d, before, 0) == HARDENING_ORACLE_RECOVERED);
+    assert(openfs_inode_read(&v, s.inode_table_start, ino, inode_count(&s), &inode) == OPENFS_INODE_OK);
+    assert(inode.size == 4U * BS);
+    assert(inode.blocks == 4U);
 
     free(before);
     free(d.bytes);
@@ -442,6 +485,7 @@ int main(void)
     assert(write_rollback_write_failure() == 0);
     assert(write_rollback_flush_failure() == 0);
     assert(allocator_rollback_write_failure() == 0);
+    assert(truncate_rollback_after_partial_free() == 0);
     assert(inode_rollback_write_failure() == 0);
     assert(create_rollback_write_failure() == 0);
     assert(unlink_rollback_write_failure() == 0);
