@@ -2,6 +2,7 @@
 #include "openfs/lock.h"
 #include "openfs/runtime.h"
 #include <stdint.h>
+#include <string.h>
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
