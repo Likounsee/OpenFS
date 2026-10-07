@@ -29,7 +29,7 @@ int main(void)
     openfs_extent_t source_extent;assert(openfs_inode_get_extent(&source_after,0U,&source_extent)==OPENFS_EXTENT_OK);
     uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==1U);
 
-    uint64_t clone_ino=0U;assert(openfs_cow_clone_inode(&v,&m.superblock,&source_after,m.superblock.root_inode,&clone_ino)==OPENFS_COW_OK);
+    uint64_t clone_ino=0U;openfs_cow_result_t clone_result=openfs_cow_clone_inode(&v,&m.superblock,&source_after,m.superblock.root_inode,&clone_ino);if(clone_result!=OPENFS_COW_OK)fprintf(stderr,"clone_result=%d source_extents=%u blocks=%llu refs=%u\n",(int)clone_result,source_after.extent_count,(unsigned long long)source_after.blocks,(unsigned)refs);assert(clone_result==OPENFS_COW_OK);
     openfs_inode_t clone;assert(openfs_inode_read(&v,m.superblock.inode_table_start,clone_ino,count,&clone)==OPENFS_INODE_OK);
     assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==2U);
 
