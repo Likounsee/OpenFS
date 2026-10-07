@@ -14,7 +14,7 @@ static openfs_fd_result_t load_inode(openfs_block_device_t*d,const openfs_superb
 static int can_read(uint32_t f){return (f&OPENFS_FD_ACCESS_MASK)!=OPENFS_FD_WRONLY;}
 static int can_write(uint32_t f){uint32_t a=f&OPENFS_FD_ACCESS_MASK;return a==OPENFS_FD_WRONLY||a==OPENFS_FD_RDWR;}
 static openfs_fd_result_t validate_flags(uint32_t f){uint32_t a=f&OPENFS_FD_ACCESS_MASK;if(a>OPENFS_FD_RDWR)return OPENFS_FD_INVALID_ARGUMENT;if((f&OPENFS_FD_EXCL)!=0U&&(f&OPENFS_FD_CREAT)==0U)return OPENFS_FD_INVALID_ARGUMENT;if((f&OPENFS_FD_TRUNC)!=0U&&!can_write(f))return OPENFS_FD_ACCESS_DENIED;return OPENFS_FD_OK;}
-static openfs_fd_result_t handle_lock(openfs_file_handle_t*h){if(h==NULL||!h->lock_initialized)return OPENFS_FD_INVALID_ARGUMENT;return openfs_mutex_lock(&h->lock,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK?OPENFS_FD_OK:OPENFS_FD_IO_ERROR;}
+static openfs_fd_result_t handle_lock(openfs_file_handle_t*h){if(h==NULL||!h->lock_initialized)return OPENFS_FD_INVALID_ARGUMENT;return openfs_mutex_lock(&h->lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK?OPENFS_FD_OK:OPENFS_FD_IO_ERROR;}
 static void destroy_handle(openfs_file_handle_t*h){if(h==NULL)return;if(h->lock_initialized){(void)openfs_mutex_destroy(&h->lock);h->lock_initialized=0;}free(h);}
 static openfs_fd_result_t open_common(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t flags,uint32_t mode,uint32_t uid,uint32_t gid,int credentials,openfs_file_handle_t**out){
 if(out==NULL||!openfs_block_device_is_valid(d)||s==NULL||p==NULL)return OPENFS_FD_INVALID_ARGUMENT;*out=NULL;openfs_fd_result_t vr=validate_flags(flags);if(vr!=OPENFS_FD_OK)return vr;
