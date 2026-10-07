@@ -8,6 +8,7 @@
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
 #include "openfs/path.h"
+#include "openfs/fd.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -58,6 +59,23 @@ static void *runtime_destroy_worker(void *arg)
 #else
     return NULL;
 #endif
+}
+
+static void unmount_open_handle_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x52U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    openfs_file_handle_t *h=NULL;
+    assert(openfs_fd_open(&v,&m.superblock,"/held",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&h)==OPENFS_FD_OK);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_IO_ERROR);
+    assert(openfs_fd_close(h)==OPENFS_FD_OK);
+    assert(openfs_fd_close(h)==OPENFS_FD_CLOSED);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    free(d.bytes);
 }
 
 static void runtime_shutdown_handle_admission_regression(void)
@@ -274,6 +292,7 @@ static void backup_superblock_extent_tree_regression(void)
 }
 
 int main(void){
+ unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  concurrent_double_unmount_regression();

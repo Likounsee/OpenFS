@@ -1,12 +1,41 @@
 #include "openfs/runtime.h"
 #include <stdlib.h>
-#include <string.h>
-#include <stdatomic.h>
+ #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 static _Thread_local openfs_runtime_t *tls_runtime;
 static _Thread_local unsigned tls_runtime_depth;
 
-static atomic_flag runtime_lifecycle_guard = ATOMIC_FLAG_INIT;
+static openfs_mutex_t runtime_lifecycle_guard;
+static int runtime_lifecycle_guard_ready;
+
+#if defined(_WIN32)
+static INIT_ONCE runtime_lifecycle_once=INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK runtime_lifecycle_init_once(PINIT_ONCE once,PVOID parameter,PVOID context)
+{
+    (void)once;(void)parameter;(void)context;
+    runtime_lifecycle_guard_ready=openfs_mutex_init(&runtime_lifecycle_guard)==OPENFS_LOCK_OK;
+    return TRUE;
+}
+static int runtime_lifecycle_ensure(void)
+{
+    return InitOnceExecuteOnce(&runtime_lifecycle_once,runtime_lifecycle_init_once,NULL,NULL)!=0&&runtime_lifecycle_guard_ready;
+}
+#else
+static pthread_once_t runtime_lifecycle_once=PTHREAD_ONCE_INIT;
+static void runtime_lifecycle_init_once(void)
+{
+    runtime_lifecycle_guard_ready=openfs_mutex_init(&runtime_lifecycle_guard)==OPENFS_LOCK_OK;
+}
+static int runtime_lifecycle_ensure(void)
+{
+    return pthread_once(&runtime_lifecycle_once,runtime_lifecycle_init_once)==0&&runtime_lifecycle_guard_ready;
+}
+#endif
 
 typedef struct runtime_registry_entry {
     openfs_runtime_t *runtime;
@@ -15,15 +44,15 @@ typedef struct runtime_registry_entry {
 
 static runtime_registry_entry_t *runtime_registry;
 
-static void runtime_lifecycle_lock(void)
+static int runtime_lifecycle_lock(void)
 {
-    while (atomic_flag_test_and_set_explicit(&runtime_lifecycle_guard, memory_order_acquire)) {
-    }
+    if(!runtime_lifecycle_ensure())return 0;
+    return openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK;
 }
 
 static void runtime_lifecycle_unlock(void)
 {
-    atomic_flag_clear_explicit(&runtime_lifecycle_guard, memory_order_release);
+    (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
 }
 
 static int runtime_registry_contains(openfs_runtime_t *r)
@@ -178,7 +207,7 @@ int openfs_runtime_retire_handle(openfs_runtime_t*r,void*handle)
 int openfs_runtime_init(openfs_runtime_t*r)
 {
     if(r==NULL)return 0;
-    runtime_lifecycle_lock();
+    if(!runtime_lifecycle_lock())return 0;
     if(runtime_registry_contains(r)){
         runtime_lifecycle_unlock();
         return 0;
@@ -218,7 +247,7 @@ fail0:
 static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
 {
     if(r==NULL||tls_runtime==r)return 0;
-    runtime_lifecycle_lock();
+    if(!runtime_lifecycle_lock())return 0;
     if(!runtime_registry_contains(r)){
         runtime_lifecycle_unlock();
         return 0;
