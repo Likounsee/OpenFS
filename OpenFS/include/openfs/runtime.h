@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 typedef struct openfs_runtime {
+    openfs_mutex_t lifecycle_lock;
     openfs_mutex_t directory_lock;
     openfs_mutex_t inode_lock;
     openfs_mutex_t allocation_lock;
@@ -14,8 +15,12 @@ typedef struct openfs_runtime {
     openfs_mutex_t file_lock_registry_lock;
     void *open_handles;
     void *file_locks;
+    uint64_t active_users;
+    int accepting;
     int initialized;
 } openfs_runtime_t;
+int openfs_runtime_enter(openfs_runtime_t *);
+void openfs_runtime_leave(openfs_runtime_t *);
 int openfs_runtime_init(openfs_runtime_t *);
 void openfs_runtime_destroy(openfs_runtime_t *);
 int openfs_runtime_handle_acquire(openfs_runtime_t *, const void *, uint64_t, uint64_t);
