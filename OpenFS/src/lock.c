@@ -83,7 +83,7 @@ openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_
     openfs_lock_result_t r=rank_enter(l,rank);
     if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
-    if(!TryAcquireSRWLockShared(&ri(l)->native)){rank_cancel();return OPENFS_LOCK_ERROR;}
+    AcquireSRWLockShared(&ri(l)->native);
     return OPENFS_LOCK_OK;
 #else
     if(pthread_rwlock_rdlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}
