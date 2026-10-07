@@ -8,11 +8,78 @@
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
 #include "openfs/path.h"
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
 static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;size_t bytes=(size_t)((uint64_t)n*d->block_size);if(d->partial_enabled&&f==d->partial_block){size_t copy=d->partial_bytes!=0U&&d->partial_bytes<bytes?d->partial_bytes:bytes;memcpy(d->bytes+(size_t)(f*d->block_size),b,copy);if(d->partial_once){if(d->partial_change)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}memcpy(d->bytes+(size_t)(f*d->block_size),b,bytes);return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){((disk_t*)c)->flushes++;return OPENFS_IO_OK;} static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){unsigned *hits=c;(void)tx;(void)p;if(n>=24U&&memcmp(p,"OJBD1",5U)==0)(*hits)++;return OPENFS_JOURNAL_OK;}
+
+typedef struct {
+    openfs_mount_t *mount;
+    int result;
+} unmount_worker_context_t;
+#if defined(_WIN32)
+static unsigned __stdcall unmount_worker(void *arg)
+#else
+static void *unmount_worker(void *arg)
+#endif
+{
+    unmount_worker_context_t *ctx=(unmount_worker_context_t *)arg;
+    ctx->result=(int)openfs_unmount(ctx->mount);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+static void runtime_admission_unmount_barrier_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x45U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    openfs_runtime_t *r=&m.runtime;
+    assert(openfs_runtime_enter(r)==1);
+    unmount_worker_context_t ctx={&m,(int)OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+    uintptr_t thread=_beginthreadex(NULL,0U,unmount_worker,&ctx,0U,NULL);
+    assert(thread!=0U);
+#else
+    pthread_t thread;assert(pthread_create(&thread,NULL,unmount_worker,&ctx)==0);
+#endif
+    /* The worker must close runtime admission before waiting for our active pin. */
+    for(unsigned i=0U;i<100000U;i++){
+        assert(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK);
+        int accepting=r->accepting;
+        assert(openfs_mutex_unlock(&r->lifecycle_lock)==OPENFS_LOCK_OK);
+        if(!accepting)break;
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+        assert(i+1U<100000U);
+    }
+    assert(openfs_runtime_leave(r),1);
+#if defined(_WIN32)
+    assert(WaitForSingleObject((HANDLE)thread,60000U)==WAIT_OBJECT_0);CloseHandle((HANDLE)thread);
+#else
+    assert(pthread_join(thread,NULL)==0);
+#endif
+    assert(ctx.result==OPENFS_MOUNT_OK);
+    assert(r->initialized==0&&r->accepting==0);
+    free(d.bytes);
+}
 
 static void concurrent_unmount_runtime_lock_regression(void)
 {
