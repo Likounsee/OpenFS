@@ -126,8 +126,13 @@ fail1:(void)openfs_mutex_destroy(&r->lifecycle_lock);
 fail0:return 0;
 }
 void openfs_runtime_destroy(openfs_runtime_t*r){
-    if(r==NULL||!r->initialized)return;
+    if(r==NULL||tls_runtime==r)return;
     if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+    if(!r->initialized||r->destroying){
+        (void)openfs_mutex_unlock(&r->lifecycle_lock);
+        return;
+    }
+    r->destroying=1;
     r->accepting=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
     for(;;){
@@ -136,7 +141,9 @@ void openfs_runtime_destroy(openfs_runtime_t*r){
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
         if(active==0U)break;
     }
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK){r->initialized=0;(void)openfs_mutex_unlock(&r->lifecycle_lock);}
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+    r->initialized=0;
+    (void)openfs_mutex_unlock(&r->lifecycle_lock);
     unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
     openfs_handle_entry_t *e=entries(r);while(e!=NULL){openfs_handle_entry_t*n=e->next;free(e);e=n;}
     r->open_handles=NULL;r->file_locks=NULL;
@@ -147,5 +154,5 @@ void openfs_runtime_destroy(openfs_runtime_t*r){
     (void)openfs_mutex_destroy(&r->inode_lock);
     (void)openfs_mutex_destroy(&r->directory_lock);
     (void)openfs_mutex_destroy(&r->lifecycle_lock);
-    r->initialized=0;
+    r->destroying=0;
 }
