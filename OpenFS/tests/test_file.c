@@ -199,10 +199,12 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
 
 static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t value0=0x10U,value1=0x20U,value2=0x30U,value3=0x40U;
-    const uint64_t logicals[5]={0U,4U,8U,20U,24U};
-    for(unsigned n=0U;n<5U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
+    openfs_inode_t i=new_file();uint8_t value0=0x10U,value1=0x20U;
+    const uint64_t logicals[3]={0U,4U,8U};
+    for(unsigned n=0U;n<3U;n++)TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,12U*4096U,&value1,2U*4096U)==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,20U*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,24U*4096U,&value0,sizeof(value0))==OPENFS_FILE_OK);
     TEST_ASSERT((i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U&&i.extent_count==6U&&i.blocks==7U);
     uint64_t root=openfs_inode_get_extent_tree_root(&i);TEST_ASSERT(root!=0U);
     openfs_extent_t before[6];for(uint32_t n=0U;n<6U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
