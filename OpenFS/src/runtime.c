@@ -1,7 +1,6 @@
 #include "openfs/runtime.h"
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 static _Thread_local openfs_runtime_t *tls_runtime;
 static _Thread_local unsigned tls_runtime_depth;
@@ -11,7 +10,7 @@ int openfs_runtime_enter(openfs_runtime_t *r)
     if(r==NULL)return 0;
     if(tls_runtime==r){++tls_runtime_depth;return 1;}
     if(tls_runtime!=NULL)return 0;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
     int ok=r->initialized&&r->accepting;
     if(ok){if(r->active_users==UINT64_MAX)ok=0;else ++r->active_users;}
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
@@ -25,7 +24,7 @@ void openfs_runtime_leave(openfs_runtime_t *r)
     --tls_runtime_depth;
     if(tls_runtime_depth!=0U)return;
     tls_runtime=NULL;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
     if(r->active_users!=0U)--r->active_users;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
 }
@@ -94,36 +93,17 @@ uint64_t openfs_runtime_handle_count(openfs_runtime_t*r,const void*d,uint64_t in
     uint64_t count=0U;for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next)if(e->device==d&&e->inode_number==ino&&e->generation==generation){count=e->references;break;}
     (void)openfs_mutex_unlock(&r->handle_registry_lock);openfs_runtime_leave(r);return count;
 }
-uint64_t openfs_runtime_handle_count_all_quiescent(openfs_runtime_t *r)
-{
-    if(r==NULL)return 0U;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return UINT64_MAX;
-    int quiescent=r->initialized&&!r->accepting&&r->active_users==0U;
-    (void)openfs_mutex_unlock(&r->lifecycle_lock);
-    if(!quiescent)return UINT64_MAX;
-    uint64_t count=0U;
-    for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){
-        if(UINT64_MAX-count<e->references)return UINT64_MAX;
-        count+=e->references;
-    }
-    return count;
-}
-
 uint64_t openfs_runtime_handle_count_all(openfs_runtime_t*r){
     if(r==NULL)return 0U;
-    int pinned=1;
     if(!openfs_runtime_enter(r))return UINT64_MAX;
-    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){
-        if(pinned)openfs_runtime_leave(r);
-        return UINT64_MAX;
-    }
+    if(openfs_mutex_lock(&r->handle_registry_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK){openfs_runtime_leave(r);return UINT64_MAX;}
     uint64_t count=0U;
     for(openfs_handle_entry_t*e=entries(r);e!=NULL;e=e->next){
         if(UINT64_MAX-count<e->references){count=UINT64_MAX;break;}
         count+=e->references;
     }
     (void)openfs_mutex_unlock(&r->handle_registry_lock);
-    if(pinned)openfs_runtime_leave(r);
+    openfs_runtime_leave(r);
     return count;
 }
 int openfs_runtime_init(openfs_runtime_t*r){
@@ -145,43 +125,18 @@ fail2:(void)openfs_mutex_destroy(&r->directory_lock);
 fail1:(void)openfs_mutex_destroy(&r->lifecycle_lock);
 fail0:return 0;
 }
-int openfs_runtime_begin_shutdown(openfs_runtime_t *r)
-{
-    if(r==NULL)return 0;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
-    if(!r->initialized){(void)openfs_mutex_unlock(&r->lifecycle_lock);return 0;}
-    r->accepting=0;
-    (void)openfs_mutex_unlock(&r->lifecycle_lock);
-    fprintf(stderr,"RT-BEGIN active=%llu\\n",(unsigned long long)r->active_users);
-    for(;;){
-        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return 0;
-        uint64_t active=r->active_users;
-        (void)openfs_mutex_unlock(&r->lifecycle_lock);
-        if(active==0U){fprintf(stderr,"RT-BEGIN-DONE\\n");return 1;}
-    }
-}
-void openfs_runtime_cancel_shutdown(openfs_runtime_t *r)
-{
-    if(r==NULL)return;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK){
-        if(r->initialized)r->accepting=1;
-        (void)openfs_mutex_unlock(&r->lifecycle_lock);
-    }
-}
-
 void openfs_runtime_destroy(openfs_runtime_t*r){
     if(r==NULL||!r->initialized)return;
-    fprintf(stderr,"RT-DESTROY active=%llu\\n",(unsigned long long)r->active_users);
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
     r->accepting=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
     for(;;){
-        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)!=OPENFS_LOCK_OK)return;
+        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
         uint64_t active=r->active_users;
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
         if(active==0U)break;
     }
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK){r->initialized=0;(void)openfs_mutex_unlock(&r->lifecycle_lock);}
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK){r->initialized=0;(void)openfs_mutex_unlock(&r->lifecycle_lock);}
     unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
     openfs_handle_entry_t *e=entries(r);while(e!=NULL){openfs_handle_entry_t*n=e->next;free(e);e=n;}
     r->open_handles=NULL;r->file_locks=NULL;
