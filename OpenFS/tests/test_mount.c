@@ -168,6 +168,23 @@ static void concurrent_double_unmount_regression(void)
     free(d.bytes);
 }
 
+static void stale_superblock_is_rejected_after_unmount(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x46U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    openfs_superblock_t stale=m.superblock;
+    openfs_inode_t inode;memset(&inode,0,sizeof(inode));inode.inode_number=1U;inode.generation=1U;inode.mode=OPENFS_INODE_MODE_REGULAR;
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    assert(stale.runtime!=NULL);
+    uint8_t byte=0U;size_t got=0U;
+    assert(openfs_file_read(&v,&stale,&inode,0U,&byte,1U,&got)==OPENFS_FILE_IO_ERROR);
+    free(d.bytes);
+}
+
 static void stale_runtime_admission_is_rejected(void)
 {
     openfs_runtime_t runtime;
@@ -306,6 +323,7 @@ int main(void){
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  stale_runtime_admission_is_rejected();
+ stale_superblock_is_rejected_after_unmount();
  concurrent_double_unmount_regression();
  concurrent_unmount_runtime_lock_regression();
  backup_superblock_extent_tree_regression();
