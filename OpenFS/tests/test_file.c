@@ -217,6 +217,7 @@ static void sparse_truncate_shrink_tree_to_inline_preserves_holes(void){
     TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,dropped4,&used)==OPENFS_BITMAP_OK&&!used);
     uint8_t out=0U;size_t got=0U;
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,12U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==value1);
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,18U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,13U*4096U-1U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     TEST_ASSERT(openfs_file_read(&v,&sb,&i,3U*4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0U);
     uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
