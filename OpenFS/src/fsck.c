@@ -32,7 +32,7 @@ static openfs_format_result_t fsck_read_superblock_at(openfs_block_device_t*d,ui
     out->block_size=sb_get32(raw+20U);out->total_blocks=sb_get64(raw+28U);out->metadata_start=sb_get64(raw+36U);out->metadata_blocks=sb_get64(raw+44U);
     out->block_bitmap_start=sb_get64(raw+52U);out->block_bitmap_blocks=sb_get64(raw+60U);out->inode_bitmap_start=sb_get64(raw+68U);out->inode_bitmap_blocks=sb_get64(raw+76U);
     out->inode_table_start=sb_get64(raw+84U);out->inode_table_blocks=sb_get64(raw+92U);out->journal_start=sb_get64(raw+100U);out->journal_blocks=sb_get64(raw+108U);
-    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);
+    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);out->refcount_start=sb_get64(raw+164U);out->refcount_blocks=sb_get64(raw+172U);
     memcpy(out->uuid,raw+148U,16U);free(raw);
     return openfs_validate_superblock(d,out);
 }
@@ -43,7 +43,7 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
         a->block_bitmap_start==b->block_bitmap_start&&a->block_bitmap_blocks==b->block_bitmap_blocks&&
         a->inode_bitmap_start==b->inode_bitmap_start&&a->inode_bitmap_blocks==b->inode_bitmap_blocks&&
         a->inode_table_start==b->inode_table_start&&a->inode_table_blocks==b->inode_table_blocks&&
-        a->journal_start==b->journal_start&&a->journal_blocks==b->journal_blocks&&
+        a->journal_start==b->journal_start&&a->journal_blocks==b->journal_blocks&&a->refcount_start==b->refcount_start&&a->refcount_blocks==b->refcount_blocks&&
         a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->root_inode==b->root_inode&&
         memcmp(a->uuid,b->uuid,sizeof(a->uuid))==0;
 }
