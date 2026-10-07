@@ -306,5 +306,5 @@ int openfs_runtime_shutdown_if_unused(openfs_runtime_t*r)
 
 void openfs_runtime_destroy(openfs_runtime_t*r)
 {
-    (void)runtime_shutdown_internal(r,0);
+    (void)runtime_shutdown_internal(r,1);
 }
