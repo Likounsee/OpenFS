@@ -181,7 +181,9 @@ static void sparse_truncate_shrink_reclaims_only_mapped_blocks(void){
     const uint64_t logicals[5]={0U,4U,8U,12U,16U};
     openfs_extent_t before[5];
     for(unsigned n=0U;n<5U;n++){
-        TEST_ASSERT(openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&values[n],1U)==OPENFS_FILE_OK);
+        openfs_file_result_t wr=openfs_file_write(&v,&sb,&i,logicals[n]*4096U,&values[n],1U);
+        if(wr!=OPENFS_FILE_OK) fprintf(stderr,"sparse tree write %u failed: %d blocks=%llu extents=%u flags=%u\\n",n,(int)wr,(unsigned long long)i.blocks,i.extent_count,i.flags);
+        TEST_ASSERT(wr==OPENFS_FILE_OK);
     }
     TEST_ASSERT(i.blocks==5U&&i.extent_count==5U&&(i.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U);
     for(unsigned n=0U;n<5U;n++)TEST_ASSERT(openfs_inode_get_extent(&i,n,&before[n])==OPENFS_EXTENT_OK);
