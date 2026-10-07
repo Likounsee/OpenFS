@@ -31,7 +31,7 @@ static openfs_lock_result_t rank_enter(const void *object,openfs_lock_rank_t ran
 static void rank_cancel(void){if(lock_depth!=0U)--lock_depth;}
 static int rank_is_top(const void *object){return lock_depth!=0U&&lock_stack[lock_depth-1U].object==object;}
 static openfs_lock_result_t rank_leave(const void *object){if(!rank_is_top(object))return OPENFS_LOCK_DEADLOCK;--lock_depth;return OPENFS_LOCK_OK;}
-openfs_lock_result_t openfs_mutex_init(openfs_mutex_t*m){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
+openfs_lock_result_t openfs_mutex_init(openfs_mutex_t*m){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;memset(m,0,sizeof(*m));
 #if defined(_WIN32)
 InitializeCriticalSection(&mi(m)->native);mi(m)->owner=0;mi(m)->depth=0;return OPENFS_LOCK_OK;
 #else
