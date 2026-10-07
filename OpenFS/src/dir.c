@@ -296,22 +296,28 @@ static openfs_dir_result_t dir_remove_unlocked(
     return OPENFS_DIR_NOT_FOUND;
 }
 
-static int directory_lock(const openfs_superblock_t *s){return s!=NULL&&s->runtime!=NULL&&s->runtime->initialized;}
+static openfs_dir_result_t lock_directory_runtime(const openfs_superblock_t *s){
+    if(s==NULL||s->runtime==NULL)return OPENFS_DIR_OK;
+    if(!openfs_runtime_enter(s->runtime))return OPENFS_DIR_IO_ERROR;
+    if(openfs_mutex_lock(&s->runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK){openfs_runtime_leave(s->runtime);return OPENFS_DIR_IO_ERROR;}
+    return OPENFS_DIR_OK;
+}
+static void unlock_directory_runtime(const openfs_superblock_t *s){if(s==NULL||s->runtime==NULL)return;(void)openfs_mutex_unlock(&s->runtime->directory_lock);openfs_runtime_leave(s->runtime);}
 openfs_dir_result_t openfs_dir_lookup(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,const char*n,openfs_dir_entry_t*e)
 {
-    if(!directory_lock(s))return dir_lookup_unlocked(d,s,i,n,e);
-    if(openfs_mutex_lock(&s->runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK)return OPENFS_DIR_IO_ERROR;
-    openfs_dir_result_t r=dir_lookup_unlocked(d,s,i,n,e);(void)openfs_mutex_unlock(&s->runtime->directory_lock);return r;
+    openfs_dir_result_t lr=lock_directory_runtime(s);if(lr!=OPENFS_DIR_OK)return lr;
+    if(s==NULL||s->runtime==NULL)return dir_lookup_unlocked(d,s,i,n,e);
+    openfs_dir_result_t r=dir_lookup_unlocked(d,s,i,n,e);unlock_directory_runtime(s);return r;
 }
 openfs_dir_result_t openfs_dir_add(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,const char*n,const openfs_dir_entry_t*e)
 {
-    if(!directory_lock(s))return dir_add_unlocked(d,s,i,n,e);
-    if(openfs_mutex_lock(&s->runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK)return OPENFS_DIR_IO_ERROR;
-    openfs_dir_result_t r=dir_add_unlocked(d,s,i,n,e);(void)openfs_mutex_unlock(&s->runtime->directory_lock);return r;
+    openfs_dir_result_t lr=lock_directory_runtime(s);if(lr!=OPENFS_DIR_OK)return lr;
+    if(s==NULL||s->runtime==NULL)return dir_add_unlocked(d,s,i,n,e);
+    openfs_dir_result_t r=dir_add_unlocked(d,s,i,n,e);unlock_directory_runtime(s);return r;
 }
 openfs_dir_result_t openfs_dir_remove(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,const char*n)
 {
-    if(!directory_lock(s))return dir_remove_unlocked(d,s,i,n);
-    if(openfs_mutex_lock(&s->runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK)return OPENFS_DIR_IO_ERROR;
-    openfs_dir_result_t r=dir_remove_unlocked(d,s,i,n);(void)openfs_mutex_unlock(&s->runtime->directory_lock);return r;
+    openfs_dir_result_t lr=lock_directory_runtime(s);if(lr!=OPENFS_DIR_OK)return lr;
+    if(s==NULL||s->runtime==NULL)return dir_remove_unlocked(d,s,i,n);
+    openfs_dir_result_t r=dir_remove_unlocked(d,s,i,n);unlock_directory_runtime(s);return r;
 }
