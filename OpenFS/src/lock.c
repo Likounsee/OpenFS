@@ -63,7 +63,7 @@ openfs_lock_result_t openfs_mutex_unlock(openfs_mutex_t*m){if(m==NULL)return OPE
 #if defined(_WIN32)
 if(mi(m)->owner!=lock_thread_id()||mi(m)->depth==0U)return OPENFS_LOCK_ERROR;if(!rank_is_top(m))return OPENFS_LOCK_DEADLOCK;if(--mi(m)->depth==0U)mi(m)->owner=0;LeaveCriticalSection(&mi(m)->native);if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_OK;
 #else
-if(!mi(m)->owned||mi(m)->depth==0U||!same_thread(mi(m)->owner,pthread_self()))return OPENFS_LOCK_ERROR;if(!rank_is_top(m))return OPENFS_LOCK_DEADLOCK;if(--mi(m)->depth==0U)mi(m)->owned=0;if(pthread_mutex_unlock(&mi(m)->native)!=0)return OPENFS_LOCK_ERROR;if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;return OPENFS_LOCK_OK;
+if(!mi(m)->owned||mi(m)->depth==0U||!same_thread(mi(m)->owner,pthread_self()))return OPENFS_LOCK_ERROR;if(!rank_is_top(m))return OPENFS_LOCK_DEADLOCK;if(--mi(m)->depth==0U)mi(m)->owned=0;if(pthread_mutex_unlock(&mi(m)->native)!=0)return OPENFS_LOCK_ERROR;if(rank_leave(m)!=OPENFS_LOCK_OK)return OPENFS_LOCK_DEADLOCK;if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_OK;
 #endif
 }
 openfs_lock_result_t openfs_rwlock_init(openfs_rwlock_t*l){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
