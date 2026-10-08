@@ -570,3 +570,9 @@ This closes an important P0 durability gap for block allocation/free on mounted 
 - **d2ac289** — inode allocation/free now use the mounted filesystem WAL transaction path when a runtime is journal-bound, covering the inode bitmap plus inode-table publication as one durable unit. Direct unmounted calls retain the existing non-WAL path.
 - **2f59f70** — added a fault-injection recovery test for inode allocation: force the inode-bitmap publication to fail after WAL commit, unmount, remount, and verify replay restores both the bitmap and inode contents.
 - **ab35795** / **243c938** — registered the test and corrected the assertion for a committed transaction whose API returns an I/O error after base-device publication fails.
+
+## 2026-10-08 — mounted file mutation durability
+
+- **e007be9** — direct `openfs_file_write` and `openfs_file_truncate` now automatically use the mounted filesystem WAL transaction when the runtime is journal-bound. The transaction-device path avoids nested WAL transactions while preserving the existing explicit transaction APIs.
+- **a26ee63** / **a81d150** — added and registered a fault-injection recovery test that fails the inode-table publication after WAL commit, remounts, and verifies both file metadata and payload were replayed.
+- **0bbd374** — updated the public file durability contract to document automatic WAL wrapping on mounted filesystems.
