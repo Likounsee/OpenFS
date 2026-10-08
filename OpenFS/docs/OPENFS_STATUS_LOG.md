@@ -691,3 +691,17 @@ The earlier CI failures were used to correct real issues rather than weaken test
 - Snapshots: **not implemented**.
 
 The next code work remains blocked on the P0 CI/recovery gate, specifically the WAL post-commit replay path and the mounted create/concurrency failures. No snapshot implementation will be declared complete until those foundations are repaired.
+
+
+# 2026-10-08 — Metadata-root and WAL replay hardening
+
+- `00d44064`: WAL replay now explicitly flushes replayed target blocks before reporting successful recovery.
+- `16271eec`: metadata-root initialization now clears the complete 56-byte root payload, including the final snapshot-catalog reference field.
+- `e4253913` / `fdc3e156`: added a transaction-facing metadata-root generation update API that routes through the existing transaction device and poisons the transaction on failure.
+- Snapshot implementation is still intentionally blocked until the live inode-table, directory, extent-tree and xattr lookup paths consume the persistent metadata root.
+
+### CI status
+
+The latest head is `fdc3e156`. The newest GitHub Actions run observed for that head is still pending/queued; earlier completed runs were cancelled by subsequent branch pushes. Therefore CI for the current head is **unknown/unreported**, not green.
+
+The latest completed test failures remain: allocator post-COMMIT recovery, mounted create/FD open, sparse `SEEK_DATA`, and dependent concurrency tests. These remain P0 and are not being marked complete.
