@@ -175,6 +175,15 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     if(openfs_inode_get_xattr_block(source)!=0U)return OPENFS_COW_INVALID_ARGUMENT;
 
     openfs_cow_result_t lr=cow_lock_inode(sb);if(lr!=OPENFS_COW_OK)return lr;
+    uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
+    if(inode_count==0U||source->inode_number==0U||source->inode_number>inode_count){cow_unlock_inode(sb);return OPENFS_COW_CORRUPT;}
+    openfs_inode_t current_source;
+    openfs_inode_result_t source_read=openfs_inode_read(d,sb->inode_table_start,source->inode_number,inode_count,&current_source);
+    if(source_read!=OPENFS_INODE_OK||current_source.generation!=source->generation||
+       (current_source.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_REGULAR||
+       current_source.link_count==0U){cow_unlock_inode(sb);return source_read==OPENFS_INODE_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;}
+    source=&current_source;
+
     openfs_extent_t *ext=NULL;uint32_t count=0U;
     openfs_cow_result_t r=cow_load_extents(d,sb,source,&ext,&count);
     if(r!=OPENFS_COW_OK){cow_unlock_inode(sb);return r;}
@@ -184,7 +193,6 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     if(iar!=OPENFS_INODE_ALLOC_OK){free(ext);cow_unlock_inode(sb);return iar==OPENFS_INODE_ALLOC_OUT_OF_SPACE?OPENFS_COW_OUT_OF_RANGE:OPENFS_COW_IO_ERROR;}
 
     openfs_inode_t created;
-    uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
     openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,new_ino,inode_count,&created);
     if(ir!=OPENFS_INODE_OK){
         (void)openfs_inode_free(d,sb,new_ino);
