@@ -4,6 +4,7 @@
 #include "openfs/inode.h"
 #include "openfs/extent.h"
 #include "openfs/cow.h"
+#include "openfs/bitmap.h"
 #include <stdlib.h>
 #include <string.h>
 
