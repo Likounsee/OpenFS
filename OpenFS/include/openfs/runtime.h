@@ -1,6 +1,8 @@
 #ifndef OPENFS_RUNTIME_H
 #define OPENFS_RUNTIME_H
 #include "openfs/lock.h"
+#include "openfs/journal.h"
+#include "openfs/block_device.h"
 #include <stdint.h>
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +18,9 @@ typedef struct openfs_runtime {
     void *open_handles;
     void *file_locks;
     void *retired_handles;
+    /* Bound only while the runtime belongs to a mounted filesystem. */
+    openfs_journal_t *journal;
+    openfs_block_device_t *device;
     uint64_t active_users;
     int accepting;
     int initialized;
