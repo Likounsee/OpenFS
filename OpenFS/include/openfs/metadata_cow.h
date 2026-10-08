@@ -14,6 +14,8 @@ typedef enum { OPENFS_METADATA_COW_TYPE_INVALID=0, OPENFS_METADATA_COW_TYPE_META
 typedef struct { uint16_t version; uint16_t type; uint32_t flags; uint64_t logical_id; uint64_t generation; uint32_t payload_crc32c; uint32_t header_crc32c; } openfs_metadata_cow_header_t;
 /* This is a stage-1 metadata-CoW primitive. It uses existing data-region allocation/refcounts; it does not make legacy metadata roots snapshot-safe by itself. Callers inside a transaction must pass openfs_transaction_device(tx). */
 openfs_metadata_cow_result_t openfs_metadata_cow_validate_block(const openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_header_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_initialize_block(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint32_t,const uint8_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_write_payload(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint32_t,const uint8_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_alloc(openfs_block_device_t *,const openfs_superblock_t *,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint32_t,uint64_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_clone(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint64_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_acquire(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
