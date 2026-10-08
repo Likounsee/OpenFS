@@ -98,7 +98,8 @@ openfs_cow_result_t openfs_cow_refcount_inc(openfs_block_device_t *d,const openf
     uint16_t current=0U;
     openfs_cow_result_t r=refcount_get_locked(d,sb,block,&current);
     if(r==OPENFS_COW_OK){
-        if(current==OPENFS_COW_MAX_REFCOUNT)r=OPENFS_COW_OVERFLOW;
+        if(current==0U)r=OPENFS_COW_CORRUPT;
+        else if(current==OPENFS_COW_MAX_REFCOUNT)r=OPENFS_COW_OVERFLOW;
         else{
             uint16_t next=(uint16_t)(current+1U);
             r=refcount_set_locked(d,sb,block,next);
