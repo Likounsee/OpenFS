@@ -503,7 +503,7 @@ static void allocator_cow_refcount_failure_recovery_regression(void){
     assert(openfs_bitmap_test(&v,recovered.superblock.block_bitmap_start,recovered.superblock.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK&&used==1);
     refs=0U;
     assert(openfs_cow_refcount_get(&v,&recovered.superblock,candidate,&refs)==OPENFS_COW_OK&&refs==1U);
-    uint64_t errors=0U;assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;openfs_fsck_diagnostic_t diag={0};openfs_fsck_result_t fsr=openfs_fsck_with_progress_and_diagnostics(&v,&recovered.superblock,&errors,&diag,NULL,NULL);fprintf(stderr,"allocator recovery fsck=%d errors=%llu stage=%s reason=%s index=%llu\\n",(int)fsr,(unsigned long long)errors,diag.stage?diag.stage:"?",diag.reason?diag.reason:"?",(unsigned long long)diag.index);assert(fsr==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);free(d.bytes);
 }
 
