@@ -632,3 +632,15 @@ The available commit-associated workflow API currently reports no workflow runs 
 ### Next step
 
 Introduce the persistent metadata-root indirection/version record. Only after that root exists can inode-table CoW be wired into normal metadata mutation without invalidating existing readers.
+
+# 2026-10-08 — metadata-CoW primitive hardening
+
+- **`20dcba1`** introduced the stage-1 generic metadata-CoW block primitive and its regression suite.
+- The follow-up hardening requires cloned blocks to preserve their metadata object type; callers cannot silently reinterpret a directory object as another metadata class.
+- Fault injection in `openfs-metadata-cow-test` now targets the exact newly allocated data block, so allocator bitmap writes are not accidentally intercepted.
+- Added explicit refcount-overflow coverage for metadata acquisition at `UINT16_MAX`.
+- The test still verifies that a failed clone publication leaves the source block valid and reclaimable.
+
+## CI
+
+Run `37807762169` for `20dcba1476e803aa6321af1fe008295b9255fee5` was observed in `pending` state. It is therefore **not yet CI-green**.

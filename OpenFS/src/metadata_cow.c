@@ -44,7 +44,7 @@ openfs_metadata_cow_result_t openfs_metadata_cow_alloc(openfs_block_device_t*d,c
  openfs_metadata_cow_result_t r=write_block(d,b,type,id,gen,flags,NULL);if(r!=OPENFS_METADATA_COW_OK){if(openfs_free_block(d,s,b)!=OPENFS_ALLOC_OK)return OPENFS_METADATA_COW_CORRUPT;return r;}*out=b;return OPENFS_METADATA_COW_OK;
 }
 openfs_metadata_cow_result_t openfs_metadata_cow_clone(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t source,openfs_metadata_cow_type_t type,uint64_t id,uint64_t gen,uint64_t*out){
- if(out==NULL||!type_ok(type)||gen==0U)return OPENFS_METADATA_COW_INVALID_ARGUMENT;openfs_metadata_cow_header_t h;openfs_metadata_cow_result_t r=openfs_metadata_cow_validate_block(d,s,source,&h);if(r!=OPENFS_METADATA_COW_OK)return r;
+ if(out==NULL||!type_ok(type)||gen==0U)return OPENFS_METADATA_COW_INVALID_ARGUMENT;openfs_metadata_cow_header_t h;openfs_metadata_cow_result_t r=openfs_metadata_cow_validate_block(d,s,source,&h);if(r!=OPENFS_METADATA_COW_OK)return r;if(h.type!=(uint16_t)type)return OPENFS_METADATA_COW_CORRUPT;
  uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_METADATA_COW_IO_ERROR;if(d->read(d->context,source,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_METADATA_COW_IO_ERROR;}
  uint64_t nb=0U;openfs_alloc_result_t ar=openfs_alloc_block(d,s,&nb);if(ar!=OPENFS_ALLOC_OK){free(b);return ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_METADATA_COW_OUT_OF_SPACE:(ar==OPENFS_ALLOC_CORRUPT?OPENFS_METADATA_COW_CORRUPT:OPENFS_METADATA_COW_IO_ERROR);}
  encode(b,type,id,gen,h.flags,openfs_crc32c(b+OPENFS_METADATA_COW_HEADER_SIZE,d->block_size-OPENFS_METADATA_COW_HEADER_SIZE));

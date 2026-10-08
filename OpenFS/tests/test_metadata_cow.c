@@ -5,9 +5,9 @@
 #include "openfs/metadata_cow.h"
 #include "openfs/format.h"
 #include "openfs/cow.h"
-typedef struct {uint8_t *b;uint32_t bs;uint64_t n;uint64_t fail_data_write;uint64_t fail_flush;} disk_t;
+typedef struct {uint8_t *b;uint32_t bs;uint64_t n;uint64_t fail_data_write_block;uint64_t fail_flush;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*out){disk_t*d=c;if(n==0U||f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(out,d->b+f*d->bs,(size_t)n*d->bs);return OPENFS_IO_OK;}
-static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*in){disk_t*d=c;if(n==0U||f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;if(d->fail_data_write!=0U&&f>=2U){d->fail_data_write--;return OPENFS_IO_IO_ERROR;}memcpy(d->b+f*d->bs,in,(size_t)n*d->bs);return OPENFS_IO_OK;}
+static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*in){disk_t*d=c;if(n==0U||f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;if(d->fail_data_write_block!=0U&&f==d->fail_data_write_block){d->fail_data_write_block=0U;return OPENFS_IO_IO_ERROR;}memcpy(d->b+f*d->bs,in,(size_t)n*d->bs);return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){disk_t*d=c;if(d->fail_flush!=0U){d->fail_flush--;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
 static void setup(disk_t*d,openfs_block_device_t*dev,openfs_superblock_t*s){memset(d,0,sizeof(*d));d->bs=4096U;d->n=128U;d->b=calloc((size_t)d->bs,d->n);assert(d->b);*dev=(openfs_block_device_t){d,d->bs,d->n,rd,wr,fl};uint8_t u[16]={0};assert(openfs_format(dev,u)==OPENFS_FORMAT_OK);assert(openfs_read_superblock(dev,s)==OPENFS_FORMAT_OK);}
 int main(void){
@@ -21,8 +21,9 @@ int main(void){
  assert(openfs_metadata_cow_release(&d,&s,clone,&refs)==OPENFS_METADATA_COW_OK&&refs==0U);
  assert(openfs_metadata_cow_release(&d,&s,block,&refs)==OPENFS_METADATA_COW_OK&&refs==1U);
  assert(openfs_metadata_cow_release(&d,&s,block,&refs)==OPENFS_METADATA_COW_OK&&refs==0U);
- uint64_t failed=0U;assert(openfs_metadata_cow_alloc(&d,&s,OPENFS_METADATA_COW_TYPE_XATTR,9U,1U,0U,&failed)==OPENFS_METADATA_COW_OK);x.fail_data_write=1U;
+ uint64_t failed=0U;assert(openfs_metadata_cow_alloc(&d,&s,OPENFS_METADATA_COW_TYPE_XATTR,9U,1U,0U,&failed)==OPENFS_METADATA_COW_OK);x.fail_data_write_block=failed+1U;
  uint64_t clone_fail=0U;assert(openfs_metadata_cow_acquire(&d,&s,failed,NULL)==OPENFS_METADATA_COW_OK);assert(openfs_metadata_cow_clone(&d,&s,failed,OPENFS_METADATA_COW_TYPE_XATTR,9U,2U,&clone_fail)==OPENFS_METADATA_COW_IO_ERROR);assert(openfs_metadata_cow_validate_block(&d,&s,failed,&h)==OPENFS_METADATA_COW_OK);
  assert(openfs_metadata_cow_release(&d,&s,failed,NULL)==OPENFS_METADATA_COW_OK);assert(openfs_metadata_cow_release(&d,&s,failed,NULL)==OPENFS_METADATA_COW_OK);
+ uint64_t overflow=0U;assert(openfs_metadata_cow_alloc(&d,&s,OPENFS_METADATA_COW_TYPE_EXTENT_TREE,10U,1U,0U,&overflow)==OPENFS_METADATA_COW_OK);assert(openfs_cow_refcount_set(&d,&s,overflow,OPENFS_COW_MAX_REFCOUNT)==OPENFS_COW_OK);assert(openfs_metadata_cow_acquire(&d,&s,overflow,NULL)==OPENFS_METADATA_COW_OVERFLOW);assert(openfs_cow_refcount_set(&d,&s,overflow,1U)==OPENFS_COW_OK);assert(openfs_metadata_cow_release(&d,&s,overflow,NULL)==OPENFS_METADATA_COW_OK);
  free(x.b);return 0;
 }
