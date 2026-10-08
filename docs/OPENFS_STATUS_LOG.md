@@ -1,3 +1,8 @@
+# 2026-10-08 — P0: second replay-test defect corrected
+
+- CI exposed a second defect in the regression harness: its callback was trying to infer the target from payload contents rather than carrying the intended target explicitly.
+- The test now uses a fixed target in its disk context and a valid 1024-byte journal DATA payload. It directly verifies first replay and repeated replay byte-for-byte.
+
 # 2026-10-08 — P0: replay test CI failure diagnosed and corrected
 
 - CI run 37835860443 built GCC/Clang successfully but both test jobs failed on the new replay regression because the test attempted to put a 4096-byte block-data record into the journal API's single-record payload limit.
