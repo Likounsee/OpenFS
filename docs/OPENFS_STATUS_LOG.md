@@ -1,3 +1,9 @@
+# 2026-10-08 — CI: replay idempotence + scrub baseline fully validated
+
+- Run `37836444650` is green across GCC, Clang, both sanitizer builds, and Windows.
+- The 41-test CTest suite passes, including `openfs-journal-replay-idempotent` and `openfs-scrub`.
+- The new coverage is therefore CI-validated, while P0 remains below 100% because the persistent data-checksum/ownership-claim and full FSCK-repair gaps are not yet closed.
+
 # 2026-10-08 — P0: second replay-test defect corrected
 
 - CI exposed a second defect in the regression harness: its callback was trying to infer the target from payload contents rather than carrying the intended target explicitly.
