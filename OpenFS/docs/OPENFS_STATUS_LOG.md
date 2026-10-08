@@ -780,3 +780,10 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 
 - aa5a772a: extended the real data-checksum regression test to perform an actual openfs_file_write_tx() through the mounted journal/transaction device, commit it, and verify the newly published data can be read back successfully. This exercises the data block and persistent checksum-table update through the same transaction path.
 - No mock transaction path was introduced and no existing corruption assertion was weakened.
+
+
+# 2026-10-08 — transaction-device allocator deadlock correction
+
+- CI run 37843124209 exposed a real regression: the new transactional file-checksum test timed out in the full CTest suite on GCC and Clang. The build succeeded; the hang was caused by openfs_file_write_tx() reaching the public allocator through the transaction-device wrapper, which attempted to start a nested transaction while the outer transaction was active.
+- Corrected this at the transaction-device boundary: active transaction devices can now be identified safely through a transaction magic marker, and openfs_alloc_block/openfs_free_block route directly to their transaction-safe implementations instead of opening a nested transaction.
+- The correction preserves the real WAL path and does not weaken the test. Fresh CI is required before considering the fix validated.
