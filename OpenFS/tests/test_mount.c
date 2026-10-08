@@ -487,6 +487,33 @@ static void cow_clone_rollback_failure_is_corruption_regression(void){
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
 }
 
+static void replay_failure_is_retryable_and_idempotent(void){
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4DU};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;assert(openfs_read_superblock(&v,&sb)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;assert(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_OK);
+    openfs_transaction_t t;assert(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);
+    openfs_block_device_t *td=openfs_transaction_device(&t);assert(td!=NULL);
+    uint64_t target=sb.data_start+17U;uint8_t payload[4096U];memset(payload,0xC7U,sizeof(payload));
+    assert(td->write(td->context,target,1U,payload)==OPENFS_IO_OK);
+    d.fail_write_block=target;d.fail_write_count=1U;
+    assert(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);
+    assert(t.active==1&&t.committed==1);
+    /* The committed DATA remains authoritative in the WAL even though publication failed. */
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))!=0);
+    openfs_mount_t failed;
+    assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
+    d.fail_write_count=0U;
+    openfs_mount_t recovered;
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
 static void allocator_cow_refcount_failure_rollback_regression(void){
     disk_t d={.block_size=4096U,.block_count=256U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
     openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x4CU};
@@ -536,6 +563,7 @@ static void cow_clone_partial_refcount_rollback_regression(void)
 }
 
 int main(void){
+    replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
