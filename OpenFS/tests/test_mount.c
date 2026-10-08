@@ -74,7 +74,7 @@ static void unmount_open_handle_regression(void)
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
     openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
     openfs_file_handle_t *h=NULL;
-    openfs_fd_result_t held_result=openfs_fd_open(&v,&m.superblock,"/held",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&h); fprintf(stderr,"mounted held fd_open=%d\\n",(int)held_result); assert(held_result==OPENFS_FD_OK);
+    assert(openfs_fd_open(&v,&m.superblock,"/held",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&h)==OPENFS_FD_OK);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_IO_ERROR);
     assert(openfs_fd_close(h)==OPENFS_FD_OK);
     assert(openfs_fd_close(h)==OPENFS_FD_CLOSED);
