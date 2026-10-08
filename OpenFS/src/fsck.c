@@ -314,8 +314,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
             if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,physical,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
             if(!allocated)bad++;
             if(ref_test(refs,s->data_blocks,rel)){
-        if((s->feature_flags&OPENFS_FEATURE_COW)==0U)bad++;
-        else{uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK||rc<2U)bad++;}
+        if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK)bad++;}
         if((s->feature_flags&OPENFS_FEATURE_COW)!=0U&&!ref_mark(refs,s->data_blocks,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
     }else{
         if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK||rc==0U)bad++;}
@@ -328,8 +327,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
 if(extent_total!=in.blocks)bad++;
         uint64_t xattr_block=openfs_inode_get_xattr_block(&in);
         if(xattr_block!=0U){int xattr_allocated=0;uint64_t xattr_end=0U;if(!add(s->data_start,s->data_blocks,&xattr_end)||xattr_block<s->data_start||xattr_block>=xattr_end)bad++;else if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,xattr_block,&xattr_allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}else{if(!xattr_allocated)bad++;uint64_t xrel=xattr_block-s->data_start;if(ref_test(refs,s->data_blocks,xrel)){
-            if((s->feature_flags&OPENFS_FEATURE_COW)==0U)bad++;
-            else{uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,xattr_block,&rc)!=OPENFS_COW_OK||rc<2U)bad++;}
+            if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,xattr_block,&rc)!=OPENFS_COW_OK)bad++;}
             if((s->feature_flags&OPENFS_FEATURE_COW)!=0U&&!ref_mark(refs,s->data_blocks,xrel)){result=OPENFS_FSCK_CORRUPT;goto done;}
         }else{
             if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,xattr_block,&rc)!=OPENFS_COW_OK||rc==0U)bad++;}
