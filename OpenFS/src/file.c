@@ -1206,11 +1206,27 @@ static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,c
             }
             if(*out<eof){free(extents);return OPENFS_FILE_OK;}
         }else{
-            if(offset<start_byte){*out=offset;free(extents);return OPENFS_FILE_OK;}
-            if(offset>=start_byte&&offset<end_byte){
-                if(end_byte>=eof){*out=eof;free(extents);return OPENFS_FILE_OK;}
-                if(n+1U<count&&extents[n+1U].logical_start==end)continue;
-                *out=end_byte;free(extents);return OPENFS_FILE_OK;
+            /*
+             * SEEK_HOLE is a logical-byte operation.  A hole begins either at
+             * the requested byte when its logical block is unmapped, or at
+             * the first byte after the contiguous run of mapped blocks that
+             * contains the request.  Do not use physical adjacency here:
+             * sparse extents are allowed to be physically fragmented.
+             */
+            if(offset<start_byte){
+                *out=offset;
+                free(extents);
+                return OPENFS_FILE_OK;
+            }
+            if(offset<end_byte){
+                if(end_byte>=eof){
+                    *out=eof;
+                    free(extents);
+                    return OPENFS_FILE_OK;
+                }
+                *out=end_byte;
+                free(extents);
+                return OPENFS_FILE_OK;
             }
         }
     }
