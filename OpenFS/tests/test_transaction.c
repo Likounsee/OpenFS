@@ -80,7 +80,6 @@ d.fail_exact_enabled=0;CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CO
 openfs_mount_t recovered;CHECK(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);CHECK(memcmp(d.b+(size_t)(target*d.bs),a,sizeof(a))==0);CHECK(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
 free(d.b);return 0;}
 
-static int 
 int main(void){
 CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
 CHECK(poisoned_namespace_transaction()==0);
