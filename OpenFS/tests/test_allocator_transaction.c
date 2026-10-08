@@ -78,7 +78,7 @@ int main(void)
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     uint8_t payload[4096]; memset(payload,0x5a,sizeof(payload));
     openfs_inode_t working=before;
-    assert(openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    openfs_file_result_t file_tx_result=openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload)); fprintf(stderr,"file_tx_result=%d\\n",(int)file_tx_result); assert(file_tx_result==OPENFS_FILE_OK);
     assert(working.blocks==1U);
     uint64_t staged_block=0U;
     assert(openfs_file_map_block_device(openfs_transaction_device(&tx),&mount.superblock,
