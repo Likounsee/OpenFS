@@ -503,6 +503,35 @@ static int replay_state_case(int kind, unsigned id) {
     close_disk(&d); remove(path); return ok;
 }
 
+
+static int overlapping_begin_case(unsigned id) {
+    char path[256];
+    if(snprintf(path,sizeof(path),"openfs-replay-overlap-%u.img",id)<0)return 0;
+    disk_t d;
+    if(!create_disk(path,&d))return 0;
+    openfs_block_device_t v=dev(&d);
+    uint8_t uuid[16]={0x91U};
+    int ok=openfs_format(&v,uuid)==OPENFS_FORMAT_OK;
+    openfs_superblock_t s;
+    if(ok)ok=openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK;
+    if(ok)ok=write_raw(&v,&s,0,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+    if(ok)ok=write_raw(&v,&s,1,OPENFS_JOURNAL_BEGIN,2U,2U,NULL,0U);
+    close_disk(&d);
+    if(!ok){remove(path);return 0;}
+    if(!open_disk(path,&d)){remove(path);return 0;}
+    v=dev(&d);
+    openfs_superblock_t s2;
+    ok=openfs_read_superblock(&v,&s2)==OPENFS_FORMAT_OK;
+    openfs_journal_t j;
+    if(ok)ok=openfs_journal_open(&j,&v,&s2)==OPENFS_JOURNAL_OK;
+    if(ok)ok=openfs_journal_replay(&v,&s2,
+        /* Any callback would be wrong to invoke for an uncommitted transaction. */
+        replay_block,NULL)==OPENFS_JOURNAL_CORRUPT;
+    close_disk(&d);
+    remove(path);
+    return ok;
+}
+
 int main(int argc,char **argv){
     if(argc==5 && strcmp(argv[1],"worker")==0){
         long c=strtol(argv[2],NULL,10),m=strtol(argv[3],NULL,10);
@@ -526,6 +555,6 @@ int main(int argc,char **argv){
         assert(ok);
     }
     { int ok = journal_crash_case(argv[0],C7_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
-    for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
+    for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }\n    { int ok=overlapping_begin_case(id++); if(!ok) fprintf(stderr,"overlapping begin replay case failed\\n"); assert(ok); }
     return 0;
 }
