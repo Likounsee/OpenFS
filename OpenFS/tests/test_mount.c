@@ -10,6 +10,7 @@
 #include "openfs/path.h"
 #include "openfs/fd.h"
 #include "openfs/cow.h"
+#include "openfs/dir.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -363,11 +364,45 @@ static void backup_superblock_extent_tree_regression(void)
     free(readback);free(data);free(d.bytes);
 }
 
+static void cow_clone_reference_integrity_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x48U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    uint64_t source_ino=0U;assert(openfs_path_create(&v,&m.superblock,"/source",OPENFS_INODE_MODE_REGULAR|0644U,&source_ino)==OPENFS_PATH_OK);
+    openfs_inode_t source;uint64_t inode_count=(m.superblock.inode_table_blocks*(uint64_t)m.superblock.block_size)/OPENFS_INODE_SIZE;
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,source_ino,inode_count,&source)==OPENFS_INODE_OK);
+    uint8_t payload[4096U];memset(payload,0xA7U,sizeof(payload));
+    assert(openfs_file_write(&v,&m.superblock,&source,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,source_ino,inode_count,&source)==OPENFS_INODE_OK);
+    openfs_extent_t source_extent;assert(openfs_inode_get_extent(&source,0U,&source_extent)==OPENFS_EXTENT_OK);
+    uint64_t clone_ino=0U;assert(openfs_cow_clone_inode(&v,&m.superblock,&source,m.superblock.root_inode,&clone_ino)==OPENFS_COW_OK);
+    openfs_inode_t clone;assert(openfs_inode_read(&v,m.superblock.inode_table_start,clone_ino,inode_count,&clone)==OPENFS_INODE_OK);
+    openfs_extent_t clone_extent;assert(openfs_inode_get_extent(&clone,0U,&clone_extent)==OPENFS_EXTENT_OK);
+    assert(clone_extent.physical_start==source_extent.physical_start&&clone_extent.block_count==source_extent.block_count);
+    uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==2U);
+    openfs_inode_t root;assert(openfs_inode_read(&v,m.superblock.inode_table_start,m.superblock.root_inode,inode_count,&root)==OPENFS_INODE_OK);
+    openfs_dir_entry_t entry={clone_ino,clone.generation,1U};
+    assert(openfs_dir_add(&v,&m.superblock,&root,"clone",&entry)==OPENFS_DIR_OK);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_path_unlink(&v,&m.superblock,"/clone")==OPENFS_PATH_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==1U);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_path_unlink(&v,&m.superblock,"/source")==OPENFS_PATH_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==0U);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
 int main(void){
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  concurrent_cow_refcount_update_regression();
+ cow_clone_reference_integrity_regression();
  stale_runtime_admission_is_rejected();
  stale_superblock_is_rejected_after_unmount();
  concurrent_double_unmount_regression();
