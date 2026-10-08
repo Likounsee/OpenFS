@@ -677,6 +677,8 @@ static void sparse_seek_data_and_hole_reports_extents(void){
     TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,i.size,&result)==OPENFS_FILE_OUT_OF_RANGE);
     uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
+    {openfs_inode_t adjacent=new_file();uint8_t x=0x33U;uint64_t spacer=0U,seek=0U;TEST_ASSERT(openfs_file_write(&v,&sb,&adjacent,0U,&x,1U)==OPENFS_FILE_OK);TEST_ASSERT(openfs_alloc_block(&v,&sb,&spacer)==OPENFS_ALLOC_OK);TEST_ASSERT(openfs_file_write(&v,&sb,&adjacent,4096U,&x,1U)==OPENFS_FILE_OK);TEST_ASSERT(adjacent.size==8192U&&adjacent.blocks==2U);TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&adjacent,0U,&seek)==OPENFS_FILE_OK&&seek==adjacent.size);TEST_ASSERT(openfs_free_block(&v,&sb,spacer)==OPENFS_ALLOC_OK);}
+
 }
 
 int main(void){
