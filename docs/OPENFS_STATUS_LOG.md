@@ -524,6 +524,14 @@ CI for these commits has not been reported by the available GitHub status/run AP
 
 CI for these commits has not been reported by the available GitHub status/run API, so no green result is claimed here.
 
+# P1 snapshot architecture preparation
+
+- `0fda98fe9f278885788d1f0120db60df51b8b4e9` adds `docs/SNAPSHOTS_DESIGN.md`.
+- The design audit found that the existing CoW implementation protects regular-file data blocks but does not yet provide an immutable metadata view: inode-table, directory and other metadata blocks can still be updated in place.
+- Therefore a correct snapshot cannot be implemented as a root-inode clone or hidden-directory feature without violating snapshot isolation.
+- The document defines the required persistent catalog, metadata-root CoW model, transactional creation, resumable deletion, read-only view, FSCK invariants, lock rules and crash-durable ordering.
+- Snapshot implementation remains intentionally unchecked in `README.md` until those invariants are actually implemented and tested.
+
 # Next development direction
 
 The next implementation work should continue in this order:
