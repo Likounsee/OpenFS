@@ -173,7 +173,7 @@ static openfs_file_result_t write_inode(
     if (r != OPENFS_FILE_OK) {
         return r;
     }
-    openfs_inode_result_t ir=openfs_inode_write(device, sb->inode_table_start, count, inode);return ir==OPENFS_INODE_OK?OPENFS_FILE_OK:(ir==OPENFS_INODE_CORRUPT?OPENFS_FILE_CORRUPT:OPENFS_FILE_IO_ERROR);
+    openfs_inode_result_t ir=openfs_inode_write(device, sb->inode_table_start, count, inode);if(ir==OPENFS_INODE_CORRUPT)fprintf(stderr,"write_inode validate corrupt ino=%llu mode=%o flags=%u size=%llu blocks=%llu extents=%u gen=%llu parent=%llu links=%llu\\n",(unsigned long long)inode->inode_number,inode->mode,inode->flags,(unsigned long long)inode->size,(unsigned long long)inode->blocks,inode->extent_count,(unsigned long long)inode->generation,(unsigned long long)inode->parent_inode,(unsigned long long)inode->link_count);return ir==OPENFS_INODE_OK?OPENFS_FILE_OK:(ir==OPENFS_INODE_CORRUPT?OPENFS_FILE_CORRUPT:OPENFS_FILE_IO_ERROR);
 }
 
 static uint32_t inline_extent_count(const openfs_inode_t *inode)
