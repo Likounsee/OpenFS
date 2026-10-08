@@ -137,17 +137,17 @@ int main(void)
     uint64_t allocated=0U;
     assert(openfs_alloc_block(&dev,&recovered.superblock,&allocated)==OPENFS_ALLOC_CORRUPT);
     disk.fail_enabled=0;
-    assert(openfs_unmount(&recovered_after_alloc)==OPENFS_MOUNT_OK);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
     openfs_mount_t recovered_after_alloc={0};
     assert(openfs_mount(&recovered_after_alloc,&dev)==OPENFS_MOUNT_OK);
     int used=0;
-    assert(openfs_bitmap_test(&dev,recovered.superblock.block_bitmap_start,
-                              recovered.superblock.block_bitmap_blocks,target,&used)==OPENFS_BITMAP_OK);
+    assert(openfs_bitmap_test(&dev,recovered_after_alloc.superblock.block_bitmap_start,
+                              recovered_after_alloc.superblock.block_bitmap_blocks,target,&used)==OPENFS_BITMAP_OK);
     assert(used==1);
     uint16_t refs=0U;
     assert(openfs_cow_refcount_get(&dev,&recovered_after_alloc.superblock,target,&refs)==OPENFS_COW_OK);
     assert(refs==1U);
-    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    assert(openfs_unmount(&recovered_after_alloc)==OPENFS_MOUNT_OK);
     free(disk.bytes);
     return 0;
 }
