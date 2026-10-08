@@ -57,6 +57,7 @@ int main(void)
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     uint64_t tx_block=0U;
     assert(openfs_alloc_block_tx(&tx,&mount.superblock,&tx_block)==OPENFS_ALLOC_OK);
+    if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t refs=99U;assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==0U);}
     int tx_used=0;
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
     assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
@@ -64,8 +65,13 @@ int main(void)
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     assert(openfs_alloc_block_tx(&tx,&mount.superblock,&tx_block)==OPENFS_ALLOC_OK);
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
+    if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t refs=0U;assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==1U);}
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==1);
-    assert(openfs_free_block(&dev,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
+    assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+    assert(openfs_free_block_tx(&tx,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
+    if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t refs=99U;assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==0U);}
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
     return 0;
