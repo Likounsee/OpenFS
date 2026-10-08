@@ -130,13 +130,15 @@ int main(void)
     assert(final_inode.size==(uint64_t)WORKERS*BLOCK_SIZE);
 
     uint8_t block[BLOCK_SIZE];
+    uint8_t expected[BLOCK_SIZE];
     size_t got=0U;
     for(unsigned i=0U;i<WORKERS;i++){
-        memset(block,(int)(0x40U+i),sizeof(block));
+        memset(expected,(int)(0x40U+i),sizeof(expected));
+        memset(block,0U,sizeof(block));
         assert(openfs_file_read(&device,&mount.superblock,&final_inode,
                                 (uint64_t)i*BLOCK_SIZE,block,sizeof(block),&got)==OPENFS_FILE_OK);
         assert(got==sizeof(block));
-        assert(memcmp(block,(uint8_t[BLOCK_SIZE]){0},sizeof(block))!=0);
+        assert(memcmp(block,expected,sizeof(block))==0);
     }
 
     uint64_t errors=0U;
