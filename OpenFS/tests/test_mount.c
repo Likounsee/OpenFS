@@ -383,7 +383,10 @@ static void cow_clone_reference_integrity_regression(void)
     openfs_extent_t clone_extent;assert(openfs_inode_get_extent(&clone,0U,&clone_extent)==OPENFS_EXTENT_OK);
     assert(clone_extent.physical_start==source_extent.physical_start&&clone_extent.block_count==source_extent.block_count);
     uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==2U);
-    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};
+    openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,NULL,NULL);
+    if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"clone fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);
+    assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_cow_refcount_set(&v,&m.superblock,source_extent.physical_start,1U)==OPENFS_COW_OK);
     assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
     assert(openfs_cow_refcount_set(&v,&m.superblock,source_extent.physical_start,2U)==OPENFS_COW_OK);
