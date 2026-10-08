@@ -55,10 +55,9 @@ int main(void){
     assert(openfs_bitmap_test(&d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,stray_inode,&set)==OPENFS_BITMAP_OK&&!set);
     assert(openfs_fsck(&d,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
 
-    uint64_t live_block=sb.data_start;
-    assert(openfs_bitmap_set(&d,sb.block_bitmap_start,sb.block_bitmap_blocks,live_block,0)==OPENFS_BITMAP_OK);
+    assert(openfs_bitmap_set(&d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,0)==OPENFS_BITMAP_OK);
     assert(openfs_fsck_repair_bitmap_tails(&d,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
-    assert(openfs_bitmap_set(&d,sb.block_bitmap_start,sb.block_bitmap_blocks,live_block,1)==OPENFS_BITMAP_OK);
+    assert(openfs_bitmap_set(&d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,1)==OPENFS_BITMAP_OK);
 
     free(mem.data);
     return 0;
