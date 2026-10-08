@@ -37,6 +37,10 @@ openfs_file_result_t openfs_file_map_block_device(
     uint64_t *);
 
 /* Read up to length bytes from a regular file. Bytes beyond EOF are not read. */
+/* Return the first data/hole byte at or after offset, using sparse extents. */
+openfs_file_result_t openfs_file_seek_data(const openfs_block_device_t *, const openfs_superblock_t *, const openfs_inode_t *, uint64_t offset, uint64_t *result);
+openfs_file_result_t openfs_file_seek_hole(const openfs_block_device_t *, const openfs_superblock_t *, const openfs_inode_t *, uint64_t offset, uint64_t *result);
+
 openfs_file_result_t openfs_file_read(
     const openfs_block_device_t *device,
     const openfs_superblock_t *superblock,
