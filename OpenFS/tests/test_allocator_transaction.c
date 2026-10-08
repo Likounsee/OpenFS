@@ -48,6 +48,23 @@ int main(void)
 
     openfs_mount_t mount={0};
     assert(openfs_mount(&mount,&dev)==OPENFS_MOUNT_OK);
+    /* Transaction-aware allocation must not create a nested WAL transaction. */
+    openfs_journal_t tx_journal;
+    assert(openfs_journal_open(&tx_journal,&dev,&mount.superblock)==OPENFS_JOURNAL_OK);
+    openfs_transaction_t tx;
+    assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+    uint64_t tx_block=0U;
+    assert(openfs_alloc_block_tx(&tx,&mount.superblock,&tx_block)==OPENFS_ALLOC_OK);
+    int tx_used=0;
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
+    assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+    assert(openfs_alloc_block_tx(&tx,&mount.superblock,&tx_block)==OPENFS_ALLOC_OK);
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==1);
+    assert(openfs_free_block(&dev,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
+
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
         (target/((uint64_t)mount.superblock.block_size*8U));
