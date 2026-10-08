@@ -22,6 +22,7 @@ openfs_cow_result_t openfs_cow_refcount_set(openfs_block_device_t *,const openfs
 openfs_cow_result_t openfs_cow_refcount_inc(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
 openfs_cow_result_t openfs_cow_refcount_dec(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
 openfs_cow_result_t openfs_cow_discard_inode(openfs_block_device_t *,const openfs_superblock_t *,openfs_inode_t *);
+openfs_cow_result_t openfs_cow_discard_inode_number(openfs_block_device_t *,const openfs_superblock_t *,uint64_t);
 openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *,const openfs_superblock_t *,const openfs_inode_t *,uint64_t,uint64_t *);
 #ifdef __cplusplus
 }
