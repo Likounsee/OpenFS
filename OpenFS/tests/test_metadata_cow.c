@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/metadata_cow.h"
+#include "openfs/allocator.h"
 #include "openfs/format.h"
 #include "openfs/cow.h"
 typedef struct {uint8_t *b;uint32_t bs;uint64_t n;uint64_t fail_data_write_block;uint64_t fail_flush;} disk_t;
