@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include "openfs/allocator.h"
 #include "openfs/cow.h"
@@ -76,11 +75,10 @@ int main(void)
     openfs_inode_t before;
     assert(openfs_inode_read(&dev,mount.superblock.inode_table_start,file_ino,inode_count,&before)==OPENFS_INODE_OK);
     assert(before.blocks==0U);
-    fprintf(stderr,"before inode=%llu gen=%llu mode=%o flags=%u extents=%u size=%llu parent=%llu links=%llu\\n",(unsigned long long)before.inode_number,(unsigned long long)before.generation,before.mode,before.flags,before.extent_count,(unsigned long long)before.size,(unsigned long long)before.parent_inode,(unsigned long long)before.link_count);
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     uint8_t payload[4096]; memset(payload,0x5a,sizeof(payload));
     openfs_inode_t working=before;
-    openfs_file_result_t file_tx_result=openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload)); fprintf(stderr,"file_tx_result=%d blocks=%llu pending=%llu failed=%d\\n",(int)file_tx_result,(unsigned long long)working.blocks,(unsigned long long)tx.pending_count,tx.failed); assert(file_tx_result==OPENFS_FILE_OK);
+    assert(openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
     assert(working.blocks==1U);
     uint64_t staged_block=0U;
     assert(openfs_file_map_block_device(openfs_transaction_device(&tx),&mount.superblock,
