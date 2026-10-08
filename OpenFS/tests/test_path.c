@@ -33,7 +33,7 @@ static void create_as_growth_rollback(void)
  d.arm_on_write=1;d.arm_block=next_data;d.fail_next_armed_write=1;TEST_ASSERT(openfs_path_mkdir_as(&v,&s,"/grow/mkdir-rollback",1000U,1000U,&ino)==OPENFS_PATH_IO_ERROR);d.arm_on_write=0;d.armed=0;TEST_ASSERT(openfs_path_lookup(&v,&s,"/grow/mkdir-rollback",&ino)==OPENFS_PATH_NOT_FOUND);
  openfs_inode_t after;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,parent,ic,&after)==OPENFS_INODE_OK);
  TEST_ASSERT(after.size==before.size&&after.blocks==before.blocks);
- uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
+ uint64_t errors=0U;openfs_fsck_result_t fsck_result=openfs_fsck(&v,&s,&errors);if(fsck_result!=OPENFS_FSCK_OK||errors!=0U)fprintf(stderr,"growth rollback fsck result=%d errors=%llu\\n",(int)fsck_result,(unsigned long long)errors);TEST_ASSERT(fsck_result==OPENFS_FSCK_OK&&errors==0U);
  free(d.b);
 }
 
