@@ -18,6 +18,10 @@ openfs_metadata_cow_result_t openfs_metadata_cow_initialize_block(openfs_block_d
 openfs_metadata_cow_result_t openfs_metadata_cow_write_payload(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint32_t,const uint8_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_alloc(openfs_block_device_t *,const openfs_superblock_t *,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint32_t,uint64_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_clone(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint64_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_acquire_opaque(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_release_opaque(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_clone_opaque(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint64_t *);
+openfs_metadata_cow_result_t openfs_metadata_cow_copy_before_write_opaque(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint64_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_acquire(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_release(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint16_t *);
 openfs_metadata_cow_result_t openfs_metadata_cow_copy_before_write(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_cow_type_t,uint64_t,uint64_t,uint64_t *);
