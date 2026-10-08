@@ -40,7 +40,9 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
             if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U){
                 openfs_cow_result_t cr=openfs_cow_refcount_set(d,sb,b,1U);
                 if(cr!=OPENFS_COW_OK){
-                    int rollback_ok=openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,0)==OPENFS_BITMAP_OK;
+                    int rollback_ok=1;
+                    if(openfs_cow_refcount_set(d,sb,b,0U)!=OPENFS_COW_OK)rollback_ok=0;
+                    if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,0)!=OPENFS_BITMAP_OK)rollback_ok=0;
                     if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
                     return rollback_ok?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
                 }
