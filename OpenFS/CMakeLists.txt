@@ -12,6 +12,7 @@ add_library(openfs STATIC
     src/crc32c.c
     src/cow.c
     src/metadata_cow.c
+    src/metadata_root.c
     src/time.c
     src/format.c
     src/inode.c
@@ -82,6 +83,10 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-metadata-cow-test PRIVATE openfs)
     openfs_enable_warnings(openfs-metadata-cow-test)
     add_test(NAME openfs-metadata-cow COMMAND openfs-metadata-cow-test)
+    add_executable(openfs-metadata-root-test tests/test_metadata_root.c)
+    target_link_libraries(openfs-metadata-root-test PRIVATE openfs)
+    openfs_enable_warnings(openfs-metadata-root-test)
+    add_test(NAME openfs-metadata-root COMMAND openfs-metadata-root-test)
     add_executable(openfs-allocator-test tests/test_allocator.c)
     target_link_libraries(openfs-allocator-test PRIVATE openfs)
     openfs_enable_warnings(openfs-allocator-test)
