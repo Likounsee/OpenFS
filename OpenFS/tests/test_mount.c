@@ -387,6 +387,10 @@ static void cow_clone_reference_integrity_regression(void)
     openfs_dir_entry_t entry={clone_ino,clone.generation,1U};
     assert(openfs_dir_add(&v,&m.superblock,&root,"clone",&entry)==OPENFS_DIR_OK);
     uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_cow_refcount_set(&v,&m.superblock,source_extent.physical_start,1U)==OPENFS_COW_OK);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
+    assert(openfs_cow_refcount_set(&v,&m.superblock,source_extent.physical_start,2U)==OPENFS_COW_OK);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/clone")==OPENFS_PATH_OK);
     assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==1U);
     assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
