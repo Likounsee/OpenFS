@@ -644,3 +644,21 @@ Introduce the persistent metadata-root indirection/version record. Only after th
 ## CI
 
 Run `37807762169` for `20dcba1476e803aa6321af1fe008295b9255fee5` was observed in `pending` state. It is therefore **not yet CI-green**.
+
+# 2026-10-08 — P1 metadata-root integration and CI correction
+
+- 3e953cd9 integrated the persistent v1.5 metadata-root feature into superblock serialization, formatting and FSCK ownership accounting.
+- 7f6d6926 corrected an ordering bug in the first FSCK integration where metadata-root validation referenced bad/result before their declarations.
+- GitHub Actions run 37808618519 exposed a real Clang build failure in test_metadata_root.c: the test used openfs_metadata_cow_release and OPENFS_METADATA_COW_OK without including openfs/metadata_cow.h. The exact compiler error was retrieved from the job log and the include was fixed in dcea68f8.
+- The same root test was then extended with a clean-FSCK assertion and metadata-root payload corruption detection in 289ec709.
+
+# 2026-10-08 — P1 metadata-CoW opaque blocks
+
+- ec196d83, 37d13c77, and 80321812 extend the generic CoW layer with opaque full-block operations.
+- This is necessary for fixed-size legacy metadata such as inode-table blocks: a 40-byte typed header cannot consume part of a 4096-byte inode-table block without changing its established layout.
+- Opaque operations preserve the entire block payload while using the existing persistent refcount table for ownership. Type/provenance is supplied by the future metadata-root mapping rather than by overwriting legacy block contents.
+- Added copy-before-write, overflow, clone and ownership/reclamation coverage for opaque blocks.
+
+### CI status
+
+Rapid branch pushes caused intermediate workflow runs to be cancelled. The latest observed completed build failure was the Clang compile error above; corrective commits have been pushed, but a completed CI result for the current head has not yet been observed. CI for the current head is therefore unknown/unreported, not green.
