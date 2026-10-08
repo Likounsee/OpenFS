@@ -158,12 +158,8 @@ static openfs_path_result_t path_clone_unlocked(openfs_block_device_t*d,const op
     openfs_inode_t clone;
     r=read_inode(d,s,clone_ino,&clone);
     if(r!=OPENFS_PATH_OK){
-        /*
-         * The clone inode is not safely discardable without its persisted
-         * generation and extents. Passing an uninitialized inode here would
-         * turn the original I/O/corruption result into undefined behavior.
-         * Transaction callers can roll the complete operation back.
-         */
+        openfs_cow_result_t cleanup=openfs_cow_discard_inode_number(d,s,clone_ino);
+        if(cleanup!=OPENFS_COW_OK)return OPENFS_PATH_CORRUPT;
         return r;
     }
     openfs_dir_entry_t entry={clone_ino,clone.generation,1U};
