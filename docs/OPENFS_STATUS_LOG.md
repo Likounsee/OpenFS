@@ -539,3 +539,13 @@ The next implementation work should continue in this order:
 **P0 reliability → complete sparse hardening → snapshots → change journal → named streams → quotas → integrity/scrub → compression/encryption → VFS/OS integration → benchmarks/optimization**
 
 All new work must update this log when a meaningful fix, feature, regression, or validation milestone is completed.
+
+## 2026-10-08 — P0: première réparation FSCK contrôlée
+
+- Ajout de `src/fsck_repair.c` avec `openfs_fsck_repair_bitmap_tails()`.
+- Le mode réparation est volontairement limité aux bits impossibles situés au-delà de la capacité logique des bitmaps bloc/inode.
+- Chaque bloc de bitmap modifié est écrit puis flushé; en cas d'échec du flush, le bloc courant est restauré et re-flushé. Un échec de restauration est remonté comme corruption.
+- Après réparation, FSCK complet est relancé; la fonction ne masque donc pas d'autres corruptions.
+- Ajout du test `openfs-fsck-repair`: réparation des deux queues + vérification qu'une corruption d'un bloc réel reste détectée.
+- Aucun changement du format disque n'est nécessaire pour cette étape.
+- Commits: `9268f4a`, `5c723d2`, `85d10e3`, `4bd2189`, `8c22999`.
