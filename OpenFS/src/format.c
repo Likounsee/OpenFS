@@ -33,8 +33,9 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
     uint64_t bits=(uint64_t)bs*8U;
     if(ceildiv(total,bits,bb)||*bb==0U)return 0;
 
-    uint64_t journal=total/16U;
-    if(journal<8U)journal=8U;
+    /* Reserve enough journal slots for multi-block atomic mutations: a 4 KiB target block consumes two OJBD records. */
+    uint64_t journal=total/8U;
+    if(journal<12U)journal=12U;
     {
         const uint64_t max_journal_blocks=(UINT64_C(256)*1024U*1024U)/bs;
         if(max_journal_blocks>=8U&&journal>max_journal_blocks)journal=max_journal_blocks;
