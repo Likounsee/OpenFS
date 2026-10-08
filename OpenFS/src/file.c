@@ -1196,7 +1196,10 @@ static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,c
             if(offset<=start_byte){
                 *out=start_byte;
             }else if(n+1U<count){
-                *out=extents[n+1U].logical_start*bs;
+                if(mul_overflow_u64(extents[n+1U].logical_start,bs,out)){
+                    free(extents);
+                    return OPENFS_FILE_CORRUPT;
+                }
             }else{
                 free(extents);
                 return OPENFS_FILE_OUT_OF_RANGE;
