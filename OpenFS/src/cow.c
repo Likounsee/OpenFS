@@ -211,6 +211,20 @@ openfs_cow_result_t openfs_cow_discard_inode(openfs_block_device_t *d,const open
     return r;
 }
 
+openfs_cow_result_t openfs_cow_discard_inode_number(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t inode_number)
+{
+    if(!openfs_block_device_is_valid(d)||sb==NULL||inode_number==0U)return OPENFS_COW_INVALID_ARGUMENT;
+    if((sb->feature_flags&OPENFS_FEATURE_COW)==0U)return OPENFS_COW_UNSUPPORTED;
+    if(sb->block_size!=d->block_size||sb->inode_table_blocks==0U||
+       sb->inode_table_blocks>UINT64_MAX/sb->block_size)return OPENFS_COW_CORRUPT;
+    uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
+    if(inode_count==0U||inode_number>inode_count)return OPENFS_COW_CORRUPT;
+    openfs_inode_t inode;
+    openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,inode_number,inode_count,&inode);
+    if(ir!=OPENFS_INODE_OK)return ir==OPENFS_INODE_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;
+    return openfs_cow_discard_inode(d,sb,&inode);
+}
+
 openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs_superblock_t *sb,
     const openfs_inode_t *source,uint64_t parent,uint64_t *new_inode_number)
 {
