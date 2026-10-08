@@ -143,7 +143,7 @@ openfs_validation_code_t openfs_validate_superblock_code(const openfs_block_devi
     if(reason==NULL)return OPENFS_VALIDATION_GEOMETRY;
     if(strcmp(reason,"invalid format version")==0)return OPENFS_VALIDATION_FORMAT_VERSION;
     if(strcmp(reason,"unsupported feature flags")==0)return OPENFS_VALIDATION_FEATURE_FLAGS;
-    if(strcmp(reason,"extent-tree feature requires format minor version 3")==0)return OPENFS_VALIDATION_EXTENT_VERSION;if(strcmp(reason,"CoW feature requires format minor version 4")==0)return OPENFS_VALIDATION_COW_VERSION;
+    if(strcmp(reason,"extent-tree feature requires format minor version 3")==0)return OPENFS_VALIDATION_EXTENT_VERSION;
     if(strcmp(reason,"block size is not a multiple of inode size")==0)return OPENFS_VALIDATION_BLOCK_SIZE;
     if(strcmp(reason,"invalid device geometry or root/generation fields")==0)return OPENFS_VALIDATION_GEOMETRY;
     if(strcmp(reason,"invalid metadata or bitmap/table geometry")==0)return OPENFS_VALIDATION_METADATA_GEOMETRY;
