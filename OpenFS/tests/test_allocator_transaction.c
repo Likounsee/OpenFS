@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include "openfs/allocator.h"
 #include "openfs/cow.h"
 #include "openfs/format.h"
@@ -52,7 +51,6 @@ int main(void)
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
         (target/((uint64_t)mount.superblock.block_size*8U));
-    uint16_t initial_refs=0U; openfs_cow_result_t initial_cow=openfs_cow_refcount_get(&dev,&mount.superblock,target,&initial_refs); fprintf(stderr,"allocator preflight cow_get=%d refs=%u journal_start=%llu journal_blocks=%llu\\n",(int)initial_cow,(unsigned)initial_refs,(unsigned long long)mount.superblock.journal_start,(unsigned long long)mount.superblock.journal_blocks);
     disk.fail_block=bitmap_block;
     disk.fail_enabled=1;
 
@@ -60,15 +58,11 @@ int main(void)
     assert(openfs_alloc_block(&dev,&mount.superblock,&allocated)==OPENFS_ALLOC_CORRUPT);
     disk.fail_enabled=0;
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
-    fprintf(stderr,"allocator recovery pre-mount target=%llu bitmap=%llu\\n",(unsigned long long)target,(unsigned long long)bitmap_block);
-    for(unsigned j=0U;j<8U&&j<mount.superblock.journal_blocks;j++){uint8_t raw[4096U]={0}; if(dev.read(dev.context,mount.superblock.journal_start+j,1U,raw)==OPENFS_IO_OK) fprintf(stderr,"journal[%u] magic=%c%c%c%c%c type=%u tx=%llu seq=%llu len=%u\\n",j,raw[0],raw[1],raw[2],raw[3],raw[4],(unsigned)raw[5],(unsigned long long)(*(uint64_t*)(raw+8)),(unsigned long long)(*(uint64_t*)(raw+16)),(unsigned)raw[24]);}
-
     openfs_mount_t recovered={0};
     assert(openfs_mount(&recovered,&dev)==OPENFS_MOUNT_OK);
     int used=0;
     assert(openfs_bitmap_test(&dev,recovered.superblock.block_bitmap_start,
                               recovered.superblock.block_bitmap_blocks,target,&used)==OPENFS_BITMAP_OK);
-    fprintf(stderr,"allocator recovery post-mount used=%d\\n",used);
     assert(used==1);
     uint16_t refs=0U;
     assert(openfs_cow_refcount_get(&dev,&recovered.superblock,target,&refs)==OPENFS_COW_OK);
