@@ -233,6 +233,7 @@ static void concurrent_cow_refcount_update_regression(void)
     assert(openfs_cow_refcount_inc(&v,&m.superblock,block,NULL)==OPENFS_COW_CORRUPT);
     assert(openfs_cow_refcount_set(&v,&m.superblock,block,1U)==OPENFS_COW_OK);
     assert(openfs_free_block(&v,&m.superblock,block)==OPENFS_ALLOC_OK);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(d.bytes);
 }
 
