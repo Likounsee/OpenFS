@@ -724,6 +724,8 @@ static void sparse_write_flush_failure_rolls_back_layout(void){
 
 int main(void){
     sparse_seek_data_and_hole_reports_extents();
+    sparse_write_allocation_failure_rolls_back_layout();
+    sparse_write_flush_failure_rolls_back_layout();
     file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
