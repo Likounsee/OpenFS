@@ -746,3 +746,22 @@ Estimated P0 completion: **~82%**.
 This is groundwork for closing the allocator-to-metadata publication gap: future file/namespace mutations can now reserve and publish allocation in the same transaction. It is not yet the durable ownership/claim ledger itself, so orphaned post-allocation/pre-publication crash semantics remain an open P0 item.
 
 CI run `37827572569` for `9bc05c1f` completed **green**: GCC, Clang, both sanitizer passes, and Windows.
+
+# 2026-10-08 — P0: atomic file transactions and journal capacity
+
+- **Transaction-device ownership routing** (`9b993652`, `a9b72d64`, `833f806e`) now lets allocator calls made through an explicit transaction device use the already-open WAL transaction instead of opening a nested transaction. The owner fast path also avoids recursively taking the allocation mutex while the transaction-aware allocator is already executing under its caller's transaction context.
+- **Explicit file transaction APIs** (`6d50d902`) now execute directly against the staged transaction device instead of re-entering the public mounted-file wrapper. This preserves the caller's staged inode view and allows data-block allocation, CoW refcount changes, payload writes and inode publication to remain in one transaction.
+- **Journal sizing** (`c9ac886c`) was increased for newly formatted images: the default journal reservation is now `total/8` with a 12-block minimum. A 4096-byte journal DATA target currently consumes two OJBD records, so the previous 8-block journal could not hold a realistic multi-block file transaction (BEGIN + bitmap + refcount + data + inode + COMMIT). Existing on-disk journals remain valid; the new geometry gives formatted images enough headroom for these atomic mutations.
+- `41d67ba0` adds regression coverage proving an explicit file write can allocate a data block and then abort without publishing the allocation or inode mutation.
+- `af571a5d` adds a crash-style regression: force the first base-device publication after a durable COMMIT to fail, abort the in-memory transaction as recovery-required, remount, and verify that WAL replay restores the inode, allocation state and exact 4 KiB payload.
+- The allocator transaction regression remains registered as `openfs-allocator-transaction` and now covers both allocation abort/commit semantics and file-level atomic/recovery behavior.
+
+### CI
+
+Run **37832156724** for `a20f2cab7a736949b99cf723cb8bdb77948c8939` completed **green**: GCC, Clang, and Windows all passed.
+
+### P0 checkpoint
+
+Estimated P0 completion: **~90%**.
+
+The remaining P0 work is now concentrated on final crash-cut coverage across namespace/metadata interactions, durable ownership/claim semantics for committed-but-not-yet-published metadata, broader FSCK repair coverage, integrity checksums/scrub, and a final concurrency/durability interaction pass. Snapshot implementation remains blocked until the persistent metadata root is wired into all live metadata paths.
