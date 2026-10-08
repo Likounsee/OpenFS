@@ -369,6 +369,33 @@ The available GitHub Actions/status APIs currently return no workflow runs or st
 
 Therefore this pass is recorded as **not CI-verified yet**, rather than being incorrectly marked green.
 
+# Concurrency hardening pass
+
+### `9f30b68b2a7d686fe9f8a304905fdb929391acea`
+**TEST — concurrent namespace lifecycle stress**
+
+Added a four-thread namespace stress test covering repeated:
+
+**create → rename → unlink**
+
+with unique names per worker.
+
+The test also verifies after all workers finish that:
+
+- every renamed entry is gone;
+- FSCK reports zero errors;
+- the mounted filesystem can still unmount cleanly.
+
+### `7d20e700024a06e51147701b5c43788cca7c5a77`
+**FIX — test portability dependency**
+
+Added the required `string.h` include to the new concurrency test.
+
+### `98a8b52b381784b68b8892f198f237dbdf24ae2c`
+**TEST — register namespace concurrency test in CMake**
+
+The stress test is now part of the normal CTest suite and is linked against the portable thread library.
+
 # Latest documented milestone
 
 ### `39bf5fed4bb94599d1c05b7da021926617fb5506`
