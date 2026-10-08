@@ -739,3 +739,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 1. finish the fresh GCC/Clang/Windows validation;
 2. investigate any remaining real failures from that clean run rather than weakening tests;
 3. only then continue the WAL/recovery and durable allocation-ownership work required before snapshots.
+
+
+# 2026-10-08 — P0 CI correction and SEEK_DATA hardening
+
+- 0cdf9c3a: fixed the test-side superblock scope regression that caused GCC/Clang/Windows compilation failure in test_mount.c. The failure was introduced while isolating the allocator regression and was corrected without weakening the allocator assertions.
+- 54b12594: hardened SEEK_DATA against uint64 multiplication overflow when advancing to the next sparse extent; malformed extent geometry now returns OPENFS_FILE_CORRUPT instead of wrapping an output offset.
+- Fresh CI was restarted after each correction; the newest run is still pending, so no green CI claim is made yet.
+
