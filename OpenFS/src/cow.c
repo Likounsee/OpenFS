@@ -256,15 +256,18 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     openfs_inode_t created;
     openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,new_ino,inode_count,&created);
     if(ir!=OPENFS_INODE_OK){
-        int cleanup_ok=1;
-        openfs_inode_t tombstone;
-        memset(&tombstone,0,sizeof(tombstone));
-        tombstone.inode_number=new_ino;
-        tombstone.generation=created.generation;
-        tombstone.mode=OPENFS_INODE_MODE_FREE;
-        tombstone.link_count=0U;
-        if(openfs_inode_write(d,sb->inode_table_start,inode_count,&tombstone)!=OPENFS_INODE_OK)cleanup_ok=0;
-        if(openfs_inode_free(d,sb,new_ino)!=OPENFS_INODE_ALLOC_OK)cleanup_ok=0;
+        int cleanup_ok=0;
+        openfs_inode_t cleanup_inode;
+        if(openfs_inode_read(d,sb->inode_table_start,new_ino,inode_count,&cleanup_inode)==OPENFS_INODE_OK){
+            openfs_inode_t tombstone;
+            memset(&tombstone,0,sizeof(tombstone));
+            tombstone.inode_number=new_ino;
+            tombstone.generation=cleanup_inode.generation;
+            tombstone.mode=OPENFS_INODE_MODE_FREE;
+            tombstone.link_count=0U;
+            if(openfs_inode_write(d,sb->inode_table_start,inode_count,&tombstone)==OPENFS_INODE_OK &&
+               openfs_inode_free(d,sb,new_ino)==OPENFS_INODE_ALLOC_OK)cleanup_ok=1;
+        }
         free(ext);cow_unlock_inode(sb);
         if(!cleanup_ok)return OPENFS_COW_CORRUPT;
         return ir==OPENFS_INODE_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;
