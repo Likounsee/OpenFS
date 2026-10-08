@@ -852,3 +852,7 @@ This closes one remaining on-disk format-validation invariant. It does **not** c
 - `928b53cc` / `d9e0c000` add a streaming CRC32C update/finalize API while preserving the existing one-shot result bit-for-bit.
 - `4c84d6a2` verifies incremental hashing against the existing one-shot CRC implementation.
 - This is groundwork for persistent regular-file data checksums without requiring whole-file buffers; the on-disk checksum field itself is intentionally **not** enabled yet, so no false integrity guarantee is introduced.
+
+### P0 checkpoint
+
+Le checkpoint passe à **~93%** après ces durcissements vérifiables. Ce pourcentage reste volontairement bloqué avant 100% tant que le checksum persistant des données utilisateur, la réparation ownership/refcount au-delà des tails et leur matrice de crash ne sont pas réellement intégrés et validés par CI.
