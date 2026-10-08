@@ -27,6 +27,7 @@ add_library(openfs STATIC
     src/link.c
     src/fsck.c
     src/fsck_repair.c
+    src/scrub.c
     src/journal.c
     src/transaction.c
     src/lock.c
@@ -115,6 +116,10 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-fsck-repair-test PRIVATE openfs)
     openfs_enable_warnings(openfs-fsck-repair-test)
     add_test(NAME openfs-fsck-repair COMMAND openfs-fsck-repair-test)
+    add_executable(openfs-scrub-test tests/test_scrub.c)
+    target_link_libraries(openfs-scrub-test PRIVATE openfs)
+    openfs_enable_warnings(openfs-scrub-test)
+    add_test(NAME openfs-scrub COMMAND openfs-scrub-test)
     add_executable(openfs-fsck-test tests/test_fsck.c)
     target_link_libraries(openfs-fsck-test PRIVATE openfs)
     openfs_enable_warnings(openfs-fsck-test)
