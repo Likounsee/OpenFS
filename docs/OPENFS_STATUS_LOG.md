@@ -514,6 +514,16 @@ A commit is only described as CI-green when an actual successful remote run/stat
 
 CI for these commits has not been reported by the available GitHub status/run API, so no green result is claimed here.
 
+# Additional P0 file-concurrency pass
+
+- `5be9687cf11cb5d42eb6395c6ad286a10b7c9420` adds a multi-threaded file I/O stress test.
+- `801cd4a4671434ba8b6e97d8a1e76d7fa958b0a8` fixes the test verification to compare each persisted block against its expected worker pattern.
+- The test uses independent inode snapshots per worker while OpenFS refreshes the current inode under the runtime inode lock, exercising concurrent writes and reads to disjoint logical blocks.
+- `4c8dde99367b7be5a6b8c19d12a77331ac4da576` registers the test in CTest with `Threads::Threads`.
+- The workload verifies final file size, exact block contents, FSCK cleanliness, and unmount success.
+
+CI for these commits has not been reported by the available GitHub status/run API, so no green result is claimed here.
+
 # Next development direction
 
 The next implementation work should continue in this order:
