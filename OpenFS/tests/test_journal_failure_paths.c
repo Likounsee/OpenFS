@@ -5,6 +5,7 @@
 
 #include "openfs/format.h"
 #include "openfs/journal.h"
+#include "openfs/crc32c.h"
 
 typedef struct {
     uint8_t *data;
@@ -200,7 +201,7 @@ static void test_replay_rejects_interleaved_transactions(void)
     for(unsigned i=0U;i<8U;i++){block[8U+i]=(uint8_t)(tx2>>(8U*i));block[16U+i]=(uint8_t)(seq>>(8U*i));}
     uint32_t crc = openfs_crc32c(block, sizeof(block));
     block[28U]=(uint8_t)crc; block[29U]=(uint8_t)(crc>>8U); block[30U]=(uint8_t)(crc>>16U); block[31U]=(uint8_t)(crc>>24U);
-    assert(d.write(d.context, s.journal_start + j.next_record, 1U, block) == OPENFS_IO_OK);
+    assert(v.write(v.context, s.journal_start + j.next_record, 1U, block) == OPENFS_IO_OK);
     assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_CORRUPT);
     free(d.data);
 }
