@@ -42,7 +42,7 @@ The existing core already provides a substantial filesystem foundation:
 - filesystem mount/unmount with superblock fallback;
 - checksummed WAL/journal records;
 - transactions and committed-transaction replay;
-- mounted allocator, inode-allocation, file-write and file-truncate paths are WAL-backed and replayable after post-COMMIT publication failures;
+- mounted allocator and inode-allocation state transitions are WAL-backed and replayable after post-COMMIT publication failures; direct file writes/truncates remain explicit-transaction APIs to preserve concurrent I/O semantics;
 - journal checkpoint/reclamation;
 - transaction-aware namespace/file mutation;
 - transaction fault-injection coverage;
