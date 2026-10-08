@@ -115,7 +115,7 @@ openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_su
         return r;
     }
     tr=openfs_transaction_commit(&tx);
-    if(tr!=OPENFS_TRANSACTION_OK)r=map_transaction_result(tr);
+    if(tr!=OPENFS_TRANSACTION_OK)r=tx.recovery_required?OPENFS_ALLOC_CORRUPT:map_transaction_result(tr);
     (void)openfs_mutex_unlock(&sb->runtime->transaction_lock);
     unlock_allocation(sb);
     return r;
