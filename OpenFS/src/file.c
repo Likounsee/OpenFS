@@ -1242,8 +1242,8 @@ openfs_file_result_t openfs_file_truncate_as(openfs_block_device_t*d,const openf
     if(ar!=OPENFS_INODE_OK)return ar==OPENFS_INODE_ACCESS_DENIED?OPENFS_FILE_ACCESS_DENIED:OPENFS_FILE_CORRUPT;
     return openfs_file_truncate(d,s,i,size);
 }
-openfs_file_result_t openfs_file_write_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t o,const void*b,size_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_write(d,s,i,o,b,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
-openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=openfs_file_truncate(d,s,i,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
+openfs_file_result_t openfs_file_write_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t o,const void*b,size_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=file_write_unlocked(d,s,i,o,b,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
+openfs_file_result_t openfs_file_truncate_tx(openfs_transaction_t*t,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n){if(t==NULL||s==NULL||i==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return OPENFS_FILE_INVALID_ARGUMENT;openfs_file_result_t r=file_truncate_unlocked(d,s,i,n);if(r!=OPENFS_FILE_OK)t->failed=1;return r;}
 static openfs_file_result_t refresh_inode_locked(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*requested,openfs_inode_t*out)
 {
     if(d==NULL||s==NULL||requested==NULL||out==NULL)return OPENFS_FILE_INVALID_ARGUMENT;
