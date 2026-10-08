@@ -310,9 +310,14 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
             for(uint64_t n=0U;n<take;n++)(void)openfs_cow_refcount_dec(d,sb,ext[i].physical_start+n,NULL);
             remaining-=take;
         }
-        created.mode=OPENFS_INODE_MODE_FREE;created.link_count=0U;
-        (void)openfs_inode_write(d,sb->inode_table_start,inode_count,&created);
-        (void)openfs_inode_free(d,sb,new_ino);
+        openfs_inode_t tombstone;
+        memset(&tombstone,0,sizeof(tombstone));
+        tombstone.inode_number=new_ino;
+        tombstone.generation=new_generation;
+        tombstone.mode=OPENFS_INODE_MODE_FREE;
+        tombstone.link_count=0U;
+        if(openfs_inode_write(d,sb->inode_table_start,inode_count,&tombstone)!=OPENFS_INODE_OK)r=OPENFS_COW_CORRUPT;
+        else if(openfs_inode_free(d,sb,new_ino)!=OPENFS_INODE_ALLOC_OK)r=OPENFS_COW_CORRUPT;
     }
     free(ext);
     cow_unlock_inode(sb);
