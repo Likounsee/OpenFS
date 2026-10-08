@@ -707,3 +707,16 @@ Run `37821272250` for `d2a98009739f6c9260647f0d82c280c9e88a5ff0` completed **gre
 ### P0 checkpoint
 
 The latest validated suite is 39/39 tests passing across GCC, Clang + ASan/UBSan, and Windows. Snapshot implementation remains blocked as designed: live inode-table, directory, extent-tree and xattr metadata are still not redirected through the persistent metadata root.
+# 2026-10-08 — P0 WAL replay retry validation
+
+- `a7f43a93` aligned FSCK sparse-extent validation with the inode validator: a valid leading sparse hole no longer causes a false corruption report.
+- `1be37d5c` added a persisted leading-hole regression: namespace-created file, first allocation at logical block 3, FSCK validation, unlink, and second FSCK.
+- `54af693c` added a P0 recovery regression for a committed transaction whose final publication fails: the first remount is deliberately forced to fail during WAL replay, then a second remount must retry the same committed DATA and recover successfully.
+- The first version of that regression exposed a test-injection mistake: one write fault was consumed by the original post-COMMIT publication failure, so the replay was not actually faulted. `ac725df8` reserves a second exact write failure and now validates the intended replay-failure/retry path.
+- CI run `37826013502` for `ac725df8` completed **green**: GCC, Clang, both sanitizer passes, and Windows.
+
+### P0 checkpoint
+
+Estimated P0 completion: **~80%**.
+
+The WAL/recovery matrix is stronger, including a real replay failure followed by retry. Remaining P0 blockers are still allocation ownership/reservation semantics, broader crash-cut coverage around allocator/metadata publication, transactional FSCK repair guarantees, and data-integrity checksums/scrub. Snapshots remain blocked until the persistent metadata-root is wired into live metadata paths.
