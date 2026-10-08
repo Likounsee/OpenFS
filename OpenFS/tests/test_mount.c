@@ -498,7 +498,7 @@ static void replay_failure_is_retryable_and_idempotent(void){
     openfs_block_device_t *td=openfs_transaction_device(&t);assert(td!=NULL);
     uint64_t target=sb.data_start+17U;uint8_t payload[4096U];memset(payload,0xC7U,sizeof(payload));
     assert(td->write(td->context,target,1U,payload)==OPENFS_IO_OK);
-    d.fail_write_block=target;d.fail_write_count=1U;
+    d.fail_write_block=target;d.fail_write_count=2U;
     assert(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);
     assert(t.active==1&&t.committed==1);
     /* The committed DATA remains authoritative in the WAL even though publication failed. */
