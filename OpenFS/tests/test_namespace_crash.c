@@ -44,7 +44,8 @@ typedef enum {
     OP_UNLINK,
     OP_SYMLINK,
     OP_RENAME_REPLACE,
-    OP_RENAME_NEW
+    OP_RENAME_NEW,
+    OP_CLONE
 } namespace_op_t;
 
 typedef struct {
@@ -350,6 +351,9 @@ static int apply_operation(crash_disk_t *d, namespace_op_t op)
         break;
     case OP_RENAME_NEW:
         pr = openfs_path_rename_tx(&t, &s, "/home/test/src", "/home/test/renamed");
+        break;
+    case OP_CLONE:
+        pr = openfs_path_clone_tx(&t, &s, "/home/test/src", "/home/test/clone", &ino);
         break;
     default:
         pr = OPENFS_PATH_INVALID_ARGUMENT;
@@ -693,6 +697,11 @@ static const scenario_t scenarios[] = {
     {
         "rename-new", OP_RENAME_NEW,
         {"/home/test/src", "/home/test/renamed", "/home/test/dst"},
+        3U
+    },
+    {
+        "clone", OP_CLONE,
+        {"/home/test/src", "/home/test/clone", "/home/test/dst"},
         3U
     }
 };
