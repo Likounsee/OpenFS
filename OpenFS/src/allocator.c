@@ -67,7 +67,7 @@ static openfs_alloc_result_t free_block_unlocked(openfs_block_device_t*d,const o
     if(cr!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;
     openfs_alloc_result_t r=set_block(d,sb,block,0);
     if(r!=OPENFS_ALLOC_OK){
-        (void)openfs_cow_refcount_set(d,sb,block,1U);
+        if(openfs_cow_refcount_set(d,sb,block,1U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;
         return r;
     }
     return OPENFS_ALLOC_OK;
