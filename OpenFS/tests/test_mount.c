@@ -396,7 +396,7 @@ static void cow_clone_extent_tree_regression(void)
         uint64_t a=0U,b=0U;assert(openfs_file_map_block_device(&v,&m.superblock,&source,logical,&a)==OPENFS_FILE_OK);assert(openfs_file_map_block_device(&v,&m.superblock,&clone,logical,&b)==OPENFS_FILE_OK);assert(a==b);
         uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,a,&refs)==OPENFS_COW_OK&&refs==2U);
     }
-    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,NULL,NULL);if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"partial clone rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,fsck_progress_probe,NULL);if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"partial clone rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/tree-clone")==OPENFS_PATH_OK);
     for(uint64_t logical=0U;logical<source.blocks;logical++){
         uint64_t a=0U;assert(openfs_file_map_block_device(&v,&m.superblock,&source,logical,&a)==OPENFS_FILE_OK);uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,a,&refs)==OPENFS_COW_OK&&refs==1U);
@@ -464,7 +464,7 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
-static void cow_clone_partial_refcount_rollback_regression(void)
+static void fsck_progress_probe(void *context,uint32_t done,uint32_t total,const char *stage){(void)context;(void)done;(void)total;(void)stage;}\nstatic void cow_clone_partial_refcount_rollback_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
     d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
