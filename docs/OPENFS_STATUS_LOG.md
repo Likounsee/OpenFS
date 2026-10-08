@@ -910,3 +910,17 @@ P0 moves to **~98%**. Persistent CoW ownership reconstruction is now repairable 
 ### P0 checkpoint
 
 P0 remains **~98%** until persistent regular-file data checksums are implemented. The CoW repair path now has detection, atomic reconstruction, and retry/fault coverage.
+
+# 2026-10-08 — P0 persistent data checksum path
+
+- `67550266` advances the on-disk format to minor 6 and defines a persistent data-checksum feature plus checksum-region geometry.
+- `ac023aa4` serializes/validates the checksum region and reserves its layout during formatting; the formatter clears the region before first use.
+- `7edb61ee` / `3355f2c7` add persistent CRC32C storage APIs, including a transaction-device setter.
+- `4f0a20f8` makes regular-file reads validate the stored CRC and makes writes update the CRC after each data-block mutation.
+- `37ac40ba` / `87e8938a` initialize checksum entries for newly allocated data blocks on both transactional and legacy allocation paths.
+- `8998b04d` makes scrub verify checksums of allocated data blocks.
+- `2a81c53e` / `83cc6ae7` add a real regression: valid read, physical data corruption, read rejection, and scrub detection.
+
+### P0 checkpoint
+
+The persistent checksum mechanism is now implemented end-to-end at the basic data-path level. P0 is **not yet declared 100%**: the remaining work is to audit every data-producing path (CoW copies, metadata-root/data helpers, truncate/recovery), ensure checksum updates are transactionally coupled at every path, add crash/fault cuts around checksum writes, and obtain a fresh fully green GCC/Clang/sanitizer/Windows CI run.
