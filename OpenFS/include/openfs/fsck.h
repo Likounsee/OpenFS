@@ -19,6 +19,8 @@ openfs_fsck_result_t openfs_fsck_with_progress(openfs_block_device_t *,const ope
 openfs_fsck_result_t openfs_fsck(openfs_block_device_t *,const openfs_superblock_t *,uint64_t *);
 /* Safely clears only impossible bits beyond the logical block/inode bitmap ranges, then re-runs fsck. */
 openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *,const openfs_superblock_t *,uint64_t *);
+/* Rebuilds the persistent CoW refcount table from inode extents/xattrs/tree roots atomically through the WAL. */
+openfs_fsck_result_t openfs_fsck_repair_cow_refcounts(openfs_block_device_t *,const openfs_superblock_t *,uint64_t *);
 #ifdef __cplusplus
 }
 #endif
