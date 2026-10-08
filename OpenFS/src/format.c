@@ -98,7 +98,7 @@ static openfs_format_result_t decode(const uint8_t*b,openfs_superblock_t*sb){
     if(stored!=openfs_crc32c(copy,OPENFS_CHECKSUM_OFFSET))return OPENFS_FORMAT_CORRUPT;
     /* Bytes between the serialized fields and the checksum are reserved.  A
      * valid checksum alone must not make an unknown on-disk layout acceptable. */
-    for(size_t i=196U;i<OPENFS_CHECKSUM_OFFSET;i++)if(b[i]!=0U)return validation_corrupt(reason,"reserved superblock fields are non-zero");
+    for(size_t i=196U;i<OPENFS_CHECKSUM_OFFSET;i++)if(b[i]!=0U)return OPENFS_FORMAT_CORRUPT;
     sb->version_major=get16(b+8U);sb->version_minor=get16(b+10U);sb->feature_flags=get64(b+12U);sb->block_size=get32(b+20U);sb->total_blocks=get64(b+28U);
     sb->metadata_start=get64(b+36U);sb->metadata_blocks=get64(b+44U);sb->block_bitmap_start=get64(b+52U);sb->block_bitmap_blocks=get64(b+60U);
     sb->inode_bitmap_start=get64(b+68U);sb->inode_bitmap_blocks=get64(b+76U);sb->inode_table_start=get64(b+84U);sb->inode_table_blocks=get64(b+92U);
