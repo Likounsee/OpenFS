@@ -20,6 +20,7 @@ static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_supe
     if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,block,used)!=OPENFS_BITMAP_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_ALLOC_CORRUPT;
     return OPENFS_ALLOC_IO_ERROR;
 }
+static openfs_alloc_result_t alloc_block_tx_unlocked(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t*out){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count)return OPENFS_ALLOC_CORRUPT;uint64_t end=sb->data_start+sb->data_blocks;for(uint64_t b=sb->data_start;b<end;b++){int used=0;if(openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if(!used){if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U&&openfs_cow_refcount_set_tx(t,sb,b,1U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;*out=b;return OPENFS_ALLOC_OK;}}return OPENFS_ALLOC_OUT_OF_SPACE;}
 static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out){
     if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count||sb->block_bitmap_blocks==0U||sb->block_bitmap_start>=d->block_count||sb->block_bitmap_blocks>d->block_count-sb->block_bitmap_start)return OPENFS_ALLOC_CORRUPT;
@@ -39,7 +40,7 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
                 return rollback_ok?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
             }
             if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U){
-                openfs_cow_result_t cr=openfs_cow_refcount_set(d,sb,b,1U);
+                openfs_cow_result_t cr=openfs_cow_refcount_set_tx(t,sb,b,1U);
                 if(cr!=OPENFS_COW_OK){
                     int rollback_ok=1;
                     if(openfs_cow_refcount_set(d,sb,b,0U)!=OPENFS_COW_OK)rollback_ok=0;
@@ -101,7 +102,7 @@ openfs_alloc_result_t openfs_alloc_block_tx(openfs_transaction_t*t,const openfs_
     if(t==NULL||!t->active||t->base==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     openfs_block_device_t *td=openfs_transaction_device(t);
     if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
-    return alloc_block_unlocked(td,sb,out);
+    return alloc_block_tx_unlocked(t,sb,out);
 }
 openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block)
 {
