@@ -348,7 +348,7 @@ static int path_snapshot_inode_block(openfs_block_device_t *d,const openfs_super
 
 static int path_snapshot_bitmap(openfs_block_device_t *d,const openfs_superblock_t *s,uint64_t start,uint64_t blocks,uint8_t **out)
 {
-    if(d==NULL||s==NULL||out==NULL||blocks==0U||d->block_size==0U||blocks>SIZE_MAX/d->block_size)return 0;
+    if(d==NULL||s==NULL||out==NULL||blocks==0U||blocks>UINT32_MAX||d->block_size==0U||blocks>SIZE_MAX/d->block_size)return 0;
     size_t bytes=(size_t)(blocks*d->block_size);
     uint8_t *p=malloc(bytes);if(p==NULL)return 0;
     if(d->read(d->context,start,(uint32_t)blocks,p)!=OPENFS_IO_OK){free(p);return 0;}
