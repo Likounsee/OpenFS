@@ -12,7 +12,6 @@
 #include "openfs/fd.h"
 #include "openfs/cow.h"
 #include "openfs/dir.h"
-#include "openfs/bitmap.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -23,7 +22,6 @@
 #endif
 
 typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;} disk_t;
-static void fsck_progress_probe(void *context,uint64_t done,uint64_t total,const char *stage);
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
 static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;size_t bytes=(size_t)((uint64_t)n*d->block_size);if(d->partial_enabled&&f==d->partial_block){size_t copy=d->partial_bytes!=0U&&d->partial_bytes<bytes?d->partial_bytes:bytes;memcpy(d->bytes+(size_t)(f*d->block_size),b,copy);if(d->partial_once){if(d->partial_change)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}memcpy(d->bytes+(size_t)(f*d->block_size),b,bytes);return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){((disk_t*)c)->flushes++;return OPENFS_IO_OK;} static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){unsigned *hits=c;(void)tx;(void)p;if(n>=24U&&memcmp(p,"OJBD1",5U)==0)(*hits)++;return OPENFS_JOURNAL_OK;}
@@ -466,8 +464,6 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
-static void fsck_progress_probe(void *context,uint64_t done,uint64_t total,const char *stage){(void)context;(void)done;(void)total;fprintf(stderr,"fsck-stage:%s\\n",stage!=NULL?stage:"?");}
-static void dump_inode_bitmap_after_clone_failure(openfs_block_device_t *v,const openfs_superblock_t *s){uint64_t count=(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE;for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(v,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK)continue;if(used){openfs_inode_t in;if(openfs_inode_read(v,s->inode_table_start,n,count,&in)==OPENFS_INODE_OK)fprintf(stderr,"used-inode:%llu mode=%u links=%llu\\n",(unsigned long long)n,(unsigned)(in.mode&OPENFS_INODE_TYPE_MASK),(unsigned long long)in.link_count);}}}
 static void cow_clone_partial_refcount_rollback_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
@@ -492,10 +488,9 @@ static void cow_clone_partial_refcount_rollback_regression(void)
     uint64_t clone_ino=0U;
     assert(openfs_path_clone(&v,&m.superblock,"/cow-source","/cow-failed",&clone_ino)==OPENFS_PATH_IO_ERROR);
     d.partial_enabled=0;
-    dump_inode_bitmap_after_clone_failure(&v,&m.superblock);
     assert(openfs_path_lookup(&v,&m.superblock,"/cow-failed",&clone_ino)==OPENFS_PATH_NOT_FOUND);
     uint16_t after=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,extent.physical_start,&after)==OPENFS_COW_OK&&after==1U);
-    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,fsck_progress_probe,NULL);if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"partial clone rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/cow-source")==OPENFS_PATH_OK);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(d.bytes);
