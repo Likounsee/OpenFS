@@ -1,134 +1,477 @@
 # OpenFS
 
-OpenFS (Open File System) is a portable, OS-independent filesystem designed to
-work across operating systems through small OS-specific adapters.
+OpenFS (Open File System) is a portable, OS-independent filesystem designed to work across operating systems through small OS-specific adapters.
 
-ArchiaOS is a planned integration, but the filesystem core itself does not
-depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
+ArchiaOS is a planned integration, but the filesystem core itself does not depend on ArchiaOS, Linux, Windows, BSD, or any CPU architecture.
 
-## Current status
+> **Project goal:** evolve OpenFS into a production-grade general-purpose filesystem with reliability, recovery, integrity, concurrency, and OS integration comparable in scope to mature filesystems such as NTFS.
 
-OpenFS is in **active filesystem-core hardening**. The on-disk format, allocation,
-inodes, extents, directories, namespace operations, permissions, transactions,
-journal recovery, adapters, and fsck are already implemented. The current
-development phase is moving from single-threaded correctness toward a filesystem
-that can safely serve concurrent OS workloads.
+OpenFS is **not release-ready yet**. Development is intentionally incremental: a feature is not considered complete merely because an API exists. A feature is complete only when its on-disk representation, implementation, error paths, transaction semantics, crash recovery, fsck interaction, regression tests, interaction tests, and documentation are covered.
 
-OpenFS is **not release-ready yet**. The next major milestone is a thread-safe
-core with explicit locking semantics, followed by real file handles/descriptors,
-namespace race protection, security metadata, advanced allocation features,
-VFS integration, and finally native OS filesystem integration.
+---
 
-### Implemented
+## Project status
+
+OpenFS is in an active **filesystem-core hardening and feature-completion phase**.
+
+The existing core already provides a substantial filesystem foundation:
 
 - portable block-device API;
-- versioned v1.3 on-disk format with fast formatting and optional full-zero formatting;
+- versioned v1.3 on-disk format;
 - primary and backup superblocks;
-- root-directory default traversal permissions (0755);
-- CRC32C checks for metadata;
+- CRC32C metadata integrity;
 - geometry, bounds, and overflow validation;
 - block and inode allocation bitmaps;
-- first-fit data block allocation/freeing;
 - inode allocation/freeing with generation reuse protection;
 - checksummed inodes;
-- persistent five-extent inode storage in the v1.3 format;
-- versioned v1.3 depth-0 extent-tree leaves with checksummed overflow extents and files beyond five extents;
-- extent-backed file read/write/truncate;
-- fixed-size checksummed directory entries with lookup/add/remove and deleted-slot reuse;
-- absolute path traversal with ., .., and symlink handling;
-- create, mkdir, unlink, rename, hard links, and symbolic links;
-- parent-path symlink following for namespace mutations;
-- inode and path-level permission-bit access checks, root/superuser bypass, and automatic timestamps;
-- credential-aware namespace mutation APIs;
-- extended attributes with checksummed metadata blocks;
-- POSIX-style ACLs with inheritance and ACL-aware access checks;
-- credential-aware file read/write/truncate APIs and link/symlink creation APIs;
-- sticky-directory ownership checks for credential-aware unlink/rename;
-- filesystem mount/unmount with primary/backup superblock fallback;
-- checksummed journal records;
-- transaction ownership, BEGIN/DATA/COMMIT handling and committed-transaction replay;
+- five inline inode extents;
+- checksummed depth-0 extent trees for files exceeding inline extent capacity;
+- extent-backed read/write/truncate;
+- checksummed fixed-size directory entries;
+- deleted-directory-slot reuse;
+- absolute path traversal;
+- `.` and `..`;
+- symlinks and parent-path symlink following;
+- create, mkdir, unlink, rename and hard links;
+- permissions, credentials and root/superuser bypass;
+- timestamps;
+- extended attributes;
+- POSIX-style ACLs and inheritance;
+- file handles/descriptors;
+- handle duplication/reference counting;
+- filesystem mount/unmount with superblock fallback;
+- checksummed WAL/journal records;
+- transactions and committed-transaction replay;
 - journal checkpoint/reclamation;
-- transaction-aware namespace and file mutation support;
-- journal-full handling without partial transaction publication;
+- transaction-aware namespace/file mutation;
 - transaction fault-injection coverage;
-- extent-tree allocation, readback, shrink, and checksum-corruption regression coverage;
-- truncate-shrink ordering that preserves inode/block consistency when inode persistence fails;
-- recovery tests verifying committed transactions remain recoverable after final-write failures;
-- fsck consistency checking with allocation, extent, alias, inode, directory, generation, and link-count invariants;
-- CMake build with GCC/Clang/MSVC support;
-- Linux, Windows, and ArchiaOS adapter contracts;
-- automated GitHub Actions CI with Debug, CTest, and ASan/UBSan coverage.
+- copy-on-write cloning and refcounting;
+- discard/free handling for shared CoW blocks;
+- orphan handling;
+- fsck consistency checking;
+- Linux, Windows and ArchiaOS adapter contracts;
+- CMake builds for GCC/Clang/MSVC;
+- automated GitHub Actions CI.
 
-### Current hardening phase
+### Current feature state
 
-The current development order is:
+| Area | Status |
+|---|---|
+| On-disk format | Implemented / hardened |
+| Allocation / bitmaps | Implemented / hardened |
+| Inodes | Implemented / hardened |
+| Extents / extent tree | Implemented / hardened |
+| Directories / namespace | Implemented / hardened |
+| Hard links / symlinks | Implemented |
+| ACL / permissions / xattrs | Implemented |
+| File handles | Implemented |
+| WAL / transactions / replay | Implemented / actively hardened |
+| CoW / refcounting | Implemented / actively hardened |
+| Orphans | Implemented |
+| FSCK consistency checking | Implemented / actively hardened |
+| Sparse files | **Implemented, final hardening ongoing** |
+| SEEK_DATA / SEEK_HOLE | **Implemented, regression-tested** |
+| Snapshots | Planned |
+| Named streams / ADS | Planned |
+| Change journal | Planned |
+| Quotas | Planned |
+| Compression | Planned |
+| Encryption / key management | Planned |
+| Reparse-like objects | Planned |
+| Data checksums / scrub | Partial / planned expansion |
+| Controlled FSCK repair | Partial / planned expansion |
+| Cache / read-ahead / writeback | Planned |
+| mmap / direct I/O | Planned |
+| Linux VFS integration | Planned |
+| Windows/WinFSP integration | Planned |
+| Notifications | Planned |
+| Persistent file IDs | Planned |
+| Benchmarks / performance tuning | Planned |
 
-1. **Thread safety and internal locking**
-   - portable mutex/rwlock primitives;
-   - lock ownership and lock-order validation;
-   - mount lifecycle protection;
-   - inode, directory, allocation, and journal locking;
-   - concurrency regression tests;
-   - coarse-grained namespace/path serialization to close multi-step TOCTOU windows;
-   - elimination of lock-order inversions and race-prone shared state;
-   - runtime open-handle registry and mount lifetime protection.
+---
 
-2. **File handles / descriptors — implementation started**
-   - open/close lifecycle (implemented in the core handle API);
-   - read/write/seek/truncate through handles;
-   - open flags and access modes;
-   - descriptor duplication/reference counting (implemented in the core handle API);
-   - reference-counted objects;
-   - correct lifetime semantics when a pathname is unlinked.
+# Roadmap
 
-3. **Namespace and security hardening — started**
-   - TOCTOU and path-race protection;
-   - stable inode/path lookup semantics;
-   - ACLs and ACL inheritance (implemented);
-   - extended attributes (xattrs) (implemented);
-   - file locking;
-   - sparse files.
+## P0 — Reliability, correctness and recovery
 
-4. **Advanced filesystem features**
-   - copy-on-write;
-   - snapshots;
-   - snapshot rollback;
-   - user/group quotas;
-   - volume encryption and key management;
-   - compression.
+These are the highest priority. Advanced features must not be built on top of unsafe core semantics.
 
-5. **Integrity and repair**
-   - controlled fsck repair;
-   - periodic scrub;
-   - stronger corruption detection;
-   - assisted/automatic repair where safe;
-   - complete cross-checking of filesystem structures.
+### 1. Concurrency audit
 
-6. **VFS and operating-system integration**
-   - stable VFS layer;
-   - definitive mount/unmount API;
-   - definitive block-device API;
-   - filesystem/page cache;
-   - OS credentials/process integration;
-   - stable public filesystem API;
-   - root filesystem support;
-   - boot support where an OS integration requires it.
+- [ ] Audit every shared mutable structure.
+- [ ] Verify mount lifetime locking.
+- [ ] Verify inode locking.
+- [ ] Verify directory locking.
+- [ ] Verify allocation/bitmap locking.
+- [ ] Verify journal locking.
+- [ ] Verify CoW/refcount locking.
+- [ ] Verify lock ordering and recursive call paths.
+- [ ] Detect and eliminate lock-order inversions.
+- [ ] Close multi-step namespace TOCTOU windows.
+- [ ] Stress concurrent create/remove/rename.
+- [ ] Stress concurrent read/write/truncate.
+- [ ] Stress concurrent hard-link/symlink operations.
+- [ ] Stress concurrent CoW/refcount operations.
+- [ ] Test unmount/lifetime races.
+- [ ] Test concurrent snapshots with active writers once snapshots exist.
 
-7. **Native filesystem drivers**
-   - native Windows filesystem driver;
-   - Linux integration;
-   - ArchiaOS integration;
-   - other OS adapters where useful.
+The existing locking layer is deliberately conservative. Finer-grained locking may be introduced later, but correctness comes first.
 
-The Windows driver is intentionally **not the immediate priority**. It will be
-built on top of stable file-handle, VFS, cache, locking, and error semantics.
-This avoids coupling kernel integration to APIs that are still evolving.
+### 2. WAL, transaction and crash recovery
 
-## Locking architecture
+- [ ] Audit every BEGIN/DATA/COMMIT/checkpoint transition.
+- [ ] Test partial journal writes.
+- [ ] Test partial flushes.
+- [ ] Test corrupted journal records.
+- [ ] Test interrupted checkpointing.
+- [ ] Test abandoned transactions.
+- [ ] Test true transaction interleaving/corruption.
+- [ ] Preserve a sticky recovery-required state when appropriate.
+- [ ] Verify rollback state after rollback failure.
+- [ ] Verify remount/replay after every injected failure.
+- [ ] Ensure a durable COMMIT remains recoverable even when later final writes fail.
 
-OpenFS now has a portable internal locking layer and a runtime lock set for
-mounted filesystems. The lock hierarchy is intentionally ordered from outer
-filesystem lifetime to the most global mutable journal state:
+Required ordering:
+
+**BEGIN/DATA → durable COMMIT → final writes → flush → checkpoint**
+
+### 3. FSCK and repair
+
+- [ ] Separate detection from repair.
+- [ ] Add safe read-only check mode.
+- [ ] Add controlled repair mode.
+- [ ] Validate inode bitmap tails.
+- [ ] Validate block bitmap tails.
+- [ ] Validate inode ownership.
+- [ ] Validate extent ownership.
+- [ ] Validate CoW/refcount ownership exactly.
+- [ ] Validate directory reachability.
+- [ ] Validate link counts.
+- [ ] Validate generations.
+- [ ] Validate orphan state.
+- [ ] Validate journal state.
+- [ ] Validate snapshots once implemented.
+- [ ] Validate streams once implemented.
+- [ ] Validate quotas once implemented.
+- [ ] Ensure repair never silently destroys recoverable data.
+- [ ] Add corruption fixtures and repair regression tests.
+
+### 4. Integrity and corruption detection
+
+- [ ] Define checksum coverage for all persistent metadata.
+- [ ] Add/extend data-integrity checks where appropriate.
+- [ ] Detect silent corruption during reads.
+- [ ] Add scrub support.
+- [ ] Report corrupted objects precisely.
+- [ ] Repair corrupted structures where a safe source exists.
+- [ ] Test corruption at every persistent layer.
+- [ ] Test corruption combined with crash recovery.
+
+---
+
+# P1 — Core filesystem features
+
+## 5. Snapshots
+
+Implement snapshots using the existing CoW/refcount foundation.
+
+- [ ] Persistent snapshot metadata.
+- [ ] Atomic snapshot creation.
+- [ ] Read-only snapshot view.
+- [ ] Persistent snapshot IDs.
+- [ ] Snapshot listing.
+- [ ] Snapshot deletion.
+- [ ] Snapshot lifetime/refcount accounting.
+- [ ] CoW interaction.
+- [ ] Snapshot rollback.
+- [ ] Crash recovery.
+- [ ] FSCK support.
+- [ ] Snapshot + write interaction tests.
+- [ ] Snapshot + CoW interaction tests.
+- [ ] Snapshot + truncate tests.
+- [ ] Snapshot + rename/link tests.
+- [ ] Snapshot + crash tests.
+- [ ] Snapshot + corruption tests.
+
+## 6. Sparse files
+
+- [x] Hole-aware writes.
+- [x] Sparse truncate extension.
+- [x] Sparse truncate shrink.
+- [x] Reclaim only mapped blocks.
+- [x] Preserve holes when converting extent representations.
+- [x] Sparse extent-tree handling.
+- [x] `SEEK_DATA`.
+- [x] `SEEK_HOLE`.
+- [x] Synchronize sparse seeking with runtime inode locking.
+- [x] Handle adjacent logical extents correctly even when their physical blocks are non-contiguous.
+- [x] FSCK coverage for sparse layouts.
+- [ ] Crash/fault-injection coverage for every sparse write/truncate path.
+- [ ] Full handle/descriptor integration.
+- [ ] Linux/Windows adapter exposure where supported.
+- [ ] Interaction tests with CoW and snapshots.
+
+## 7. Named streams / Alternate Data Streams
+
+- [ ] Define persistent stream metadata.
+- [ ] Main/default stream semantics.
+- [ ] Named stream create/open/read/write/truncate.
+- [ ] Stream delete/rename.
+- [ ] Independent stream sizes and allocation.
+- [ ] Stream permissions/security semantics.
+- [ ] Stream transactions.
+- [ ] Stream crash recovery.
+- [ ] Stream FSCK.
+- [ ] Stream + CoW.
+- [ ] Stream + snapshots.
+- [ ] Windows ADS mapping.
+
+## 8. Change journal
+
+This is deliberately separate from the recovery WAL.
+
+- [ ] Persistent change records.
+- [ ] Monotonic journal/change IDs.
+- [ ] Create/delete records.
+- [ ] Rename records.
+- [ ] Write/size/metadata change records.
+- [ ] Link/unlink records.
+- [ ] Transactional publication.
+- [ ] Recovery semantics.
+- [ ] Incremental reader API.
+- [ ] Rotation/pruning.
+- [ ] FSCK validation.
+- [ ] Crash tests.
+- [ ] Windows/OS notification integration.
+
+## 9. Quotas
+
+- [ ] Per-user quota.
+- [ ] Per-group quota.
+- [ ] Optional project quota.
+- [ ] Block limits.
+- [ ] Inode/file-count limits.
+- [ ] Soft limits.
+- [ ] Hard limits.
+- [ ] Persistent quota metadata.
+- [ ] Transactional accounting.
+- [ ] Correct rollback on failed allocation.
+- [ ] FSCK accounting verification.
+- [ ] Crash/recovery tests.
+
+---
+
+# P2 — Advanced filesystem capabilities
+
+## 10. Compression
+
+- [ ] Define compression format.
+- [ ] Define compressed extent representation.
+- [ ] Read/write path.
+- [ ] Partial block updates.
+- [ ] CoW interaction.
+- [ ] Snapshot interaction.
+- [ ] Checksums.
+- [ ] FSCK.
+- [ ] Crash recovery.
+- [ ] Benchmark real workloads.
+
+## 11. Encryption
+
+First establish architecture before implementation.
+
+- [ ] File/directory encryption model.
+- [ ] Key management architecture.
+- [ ] Key rotation.
+- [ ] Authentication/integrity.
+- [ ] Encrypted data vs metadata boundaries.
+- [ ] Crash recovery.
+- [ ] Snapshot semantics.
+- [ ] CoW semantics.
+- [ ] FSCK semantics.
+- [ ] Never store plaintext encryption keys on disk.
+
+## 12. Reparse-like objects / Windows semantics
+
+- [ ] Reparse-point representation.
+- [ ] Junction-like behavior.
+- [ ] Stable object semantics.
+- [ ] Security integration.
+- [ ] FSCK support.
+- [ ] Crash tests.
+- [ ] Windows mapping.
+
+## 13. Notifications
+
+- [ ] Namespace change notifications.
+- [ ] Create/delete/rename.
+- [ ] Write/metadata changes.
+- [ ] Directory watching.
+- [ ] Transaction ordering.
+- [ ] Change-journal integration.
+- [ ] Linux integration.
+- [ ] Windows integration.
+
+---
+
+# P3 — OS integration, I/O and performance
+
+## 14. Persistent file IDs
+
+- [ ] Stable file IDs.
+- [ ] Generation/reuse semantics.
+- [ ] Rename stability.
+- [ ] Hard-link stability.
+- [ ] Unlink semantics.
+- [ ] Reboot stability.
+- [ ] Snapshot semantics.
+- [ ] FSCK validation.
+
+## 15. Cache and I/O
+
+- [ ] Page/file cache.
+- [ ] Read-ahead.
+- [ ] Write-back.
+- [ ] Dirty-state tracking.
+- [ ] Ordering/barriers.
+- [ ] `fsync`.
+- [ ] `fdatasync`.
+- [ ] Direct I/O where appropriate.
+- [ ] mmap.
+- [ ] Power-loss simulation.
+- [ ] Cache/recovery interaction tests.
+
+## 16. Linux integration
+
+- [ ] VFS layer.
+- [ ] Mount/unmount.
+- [ ] inode/file operations.
+- [ ] page cache integration.
+- [ ] mmap.
+- [ ] ACL/xattr mapping.
+- [ ] POSIX locking semantics.
+- [ ] notifications.
+- [ ] credentials/process integration.
+- [ ] sparse seeking.
+- [ ] stable error mapping.
+
+## 17. Windows integration
+
+- [ ] WinFSP/native integration architecture.
+- [ ] ADS.
+- [ ] Windows ACL/security descriptor mapping.
+- [ ] reparse points.
+- [ ] file locking.
+- [ ] notifications.
+- [ ] persistent file IDs.
+- [ ] timestamps/metadata semantics.
+- [ ] durability semantics.
+- [ ] stable Windows error mapping.
+
+The Windows/native driver is intentionally **not the immediate priority**. It must sit on stable handle, VFS, locking, cache and error semantics.
+
+## 18. Benchmarks and optimization
+
+- [ ] Sequential read/write.
+- [ ] Random read/write.
+- [ ] Small-file workloads.
+- [ ] Large-file workloads.
+- [ ] Large directories.
+- [ ] Rename/unlink.
+- [ ] Hard links.
+- [ ] fsync.
+- [ ] Transactions.
+- [ ] CoW.
+- [ ] Snapshots.
+- [ ] FSCK.
+- [ ] Compare against appropriate reference filesystems.
+- [ ] Optimize only from measurements.
+
+---
+
+# Cross-feature completion rule
+
+A feature is **not complete** until all applicable items exist:
+
+1. on-disk format;
+2. public/internal API;
+3. implementation;
+4. validation and error handling;
+5. transaction semantics;
+6. crash recovery;
+7. persistence/durability;
+8. FSCK detection;
+9. FSCK repair where safe;
+10. concurrency behavior;
+11. regression tests;
+12. fault-injection tests;
+13. interaction tests with existing features;
+14. adapter/OS semantics where applicable;
+15. documentation.
+
+This rule applies especially to snapshots, sparse files, streams, quotas, compression and encryption.
+
+---
+
+# NTFS-level feature audit
+
+OpenFS is not required to copy NTFS internals. The objective is to reach comparable **general-purpose filesystem capability, reliability and OS usability** using an architecture appropriate to OpenFS.
+
+The audit therefore covers:
+
+- files/directories;
+- persistent file IDs;
+- hard links;
+- symbolic/reparse links;
+- ACL/security descriptors;
+- extended attributes;
+- named streams/ADS;
+- sparse files;
+- compression;
+- encryption architecture;
+- quotas;
+- change journal;
+- notifications;
+- locking;
+- durability;
+- crash recovery;
+- integrity;
+- fsck/repair;
+- snapshots;
+- CoW;
+- cache/I/O;
+- VFS integration;
+- Windows integration;
+- Linux/POSIX semantics;
+- performance.
+
+The comparison must distinguish **implemented**, **partially implemented**, **architecturally supported**, **planned**, and **missing** instead of pretending that an API alone makes a feature equivalent to NTFS.
+
+---
+
+# Development and debugging rule
+
+Development follows:
+
+**OBSERVE → REPRODUCE/TEST → CORRECT → BUILD → TARGETED TEST → FULL SUITE → CI**
+
+Rules:
+
+- inspect the current implementation before changing it;
+- never remove or weaken an existing regression test to make a change pass;
+- turn every discovered bug into a regression test when practical;
+- keep commits small and coherent;
+- preserve crash consistency;
+- prefer explicit corruption-class errors when rollback cannot be guaranteed;
+- validate persistence, not only in-memory state;
+- use GitHub Actions as the authoritative remote build/test validation;
+- never claim CI is green without an actual successful run.
+
+---
+
+# Locking architecture
+
+The runtime lock hierarchy is intentionally ordered:
 
     MOUNT
       ↓
@@ -140,41 +483,13 @@ filesystem lifetime to the most global mutable journal state:
       ↓
     JOURNAL
 
-The runtime currently provides dedicated directory, inode, allocation, and
-journal mutexes. The locks are recursive where required by the existing call
-graph, and lock acquisition/release order is checked per thread. Out-of-order
-unlock attempts are rejected instead of silently corrupting the lock-order
-tracking state.
+The mounted superblock carries a runtime-only lock context. It is never serialized to disk.
 
-The mounted superblock carries a runtime-only pointer to this lock context. It
-is never serialized into the on-disk superblock.
+The initial locking strategy is deliberately conservative and coarse-grained. Finer-grained locking can be introduced only after correctness and lock-order behavior are proven.
 
-The current locking pass is deliberately conservative: it provides a correct
-coarse-grained synchronization layer first. Per-inode/per-directory sharding
-and finer-grained concurrency can be introduced later without changing the
-on-disk format.
+---
 
-## Scope boundary
-
-The filesystem core remains independent of the host OS. OS-specific behavior
-belongs in adapters or, later, in native filesystem integrations.
-
-OpenFS is intended to become a **real general-purpose filesystem**, not merely
-a formatting library or a userspace demonstration. Features are prioritized
-according to what a general-purpose operating system actually needs.
-
-## Project structure
-
-Everything belonging to the filesystem is inside OpenFS/:
-
-- OpenFS/include/ — public API;
-- OpenFS/src/ — filesystem implementation;
-- OpenFS/tests/ — automated tests;
-- OpenFS/docs/ — technical documentation.
-
-GitHub Actions configuration is kept in .github/.
-
-## Architecture
+# Architecture
 
                     Operating System
                            |
@@ -191,53 +506,50 @@ GitHub Actions configuration is kept in .github/.
                            |
                   Disk / SSD / image
 
-The core must never call an OS-specific API directly.
+The filesystem core must never directly call OS-specific APIs.
 
-## Development rule
+---
 
-Development follows:
+# Project structure
 
-**OBSERVE → REPRODUCE/TEST → CORRECT → BUILD → TARGETED TEST → FULL SUITE → CI**
+- `OpenFS/include/` — public API;
+- `OpenFS/src/` — filesystem implementation;
+- `OpenFS/tests/` — automated tests;
+- `OpenFS/docs/` — technical documentation;
+- `.github/` — CI configuration.
 
-The current implementation must always be inspected before changing it.
-Discovered bugs should become regression tests whenever possible, and existing
-tests must never be removed or weakened.
+---
 
-For transaction durability, the intended WAL ordering is:
+# Documentation
+
+Technical documentation:
+
+- `OpenFS/docs/architecture.md`
+- `OpenFS/docs/format.md`
+- `OpenFS/docs/extent-tree-v1.3.md`
+- `OpenFS/docs/adapters.md`
+- `OpenFS/docs/file-handles.md`
+- `OpenFS/docs/orphans.md`
+- `OpenFS/docs/OPENFS_STATUS_LOG.md` — chronological development, fixes, regressions and remaining work.
+
+The status log is intentionally maintained separately from this roadmap so the README remains a stable project contract while the log records what was actually changed.
+
+---
+
+# Durability contract
+
+For transaction durability, the intended ordering is:
 
 **BEGIN/DATA → durable COMMIT → final writes → flush → checkpoint**
 
-A transaction that has reached durable COMMIT must remain recoverable even if a
-later final write, flush, or checkpoint operation fails.
+A transaction that has reached durable COMMIT must remain recoverable even if a later final write, flush or checkpoint operation fails.
 
-## Verified robustness guarantees
+Direct file APIs attempt rollback on persistence/flush failures. If rollback itself cannot be made durable, OpenFS returns a corruption-class error instead of falsely reporting success.
 
-The current CI-verified core includes persistent rollback tests for truncate
-grow/shrink failures, partial-tail zeroing failures, existing-file partial
-writes, extent-tree root allocation rollback, and allocation/free failures.
-The tests validate persistent inode state, allocation bitmaps, remountability,
-and fsck where the fixture represents a fully reachable filesystem state.
+Transactional APIs remain the stronger crash-atomic interface.
 
-Journal checkpoint clearing is performed backwards. This is intentional: if a
-checkpoint is interrupted, the remaining journal prefix is still a syntactically
-valid prefix for replay instead of leaving a cleared first block followed by
-stale records. Final filesystem writes are flushed before checkpointing.
+---
 
-Direct file APIs attempt rollback on write/truncate persistence and flush
-failures. If the underlying device cannot complete the rollback or its final
-flush, the API returns a corruption-class error rather than claiming that the
-old state is durable. Transactional APIs remain the stronger crash-atomic
-interface.
+# License
 
-## Documentation
-
-See:
-
-- OpenFS/docs/architecture.md
-- OpenFS/docs/format.md
-- OpenFS/docs/extent-tree-v1.3.md
-- OpenFS/docs/adapters.md
-- OpenFS/docs/file-handles.md
-- OpenFS/docs/orphans.md
-
-The documentation will evolve alongside the stable filesystem API and VFS.
+See the repository license.
