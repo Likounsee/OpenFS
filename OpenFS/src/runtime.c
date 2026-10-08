@@ -233,17 +233,19 @@ int openfs_runtime_init(openfs_runtime_t*r)
     if(openfs_mutex_init(&r->directory_lock)!=OPENFS_LOCK_OK)goto fail1;
     if(openfs_mutex_init(&r->inode_lock)!=OPENFS_LOCK_OK)goto fail2;
     if(openfs_mutex_init(&r->allocation_lock)!=OPENFS_LOCK_OK)goto fail3;
-    if(openfs_mutex_init(&r->journal_lock)!=OPENFS_LOCK_OK)goto fail4;
-    if(openfs_mutex_init(&r->handle_registry_lock)!=OPENFS_LOCK_OK)goto fail5;
-    if(openfs_mutex_init(&r->file_lock_registry_lock)!=OPENFS_LOCK_OK)goto fail6;
-    bind_mutex(&r->directory_lock,r);bind_mutex(&r->inode_lock,r);bind_mutex(&r->allocation_lock,r);bind_mutex(&r->journal_lock,r);bind_mutex(&r->handle_registry_lock,r);bind_mutex(&r->file_lock_registry_lock,r);
+    if(openfs_mutex_init(&r->transaction_lock)!=OPENFS_LOCK_OK)goto fail4;
+    if(openfs_mutex_init(&r->journal_lock)!=OPENFS_LOCK_OK)goto fail5;
+    if(openfs_mutex_init(&r->handle_registry_lock)!=OPENFS_LOCK_OK)goto fail6;
+    if(openfs_mutex_init(&r->file_lock_registry_lock)!=OPENFS_LOCK_OK)goto fail7;
+    bind_mutex(&r->directory_lock,r);bind_mutex(&r->inode_lock,r);bind_mutex(&r->allocation_lock,r);bind_mutex(&r->transaction_lock,r);bind_mutex(&r->journal_lock,r);bind_mutex(&r->handle_registry_lock,r);bind_mutex(&r->file_lock_registry_lock,r);
     r->accepting=1;r->initialized=1;r->destroying=0;
     entry->next=runtime_registry;
     runtime_registry=entry;
     runtime_lifecycle_unlock();
     return 1;
-fail6:(void)openfs_mutex_destroy(&r->handle_registry_lock);
-fail5:(void)openfs_mutex_destroy(&r->journal_lock);
+fail7:(void)openfs_mutex_destroy(&r->handle_registry_lock);
+fail6:(void)openfs_mutex_destroy(&r->journal_lock);
+fail5:(void)openfs_mutex_destroy(&r->transaction_lock);
 fail4:(void)openfs_mutex_destroy(&r->allocation_lock);
 fail3:(void)openfs_mutex_destroy(&r->inode_lock);
 fail2:(void)openfs_mutex_destroy(&r->directory_lock);
@@ -315,7 +317,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
     r->initialized=0;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
 
-    unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
+    unbind_mutex(&r->directory_lock);unbind_mutex(&r->inode_lock);unbind_mutex(&r->allocation_lock);unbind_mutex(&r->transaction_lock);unbind_mutex(&r->journal_lock);unbind_mutex(&r->handle_registry_lock);unbind_mutex(&r->file_lock_registry_lock);
     openfs_handle_entry_t *e=entries(r);while(e!=NULL){openfs_handle_entry_t*n=e->next;free(e);e=n;}
     r->open_handles=NULL;r->file_locks=NULL;
     openfs_retired_handle_entry_t *retired=(openfs_retired_handle_entry_t*)r->retired_handles;
@@ -329,6 +331,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
     (void)openfs_mutex_destroy(&r->file_lock_registry_lock);
     (void)openfs_mutex_destroy(&r->handle_registry_lock);
     (void)openfs_mutex_destroy(&r->journal_lock);
+    (void)openfs_mutex_destroy(&r->transaction_lock);
     (void)openfs_mutex_destroy(&r->allocation_lock);
     (void)openfs_mutex_destroy(&r->inode_lock);
     (void)openfs_mutex_destroy(&r->directory_lock);
