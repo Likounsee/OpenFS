@@ -504,6 +504,16 @@ A commit is only described as CI-green when an actual successful remote run/stat
 
 ---
 
+# Latest P0 namespace concurrency pass
+
+- `b7d92142488e6b004085bda108707e575d86e295` adds `test_namespace_collision.c`.
+- The new stress case launches 8 workers concurrently against the same create target and verifies exactly one publication with `OPENFS_PATH_EXISTS` for the remaining contenders.
+- It also launches 8 concurrent renames toward one destination and verifies exactly one successful publication, all losing source names remain intact, and cleanup leaves no namespace residue.
+- `476d5ccebca84885bd96588f5488095bb8a8cc41` registers the collision stress test in CTest and links the thread runtime.
+- The test ends with FSCK and unmount validation.
+
+CI for these commits has not been reported by the available GitHub status/run API, so no green result is claimed here.
+
 # Next development direction
 
 The next implementation work should continue in this order:
