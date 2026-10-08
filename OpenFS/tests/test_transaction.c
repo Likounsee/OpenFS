@@ -80,8 +80,22 @@ d.fail_exact_enabled=0;CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CO
 openfs_mount_t recovered;CHECK(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);CHECK(memcmp(d.b+(size_t)(target*d.bs),a,sizeof(a))==0);CHECK(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
 free(d.b);return 0;}
 
+static int wal_corruption_poison_aborts_without_checkpoint(void){
+D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={21U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);
+openfs_block_device_t *td=openfs_transaction_device(&t);CHECK(td!=NULL);uint8_t a[4096];memset(a,0x3AU,sizeof(a));
+d.partial_block=s.journal_start+j.next_record;d.partial_bytes=512U;d.partial_next_bytes=1024U;d.partial_enabled=1;d.partial_once=1;d.partial_change_after_once=1;
+CHECK(td->write(td->context,s.data_start+8U,1U,a)==OPENFS_IO_IO_ERROR);
+CHECK(t.failed==1&&t.recovery_required==1&&t.active==1&&j.active_transaction_id==t.txid);
+d.partial_enabled=0;
+CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==0);CHECK(j.active_transaction_id==t.txid);
+free(d.b);return 0;
+}
+
 int main(void){
-CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
+CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
 CHECK(poisoned_namespace_transaction()==0);
 CHECK(checkpoint_partial_write_rollback()==0);
 CHECK(partial_commit_record_is_aborted_safely()==0);
