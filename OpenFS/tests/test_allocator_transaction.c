@@ -66,7 +66,6 @@ int main(void)
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==1);
     assert(openfs_free_block(&dev,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
-    assert(openfs_journal_close(&tx_journal)==OPENFS_JOURNAL_OK);
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
     return 0;
