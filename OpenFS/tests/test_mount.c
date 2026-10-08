@@ -492,7 +492,7 @@ static void cow_clone_partial_refcount_rollback_regression(void)
     d.partial_enabled=0;
     assert(openfs_path_lookup(&v,&m.superblock,"/cow-failed",&clone_ino)==OPENFS_PATH_NOT_FOUND);
     uint16_t after=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,extent.physical_start,&after)==OPENFS_COW_OK&&after==1U);
-    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,NULL,NULL);if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"partial clone rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;openfs_fsck_diagnostic_t diagnostic={0};openfs_fsck_result_t fsck_result=openfs_fsck_with_progress_and_diagnostics(&v,&m.superblock,&errors,&diagnostic,fsck_progress_probe,NULL);if(fsck_result!=OPENFS_FSCK_OK)fprintf(stderr,"partial clone rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\\n",(int)fsck_result,(unsigned long long)errors,diagnostic.stage!=NULL?diagnostic.stage:"?",diagnostic.reason!=NULL?diagnostic.reason:"?",(unsigned long long)diagnostic.index,(unsigned long long)diagnostic.total);assert(fsck_result==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/cow-source")==OPENFS_PATH_OK);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(d.bytes);
