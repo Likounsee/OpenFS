@@ -759,3 +759,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 
 
 - 61f5cb57: corrected the sparse adjacency regression's expected EOF from 8192 to 4097 bytes. Two one-byte writes at offsets 0 and 4096 produce an EOF of 4097; the prior assertion was mathematically inconsistent with the actual write contract. The test now retains the fsck validation and persisted-inode coverage.
+
+
+# 2026-10-08 — checksum integration CI compile corrections
+
+- 94adc510: corrected a real allocator regression introduced by persistent data-checksum initialization: restored the missing <stdlib.h> declaration for calloc/free and removed an orphaned transaction helper fragment that made GCC/Clang/MSVC reject allocator.c.
+- f6b6a3cd: corrected the FSCK CoW-refcount repair build by including the bitmap API header required by openfs_bitmap_test()/OPENFS_BITMAP_OK.
+- The failures were taken from the actual GitHub Actions build logs for run 37841638014; tests were not weakened.
+- Runs 37842137728 (94adc510) and 37842143259 (f6b6a3cd) are currently still running/pending. CI is therefore not green yet.
