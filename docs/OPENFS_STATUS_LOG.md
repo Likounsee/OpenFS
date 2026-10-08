@@ -1,3 +1,10 @@
+# 2026-10-08 — P0 90% checkpoint revalidated
+
+- Cleanup is now validated end-to-end after the allocator transaction test regression: the test closes all owned runtime resources supported by the public API and no temporary diagnostics remain.
+- The experimental transaction-device owner routing was reverted rather than weakening the established locking/CoW architecture.
+- CI run 37834456826 is green: GCC, Clang, both sanitizer configurations, and Windows all passed.
+- P0 remains at ~90%. This milestone is considered reached, but not 100%: the remaining P0 work is deliberately reserved for durable allocation ownership/claim semantics, final namespace/metadata crash-cut interactions, broader FSCK repair coverage, checksums/scrub, and the final concurrency/durability interaction pass.
+
 # 2026-10-08 — P0 validation cleanup after transaction-device audit
 
 - The explicit transaction-device routing experiment was deliberately reverted after CI exposed that the existing file transaction path has additional CoW/extent interactions that must be integrated as one design rather than incrementally bypassing the established locks.
