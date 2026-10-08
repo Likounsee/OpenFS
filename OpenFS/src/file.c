@@ -562,9 +562,10 @@ static openfs_file_result_t file_truncate_unlocked(
         if(device->flush(device->context)!=OPENFS_IO_OK){
             int ok=1;
             if(old_tree_block!=NULL&&device->write(device->context,old_root,1U,old_tree_block)!=OPENFS_IO_OK)ok=0;
+            if(shrink_tail_saved&&device->write(device->context,shrink_tail_physical,1U,shrink_tail_backup)!=OPENFS_IO_OK)ok=0;
             if(write_inode(device,sb,&original)!=OPENFS_FILE_OK)ok=0;
             if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
-            free(old_tree_block);free(freed);free(tail_backup);*inode=original;
+            free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
             return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
         }
 
