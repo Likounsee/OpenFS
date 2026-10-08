@@ -455,6 +455,22 @@ FSCK_PROGRESS(85U,100U,"validation des bitmaps et des blocs");
 for(uint64_t b=0U;b<s->data_start;b++){if(progress!=NULL&&(b==0U||(b%4096U)==0U||b+1U==s->data_start))FSCK_PROGRESS(85U+(s->data_start==0U?0U:(5U*b)/s->data_start),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!set)bad++;}
 if(s->data_start>UINT64_MAX-s->data_blocks){result=OPENFS_FSCK_CORRUPT;goto done;}uint64_t data_end=s->data_start+s->data_blocks;for(uint64_t b=s->data_start;b<data_end;b++){if(progress!=NULL&&(b==s->data_start||(b%4096U)==0U||b+1U==data_end))FSCK_PROGRESS(90U+(s->data_blocks==0U?0U:(5U*(b-s->data_start))/s->data_blocks),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set&&!ref_test(refs,b-s->data_start))bad++;}
 for(uint64_t b=data_end;b<d->block_count;b++){int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(b==d->block_count-1U){if(!set)bad++;}else if(set)bad++;}
+if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){
+    for(uint64_t b=s->data_start;b<data_end;b++){
+        int allocated=0;
+        if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
+        uint16_t refs_count=0U;
+        if(openfs_cow_refcount_get(d,s,b,&refs_count)!=OPENFS_COW_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
+        int referenced=ref_test(refs,b-s->data_start);
+        if(!allocated){
+            if(refs_count!=0U)bad++;
+        }else if(referenced){
+            if(refs_count<2U)bad++;
+        }else if(refs_count!=1U){
+            bad++;
+        }
+    }
+}
 uint64_t block_bitmap_bits=0U;if(s->block_bitmap_blocks>UINT64_MAX/d->block_size||((block_bitmap_bits=s->block_bitmap_blocks*(uint64_t)d->block_size)>UINT64_MAX/8U)){result=OPENFS_FSCK_CORRUPT;goto done;}block_bitmap_bits*=8U;if(block_bitmap_bits>d->block_count){for(uint64_t bit=d->block_count;bit<block_bitmap_bits;bit++){int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,bit,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
 if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U){result=OPENFS_FSCK_CORRUPT;goto done;}
