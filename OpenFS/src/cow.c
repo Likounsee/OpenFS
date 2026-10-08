@@ -87,6 +87,12 @@ static openfs_cow_result_t refcount_set_locked(openfs_block_device_t *d,const op
     free(original);free(buf);return r;
 }
 
+static openfs_cow_result_t tx_device(openfs_transaction_t *t,openfs_block_device_t **out){if(t==NULL||!t->active||out==NULL)return OPENFS_COW_INVALID_ARGUMENT;*out=openfs_transaction_device(t);return *out==NULL?OPENFS_COW_INVALID_ARGUMENT:OPENFS_COW_OK;}
+openfs_cow_result_t openfs_cow_refcount_get_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){if(out==NULL)return OPENFS_COW_INVALID_ARGUMENT;openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;return refcount_get_locked(d,sb,block,out);}
+openfs_cow_result_t openfs_cow_refcount_set_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t value){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;return refcount_set_locked(d,sb,block,value);}
+openfs_cow_result_t openfs_cow_refcount_inc_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;uint16_t current=0U;r=refcount_get_locked(d,sb,block,&current);if(r!=OPENFS_COW_OK)return r;if(current==0U)return OPENFS_COW_CORRUPT;if(current==OPENFS_COW_MAX_REFCOUNT)return OPENFS_COW_OVERFLOW;uint16_t next=(uint16_t)(current+1U);r=refcount_set_locked(d,sb,block,next);if(out!=NULL&&r==OPENFS_COW_OK)*out=next;return r;}
+openfs_cow_result_t openfs_cow_refcount_dec_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;uint16_t current=0U;r=refcount_get_locked(d,sb,block,&current);if(r!=OPENFS_COW_OK)return r;if(current==0U)return OPENFS_COW_CORRUPT;uint16_t next=(uint16_t)(current-1U);r=refcount_set_locked(d,sb,block,next);if(out!=NULL&&r==OPENFS_COW_OK)*out=next;return r;}
+
 openfs_cow_result_t openfs_cow_refcount_get(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t *out)
 {
     if(out==NULL)return OPENFS_COW_INVALID_ARGUMENT;
