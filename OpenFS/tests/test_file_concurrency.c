@@ -72,12 +72,9 @@ static void *file_worker(void *arg)
         }
         uint8_t readback[BLOCK_SIZE];
         size_t got=0U;
-        openfs_file_result_t read_result=openfs_file_read(ctx->device,ctx->superblock,&ctx->inode,
-                            ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),readback,sizeof(readback),&got);
-        if(read_result!=OPENFS_FILE_OK || got!=sizeof(readback) || memcmp(readback,block,sizeof(block))!=0){
-            fprintf(stderr,"worker %u round %u read result=%d got=%zu match=%d\\n",ctx->id,round,(int)read_result,got,got==sizeof(readback)&&memcmp(readback,block,sizeof(block))==0);
-            ctx->failures++;
-        }
+        if(openfs_file_read(ctx->device,ctx->superblock,&ctx->inode,
+                            ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),readback,sizeof(readback),&got)!=OPENFS_FILE_OK ||
+           got!=sizeof(readback) || memcmp(readback,block,sizeof(block))!=0)ctx->failures++;
     }
 #if defined(_WIN32)
     return 0U;
