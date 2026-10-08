@@ -1,3 +1,9 @@
+# 2026-10-08 — P0: transaction ordering regression fixture corrected
+
+- CI found the new ordering test was observing formatter writes before the test's fault-observation window was armed, causing a false failure.
+- The fixture now arms observation only after BEGIN; no filesystem behavior or assertion was weakened.
+- The CI run also confirmed the remaining 41 existing tests passed before the new regression aborted.
+
 # 2026-10-08 — P0: explicit transaction durability ordering test
 
 - Added `openfs-transaction-order`, a regression that observes the real block-device writes during a transaction commit.
