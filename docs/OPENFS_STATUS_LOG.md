@@ -578,3 +578,11 @@ This closes an important P0 durability gap for block allocation/free on mounted 
 - **0bbd374** — updated the public file durability contract to document automatic WAL wrapping on mounted filesystems.
 
 - **0072fb2** — updated the README durability contract to reflect automatic WAL wrapping for mounted file writes/truncates and allocation/inode-allocation state transitions.
+
+## 2026-10-08 — CI regression diagnosis and correction
+
+- The first CI run covering the automatic durability changes exposed six regressions under Clang: the existing file-concurrency path, namespace collision path, mount/fd creation path, sparse file test, and the new direct-file transaction test, plus an invalid FSCK-repair test assumption.
+- Root cause for the concurrency-related failures: the journal permits one active transaction, while automatically starting transactions from every direct file operation/allocator path allowed concurrent callers to collide. Direct file writes/truncates are therefore restored to their previous explicit-transaction contract.
+- Automatic allocator and inode-allocation transactions remain, but are now serialized by a runtime transaction mutex ranked between allocation and journal locks. This preserves WAL durability without allowing concurrent automatic transactions to race the single journal transaction slot.
+- The FSCK repair regression test was corrected: clearing an already-unowned data-block bitmap bit is not necessarily detectable corruption. The test now clears the required root-inode bitmap bit, which FSCK must reject as in-range corruption.
+- The direct-file transaction recovery test was removed after proving the automatic direct-file transaction design was incompatible with the existing concurrency contract; explicit transaction-aware file APIs remain the intended crash-atomic interface.
