@@ -799,3 +799,10 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 
 - Clang CI on run 37844180761 found that the narrowed checksum WAL regression used the checksum API without including its public header. This was a test compilation defect, not a production failure.
 - Added the existing openfs/data_checksum.h include; assertions and production code are unchanged.
+
+
+# 2026-10-08 — transaction-device inode allocation deadlock fixed
+
+- GCC and Clang both built successfully but the CTest preflight `openfs-path-test` hit the workflow's 45-second timeout.
+- Root cause audit: inode_alloc.c recognized an active transaction only when the device pointer equaled the runtime base device. A transaction wrapper is a distinct device object, so transactional path operations could incorrectly start a nested transaction and deadlock on transaction_lock.
+- Reused the existing openfs_transaction_from_device() identity check for both inode allocation/free transaction admission. No test timeout was hidden or relaxed.
