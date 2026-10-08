@@ -660,7 +660,27 @@ static void truncate_shrink_partial_tail_flush_failure_restores_data(void){
     free(saved);free(d.bytes);
 }
 
+static void sparse_seek_data_and_hole_reports_extents(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_inode_t i=new_file();uint8_t a=0x11U,b=0x22U;uint64_t result=0U;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&a,1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&b,1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.size==4U*4096U+1U&&i.blocks==2U);
+    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,0U,&result)==OPENFS_FILE_OK&&result==0U);
+    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,1U,&result)==OPENFS_FILE_OK&&result==4U*4096U);
+    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,4U*4096U,&result)==OPENFS_FILE_OK&&result==4U*4096U);
+    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,4U*4096U+1U,&result)==OPENFS_FILE_OUT_OF_RANGE);
+    TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,0U,&result)==OPENFS_FILE_OK&&result==4096U);
+    TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,4096U,&result)==OPENFS_FILE_OK&&result==4096U);
+    TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,2U*4096U+17U,&result)==OPENFS_FILE_OK&&result==2U*4096U+17U);
+    TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,4U*4096U,&result)==OPENFS_FILE_OK&&result==i.size);
+    TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,i.size,&result)==OPENFS_FILE_OUT_OF_RANGE);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
+
 int main(void){
+    sparse_seek_data_and_hole_reports_extents();
     file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
