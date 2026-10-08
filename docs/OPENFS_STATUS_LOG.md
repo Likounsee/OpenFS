@@ -879,3 +879,14 @@ P0 remains **~94%**. Format/FSCK validation is now stricter on both primary and 
 
 - `acf8cb41` extends the FSCK corruption matrix with a real CoW refcount mismatch: a referenced data block is forced to refcount zero and FSCK must reject the image.
 - This closes a detection gap in the regression matrix; repair is deliberately not claimed because OpenFS still needs an atomic, retry-safe refcount reconstruction mechanism.
+
+# 2026-10-08 — P0 transactional CoW refcount integration
+
+- `4901c5f5` adds explicit transaction-device CoW refcount APIs (`get/set/inc/dec_tx`) that never reacquire the allocation mutex.
+- `96984590` implements those APIs on top of the transaction device, so refcount writes enter the same WAL as the allocation mutation.
+- `f8db4f87` makes transaction-aware allocation/free use the transaction-safe CoW path; this removes the previous nested allocation-lock hazard and ensures bitmap + refcount changes commit or abort together.
+- `6897f1b5` extends the allocator transaction regression to verify refcount 0 after abort, 1 after allocation commit, and 0 after transactional free commit.
+
+### P0 checkpoint
+
+P0 moves to **~96%**. Transactional allocation/refcount coupling is now explicitly covered. Remaining blockers are persistent regular-file data checksums, full atomic FSCK refcount reconstruction, and the final crash/fault-injection interaction matrix.
