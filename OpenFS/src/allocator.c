@@ -50,6 +50,7 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
                     return rollback_ok?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
                 }
             }
+            if((sb->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U){uint8_t*z=calloc(1U,d->block_size);if(z==NULL||openfs_data_checksum_set(d,sb,b,openfs_data_checksum(z,d->block_size))!=0){free(z);if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U)(void)openfs_cow_refcount_set(d,sb,b,0U);(void)openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,0);(void)d->flush(d->context);return OPENFS_ALLOC_IO_ERROR;}free(z);}
             *out=b; return OPENFS_ALLOC_OK;
         }
     }
