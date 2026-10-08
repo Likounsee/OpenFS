@@ -733,3 +733,16 @@ The WAL/recovery matrix is stronger, including a real replay failure followed by
 Estimated P0 completion: **~81%**.
 
 This closes a concrete crash-consistency hole in FSCK repair. Remaining major P0 work is durable allocation ownership/claim semantics, broader allocator + metadata crash-cut coverage, repair coverage beyond bitmap tails, and data-block integrity checksums/scrub.
+# 2026-10-08 — P0 transaction-aware allocation groundwork
+
+- `7e8c834d` exposes `openfs_alloc_block_tx()` and `openfs_free_block_tx()` so allocation/refcount publication can participate in an already-open transaction without creating a nested WAL transaction.
+- `1a6fde95` routes the existing mounted allocator path through those primitives while preserving the current public behavior.
+- `9bc05c1f` adds commit/abort coverage: allocation inside an explicit transaction disappears on abort and becomes durable on commit, followed by normal reclamation.
+
+### P0 checkpoint
+
+Estimated P0 completion: **~82%**.
+
+This is groundwork for closing the allocator-to-metadata publication gap: future file/namespace mutations can now reserve and publish allocation in the same transaction. It is not yet the durable ownership/claim ledger itself, so orphaned post-allocation/pre-publication crash semantics remain an open P0 item.
+
+CI run `37827572569` for `9bc05c1f` completed **green**: GCC, Clang, both sanitizer passes, and Windows.
