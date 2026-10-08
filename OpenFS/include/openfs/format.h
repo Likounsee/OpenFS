@@ -49,7 +49,8 @@ typedef enum openfs_validation_code {
     OPENFS_VALIDATION_BLOCK_BITMAP_CAPACITY = 116,
     OPENFS_VALIDATION_REFCOUNT_CHAIN = 117,
     OPENFS_VALIDATION_REFCOUNT_CAPACITY = 118,
-    OPENFS_VALIDATION_METADATA_ROOT = 119
+    OPENFS_VALIDATION_METADATA_ROOT = 119,
+    OPENFS_VALIDATION_RESERVED_FIELDS = 120
 } openfs_validation_code_t;
 typedef struct openfs_superblock {
     uint16_t version_major;
