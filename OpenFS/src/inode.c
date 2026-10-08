@@ -41,8 +41,7 @@ for(uint32_t n=0U;n<inline_count;n++){
     openfs_extent_t e;
     if(openfs_inode_get_extent(i,n,&e)!=OPENFS_EXTENT_OK||e.block_count==0U||
        e.logical_start>UINT64_MAX-e.block_count||e.physical_start>UINT64_MAX-e.block_count)return OPENFS_INODE_CORRUPT;
-    if(n==0U){if(e.logical_start!=0U)return OPENFS_INODE_CORRUPT;}
-    else if(e.logical_start<previous_logical_end)return OPENFS_INODE_CORRUPT;
+    if(n!=0U&&e.logical_start<previous_logical_end)return OPENFS_INODE_CORRUPT;
     for(uint32_t p=0U;p<n;p++){
         openfs_extent_t prior;
         if(openfs_inode_get_extent(i,p,&prior)!=OPENFS_EXTENT_OK||
