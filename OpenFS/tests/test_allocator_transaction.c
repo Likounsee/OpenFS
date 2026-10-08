@@ -52,6 +52,7 @@ int main(void)
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
         (target/((uint64_t)mount.superblock.block_size*8U));
+    uint16_t initial_refs=0U; openfs_cow_result_t initial_cow=openfs_cow_refcount_get(&dev,&mount.superblock,target,&initial_refs); fprintf(stderr,"allocator preflight cow_get=%d refs=%u journal_start=%llu journal_blocks=%llu\\n",(int)initial_cow,(unsigned)initial_refs,(unsigned long long)mount.superblock.journal_start,(unsigned long long)mount.superblock.journal_blocks);
     disk.fail_block=bitmap_block;
     disk.fail_enabled=1;
 
