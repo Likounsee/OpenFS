@@ -1254,19 +1254,65 @@ openfs_file_result_t openfs_file_read(const openfs_block_device_t*d,const openfs
     openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
     openfs_file_result_t r=file_read_unlocked(d,s,&current,off,b,n,got);unlock_inode_runtime(s);return r;
 }
+static int file_transaction_available(const openfs_block_device_t*d,const openfs_superblock_t*s)
+{
+    return s!=NULL&&s->runtime!=NULL&&s->runtime->journal!=NULL&&s->runtime->device==d;
+}
+static openfs_file_result_t map_file_transaction_result(openfs_transaction_result_t r)
+{
+    if(r==OPENFS_TRANSACTION_CORRUPT)return OPENFS_FILE_CORRUPT;
+    if(r==OPENFS_TRANSACTION_OK)return OPENFS_FILE_OK;
+    return OPENFS_FILE_IO_ERROR;
+}
 openfs_file_result_t openfs_file_write(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t off,const void*b,size_t n)
 {
     openfs_file_result_t lr=lock_inode_runtime(s);if(lr!=OPENFS_FILE_OK)return lr;
-    if(s==NULL||s->runtime==NULL)return file_write_unlocked(d,s,i,off,b,n);
+    if(s==NULL||s->runtime==NULL||!file_transaction_available(d,s)) {
+        openfs_file_result_t r=file_write_unlocked(d,s,i,off,b,n);
+        if(s!=NULL&&s->runtime!=NULL)unlock_inode_runtime(s);
+        return r;
+    }
     openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
-    openfs_file_result_t r=file_write_unlocked(d,s,&current,off,b,n);if(r==OPENFS_FILE_OK)*i=current;unlock_inode_runtime(s);return r;
+    openfs_transaction_t tx;
+    openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,s->runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){unlock_inode_runtime(s);return map_file_transaction_result(tr);}
+    openfs_file_result_t r=file_write_unlocked(openfs_transaction_device(&tx),s,&current,off,b,n);
+    if(r!=OPENFS_FILE_OK){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_FILE_CORRUPT;
+        unlock_inode_runtime(s);
+        return r;
+    }
+    tr=openfs_transaction_commit(&tx);
+    if(tr==OPENFS_TRANSACTION_OK)*i=current;
+    else r=map_file_transaction_result(tr);
+    unlock_inode_runtime(s);
+    return r;
 }
 openfs_file_result_t openfs_file_truncate(openfs_block_device_t*d,const openfs_superblock_t*s,openfs_inode_t*i,uint64_t n)
 {
     openfs_file_result_t lr=lock_inode_runtime(s);if(lr!=OPENFS_FILE_OK)return lr;
-    if(s==NULL||s->runtime==NULL)return file_truncate_unlocked(d,s,i,n);
+    if(s==NULL||s->runtime==NULL||!file_transaction_available(d,s)) {
+        openfs_file_result_t r=file_truncate_unlocked(d,s,i,n);
+        if(s!=NULL&&s->runtime!=NULL)unlock_inode_runtime(s);
+        return r;
+    }
     openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
-    openfs_file_result_t r=file_truncate_unlocked(d,s,&current,n);if(r==OPENFS_FILE_OK)*i=current;unlock_inode_runtime(s);return r;
+    openfs_transaction_t tx;
+    openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,s->runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){unlock_inode_runtime(s);return map_file_transaction_result(tr);}
+    openfs_file_result_t r=file_truncate_unlocked(openfs_transaction_device(&tx),s,&current,n);
+    if(r!=OPENFS_FILE_OK){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_FILE_CORRUPT;
+        unlock_inode_runtime(s);
+        return r;
+    }
+    tr=openfs_transaction_commit(&tx);
+    if(tr==OPENFS_TRANSACTION_OK)*i=current;
+    else r=map_file_transaction_result(tr);
+    unlock_inode_runtime(s);
+    return r;
 }
 openfs_file_result_t openfs_file_seek_data(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
 {
