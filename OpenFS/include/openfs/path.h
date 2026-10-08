@@ -12,6 +12,7 @@ typedef enum { OPENFS_PATH_OK=0, OPENFS_PATH_INVALID_ARGUMENT=1, OPENFS_PATH_NOT
 openfs_path_result_t openfs_path_lookup(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_lookup_follow(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_lookup_as(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint32_t,uint64_t *);
+openfs_path_result_t openfs_path_clone(openfs_block_device_t *,const openfs_superblock_t *,const char *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_create(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint32_t,uint64_t *);
 openfs_path_result_t openfs_path_mkdir(openfs_block_device_t *,const openfs_superblock_t *,const char *,uint64_t *);
 openfs_path_result_t openfs_path_unlink(openfs_block_device_t *,const openfs_superblock_t *,const char *);
