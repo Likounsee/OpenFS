@@ -463,9 +463,13 @@ if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){
         if(openfs_cow_refcount_get(d,s,b,&refs_count)!=OPENFS_COW_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
         uint16_t counted_refs=ref_count(refs,s->data_blocks,b-s->data_start);
         if(!allocated){
-            if(refs_count!=0U||counted_refs!=0U)bad++;
+            if(refs_count!=0U||counted_refs!=0U){
+                bad++;
+                if(diagnostic.stage==NULL){diagnostic.stage="CoW refcount validation";diagnostic.reason="bloc libre avec des références CoW";diagnostic.index=b;diagnostic.total=data_end;diagnostic.count=1U;}
+            }
         }else if(refs_count!=counted_refs){
             bad++;
+            if(diagnostic.stage==NULL){diagnostic.stage="CoW refcount validation";diagnostic.reason="compteur CoW différent du nombre de références";diagnostic.index=b;diagnostic.total=data_end;diagnostic.count=1U;}
         }
     }
 }
