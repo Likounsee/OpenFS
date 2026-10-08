@@ -1209,15 +1209,6 @@ static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,c
     return OPENFS_FILE_OUT_OF_RANGE;
 }
 
-openfs_file_result_t openfs_file_seek_data(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
-{
-    return seek_sparse_unlocked(d,s,i,offset,0,out);
-}
-openfs_file_result_t openfs_file_seek_hole(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
-{
-    return seek_sparse_unlocked(d,s,i,offset,1,out);
-}
-
 openfs_file_result_t openfs_file_read_as(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,void*b,size_t len,size_t*got)
 {
     openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
@@ -1278,3 +1269,18 @@ openfs_file_result_t openfs_file_truncate(openfs_block_device_t*d,const openfs_s
     openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
     openfs_file_result_t r=file_truncate_unlocked(d,s,&current,n);if(r==OPENFS_FILE_OK)*i=current;unlock_inode_runtime(s);return r;
 }
+openfs_file_result_t openfs_file_seek_data(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
+{
+    openfs_file_result_t lr=lock_inode_runtime(s);if(lr!=OPENFS_FILE_OK)return lr;
+    if(s==NULL||s->runtime==NULL)return seek_sparse_unlocked(d,s,i,offset,0,out);
+    openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
+    openfs_file_result_t r=seek_sparse_unlocked(d,s,&current,offset,0,out);unlock_inode_runtime(s);return r;
+}
+openfs_file_result_t openfs_file_seek_hole(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
+{
+    openfs_file_result_t lr=lock_inode_runtime(s);if(lr!=OPENFS_FILE_OK)return lr;
+    if(s==NULL||s->runtime==NULL)return seek_sparse_unlocked(d,s,i,offset,1,out);
+    openfs_inode_t current;openfs_file_result_t rr=refresh_inode_locked(d,s,i,&current);if(rr!=OPENFS_FILE_OK){unlock_inode_runtime(s);return rr;}
+    openfs_file_result_t r=seek_sparse_unlocked(d,s,&current,offset,1,out);unlock_inode_runtime(s);return r;
+}
+
