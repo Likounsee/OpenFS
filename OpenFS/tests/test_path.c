@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
-static unsigned long test_path_assert_no;
-#define TEST_ASSERT(expr) do { ++test_path_assert_no; fprintf(stderr, "TEST_PATH:%lu:%d\n", test_path_assert_no, __LINE__); fflush(stderr); if(!(expr)) { fprintf(stderr, "test assertion failed at line %d: %s\n", __LINE__, #expr); abort(); } } while(0)
+#define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed at line %d: %s\n", __LINE__, #expr); abort(); } } while(0)
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
