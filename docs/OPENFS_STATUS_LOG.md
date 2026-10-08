@@ -662,3 +662,32 @@ Run `37807762169` for `20dcba1476e803aa6321af1fe008295b9255fee5` was observed in
 ### CI status
 
 Rapid branch pushes caused intermediate workflow runs to be cancelled. The latest observed completed build failure was the Clang compile error above; corrective commits have been pushed, but a completed CI result for the current head has not yet been observed. CI for the current head is therefore unknown/unreported, not green.
+
+# 2026-10-08 — metadata-root CI gate: remaining P0 failures
+
+Current development head: 04a81aee.
+
+The remote CI run 37810150119 is still in progress. GCC and Clang have completed their test phases with failures; Windows is still running. The run is therefore not green.
+
+Observed exact failures on the completed GCC/Clang jobs:
+
+- allocator transaction recovery: after an injected post-commit bitmap publication failure, the API now correctly returns corruption-class status, but remount recovery did not restore the allocation bitmap (`used==1`). This exposes a real WAL/recovery ordering bug and remains P0 work.
+- metadata-root test: corrected in 5c050c2c so the corruption-detection byte is restored before releasing the root.
+- mount/fd creation: `openfs_fd_open()` still fails in the mounted create path; the superblock root-field decoding issue is fixed, but this remaining failure requires a separate runtime/transaction audit.
+- sparse seek: the existing sparse seek regression still fails at the second `seek_data()` assertion. It is not being marked complete until reproduced and explained.
+- several namespace/file concurrency tests fail as a consequence of the current mounted-operation regression set; no concurrency pass is being claimed.
+
+The earlier CI failures were used to correct real issues rather than weaken tests: Clang compile errors were fixed by adding the required headers, format durability was kept at the existing single-flush contract, metadata-root allocation was moved to the last data block to preserve first-data-block allocation compatibility, and rollback failure is classified as corruption.
+
+## Current architecture status
+
+- Generic typed metadata-CoW: implemented and tested.
+- Opaque full-block metadata-CoW: implemented and tested for legacy fixed-size metadata payloads.
+- Persistent v1.5 metadata-root/version record: implemented for newly formatted images.
+- Primary/backup superblock root-reference validation: implemented.
+- Mount decoding of the v1.5 root reference: implemented.
+- FSCK metadata-root ownership/corruption detection: implemented.
+- Live inode-table/directory/extent/xattr redirection behind the root: **not implemented**.
+- Snapshots: **not implemented**.
+
+The next code work remains blocked on the P0 CI/recovery gate, specifically the WAL post-commit replay path and the mounted create/concurrency failures. No snapshot implementation will be declared complete until those foundations are repaired.
