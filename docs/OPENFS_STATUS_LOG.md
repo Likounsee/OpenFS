@@ -846,3 +846,9 @@ This closes one remaining on-disk format-validation invariant. It does **not** c
 - `a6141d8e` adds a dedicated `OPENFS_VALIDATION_RESERVED_FIELDS` validation code instead of collapsing reserved-field violations into generic geometry errors.
 - `35f05a6e` wires the new diagnostic code into superblock validation.
 - `629f00a1` extends the corruption regression to assert the precise validation classification.
+
+# 2026-10-08 — P0 integrity groundwork: incremental CRC32C
+
+- `928b53cc` / `d9e0c000` add a streaming CRC32C update/finalize API while preserving the existing one-shot result bit-for-bit.
+- `4c84d6a2` verifies incremental hashing against the existing one-shot CRC implementation.
+- This is groundwork for persistent regular-file data checksums without requiring whole-file buffers; the on-disk checksum field itself is intentionally **not** enabled yet, so no false integrity guarantee is introduced.
