@@ -408,6 +408,14 @@ static void cow_clone_reference_integrity_regression(void)
     assert(openfs_path_unlink(&v,&m.superblock,"/clone")==OPENFS_PATH_OK);
     assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==1U);
     assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t detached_clone_ino=0U;
+    assert(openfs_cow_clone_inode(&v,&m.superblock,&source,m.superblock.root_inode,&detached_clone_ino)==OPENFS_COW_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==2U);
+    openfs_inode_t detached_clone;
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,detached_clone_ino,inode_count,&detached_clone)==OPENFS_INODE_OK);
+    assert(openfs_cow_discard_inode(&v,&m.superblock,&detached_clone)==OPENFS_COW_OK);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==1U);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/source")==OPENFS_PATH_OK);
     assert(openfs_cow_refcount_get(&v,&m.superblock,source_extent.physical_start,&refs)==OPENFS_COW_OK&&refs==0U);
     assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
