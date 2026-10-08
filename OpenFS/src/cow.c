@@ -71,10 +71,18 @@ static openfs_cow_result_t refcount_set_locked(openfs_block_device_t *d,const op
     uint8_t *buf=(uint8_t*)malloc(d->block_size);
     if(buf==NULL)return OPENFS_COW_IO_ERROR;
     if(d->read(d->context,table,1U,buf)!=OPENFS_IO_OK){free(buf);return OPENFS_COW_IO_ERROR;}
+    uint8_t *original=(uint8_t*)malloc(d->block_size);
+    if(original==NULL){free(buf);return OPENFS_COW_IO_ERROR;}
+    memcpy(original,buf,d->block_size);
     store16(buf+off,value);
     r=d->write(d->context,table,1U,buf)==OPENFS_IO_OK?OPENFS_COW_OK:OPENFS_COW_IO_ERROR;
     if(r==OPENFS_COW_OK&&d->flush(d->context)!=OPENFS_IO_OK)r=OPENFS_COW_IO_ERROR;
-    free(buf);return r;
+    if(r!=OPENFS_COW_OK){
+        int restored=d->write(d->context,table,1U,original)==OPENFS_IO_OK;
+        if(restored&&d->flush(d->context)!=OPENFS_IO_OK)restored=0;
+        if(!restored)r=OPENFS_COW_CORRUPT;
+    }
+    free(original);free(buf);return r;
 }
 
 openfs_cow_result_t openfs_cow_refcount_get(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t *out)
