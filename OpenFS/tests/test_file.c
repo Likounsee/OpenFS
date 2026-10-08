@@ -680,6 +680,48 @@ static void sparse_seek_data_and_hole_reports_extents(void){
     free(d.bytes);
 }
 
+static void sparse_write_allocation_failure_rolls_back_layout(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-write-allocation-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint8_t seed=0x41U,tail=0x92U;TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&seed,1U)==OPENFS_FILE_OK);
+    openfs_inode_t before=i;
+    size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;
+    uint8_t *bitmap_before=malloc(bitmap_bytes);TEST_ASSERT(bitmap_before);
+    memcpy(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);
+    d.fail_block=sb.block_bitmap_start;d.fail_block_enabled=1;d.fail_after_writes=2U;d.fail_once=1;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_IO_ERROR);
+    d.fail_block_enabled=0;
+    TEST_ASSERT(memcmp(&i,&before,sizeof(i))==0);
+    TEST_ASSERT(memcmp(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
+    uint8_t out=0U;size_t got=0U;
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,4U*4096U,&out,1U,&got)==OPENFS_FILE_OUT_OF_RANGE);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(bitmap_before);free(d.bytes);
+}
+
+static void sparse_write_flush_failure_rolls_back_layout(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-write-flush-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint8_t seed=0x51U,tail=0xA2U;TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&seed,1U)==OPENFS_FILE_OK);
+    openfs_inode_t before=i;
+    size_t bitmap_bytes=(size_t)sb.block_bitmap_blocks*sb.block_size;
+    uint8_t *bitmap_before=malloc(bitmap_bytes);TEST_ASSERT(bitmap_before);
+    memcpy(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);
+    d.fail_flush=1;d.fail_flush_once=1;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_IO_ERROR);
+    TEST_ASSERT(memcmp(&i,&before,sizeof(i))==0);
+    TEST_ASSERT(memcmp(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
+    uint8_t out=0U;size_t got=0U;
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,4U*4096U,&out,1U,&got)==OPENFS_FILE_OUT_OF_RANGE);
+    d.fail_flush=0;
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(bitmap_before);free(d.bytes);
+}
+
 int main(void){
     sparse_seek_data_and_hole_reports_extents();
     file_write_rejects_unallocated_extent();
