@@ -1177,6 +1177,47 @@ static openfs_file_result_t file_write_unlocked(
     return OPENFS_FILE_OK;
 }
 
+static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,int hole,uint64_t*out)
+{
+    if(out==NULL)return OPENFS_FILE_INVALID_ARGUMENT;
+    openfs_file_result_t vr=validate_file(d,s,i);if(vr!=OPENFS_FILE_OK)return vr;
+    if(offset>=i->size)return OPENFS_FILE_OUT_OF_RANGE;
+    openfs_extent_t *extents=NULL;uint32_t count=0U;
+    openfs_file_result_t er=load_all_extents(d,s,i,&extents,&count);if(er!=OPENFS_FILE_OK)return er;
+    uint64_t bs=d->block_size;
+    uint64_t eof=i->size;
+    uint64_t block=offset/bs;
+    for(uint32_t n=0U;n<count;n++){
+        uint64_t start=extents[n].logical_start,end=0U;
+        if(add_overflow_u64(start,extents[n].block_count,&end)){free(extents);return OPENFS_FILE_CORRUPT;}
+        uint64_t start_byte=0U,end_byte=0U;
+        if(mul_overflow_u64(start,bs,&start_byte)||mul_overflow_u64(end,bs,&end_byte)){free(extents);return OPENFS_FILE_CORRUPT;}
+        if(!hole){
+            if(end_byte<=offset)continue;
+            *out=offset>start_byte?offset:start_byte;if(*out<eof){free(extents);return OPENFS_FILE_OK;}
+        }else{
+            if(offset<start_byte){*out=offset;free(extents);return OPENFS_FILE_OK;}
+            if(offset>=start_byte&&offset<end_byte){
+                if(end_byte>=eof){*out=eof;free(extents);return OPENFS_FILE_OK;}
+                *out=end_byte<eof?end_byte:eof;free(extents);return OPENFS_FILE_OK;
+            }
+        }
+    }
+    free(extents);
+    if(hole){*out=eof;return OPENFS_FILE_OK;}
+    (void)block;
+    return OPENFS_FILE_OUT_OF_RANGE;
+}
+
+openfs_file_result_t openfs_file_seek_data(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
+{
+    return seek_sparse_unlocked(d,s,i,offset,0,out);
+}
+openfs_file_result_t openfs_file_seek_hole(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint64_t offset,uint64_t*out)
+{
+    return seek_sparse_unlocked(d,s,i,offset,1,out);
+}
+
 openfs_file_result_t openfs_file_read_as(openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*i,uint32_t uid,uint32_t gid,uint64_t off,void*b,size_t len,size_t*got)
 {
     openfs_file_result_t r=validate_file(d,s,i);if(r!=OPENFS_FILE_OK)return r;
