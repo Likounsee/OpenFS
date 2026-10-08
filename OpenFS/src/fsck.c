@@ -477,7 +477,7 @@ uint64_t block_bitmap_bits=0U;if(s->block_bitmap_blocks>UINT64_MAX/d->block_size
 if(s->inode_bitmap_blocks>UINT64_MAX/d->block_size){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_bitmap_bytes=s->inode_bitmap_blocks*(uint64_t)d->block_size;if(inode_bitmap_bytes>UINT64_MAX/8U){result=OPENFS_FSCK_CORRUPT;goto done;}
 uint64_t inode_cap=inode_bitmap_bytes*8U;if(inode_cap>count){
-for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(openfs_bitmap_test(d,s->inode_bitmap_start,s->inode_bitmap_blocks,bit,&set)!=OPENFS_BITMAP_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
+for(uint64_t bit=count;bit<inode_cap;bit++){int set=0;if(!fsck_bitmap_snapshot_test(&inode_bitmap_snapshot,bit,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set)bad++;}}
 FSCK_PROGRESS(99U,100U,"finalisation");
 done:;
     free(dir_refs);
