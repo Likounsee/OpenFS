@@ -464,12 +464,45 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
+static void cow_clone_partial_refcount_rollback_regression(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4AU};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    uint64_t source_ino=0U;assert(openfs_path_create(&v,&m.superblock,"/cow-source",OPENFS_INODE_MODE_REGULAR|0644U,&source_ino)==OPENFS_PATH_OK);
+    uint64_t inode_count=(m.superblock.inode_table_blocks*(uint64_t)d.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t source;assert(openfs_inode_read(&v,m.superblock.inode_table_start,source_ino,inode_count,&source)==OPENFS_INODE_OK);
+    uint8_t payload[4096U];memset(payload,0x5CU,sizeof(payload));
+    assert(openfs_file_write(&v,&m.superblock,&source,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,source_ino,inode_count,&source)==OPENFS_INODE_OK);
+    openfs_extent_t extent;assert(openfs_inode_get_extent(&source,0U,&extent)==OPENFS_EXTENT_OK);
+    uint16_t before=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,extent.physical_start,&before)==OPENFS_COW_OK&&before==1U);
+
+    d.partial_block=m.superblock.refcount_start;
+    d.partial_bytes=1U;
+    d.partial_enabled=1;
+    d.partial_once=1;
+    d.partial_change=0;
+    uint64_t clone_ino=0U;
+    assert(openfs_path_clone(&v,&m.superblock,"/cow-source","/cow-failed",&clone_ino)==OPENFS_PATH_IO_ERROR);
+    d.partial_enabled=0;
+    assert(openfs_path_lookup(&v,&m.superblock,"/cow-failed",&clone_ino)==OPENFS_PATH_NOT_FOUND);
+    uint16_t after=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,extent.physical_start,&after)==OPENFS_COW_OK&&after==1U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_path_unlink(&v,&m.superblock,"/cow-source")==OPENFS_PATH_OK);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
 int main(void){
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  concurrent_cow_refcount_update_regression();
  cow_clone_reference_integrity_regression();
+ cow_clone_partial_refcount_rollback_regression();
  cow_clone_extent_tree_regression();
  stale_runtime_admission_is_rejected();
  stale_superblock_is_rejected_after_unmount();
