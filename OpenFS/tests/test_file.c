@@ -662,7 +662,7 @@ static void truncate_shrink_partial_tail_flush_failure_restores_data(void){
 
 static void sparse_seek_data_and_hole_reports_extents(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
-    openfs_inode_t i=new_file();uint8_t a=0x11U,b=0x22U;uint64_t result=0U;
+    uint64_t inode_number=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-seek-data-hole",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);uint8_t a=0x11U,b=0x22U;uint64_t result=0U;
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,&a,1U)==OPENFS_FILE_OK);
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&b,1U)==OPENFS_FILE_OK);
     TEST_ASSERT(i.size==4U*4096U+1U&&i.blocks==2U);
@@ -677,6 +677,7 @@ static void sparse_seek_data_and_hole_reports_extents(void){
     TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,i.size,&result)==OPENFS_FILE_OUT_OF_RANGE);
     uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     {uint64_t adjacent_ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/adjacent-sparse-hole",OPENFS_INODE_MODE_REGULAR,&adjacent_ino)==OPENFS_PATH_OK);uint64_t adjacent_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;openfs_inode_t adjacent;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,adjacent_ino,adjacent_count,&adjacent)==OPENFS_INODE_OK);uint8_t x=0x33U;uint64_t spacer=0U,seek=0U;TEST_ASSERT(openfs_file_write(&v,&sb,&adjacent,0U,&x,1U)==OPENFS_FILE_OK);TEST_ASSERT(openfs_alloc_block(&v,&sb,&spacer)==OPENFS_ALLOC_OK);TEST_ASSERT(openfs_file_write(&v,&sb,&adjacent,4096U,&x,1U)==OPENFS_FILE_OK);TEST_ASSERT(adjacent.size==8192U&&adjacent.blocks==2U);TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&adjacent,0U,&seek)==OPENFS_FILE_OK&&seek==adjacent.size);TEST_ASSERT(openfs_free_block(&v,&sb,spacer)==OPENFS_ALLOC_OK);uint64_t adjacent_errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&adjacent_errors)==OPENFS_FSCK_OK&&adjacent_errors==0U);TEST_ASSERT(openfs_path_unlink(&v,&sb,"/adjacent-sparse-hole")==OPENFS_PATH_OK);TEST_ASSERT(openfs_fsck(&v,&sb,&adjacent_errors)==OPENFS_FSCK_OK&&adjacent_errors==0U);}
+    TEST_ASSERT(openfs_path_unlink(&v,&sb,"/sparse-seek-data-hole")==OPENFS_PATH_OK);TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 
