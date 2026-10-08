@@ -303,11 +303,14 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
     }
 
     if(r!=OPENFS_COW_OK){
-        if(new_root!=0U)(void)openfs_free_block(d,sb,new_root);
+        int rollback_ok=1;
+        if(new_root!=0U&&openfs_free_block(d,sb,new_root)!=OPENFS_ALLOC_OK)rollback_ok=0;
         uint64_t remaining=incremented_blocks;
         for(uint32_t i=0U;i<count&&remaining!=0U;i++){
             uint64_t take=ext[i].block_count<remaining?ext[i].block_count:remaining;
-            for(uint64_t n=0U;n<take;n++)(void)openfs_cow_refcount_dec(d,sb,ext[i].physical_start+n,NULL);
+            for(uint64_t n=0U;n<take;n++){
+                if(openfs_cow_refcount_dec(d,sb,ext[i].physical_start+n,NULL)!=OPENFS_COW_OK)rollback_ok=0;
+            }
             remaining-=take;
         }
         openfs_inode_t tombstone;
@@ -316,8 +319,9 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
         tombstone.generation=new_generation;
         tombstone.mode=OPENFS_INODE_MODE_FREE;
         tombstone.link_count=0U;
-        if(openfs_inode_write(d,sb->inode_table_start,inode_count,&tombstone)!=OPENFS_INODE_OK)r=OPENFS_COW_CORRUPT;
-        else if(openfs_inode_free(d,sb,new_ino)!=OPENFS_INODE_ALLOC_OK)r=OPENFS_COW_CORRUPT;
+        if(openfs_inode_write(d,sb->inode_table_start,inode_count,&tombstone)!=OPENFS_INODE_OK)rollback_ok=0;
+        else if(openfs_inode_free(d,sb,new_ino)!=OPENFS_INODE_ALLOC_OK)rollback_ok=0;
+        if(!rollback_ok)r=OPENFS_COW_CORRUPT;
     }
     free(ext);
     cow_unlock_inode(sb);
