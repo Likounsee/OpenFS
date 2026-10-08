@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
@@ -673,6 +674,7 @@ static openfs_file_result_t file_read_unlocked(    const openfs_block_device_t *
     }
     *bytes_read = 0U;
     openfs_file_result_t r = validate_file(device, sb, inode);
+    if (r != OPENFS_FILE_OK) fprintf(stderr,"validate_before_write=%d blocks=%llu extents=%u flags=%u\\n",(int)r,(unsigned long long)inode->blocks,inode->extent_count,inode->flags);
     if (r != OPENFS_FILE_OK || (length != 0U && buffer == NULL)) {
         return r != OPENFS_FILE_OK ? r : OPENFS_FILE_INVALID_ARGUMENT;
     }
@@ -1076,7 +1078,7 @@ static openfs_file_result_t file_write_unlocked(
     r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
                            &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count);
     if(r!=OPENFS_FILE_OK){
-        
+        fprintf(stderr,"sparse_prepare_write=%d blocks=%llu new=%llu\\n",(int)r,(unsigned long long)inode->blocks,(unsigned long long)new_count);
         free_write_backups(backups,backup_count);
         return r;
     }
