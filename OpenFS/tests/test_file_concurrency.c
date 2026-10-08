@@ -65,16 +65,8 @@ static void *file_worker(void *arg)
     uint8_t block[BLOCK_SIZE];
     for(unsigned round=0U;round<ROUNDS;round++){
         memset(block,(int)(0x40U+ctx->id),sizeof(block));
-        openfs_file_result_t write_result=openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
-                             ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),block,sizeof(block));
-        if(write_result!=OPENFS_FILE_OK){
-            uint64_t ic=(ctx->superblock->inode_table_blocks*(uint64_t)ctx->superblock->block_size)/OPENFS_INODE_SIZE;
-            openfs_inode_t persisted={0};
-            openfs_inode_result_t pir=openfs_inode_read(ctx->device,ctx->superblock->inode_table_start,ctx->inode.inode_number,ic,&persisted);
-            fprintf(stderr,"worker %u round %u write result=%d persisted_read=%d size=%llu blocks=%llu extents=%u flags=%u\\n",
-                    ctx->id,round,(int)write_result,(int)pir,
-                    (unsigned long long)persisted.size,(unsigned long long)persisted.blocks,
-                    persisted.extent_count,persisted.flags);
+        if(openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
+                             ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),block,sizeof(block))!=OPENFS_FILE_OK){
             ctx->failures++;
             continue;
         }
