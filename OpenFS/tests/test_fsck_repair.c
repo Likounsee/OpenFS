@@ -44,6 +44,10 @@ int main(void){
 
     uint64_t errors=0U;
     assert(openfs_fsck(&d,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    /* Repair is idempotent: a clean second pass must make no on-disk change. */
+    uint8_t *snapshot=(uint8_t *)malloc((size_t)mem.block_size*mem.blocks); assert(snapshot!=NULL); memcpy(snapshot,mem.data,(size_t)mem.block_size*mem.blocks);
+    assert(openfs_fsck_repair_bitmap_tails(&d,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(memcmp(snapshot,mem.data,(size_t)mem.block_size*mem.blocks)==0); free(snapshot);
 
     uint64_t stray_block=sb.total_blocks;
     uint64_t stray_inode=inode_count;
