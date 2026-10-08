@@ -466,7 +466,7 @@ if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){
             if(refs_count!=0U)bad++;
         }else if(referenced){
             if(refs_count<2U)bad++;
-        }else if(refs_count!=1U){
+        }else if(refs_count!=0U){
             bad++;
         }
     }
