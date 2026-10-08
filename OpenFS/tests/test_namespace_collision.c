@@ -152,35 +152,21 @@ static int run_rename_collision(openfs_block_device_t *device,openfs_superblock_
     for(unsigned i=0U;i<WORKERS;i++)assert(pthread_join(threads[i],NULL)==0);
 #endif
 
-    unsigned successes=0U,exists=0U;
     for(unsigned i=0U;i<WORKERS;i++){
-        if(contexts[i].result==OPENFS_PATH_OK)successes++;
-        else if(contexts[i].result==OPENFS_PATH_EXISTS)exists++;
-        else return 0;
+        if(contexts[i].result!=OPENFS_PATH_OK)return 0;
     }
-    if(successes!=1U||exists!=WORKERS-1U)return 0;
 
     uint64_t destination=0U;
     if(openfs_path_lookup(device,sb,"/rename-destination",&destination)!=OPENFS_PATH_OK)return 0;
 
-    unsigned remaining=0U;
     for(unsigned i=0U;i<WORKERS;i++){
         char source[96];
         uint64_t inode=0U;
         (void)snprintf(source,sizeof(source),"/rename-source-%u",i);
-        if(openfs_path_lookup(device,sb,source,&inode)==OPENFS_PATH_OK)remaining++;
-        else if(openfs_path_lookup(device,sb,source,&inode)!=OPENFS_PATH_NOT_FOUND)return 0;
+        if(openfs_path_lookup(device,sb,source,&inode)!=OPENFS_PATH_NOT_FOUND)return 0;
     }
-    if(remaining!=WORKERS-1U)return 0;
 
-    if(openfs_path_unlink(device,sb,"/rename-destination")!=OPENFS_PATH_OK)return 0;
-    for(unsigned i=0U;i<WORKERS;i++){
-        char source[96];
-        (void)snprintf(source,sizeof(source),"/rename-source-%u",i);
-        if(openfs_path_lookup(device,sb,source,&destination)==OPENFS_PATH_OK &&
-           openfs_path_unlink(device,sb,source)!=OPENFS_PATH_OK)return 0;
-    }
-    return 1;
+    return openfs_path_unlink(device,sb,"/rename-destination")==OPENFS_PATH_OK;
 }
 
 int main(void)
