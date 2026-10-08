@@ -691,3 +691,19 @@ The earlier CI failures were used to correct real issues rather than weaken test
 - Snapshots: **not implemented**.
 
 The next code work remains blocked on the P0 CI/recovery gate, specifically the WAL post-commit replay path and the mounted create/concurrency failures. No snapshot implementation will be declared complete until those foundations are repaired.
+
+
+# 2026-10-08 — P0 sparse/concurrency validation
+
+- `ec3a69c0`: fixed a real sparse-file invariant bug in `openfs_inode_validate()`. The validator incorrectly required the first extent to start at logical block 0, which rejected valid files whose first allocation is intentionally preceded by a hole.
+- The failure was exposed by the 8-worker file-concurrency stress test under Clang/GCC ASan/UBSan: writes such as a first allocation at logical block 3 returned `OPENFS_FILE_CORRUPT` even though the sparse extent layout was valid.
+- `539d6663`: corrected the sparse allocation fault-injection test to target the refcount block, exercising an actual allocation-publication failure while allowing rollback to complete instead of accidentally failing the rollback bitmap write.
+- `d3adef33`, `128c505f`, `4b386e1a`: removed temporary diagnostics after the failure was isolated; the concurrency test is back to clean assertions.
+
+### CI
+
+Run `37821272250` for `d2a98009739f6c9260647f0d82c280c9e88a5ff0` completed **green**: GCC, Clang, both sanitizer passes, and Windows all passed.
+
+### P0 checkpoint
+
+The latest validated suite is 39/39 tests passing across GCC, Clang + ASan/UBSan, and Windows. Snapshot implementation remains blocked as designed: live inode-table, directory, extent-tree and xattr metadata are still not redirected through the persistent metadata root.
