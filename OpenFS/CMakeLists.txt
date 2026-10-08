@@ -24,6 +24,7 @@ add_library(openfs STATIC
     src/path.c
     src/link.c
     src/fsck.c
+    src/fsck_repair.c
     src/journal.c
     src/transaction.c
     src/lock.c
