@@ -182,7 +182,10 @@ openfs_cow_result_t openfs_cow_discard_inode(openfs_block_device_t *d,const open
     if(r!=OPENFS_COW_OK){cow_unlock_inode(sb);return r;}
     for(uint32_t i=0U;i<count&&r==OPENFS_COW_OK;i++){
         for(uint64_t n=0U;n<ext[i].block_count;n++){
-            if(openfs_free_block(d,sb,ext[i].physical_start+n)!=OPENFS_ALLOC_OK){r=OPENFS_COW_CORRUPT;break;}
+            uint64_t block=ext[i].physical_start+n;
+            uint16_t refs=0U;
+            if(openfs_cow_refcount_dec(d,sb,block,&refs)!=OPENFS_COW_OK){r=OPENFS_COW_CORRUPT;break;}
+            if(refs==0U&&openfs_free_block(d,sb,block)!=OPENFS_ALLOC_OK){r=OPENFS_COW_CORRUPT;break;}
         }
     }
     uint64_t root=openfs_inode_get_extent_tree_root(&current);
