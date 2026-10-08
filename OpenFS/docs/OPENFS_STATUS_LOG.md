@@ -747,3 +747,13 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - 54b12594: hardened SEEK_DATA against uint64 multiplication overflow when advancing to the next sparse extent; malformed extent geometry now returns OPENFS_FILE_CORRUPT instead of wrapping an output offset.
 - Fresh CI was restarted after each correction; the newest run is still pending, so no green CI claim is made yet.
 
+
+
+# 2026-10-08 — P0 validation follow-up
+
+- e62162fe: fixed a mount-test resource leak in the concurrent CoW refcount regression; the test now unmounts its live filesystem before releasing the backing disk, preventing a stale mount registry entry from poisoning the next test.
+- 6180981e: corrected the sparse SEEK_HOLE adjacency regression to use a persisted namespace inode before asserting fsck cleanliness, then removes that inode and re-runs fsck. This preserves the fsck invariant instead of weakening it.
+- 0fe93c80 / a69a319f: metadata-root generation updates now reject non-monotonic generations; regression coverage checks equal/lower and zero generations.
+- 54b12594: SEEK_DATA now rejects overflow while computing the next extent offset.
+- Latest validation remains pending after the final test correction; prior GCC/Clang builds reached the test phase and the remaining reported failure was the sparse adjacency test's synthetic, non-persisted inode state.
+
