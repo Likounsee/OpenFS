@@ -133,9 +133,8 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
     d.fail_next_write = 1;
     assert(openfs_journal_write_block(&j, &v, tx, s.data_start + 8U, block) == OPENFS_JOURNAL_IO_ERROR);
     assert(j.active_transaction_id == tx);
-    assert(j.next_record > record_before);
-    assert(j.sequence == j.next_record);
-    assert(j.sequence > sequence_before);
+    assert(j.next_record == record_before);
+    assert(j.sequence == sequence_before);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_INVALID_ARGUMENT);
     j.active_transaction_id = 0U;
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
