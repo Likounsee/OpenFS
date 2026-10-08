@@ -3,6 +3,7 @@
 #include "openfs/time.h"
 #include "openfs/runtime.h"
 #include "openfs/cow.h"
+#include "openfs/data_checksum.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -716,6 +717,7 @@ static openfs_file_result_t file_read_unlocked(    const openfs_block_device_t *
             free(block);
             return OPENFS_FILE_IO_ERROR;
         }
+        if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U) { uint32_t expected=0U; if(openfs_data_checksum_get(device,sb,physical,&expected)!=0 || expected!=openfs_data_checksum(block,device->block_size)){free(block);return OPENFS_FILE_CORRUPT;} }
         memcpy((uint8_t *)buffer + done, block + within, chunk);
         done += chunk;
     }
@@ -1139,7 +1141,12 @@ static openfs_file_result_t file_write_unlocked(
             free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);
             return (restored && rollback_ok) ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
         }
-        done += chunk;
+        if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U && openfs_data_checksum_set(device,sb,physical,openfs_data_checksum(block,device->block_size)) != 0) {
+            int restored=restore_write_backups(device,backups,backup_count);
+            int rollback_ok=sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count)==OPENFS_FILE_OK;
+            *inode=original; free(block); free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);return (restored&&rollback_ok)?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+        }
+
     }
     free(block);
 
