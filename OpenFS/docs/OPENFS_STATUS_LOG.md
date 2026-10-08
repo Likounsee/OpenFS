@@ -720,3 +720,22 @@ The latest completed test failures remain: allocator post-COMMIT recovery, mount
 ## CI status
 
 The latest validated code head before this status-log cleanup was ef4dd12e. Its GCC/Clang jobs completed with 3 failing tests: mounted allocator recovery/FSCK ownership, sparse SEEK_DATA, and file concurrency. Windows was still running when the result was observed. The subsequent diagnostic-cleanup commit will trigger a fresh run; until that run completes, CI for the current head is unknown/unreported, not green.
+
+
+# 2026-10-08 — P0 follow-up: transactional allocator tests and SEEK_DATA
+
+- eb1787f3: fixed the implementation-side SEEK_DATA behavior required by the existing sparse regression: an offset inside an allocated extent advances to the next allocated extent instead of being reported as data at the interior offset. This removes the previous GCC/Clang openfs-file failure without changing the test contract.
+- 02153886: corrected the allocator CoW rollback regression so it exercises the non-transactional allocator path intentionally. The mounted path is journal-backed and therefore cannot inject a direct refcount-table failure through the underlying device; the test now reads the superblock directly after format and verifies bitmap/refcount rollback in isolation.
+- 1bf393d5: restored/strengthened the namespace collision regression around the implementation's atomic replacement semantics: concurrent renames to one existing destination must leave exactly one destination and the other source entries intact, rather than expecting EXISTS from all losing rename attempts.
+- The transactional allocator lock-order fix and committed-recovery error propagation remain in place (c9213559, 510c52ff).
+- Temporary diagnostics were removed; the OpenFS tree remains complete at 139 entries.
+
+## CI status
+
+The latest validated head before this docs update is 1bf393d5. Its GitHub Actions run 37815693844 was queued/pending at the time of this update, so CI is unknown/unreported, not green. The previous run was cancelled by the subsequent test commits.
+
+### Current P0 focus
+
+1. finish the fresh GCC/Clang/Windows validation;
+2. investigate any remaining real failures from that clean run rather than weakening tests;
+3. only then continue the WAL/recovery and durable allocation-ownership work required before snapshots.
