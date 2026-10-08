@@ -21,9 +21,9 @@
 #include <sched.h>
 #endif
 
-typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;} disk_t;
+typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;uint64_t fail_write_block;unsigned fail_write_count;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
-static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;size_t bytes=(size_t)((uint64_t)n*d->block_size);if(d->partial_enabled&&f==d->partial_block){size_t copy=d->partial_bytes!=0U&&d->partial_bytes<bytes?d->partial_bytes:bytes;memcpy(d->bytes+(size_t)(f*d->block_size),b,copy);if(d->partial_once){if(d->partial_change)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}memcpy(d->bytes+(size_t)(f*d->block_size),b,bytes);return OPENFS_IO_OK;}
+static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;size_t bytes=(size_t)((uint64_t)n*d->block_size);if(d->partial_enabled&&f==d->partial_block){size_t copy=d->partial_bytes!=0U&&d->partial_bytes<bytes?d->partial_bytes:bytes;memcpy(d->bytes+(size_t)(f*d->block_size),b,copy);if(d->partial_once){if(d->partial_change)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->fail_write_count!=0U&&f==d->fail_write_block){d->fail_write_count--;return OPENFS_IO_IO_ERROR;}memcpy(d->bytes+(size_t)(f*d->block_size),b,bytes);return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){((disk_t*)c)->flushes++;return OPENFS_IO_OK;} static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){unsigned *hits=c;(void)tx;(void)p;if(n>=24U&&memcmp(p,"OJBD1",5U)==0)(*hits)++;return OPENFS_JOURNAL_OK;}
 
 typedef struct {
@@ -464,6 +464,27 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
+static void cow_clone_rollback_failure_is_corruption_regression(void){
+    disk_t d={.block_size=4096U,.block_count=256U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x4BU};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    uint64_t ino=0U;assert(openfs_path_create(&v,&m.superblock,"/cow-source-rollback",OPENFS_INODE_MODE_REGULAR|0644U,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(m.superblock.inode_table_blocks*(uint64_t)d.block_size)/OPENFS_INODE_SIZE;openfs_inode_t source;
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,ino,ic,&source)==OPENFS_INODE_OK);
+    uint8_t payload[4096U];memset(payload,0x61U,sizeof(payload));assert(openfs_file_write(&v,&m.superblock,&source,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    assert(openfs_inode_read(&v,m.superblock.inode_table_start,ino,ic,&source)==OPENFS_INODE_OK);
+    openfs_extent_t ex;assert(openfs_inode_get_extent(&source,0U,&ex)==OPENFS_EXTENT_OK);
+    uint16_t before=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,ex.physical_start,&before)==OPENFS_COW_OK&&before==1U);
+    d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;
+    d.fail_write_block=m.superblock.refcount_start;d.fail_write_count=1U;
+    uint64_t clone=0U;openfs_path_result_t result=openfs_path_clone(&v,&m.superblock,"/cow-source-rollback","/cow-rollback-failed",&clone);
+    assert(result==OPENFS_PATH_CORRUPT||result==OPENFS_PATH_IO_ERROR);
+    d.partial_enabled=0;d.fail_write_count=0U;uint64_t errors=0U;
+    assert(openfs_path_lookup(&v,&m.superblock,"/cow-rollback-failed",&clone)==OPENFS_PATH_NOT_FOUND);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_CORRUPT||errors!=0U);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
+}
+
 static void cow_clone_partial_refcount_rollback_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
@@ -503,6 +524,7 @@ int main(void){
  concurrent_cow_refcount_update_regression();
  cow_clone_reference_integrity_regression();
  cow_clone_partial_refcount_rollback_regression();
+ cow_clone_rollback_failure_is_corruption_regression();
  cow_clone_extent_tree_regression();
  stale_runtime_admission_is_rejected();
  stale_superblock_is_rejected_after_unmount();
