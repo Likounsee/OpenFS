@@ -121,6 +121,8 @@ openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t*t,const openfs_s
 
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out)
 {
+    openfs_transaction_t *owner=openfs_transaction_from_device(d);
+    if(owner!=NULL)return openfs_alloc_block_tx(owner,sb,out);
     openfs_alloc_result_t lr=lock_allocation(sb);if(lr!=OPENFS_ALLOC_OK)return lr;
     if(!transaction_available(d,sb)){
         openfs_alloc_result_t r=alloc_block_unlocked(d,sb,out);unlock_allocation(sb);return r;
@@ -145,6 +147,8 @@ openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_su
 }
 openfs_alloc_result_t openfs_free_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block)
 {
+    openfs_transaction_t *owner=openfs_transaction_from_device(d);
+    if(owner!=NULL)return openfs_free_block_tx(owner,sb,block);
     openfs_alloc_result_t lr=lock_allocation(sb);if(lr!=OPENFS_ALLOC_OK)return lr;
     if(!transaction_available(d,sb)){
         openfs_alloc_result_t r=free_block_unlocked(d,sb,block);unlock_allocation(sb);return r;
