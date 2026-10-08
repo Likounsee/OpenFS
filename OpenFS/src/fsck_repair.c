@@ -70,9 +70,11 @@ openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *d,co
     if(inode_count==0U)return OPENFS_FSCK_CORRUPT;
     openfs_fsck_result_t lr=repair_lock(sb);if(lr!=OPENFS_FSCK_OK)return lr;
     bitmap_repair_plan_t block_plan={0},inode_plan={0};
+    int transactional=0;
     openfs_fsck_result_t r=build_plan(d,sb->block_bitmap_start,sb->block_bitmap_blocks,sb->total_blocks,&block_plan);
     if(r==OPENFS_FSCK_OK)r=build_plan(d,sb->inode_bitmap_start,sb->inode_bitmap_blocks,inode_count,&inode_plan);
     if(r==OPENFS_FSCK_OK && sb->runtime!=NULL && sb->runtime->journal!=NULL && sb->runtime->device==d){
+        transactional=1;
         if(openfs_mutex_lock(&sb->runtime->transaction_lock,OPENFS_LOCK_RANK_TRANSACTION)!=OPENFS_LOCK_OK){
             r=OPENFS_FSCK_IO_ERROR;
         }else{
@@ -99,7 +101,7 @@ openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *d,co
         if(r==OPENFS_FSCK_OK)r=write_plan(d,&inode_plan);
     }
     if(r!=OPENFS_FSCK_OK){
-        if(block_plan.changed!=NULL||inode_plan.changed!=NULL){
+        if(!transactional && (block_plan.changed!=NULL||inode_plan.changed!=NULL)){
             openfs_fsck_result_t rr=rollback_plans(d,&block_plan,&inode_plan);
             if(rr==OPENFS_FSCK_CORRUPT)r=rr;
         }
