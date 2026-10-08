@@ -1,5 +1,6 @@
 #include "openfs/data_checksum.h"
 #include "openfs/crc32c.h"
+#include "openfs/bitmap.h"
 #include <stdlib.h>
 #include <string.h>
 uint32_t openfs_data_checksum(const void *data,uint32_t length){return openfs_crc32c(data,length);}
