@@ -478,10 +478,10 @@ static void cow_clone_rollback_failure_is_corruption_regression(void){
     d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;
     d.fail_write_block=m.superblock.refcount_start;d.fail_write_count=1U;
     uint64_t clone=0U;openfs_path_result_t result=openfs_path_clone(&v,&m.superblock,"/cow-source-rollback","/cow-rollback-failed",&clone);
-    assert(result==OPENFS_PATH_CORRUPT||result==OPENFS_PATH_IO_ERROR);
+    assert(result==OPENFS_PATH_CORRUPT);
     d.partial_enabled=0;d.fail_write_count=0U;uint64_t errors=0U;
     assert(openfs_path_lookup(&v,&m.superblock,"/cow-rollback-failed",&clone)==OPENFS_PATH_NOT_FOUND);
-    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_CORRUPT||errors!=0U);
+    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
 }
 
