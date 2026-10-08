@@ -1,3 +1,9 @@
+# 2026-10-08 — P0: explicit transaction durability ordering test
+
+- Added `openfs-transaction-order`, a regression that observes the real block-device writes during a transaction commit.
+- It asserts the durable COMMIT record is written before any final filesystem publication, and that journal checkpoint clearing occurs only after publication.
+- This makes the required `BEGIN/DATA → COMMIT → publication → flush → checkpoint` ordering an executable regression rather than documentation-only behavior.
+
 # 2026-10-08 — CI: replay idempotence + scrub baseline fully validated
 
 - Run `37836444650` is green across GCC, Clang, both sanitizer builds, and Windows.
