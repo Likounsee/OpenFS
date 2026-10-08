@@ -1,5 +1,6 @@
 #include "openfs/fsck.h"
 #include "openfs/runtime.h"
+#include "openfs/transaction.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -71,8 +72,32 @@ openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *d,co
     bitmap_repair_plan_t block_plan={0},inode_plan={0};
     openfs_fsck_result_t r=build_plan(d,sb->block_bitmap_start,sb->block_bitmap_blocks,sb->total_blocks,&block_plan);
     if(r==OPENFS_FSCK_OK)r=build_plan(d,sb->inode_bitmap_start,sb->inode_bitmap_blocks,inode_count,&inode_plan);
-    if(r==OPENFS_FSCK_OK)r=write_plan(d,&block_plan);
-    if(r==OPENFS_FSCK_OK)r=write_plan(d,&inode_plan);
+    if(r==OPENFS_FSCK_OK && sb->runtime!=NULL && sb->runtime->journal!=NULL && sb->runtime->device==d){
+        if(openfs_mutex_lock(&sb->runtime->transaction_lock,OPENFS_LOCK_RANK_TRANSACTION)!=OPENFS_LOCK_OK){
+            r=OPENFS_FSCK_IO_ERROR;
+        }else{
+            openfs_transaction_t tx;
+            openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,sb->runtime->journal);
+            if(tr==OPENFS_TRANSACTION_OK){
+                openfs_block_device_t *td=openfs_transaction_device(&tx);
+                r=write_plan(td,&block_plan);
+                if(r==OPENFS_FSCK_OK)r=write_plan(td,&inode_plan);
+                if(r==OPENFS_FSCK_OK){
+                    tr=openfs_transaction_commit(&tx);
+                    if(tr!=OPENFS_TRANSACTION_OK)r=(tx.recovery_required||tr==OPENFS_TRANSACTION_CORRUPT)?OPENFS_FSCK_CORRUPT:OPENFS_FSCK_IO_ERROR;
+                }else{
+                    openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+                    if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_FSCK_CORRUPT;
+                }
+            }else{
+                r=(tr==OPENFS_TRANSACTION_CORRUPT)?OPENFS_FSCK_CORRUPT:OPENFS_FSCK_IO_ERROR;
+            }
+            (void)openfs_mutex_unlock(&sb->runtime->transaction_lock);
+        }
+    }else{
+        if(r==OPENFS_FSCK_OK)r=write_plan(d,&block_plan);
+        if(r==OPENFS_FSCK_OK)r=write_plan(d,&inode_plan);
+    }
     if(r!=OPENFS_FSCK_OK){
         if(block_plan.changed!=NULL||inode_plan.changed!=NULL){
             openfs_fsck_result_t rr=rollback_plans(d,&block_plan,&inode_plan);
