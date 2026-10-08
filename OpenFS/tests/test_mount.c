@@ -485,6 +485,22 @@ static void cow_clone_rollback_failure_is_corruption_regression(void){
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
 }
 
+static void allocator_cow_refcount_failure_rollback_regression(void){
+    disk_t d={.block_size=4096U,.block_count=256U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x4CU};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    uint64_t candidate=m.superblock.data_start;uint16_t refs=0U;int used=1;
+    assert(openfs_bitmap_test(&v,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK&&used==0);
+    d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;
+    uint64_t allocated=0U;openfs_alloc_result_t ar=openfs_alloc_block(&v,&m.superblock,&allocated);
+    assert(ar==OPENFS_ALLOC_IO_ERROR||ar==OPENFS_ALLOC_CORRUPT);
+    d.partial_enabled=0;
+    assert(openfs_bitmap_test(&v,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK&&used==0);
+    assert(openfs_cow_refcount_get(&v,&m.superblock,candidate,&refs)==OPENFS_COW_OK&&refs==0U);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
+}
+
 static void cow_clone_partial_refcount_rollback_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
@@ -523,6 +539,7 @@ int main(void){
  concurrent_runtime_destroy_regression();
  concurrent_cow_refcount_update_regression();
  cow_clone_reference_integrity_regression();
+ allocator_cow_refcount_failure_rollback_regression();
  cow_clone_partial_refcount_rollback_regression();
  cow_clone_rollback_failure_is_corruption_regression();
  cow_clone_extent_tree_regression();
