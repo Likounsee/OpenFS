@@ -1,3 +1,11 @@
+# 2026-10-08 — P0: read-only scrub baseline implemented
+
+- Added `openfs_scrub()` as a strictly read-only integrity pass.
+- Scrub first executes the complete existing FSCK verifier, preserving all checksum, ownership, extent, namespace, journal, and format checks already enforced there.
+- Scrub then reads every physical block in the device, so a latent read failure cannot be reported as a clean filesystem.
+- Added regression coverage for a clean image, inode checksum corruption, and injected read failure.
+- This is deliberately not counted as completion of the data-checksum requirement: regular data blocks still have no per-block on-disk checksum in the v1.3 format. A future format-integrity change must define and persist such coverage before P0.7 can be marked complete.
+
 # 2026-10-08 — P0 90% checkpoint revalidated
 
 - Cleanup is now validated end-to-end after the allocator transaction test regression: the test closes all owned runtime resources supported by the public API and no temporary diagnostics remain.
