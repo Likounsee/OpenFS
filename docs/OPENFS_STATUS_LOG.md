@@ -874,3 +874,8 @@ P0 remains **~93%**. The repair idempotence invariant is now explicit, but persi
 ### P0 checkpoint
 
 P0 remains **~94%**. Format/FSCK validation is now stricter on both primary and backup superblocks. The remaining large blockers are still persistent regular-file data checksums and repair of detected ownership/CoW-refcount mismatches with complete crash/retry coverage.
+
+# 2026-10-08 — P0 CoW ownership corruption detection
+
+- `acf8cb41` extends the FSCK corruption matrix with a real CoW refcount mismatch: a referenced data block is forced to refcount zero and FSCK must reject the image.
+- This closes a detection gap in the regression matrix; repair is deliberately not claimed because OpenFS still needs an atomic, retry-safe refcount reconstruction mechanism.
