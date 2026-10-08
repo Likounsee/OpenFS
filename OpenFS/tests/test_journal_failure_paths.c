@@ -202,6 +202,11 @@ static void test_replay_rejects_interleaved_transactions(void)
     uint32_t crc = openfs_crc32c(block, sizeof(block));
     block[28U]=(uint8_t)crc; block[29U]=(uint8_t)(crc>>8U); block[30U]=(uint8_t)(crc>>16U); block[31U]=(uint8_t)(crc>>24U);
     assert(v.write(v.context, s.journal_start + j.next_record, 1U, block) == OPENFS_IO_OK);
+    memset(block, 0, sizeof(block)); memcpy(block, OPENFS_JOURNAL_MAGIC, 5U); block[5] = OPENFS_JOURNAL_DATA;
+    for(unsigned i=0U;i<8U;i++){block[8U+i]=(uint8_t)(tx>>(8U*i));block[16U+i]=(uint8_t)((seq+1U)>>(8U*i));}
+    block[24U]=1U; block[32U]=98U; crc = openfs_crc32c(block, sizeof(block));
+    block[28U]=(uint8_t)crc; block[29U]=(uint8_t)(crc>>8U); block[30U]=(uint8_t)(crc>>16U); block[31U]=(uint8_t)(crc>>24U);
+    assert(v.write(v.context, s.journal_start + j.next_record + 1U, 1U, block) == OPENFS_IO_OK);
     assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_CORRUPT);
     free(d.data);
 }
