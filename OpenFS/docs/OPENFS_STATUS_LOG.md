@@ -767,3 +767,10 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - f6b6a3cd: corrected the FSCK CoW-refcount repair build by including the bitmap API header required by openfs_bitmap_test()/OPENFS_BITMAP_OK.
 - The failures were taken from the actual GitHub Actions build logs for run 37841638014; tests were not weakened.
 - Runs 37842137728 (94adc510) and 37842143259 (f6b6a3cd) are currently still running/pending. CI is therefore not green yet.
+
+
+# 2026-10-08 — checksum/refcount test API corrections
+
+- 5b59416a: corrected the new persistent-data-checksum regression test to use the actual openfs_file_write/openfs_file_read signatures; the prior test itself was passing the buffer/length arguments in the wrong shape.
+- 90d6edd2: corrected the new CoW-refcount-repair regression test to pass its data buffer and length to openfs_file_write, and reset the FSCK error counter before the successful retry assertion.
+- These corrections preserve the intended assertions; no production behavior or test contract was weakened. Fresh CI is running on the latest OpenFS head.
