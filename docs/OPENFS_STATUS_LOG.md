@@ -553,3 +553,14 @@ All new work must update this log when a meaningful fix, feature, regression, or
 - `917ebb0` — rendu le repair FSCK bitmap transactionnel entre les deux bitmaps : préparation en mémoire, écritures, flush, puis rollback des modifications déjà publiées si une étape ultérieure échoue. Un échec de rollback reste classé corruption.
 
 - `c52e2ee` / `83eaaaf` — ajout d'une matrice de fautes FSCK repair : échec de la seconde publication doit restaurer l'image complète, tandis qu'un échec persistant de restauration doit être classé `OPENFS_FSCK_CORRUPT`.
+
+## 2026-10-08 — allocator durability transaction integration
+
+- **0fb7deb** — bound a mounted journal and block device into the runtime, so durability-sensitive subsystems can discover the active WAL without widening every public API.
+- **96d5ab7** — mount now publishes that journal/device binding immediately after successful journal open.
+- **1e78b23** — allocation and free of data blocks are journal transactions while running on a mounted filesystem. Existing rollback paths remain for pre-commit failures; transaction commit provides durable WAL ordering before publishing bitmap/refcount changes to the base device. A failed post-commit base write leaves recovery required rather than pretending the operation rolled back.
+- **e9cbf7a** — added a crash-style allocator test: force the bitmap publication to fail after the WAL commit, unmount, remount, and verify journal replay restores both the allocation bitmap and CoW refcount.
+- **23f2d46** — registered the allocator transaction recovery test in CTest.
+- GitHub Actions currently reports **no workflow runs and no status checks** for `23f2d46`; CI is therefore **unreported/unknown**, not green.
+
+This closes an important P0 durability gap for block allocation/free on mounted filesystems. Direct unmounted block-device calls retain their previous behavior because no journal is bound to the runtime.
