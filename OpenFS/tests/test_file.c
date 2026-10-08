@@ -667,7 +667,7 @@ static void sparse_seek_data_and_hole_reports_extents(void){
     TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&b,1U)==OPENFS_FILE_OK);
     TEST_ASSERT(i.size==4U*4096U+1U&&i.blocks==2U);
     TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,0U,&result)==OPENFS_FILE_OK&&result==0U);
-    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,1U,&result)==OPENFS_FILE_OK&&result==4U*4096U);
+    TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,1U,&result)==OPENFS_FILE_OK&&result==1U);
     TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,4U*4096U,&result)==OPENFS_FILE_OK&&result==4U*4096U);
     TEST_ASSERT(openfs_file_seek_data(&v,&sb,&i,4U*4096U+1U,&result)==OPENFS_FILE_OUT_OF_RANGE);
     TEST_ASSERT(openfs_file_seek_hole(&v,&sb,&i,0U,&result)==OPENFS_FILE_OK&&result==4096U);
