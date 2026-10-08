@@ -394,7 +394,6 @@ static void cow_clone_extent_tree_regression(void)
     }
     uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_path_unlink(&v,&m.superblock,"/tree-clone")==OPENFS_PATH_OK);
-    assert(openfs_cow_refcount_get(&v,&m.superblock,openfs_inode_get_extent(&source,0U,(openfs_extent_t[1]){0})==OPENFS_EXTENT_OK?(uint64_t)source_root:source_root,&errors)==OPENFS_COW_OK || 1);
     for(uint64_t logical=0U;logical<source.blocks;logical++){
         uint64_t a=0U;assert(openfs_file_map_block_device(&v,&m.superblock,&source,logical,&a)==OPENFS_FILE_OK);uint16_t refs=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,a,&refs)==OPENFS_COW_OK&&refs==1U);
     }
