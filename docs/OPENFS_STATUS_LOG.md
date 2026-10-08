@@ -1,3 +1,9 @@
+# 2026-10-08 — P0: replay test CI failure diagnosed and corrected
+
+- CI run 37835860443 built GCC/Clang successfully but both test jobs failed on the new replay regression because the test attempted to put a 4096-byte block-data record into the journal API's single-record payload limit.
+- The regression was corrected to use a valid 1024-byte DATA record while preserving the essential property: replay once and replay twice must produce the same recovered bytes.
+- The failure was a test defect, not a weakened filesystem invariant; no existing test was removed or relaxed.
+
 # 2026-10-08 — P0: WAL replay idempotence regression added
 
 - Added an end-to-end journal replay regression that constructs a durable BEGIN/DATA/COMMIT sequence and applies the same committed WAL twice.
