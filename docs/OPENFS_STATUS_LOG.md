@@ -856,3 +856,12 @@ This closes one remaining on-disk format-validation invariant. It does **not** c
 ### P0 checkpoint
 
 Le checkpoint passe à **~93%** après ces durcissements vérifiables. Ce pourcentage reste volontairement bloqué avant 100% tant que le checksum persistant des données utilisateur, la réparation ownership/refcount au-delà des tails et leur matrice de crash ne sont pas réellement intégrés et validés par CI.
+
+# 2026-10-08 — P0 FSCK repair idempotence
+
+- `853bd0dc` extends the real bitmap-tail repair regression: once a repair has produced a clean filesystem, a second repair pass must leave the complete device image byte-for-byte unchanged.
+- The existing mounted/WAL failure test remains intact; no failure assertion was weakened.
+
+### P0 checkpoint
+
+P0 remains **~93%**. The repair idempotence invariant is now explicit, but persistent user-data checksums and full ownership/refcount repair + crash interaction coverage remain open.
