@@ -55,7 +55,7 @@ int main(void)
     disk.fail_enabled=1;
 
     uint64_t allocated=0U;
-    assert(openfs_alloc_block(&dev,&mount.superblock,&allocated)==OPENFS_ALLOC_IO_ERROR);
+    assert(openfs_alloc_block(&dev,&mount.superblock,&allocated)==OPENFS_ALLOC_CORRUPT);
     disk.fail_enabled=0;
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
 
