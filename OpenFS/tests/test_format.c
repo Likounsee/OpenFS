@@ -4,6 +4,7 @@
 #include <string.h>
 #include "openfs/format.h"
 #include "openfs/fsck.h"
+#include "openfs/crc32c.h"
 
 typedef struct { uint8_t *bytes; uint32_t block_size; uint64_t block_count; unsigned flushes; unsigned writes; } disk_t;
 
@@ -54,8 +55,18 @@ static void layout_boundary_format(void){
  openfs_block_device_t v=dev(&d);const uint8_t u[16]={1U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
  openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);assert(s.data_blocks>=8U);free(d.bytes);
 }
+
+static void reserved_superblock_bytes(void){
+ disk_t d={.block_size=4096U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
+ openfs_block_device_t v=dev(&d); const uint8_t u[16]={9U}; assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);
+ uint8_t *sb=d.bytes;
+ sb[196U]=0xA5U;
+ memset(sb+4088U,0,4U); uint32_t crc=openfs_crc32c(sb,4088U);
+ sb[4088U]=(uint8_t)crc; sb[4089U]=(uint8_t)(crc>>8U); sb[4090U]=(uint8_t)(crc>>16U); sb[4091U]=(uint8_t)(crc>>24U);
+ openfs_superblock_t decoded; assert(openfs_read_superblock(&v,&decoded)==OPENFS_FORMAT_CORRUPT); free(d.bytes);
+}
 static void geometry(void){
  disk_t d={.block_size=3000U,.block_count=64U}; d.bytes=calloc((size_t)d.block_count,d.block_size); assert(d.bytes);
  openfs_block_device_t v=dev(&d); const uint8_t u[16]={0}; assert(openfs_format(&v,u)==OPENFS_FORMAT_UNSUPPORTED_DEVICE); free(d.bytes);
 }
-int main(void){format_remount();fast_vs_full_zero();checksum();layout_validation();feature_validation();block_bitmap_capacity();layout_boundary_format();geometry();return 0;}
+int main(void){format_remount();fast_vs_full_zero();checksum();layout_validation();feature_validation();block_bitmap_capacity();layout_boundary_format();reserved_superblock_bytes();geometry();return 0;}
