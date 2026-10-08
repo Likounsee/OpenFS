@@ -774,3 +774,9 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - 5b59416a: corrected the new persistent-data-checksum regression test to use the actual openfs_file_write/openfs_file_read signatures; the prior test itself was passing the buffer/length arguments in the wrong shape.
 - 90d6edd2: corrected the new CoW-refcount-repair regression test to pass its data buffer and length to openfs_file_write, and reset the FSCK error counter before the successful retry assertion.
 - These corrections preserve the intended assertions; no production behavior or test contract was weakened. Fresh CI is running on the latest OpenFS head.
+
+
+# 2026-10-08 — transactional checksum publication regression
+
+- aa5a772a: extended the real data-checksum regression test to perform an actual openfs_file_write_tx() through the mounted journal/transaction device, commit it, and verify the newly published data can be read back successfully. This exercises the data block and persistent checksum-table update through the same transaction path.
+- No mock transaction path was introduced and no existing corruption assertion was weakened.
