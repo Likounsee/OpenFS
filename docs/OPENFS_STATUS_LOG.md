@@ -551,3 +551,5 @@ All new work must update this log when a meaningful fix, feature, regression, or
 - Commits: `9268f4a`, `5c723d2`, `85d10e3`, `4bd2189`, `8c22999`.
 
 - `917ebb0` — rendu le repair FSCK bitmap transactionnel entre les deux bitmaps : préparation en mémoire, écritures, flush, puis rollback des modifications déjà publiées si une étape ultérieure échoue. Un échec de rollback reste classé corruption.
+
+- `c52e2ee` / `83eaaaf` — ajout d'une matrice de fautes FSCK repair : échec de la seconde publication doit restaurer l'image complète, tandis qu'un échec persistant de restauration doit être classé `OPENFS_FSCK_CORRUPT`.
