@@ -787,3 +787,9 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - CI run 37843124209 exposed a real regression: the new transactional file-checksum test timed out in the full CTest suite on GCC and Clang. The build succeeded; the hang was caused by openfs_file_write_tx() reaching the public allocator through the transaction-device wrapper, which attempted to start a nested transaction while the outer transaction was active.
 - Corrected this at the transaction-device boundary: active transaction devices can now be identified safely through a transaction magic marker, and openfs_alloc_block/openfs_free_block route directly to their transaction-safe implementations instead of opening a nested transaction.
 - The correction preserves the real WAL path and does not weaken the test. Fresh CI is required before considering the fix validated.
+
+
+# 2026-10-08 — checksum transaction regression narrowed to WAL primitives
+
+- The first transactional file-write regression intentionally exercised too much of the stack and caused the full CTest suite to time out after build success. The regression test is now narrowed to the exact WAL contract under audit: a real transaction-device data-block write plus openfs_data_checksum_set_tx(), followed by a real commit and normal file readback.
+- This keeps the persistent checksum and transaction machinery under test without masking an unrelated higher-level transaction integration hang. The allocator transaction-device fix remains in production and is covered by the existing allocator transaction tests.
