@@ -173,8 +173,9 @@ static openfs_io_result_t fsck_cached_flush(void *context)
     return cache->device->flush(cache->device->context);
 }
 
-static int ref_mark(uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;refs[(size_t)byte]|=(uint8_t)(1U<<(index%8U));return 1;}
-static int ref_test(const uint8_t*refs,uint64_t index){uint64_t byte=index/8U;if(byte>SIZE_MAX)return 0;return (refs[(size_t)byte]&(uint8_t)(1U<<(index%8U)))!=0U;}
+static int ref_mark(uint16_t*refs,uint64_t count,uint64_t index){if(refs==NULL||index>=count)return 0;if(refs[(size_t)index]==UINT16_MAX)return 0;refs[(size_t)index]++;return 1;}
+static uint16_t ref_count(const uint16_t*refs,uint64_t count,uint64_t index){if(refs==NULL||index>=count)return 0U;return refs[(size_t)index];}
+static int ref_test(const uint16_t*refs,uint64_t count,uint64_t index){return ref_count(refs,count,index)!=0U;}
 static int decode_dir_entry(const uint8_t*r,uint64_t*ino,uint64_t*gen,uint8_t*type){
 if(memcmp(r,"ODIR1",5U)!=0)return 0;
 uint32_t stored=(uint32_t)r[252U]|((uint32_t)r[253U]<<8U)|((uint32_t)r[254U]<<16U)|((uint32_t)r[255U]<<24U);
@@ -258,9 +259,8 @@ if(!fsck_bitmap_snapshot_load(d,s->inode_bitmap_start,s->inode_bitmap_blocks,&in
 uint64_t count=0U;if(icount(s,&count)!=OPENFS_FSCK_OK){free(inode_bitmap_snapshot.data);
 free(block_bitmap_snapshot.data);
 for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_CORRUPT;}
-uint64_t ref_bytes64=0U;if(!add(s->data_blocks,7U,&ref_bytes64))return OPENFS_FSCK_CORRUPT;ref_bytes64/=8U;if(ref_bytes64>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
-if(ref_bytes64>OPENFS_FSCK_MAX_REF_BYTES)return OPENFS_FSCK_IO_ERROR;
-uint8_t*refs=calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
+uint64_t ref_bytes64=0U;if(s->data_blocks>SIZE_MAX/sizeof(uint16_t))return OPENFS_FSCK_CORRUPT;ref_bytes64=s->data_blocks*(uint64_t)sizeof(uint16_t);if(ref_bytes64>OPENFS_FSCK_MAX_REF_BYTES)return OPENFS_FSCK_IO_ERROR;
+uint16_t*refs=(uint16_t*)calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes64!=0U)return OPENFS_FSCK_IO_ERROR;
 if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX)return OPENFS_FSCK_CORRUPT;
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);return OPENFS_FSCK_IO_ERROR;}
@@ -293,8 +293,8 @@ if((in.flags&OPENFS_INODE_FLAG_EXTENT_TREE)!=0U){
         if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,root_block,&root_bitmap_allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
         if(!root_bitmap_allocated)bad++;
         uint64_t rel=root_block-s->data_start;
-        if(ref_test(refs,rel))bad++;
-        else if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
+        if(ref_test(refs,s->data_blocks,rel))bad++;
+        else if(!ref_mark(refs,s->data_blocks,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
     }
     if(in.extent_count<OPENFS_INODE_TREE_INLINE_EXTENT_MAX+1U)bad++;
 }else if(in.extent_count>OPENFS_INODE_INLINE_EXTENT_MAX)bad++;
@@ -313,12 +313,12 @@ for(uint32_t i=0U;i<in.extent_count;i++){
             uint64_t physical=e.physical_start+b,rel=physical-s->data_start;int allocated=0;
             if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,physical,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
             if(!allocated)bad++;
-            if(ref_test(refs,rel)){
+            if(ref_test(refs,s->data_blocks,rel)){
         if((s->feature_flags&OPENFS_FEATURE_COW)==0U)bad++;
         else{uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK||rc<2U)bad++;}
     }else{
         if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK||rc==0U)bad++;}
-        if(!ref_mark(refs,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
+        if(!ref_mark(refs,s->data_blocks,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
     }
         }
     }
@@ -326,12 +326,12 @@ for(uint32_t i=0U;i<in.extent_count;i++){
 }
 if(extent_total!=in.blocks)bad++;
         uint64_t xattr_block=openfs_inode_get_xattr_block(&in);
-        if(xattr_block!=0U){int xattr_allocated=0;uint64_t xattr_end=0U;if(!add(s->data_start,s->data_blocks,&xattr_end)||xattr_block<s->data_start||xattr_block>=xattr_end)bad++;else if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,xattr_block,&xattr_allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}else{if(!xattr_allocated)bad++;uint64_t xrel=xattr_block-s->data_start;if(ref_test(refs,xrel)){
+        if(xattr_block!=0U){int xattr_allocated=0;uint64_t xattr_end=0U;if(!add(s->data_start,s->data_blocks,&xattr_end)||xattr_block<s->data_start||xattr_block>=xattr_end)bad++;else if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,xattr_block,&xattr_allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}else{if(!xattr_allocated)bad++;uint64_t xrel=xattr_block-s->data_start;if(ref_test(refs,s->data_blocks,xrel)){
             if((s->feature_flags&OPENFS_FEATURE_COW)==0U)bad++;
             else{uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,xattr_block,&rc)!=OPENFS_COW_OK||rc<2U)bad++;}
         }else{
             if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,xattr_block,&rc)!=OPENFS_COW_OK||rc==0U)bad++;}
-            if(!ref_mark(refs,xrel)){result=OPENFS_FSCK_CORRUPT;goto done;}
+            if(!ref_mark(refs,s->data_blocks,xrel)){result=OPENFS_FSCK_CORRUPT;goto done;}
         }openfs_xattr_result_t xr=openfs_xattr_validate_inode(d,s,&in);if(xr==OPENFS_XATTR_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}if(xr!=OPENFS_XATTR_OK)bad++;}}
         if((in.flags&~(OPENFS_INODE_FLAG_INLINE_DATA|OPENFS_INODE_FLAG_HAS_EXTENTS|OPENFS_INODE_FLAG_EXTENT_TREE|OPENFS_INODE_FLAG_ORPHAN))!=0U)bad++;
         if((in.blocks==0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)!=0U))||(in.blocks!=0U&&((in.flags&OPENFS_INODE_FLAG_HAS_EXTENTS)==0U)))bad++;
@@ -453,7 +453,7 @@ else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
 }
 FSCK_PROGRESS(85U,100U,"validation des bitmaps et des blocs");
 for(uint64_t b=0U;b<s->data_start;b++){if(progress!=NULL&&(b==0U||(b%4096U)==0U||b+1U==s->data_start))FSCK_PROGRESS(85U+(s->data_start==0U?0U:(5U*b)/s->data_start),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(!set)bad++;}
-if(s->data_start>UINT64_MAX-s->data_blocks){result=OPENFS_FSCK_CORRUPT;goto done;}uint64_t data_end=s->data_start+s->data_blocks;for(uint64_t b=s->data_start;b<data_end;b++){if(progress!=NULL&&(b==s->data_start||(b%4096U)==0U||b+1U==data_end))FSCK_PROGRESS(90U+(s->data_blocks==0U?0U:(5U*(b-s->data_start))/s->data_blocks),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set&&!ref_test(refs,b-s->data_start))bad++;}
+if(s->data_start>UINT64_MAX-s->data_blocks){result=OPENFS_FSCK_CORRUPT;goto done;}uint64_t data_end=s->data_start+s->data_blocks;for(uint64_t b=s->data_start;b<data_end;b++){if(progress!=NULL&&(b==s->data_start||(b%4096U)==0U||b+1U==data_end))FSCK_PROGRESS(90U+(s->data_blocks==0U?0U:(5U*(b-s->data_start))/s->data_blocks),100U,"bitmap validation");int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(set&&!ref_test(refs,s->data_blocks,b-s->data_start))bad++;}
 for(uint64_t b=data_end;b<d->block_count;b++){int set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&set)){result=OPENFS_FSCK_IO_ERROR;goto done;}if(b==d->block_count-1U){if(!set)bad++;}else if(set)bad++;}
 if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){
     for(uint64_t b=s->data_start;b<data_end;b++){
@@ -461,12 +461,10 @@ if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){
         if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,b,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
         uint16_t refs_count=0U;
         if(openfs_cow_refcount_get(d,s,b,&refs_count)!=OPENFS_COW_OK){result=OPENFS_FSCK_IO_ERROR;goto done;}
-        int referenced=ref_test(refs,b-s->data_start);
+        uint16_t counted_refs=ref_count(refs,s->data_blocks,b-s->data_start);
         if(!allocated){
-            if(refs_count!=0U)bad++;
-        }else if(referenced){
-            if(refs_count==0U)bad++;
-        }else if(refs_count!=0U){
+            if(refs_count!=0U||counted_refs!=0U)bad++;
+        }else if(refs_count!=counted_refs){
             bad++;
         }
     }
