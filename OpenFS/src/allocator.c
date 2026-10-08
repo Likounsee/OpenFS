@@ -96,6 +96,21 @@ static openfs_alloc_result_t map_transaction_result(openfs_transaction_result_t 
     if(r==OPENFS_TRANSACTION_OK)return OPENFS_ALLOC_OK;
     return OPENFS_ALLOC_IO_ERROR;
 }
+openfs_alloc_result_t openfs_alloc_block_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t*out)
+{
+    if(t==NULL||!t->active||t->base==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
+    openfs_block_device_t *td=openfs_transaction_device(t);
+    if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
+    return alloc_block_unlocked(td,sb,out);
+}
+openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block)
+{
+    if(t==NULL||!t->active||t->base==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
+    openfs_block_device_t *td=openfs_transaction_device(t);
+    if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
+    return free_block_unlocked(td,sb,block);
+}
+
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out)
 {
     openfs_alloc_result_t lr=lock_allocation(sb);if(lr!=OPENFS_ALLOC_OK)return lr;
@@ -106,7 +121,7 @@ openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_su
     openfs_transaction_t tx;
     openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,sb->runtime->journal);
     if(tr!=OPENFS_TRANSACTION_OK){(void)openfs_mutex_unlock(&sb->runtime->transaction_lock);unlock_allocation(sb);return map_transaction_result(tr);}
-    openfs_alloc_result_t r=alloc_block_unlocked(openfs_transaction_device(&tx),sb,out);
+    openfs_alloc_result_t r=openfs_alloc_block_tx(&tx,sb,out);
     if(r!=OPENFS_ALLOC_OK){
         openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
         if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_ALLOC_CORRUPT;
@@ -130,7 +145,7 @@ openfs_alloc_result_t openfs_free_block(openfs_block_device_t*d,const openfs_sup
     openfs_transaction_t tx;
     openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,sb->runtime->journal);
     if(tr!=OPENFS_TRANSACTION_OK){(void)openfs_mutex_unlock(&sb->runtime->transaction_lock);unlock_allocation(sb);return map_transaction_result(tr);}
-    openfs_alloc_result_t r=free_block_unlocked(openfs_transaction_device(&tx),sb,block);
+    openfs_alloc_result_t r=openfs_free_block_tx(&tx,sb,block);
     if(r!=OPENFS_ALLOC_OK){
         openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
         if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_ALLOC_CORRUPT;
