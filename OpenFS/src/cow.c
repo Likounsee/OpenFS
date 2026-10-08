@@ -270,7 +270,7 @@ openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs
             uint64_t block=ext[i].physical_start+n;
             uint16_t refs=0U;
             if(incremented_blocks==UINT64_MAX){r=OPENFS_COW_OUT_OF_RANGE;break;}
-            openfs_cow_result_t inc_result=openfs_cow_refcount_inc(d,sb,block,&refs);;
+            openfs_cow_result_t inc_result=openfs_cow_refcount_inc(d,sb,block,&refs);
             if(inc_result!=OPENFS_COW_OK){r=inc_result;break;}
             incremented_blocks++;
         }
