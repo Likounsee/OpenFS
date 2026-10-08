@@ -636,10 +636,34 @@ static void map_bounds(void){
     TEST_ASSERT(openfs_inode_set_extent(&i,1U,&e2)==OPENFS_EXTENT_OK);i.blocks=3U;
     TEST_ASSERT(openfs_file_map_block(&i,2U,&p)==OPENFS_FILE_OK&&p==10U);
 }
+static void truncate_shrink_partial_tail_flush_failure_restores_data(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t inode_number=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/truncate-shrink-tail-flush",OPENFS_INODE_MODE_REGULAR,&inode_number)==OPENFS_PATH_OK);
+    uint64_t inode_count=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&i)==OPENFS_INODE_OK);
+    uint8_t data[8192U];memset(data,0x6BU,sizeof(data));
+    TEST_ASSERT(openfs_file_write(&v,&sb,&i,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    openfs_inode_t before=i;uint64_t physical=0U;
+    TEST_ASSERT(openfs_file_map_block_device(&v,&sb,&i,1U,&physical)==OPENFS_FILE_OK);
+    uint8_t *saved=malloc(d.block_size);TEST_ASSERT(saved);
+    TEST_ASSERT(v.read(v.context,physical,1U,saved)==OPENFS_IO_OK);
+    d.fail_flush=1;d.fail_flush_once=1;
+    TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,4097U)==OPENFS_FILE_IO_ERROR);
+    d.fail_flush=0;
+    TEST_ASSERT(memcmp(&i,&before,sizeof(i))==0);
+    TEST_ASSERT(memcmp(saved,d.bytes+(size_t)(physical*d.block_size),d.block_size)==0);
+    openfs_inode_t persisted;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,inode_number,inode_count,&persisted)==OPENFS_INODE_OK);
+    TEST_ASSERT(memcmp(&persisted,&before,sizeof(before))==0);
+    uint8_t out=0U;size_t got=0U;
+    TEST_ASSERT(openfs_file_read(&v,&sb,&i,4096U,&out,1U,&got)==OPENFS_FILE_OK&&got==1U&&out==0x6BU);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(saved);free(d.bytes);
+}
+
 int main(void){
     file_write_rejects_unallocated_extent();
     file_read_rejects_unallocated_extent();
     new_extent_tree_root_partial_write_rolls_back();extent_tree_partial_write_rollback_failure_is_corruption();
     sparse_write_zeroes_intermediate_blocks();sparse_truncate_extension_keeps_holes();sparse_truncate_shrink_zeros_discarded_tail();sparse_truncate_shrink_reclaims_only_mapped_blocks();sparse_truncate_shrink_tree_to_inline_preserves_holes();sparse_truncate_shrink_tree_keeps_root_and_holes();
     partial_write_rollback_failure_is_corruption();
-shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();map_bounds();return 0;}
+shrink_preserves_live_extent_tree_root();existing_extent_tree_write_failure_restores_root();write_allocation_failure_rolls_back_partial_allocations();truncate_tree_shrink_releases_root();truncate_tree_shrink_free_failure_restores_root();write_flush_failure_rolls_back_media();truncate_grow_flush_failure_rolls_back();truncate_shrink_flush_failure_rolls_back();truncate_shrink_partial_tail_flush_failure_restores_data();basic_rw();write_extent_tree_root_rollback_releases_metadata();truncate_grow_partial_tail_inode_failure_restores_data();truncate_tree_inode_write_failure_is_persistent_atomic();truncate_shrink_free_failure_rolls_back_persisted_state();partial_existing_write_rolls_back();credential_io();multi_block_and_truncate();truncate_zero_failure_rolls_back();truncate_shrink_inode_write_failure_keeps_blocks();extent_tree_large_file();overlapping_physical_extents_are_rejected();tree_physical_overlap_with_nonlast_inline_is_rejected();nonmonotonic_nonoverlapping_physical_extents_are_valid();extent_overlap_boundaries_and_fragmented_tree_mapping();extent_tree_root_outside_data_area_is_rejected();map_bounds();return 0;}
