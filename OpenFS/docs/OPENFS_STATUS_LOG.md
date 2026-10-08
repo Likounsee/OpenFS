@@ -757,3 +757,5 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - 54b12594: SEEK_DATA now rejects overflow while computing the next extent offset.
 - Latest validation remains pending after the final test correction; prior GCC/Clang builds reached the test phase and the remaining reported failure was the sparse adjacency test's synthetic, non-persisted inode state.
 
+
+- 61f5cb57: corrected the sparse adjacency regression's expected EOF from 8192 to 4097 bytes. Two one-byte writes at offsets 0 and 4096 produce an EOF of 4097; the prior assertion was mathematically inconsistent with the actual write contract. The test now retains the fsck validation and persisted-inode coverage.
