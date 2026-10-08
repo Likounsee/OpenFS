@@ -1,3 +1,9 @@
+# 2026-10-08 — P0: WAL replay idempotence regression added
+
+- Added an end-to-end journal replay regression that constructs a durable BEGIN/DATA/COMMIT sequence and applies the same committed WAL twice.
+- The second replay must leave the already recovered block byte-for-byte unchanged; this explicitly covers the repeated-replay property instead of relying only on mount-time replay.
+- The scrub baseline and this replay regression are now registered in the normal CTest suite.
+
 # 2026-10-08 — P0: read-only scrub baseline implemented
 
 - Added `openfs_scrub()` as a strictly read-only integrity pass.
