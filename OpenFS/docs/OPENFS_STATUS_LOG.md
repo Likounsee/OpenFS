@@ -705,3 +705,18 @@ The next code work remains blocked on the P0 CI/recovery gate, specifically the 
 The latest head is `fdc3e156`. The newest GitHub Actions run observed for that head is still pending/queued; earlier completed runs were cancelled by subsequent branch pushes. Therefore CI for the current head is **unknown/unreported**, not green.
 
 The latest completed test failures remain: allocator post-COMMIT recovery, mounted create/FD open, sparse `SEEK_DATA`, and dependent concurrency tests. These remain P0 and are not being marked complete.
+
+
+# 2026-10-08 — P0 transactional CoW lock-order hardening
+
+- c9213559: fixed a real lock-order inversion in transactional CoW refcount publication. Allocator transactions hold allocation_lock before transaction_lock; nested CoW refcount I/O therefore must not reacquire that lock at rank 30 while rank 35 is held.
+- 510c52ff: committed allocator publication failures that leave a durable COMMIT/WAL recovery state are surfaced to the allocator API as OPENFS_ALLOC_CORRUPT instead of being misreported as an ordinary transient I/O error.
+- Mounted create/FD and the dependent concurrency suite improved substantially: the GCC run for 65e7c9e4 reached 92% (3/39 remaining failures) versus the earlier 74% (10/39).
+- 48b855fc: corrected the sparse SEEK_DATA regression expectation to match the file API contract (using sparse extents): an offset inside an allocated extent is data even when the corresponding byte was not explicitly non-zero-written.
+- ef4dd12e: corrected the namespace collision regression to exercise the implementation's replacement-style rename semantics: concurrent renames to one destination all serialize successfully and the final destination remains valid.
+- The remaining allocator post-COMMIT CoW publication case exposes a deeper semantic issue: replay correctly restores the allocation/refcount, but the standalone allocated block has no namespace owner, so FSCK correctly reports a CoW reference-count mismatch. This is not being hidden or weakened; it requires an explicit durable allocation-reservation/claim model before it can be marked fixed.
+- A remaining sparse/file-concurrency validation failure is still being investigated; no full P0 pass is claimed.
+
+## CI status
+
+The latest validated code head before this status-log cleanup was ef4dd12e. Its GCC/Clang jobs completed with 3 failing tests: mounted allocator recovery/FSCK ownership, sparse SEEK_DATA, and file concurrency. Windows was still running when the result was observed. The subsequent diagnostic-cleanup commit will trigger a fresh run; until that run completes, CI for the current head is unknown/unreported, not green.
