@@ -11,6 +11,7 @@
 #include "openfs/runtime.h"
 #include "openfs/cow.h"
 #include "openfs/metadata_root.h"
+#include "openfs/data_checksum.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,13 +29,13 @@ static openfs_format_result_t fsck_read_superblock_at(openfs_block_device_t*d,ui
     uint32_t stored=sb_get32(raw+4088U);uint8_t copy[OPENFS_SUPERBLOCK_SIZE];
     memcpy(copy,raw,OPENFS_SUPERBLOCK_SIZE);copy[4088U]=copy[4089U]=copy[4090U]=copy[4091U]=0U;
     if(stored!=openfs_crc32c(copy,4088U)){free(raw);return OPENFS_FORMAT_CORRUPT;}
-    for(size_t i=196U;i<4088U;i++)if(raw[i]!=0U){free(raw);return OPENFS_FORMAT_CORRUPT;}
+    for(size_t i=212U;i<4088U;i++)if(raw[i]!=0U){free(raw);return OPENFS_FORMAT_CORRUPT;}
     memset(out,0,sizeof(*out));
     out->version_major=sb_get16(raw+8U);out->version_minor=sb_get16(raw+10U);out->feature_flags=sb_get64(raw+12U);
     out->block_size=sb_get32(raw+20U);out->total_blocks=sb_get64(raw+28U);out->metadata_start=sb_get64(raw+36U);out->metadata_blocks=sb_get64(raw+44U);
     out->block_bitmap_start=sb_get64(raw+52U);out->block_bitmap_blocks=sb_get64(raw+60U);out->inode_bitmap_start=sb_get64(raw+68U);out->inode_bitmap_blocks=sb_get64(raw+76U);
     out->inode_table_start=sb_get64(raw+84U);out->inode_table_blocks=sb_get64(raw+92U);out->journal_start=sb_get64(raw+100U);out->journal_blocks=sb_get64(raw+108U);
-    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);out->refcount_start=sb_get64(raw+164U);out->refcount_blocks=sb_get64(raw+172U);out->metadata_root_block=sb_get64(raw+180U);out->metadata_root_generation=sb_get64(raw+188U);
+    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->data_checksum_start=sb_get64(raw+196U);out->data_checksum_blocks=sb_get64(raw+204U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);out->refcount_start=sb_get64(raw+164U);out->refcount_blocks=sb_get64(raw+172U);out->metadata_root_block=sb_get64(raw+180U);out->metadata_root_generation=sb_get64(raw+188U);
     memcpy(out->uuid,raw+148U,16U);free(raw);
     return openfs_validate_superblock(d,out);
 }
