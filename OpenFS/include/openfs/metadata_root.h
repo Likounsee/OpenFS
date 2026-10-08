@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "openfs/format.h"
 #include "openfs/block_device.h"
+#include "openfs/transaction.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,6 +14,7 @@ typedef struct { uint16_t version; uint16_t flags; uint64_t generation; uint64_t
 openfs_metadata_root_result_t openfs_metadata_root_initialize(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint64_t);
 openfs_metadata_root_result_t openfs_metadata_root_read(const openfs_block_device_t *,const openfs_superblock_t *,uint64_t,openfs_metadata_root_t *);
 openfs_metadata_root_result_t openfs_metadata_root_update_generation(openfs_block_device_t *,const openfs_superblock_t *,uint64_t,uint64_t,uint64_t *);
+openfs_metadata_root_result_t openfs_metadata_root_update_generation_tx(openfs_transaction_t *,const openfs_superblock_t *,uint64_t,uint64_t,uint64_t *);
 #ifdef __cplusplus
 }
 #endif
