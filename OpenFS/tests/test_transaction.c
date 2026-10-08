@@ -79,8 +79,41 @@ d.fail_exact=s.journal_start+1U;d.fail_exact_enabled=1;d.fail_exact_once=1;CHECK
 d.fail_exact_enabled=0;CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==0);CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_IO_ERROR);
 openfs_mount_t recovered;CHECK(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);CHECK(memcmp(d.b+(size_t)(target*d.bs),a,sizeof(a))==0);CHECK(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
 free(d.b);return 0;}
+
+static int active_transaction_cannot_be_rebound(void)
+{
+    D a={0},b={0};
+    a.bs=b.bs=4096U; a.bc=b.bc=256U;
+    a.b=calloc((size_t)a.bc,a.bs); b.b=calloc((size_t)b.bc,b.bs);
+    CHECK(a.b&&b.b);
+    openfs_block_device_t va={&a,a.bs,a.bc,r,w,fl}, vb={&b,b.bs,b.bc,r,w,fl};
+    uint8_t ua[16]={0x31U}, ub[16]={0x32U};
+    CHECK(openfs_format(&va,ua)==OPENFS_FORMAT_OK);
+    CHECK(openfs_format(&vb,ub)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sa,sb;
+    CHECK(openfs_read_superblock(&va,&sa)==OPENFS_FORMAT_OK);
+    CHECK(openfs_read_superblock(&vb,&sb)==OPENFS_FORMAT_OK);
+    openfs_journal_t ja,jb;
+    CHECK(openfs_journal_open(&ja,&va,&sa)==OPENFS_JOURNAL_OK);
+    CHECK(openfs_journal_open(&jb,&vb,&sb)==OPENFS_JOURNAL_OK);
+    openfs_transaction_t t;
+    CHECK(openfs_transaction_begin(&t,&va,&ja)==OPENFS_TRANSACTION_OK);
+    uint64_t tx=t.txid;
+    openfs_block_device_t *td=openfs_transaction_device(&t);
+    CHECK(td!=NULL);
+    uint8_t payload[4096]; memset(payload,0x5CU,sizeof(payload));
+    CHECK(td->write(td->context,sa.data_start+5U,1U,payload)==OPENFS_IO_OK);
+    uint64_t pending=t.pending_count;
+    CHECK(openfs_transaction_begin(&t,&vb,&jb)==OPENFS_TRANSACTION_INVALID_ARGUMENT);
+    CHECK(t.active==1&&t.txid==tx&&t.journal==&ja&&t.pending_count==pending);
+    CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
+    CHECK(ja.active_transaction_id==0U&&jb.active_transaction_id==0U);
+    free(a.b); free(b.b);
+    return 0;
+}
+
 int main(void){
-CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
+CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0); CHECK(active_transaction_cannot_be_rebound()==0);
 CHECK(poisoned_namespace_transaction()==0);
 CHECK(checkpoint_partial_write_rollback()==0);
 CHECK(partial_commit_record_is_aborted_safely()==0);
