@@ -17,7 +17,7 @@ OpenFS is in an active **filesystem-core hardening and feature-completion phase*
 The existing core already provides a substantial filesystem foundation:
 
 - portable block-device API;
-- versioned v1.3 on-disk format;
+- versioned v1.4 on-disk format;
 - primary and backup superblocks;
 - CRC32C metadata integrity;
 - geometry, bounds, and overflow validation;
@@ -67,7 +67,7 @@ The existing core already provides a substantial filesystem foundation:
 | ACL / permissions / xattrs | Implemented |
 | File handles | Implemented |
 | WAL / transactions / replay | Implemented / actively hardened |
-| CoW / refcounting | Implemented / actively hardened |
+| CoW / refcounting | Implemented / actively hardened |\n| Generic metadata-CoW block primitive | **Implemented as stage-1 groundwork; metadata roots not yet migrated** |
 | Orphans | Implemented |
 | FSCK consistency checking | Implemented / actively hardened |
 | Sparse files | **Implemented, final hardening ongoing** |
@@ -176,7 +176,7 @@ Required ordering:
 
 Implement snapshots using the existing CoW/refcount foundation.
 
-- [ ] Persistent snapshot metadata.
+- [ ] Persistent snapshot metadata.\n- [x] Stage-1 generic metadata-CoW block header/refcount/copy-before-write primitive (not sufficient for snapshots by itself).
 - [ ] Atomic snapshot creation.
 - [ ] Read-only snapshot view.
 - [ ] Persistent snapshot IDs.

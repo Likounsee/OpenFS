@@ -586,3 +586,49 @@ This closes an important P0 durability gap for block allocation/free on mounted 
 - Automatic allocator and inode-allocation transactions remain, but are now serialized by a runtime transaction mutex ranked between allocation and journal locks. This preserves WAL durability without allowing concurrent automatic transactions to race the single journal transaction slot.
 - The FSCK repair regression test was corrected: clearing an already-unowned data-block bitmap bit is not necessarily detectable corruption. The test now clears the required root-inode bitmap bit, which FSCK must reject as in-range corruption.
 - The direct-file transaction recovery test was removed after proving the automatic direct-file transaction design was incompatible with the existing concurrency contract; explicit transaction-aware file APIs remain the intended crash-atomic interface.
+
+# 2026-10-08 — P1 preparation: generic metadata-CoW primitive
+
+## `OpenFS/include/openfs/metadata_cow.h` / `OpenFS/src/metadata_cow.c`
+
+Added the first reusable metadata-CoW layer required by the snapshot architecture.
+
+### Implemented
+
+- persistent `OMCB1` metadata-block header with explicit version and object type;
+- logical object ID and generation fields;
+- independent header CRC32C and payload CRC32C;
+- metadata block allocation through the existing allocator/refcount table;
+- reference acquisition with overflow detection;
+- reference release with zero-reference block reclamation;
+- copy-before-write: a single-owner block is reused, while a shared block is cloned;
+- clone validation before copying;
+- durable flush after new metadata-block publication;
+- rollback of a newly allocated block when metadata publication fails;
+- corruption classification when rollback itself cannot be completed;
+- compatibility with the existing transaction-device abstraction: callers can pass `openfs_transaction_device(tx)` without opening a nested WAL transaction.
+
+### Deliberate architectural boundary
+
+This does **not** make the legacy inode table, directory blocks, extent trees, xattrs, bitmaps or superblock snapshot-safe yet. Those structures still use their existing in-place representations. The primitive therefore remains groundwork only; snapshots are still **not implemented**.
+
+This explicitly avoids the unsafe shortcut of treating a root-inode clone as a filesystem snapshot.
+
+### Regression coverage
+
+`openfs-metadata-cow-test` covers:
+
+- metadata header validation;
+- payload corruption detection;
+- reference acquisition/release;
+- copy-before-write isolation of a shared block;
+- final reclamation at zero references;
+- injected metadata-block write failure during clone and verification that the source remains valid.
+
+### CI
+
+The available commit-associated workflow API currently reports no workflow runs for the development head, so CI is **unknown/unreported**, not green.
+
+### Next step
+
+Introduce the persistent metadata-root indirection/version record. Only after that root exists can inode-table CoW be wired into normal metadata mutation without invalidating existing readers.

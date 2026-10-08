@@ -112,7 +112,7 @@ A rollback failure is corruption-class and must remain visible to recovery/FSCK.
 ## Implementation order
 
 1. Add on-disk geometry/version validation for a snapshot catalog.
-2. Add general metadata-block CoW primitives and fault-injection tests.
+2. Add general metadata-block CoW primitives and fault-injection tests. **Stage 1 is now implemented as a reusable `OMCB1` block primitive; it is not yet connected to live metadata roots.**
 3. Make inode-table updates CoW-aware.
 4. Make directory and extent-tree metadata updates CoW-aware.
 5. Implement snapshot catalog transactions.
