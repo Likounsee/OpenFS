@@ -265,6 +265,8 @@ uint16_t*refs=(uint16_t*)calloc(1U,(size_t)ref_bytes64);if(refs==NULL&&ref_bytes
 if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX){free(refs);free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_CORRUPT;}
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_IO_ERROR;}
+uint64_t bad=superblock_errors;if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.reason="superblock incohérent ou invalide";diagnostic.index=0U;diagnostic.total=2U;diagnostic.count=superblock_errors;}
+openfs_fsck_result_t result=OPENFS_FSCK_OK;
 FSCK_PROGRESS(10U,100U,"préparation de la validation");
 if((s->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){
     openfs_metadata_root_t mr;openfs_metadata_root_result_t mrr=openfs_metadata_root_read(d,s,s->metadata_root_block,&mr);
@@ -272,8 +274,6 @@ if((s->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){
     int root_set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,s->metadata_root_block,&root_set)){result=OPENFS_FSCK_IO_ERROR;goto done;}
     if(!root_set)bad++;else if(!ref_mark(refs,s->data_blocks,s->metadata_root_block-s->data_start)){result=OPENFS_FSCK_CORRUPT;goto done;}
 }
-uint64_t bad=superblock_errors;if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.reason="superblock incohérent ou invalide";diagnostic.index=0U;diagnostic.total=2U;diagnostic.count=superblock_errors;}
-openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;
 if(openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root)!=OPENFS_INODE_OK){
 bad++;
