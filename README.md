@@ -17,7 +17,7 @@ OpenFS is in an active **filesystem-core hardening and feature-completion phase*
 The existing core already provides a substantial filesystem foundation:
 
 - portable block-device API;
-- versioned v1.4 on-disk format;
+- versioned v1.5 on-disk format;
 - primary and backup superblocks;
 - CRC32C metadata integrity;
 - geometry, bounds, and overflow validation;
