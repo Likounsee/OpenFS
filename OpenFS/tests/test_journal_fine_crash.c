@@ -503,7 +503,6 @@ static int replay_state_case(int kind, unsigned id) {
     close_disk(&d); remove(path); return ok;
 }
 
-
 int main(int argc,char **argv){
     if(argc==5 && strcmp(argv[1],"worker")==0){
         long c=strtol(argv[2],NULL,10),m=strtol(argv[3],NULL,10);
