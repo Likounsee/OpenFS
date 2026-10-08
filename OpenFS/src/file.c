@@ -1082,7 +1082,7 @@ static openfs_file_result_t file_write_unlocked(
     if (block == NULL) {
         int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
         *inode = original;
-        free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);free(cow_old_blocks);free(cow_new_blocks);
+        free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);
         return rollback_ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
     }
 
