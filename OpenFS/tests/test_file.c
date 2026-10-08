@@ -692,7 +692,7 @@ static void sparse_write_allocation_failure_rolls_back_layout(void){
     uint8_t *bitmap_before=malloc(bitmap_bytes);TEST_ASSERT(bitmap_before);
     memcpy(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes);
     d.fail_block=sb.block_bitmap_start;d.fail_block_enabled=1;d.fail_after_writes=2U;d.fail_once=1;
-    TEST_ASSERT(openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U)==OPENFS_FILE_IO_ERROR);
+    openfs_file_result_t sparse_alloc_result=openfs_file_write(&v,&sb,&i,4U*4096U,&tail,1U);TEST_ASSERT(sparse_alloc_result==OPENFS_FILE_IO_ERROR);
     d.fail_block_enabled=0;
     TEST_ASSERT(memcmp(&i,&before,sizeof(i))==0);
     TEST_ASSERT(memcmp(bitmap_before,d.bytes+(size_t)(sb.block_bitmap_start*d.block_size),bitmap_bytes)==0);
