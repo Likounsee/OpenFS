@@ -806,3 +806,9 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - GCC and Clang both built successfully but the CTest preflight `openfs-path-test` hit the workflow's 45-second timeout.
 - Root cause audit: inode_alloc.c recognized an active transaction only when the device pointer equaled the runtime base device. A transaction wrapper is a distinct device object, so transactional path operations could incorrectly start a nested transaction and deadlock on transaction_lock.
 - Reused the existing openfs_transaction_from_device() identity check for both inode allocation/free transaction admission. No test timeout was hidden or relaxed.
+
+
+# 2026-10-08 — timeout isolation diagnostics removed
+
+- The GCC/Clang path-test timeout was isolated to the early `rename_missing_same_path_regression` assertion, but temporary tracing did not produce a valid CI build because the diagnostic edit itself was malformed; all temporary tracing has now been removed from production and tests.
+- The inode transaction admission change was also corrected to preserve the intended base-device semantics; transaction-device routing remains handled by the allocator transaction detection already in production.
