@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include "openfs/allocator.h"
 #include "openfs/cow.h"
@@ -79,8 +78,7 @@ int main(void)
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     uint8_t payload[4096]; memset(payload,0x5a,sizeof(payload));
     openfs_inode_t working=before;
-    openfs_file_result_t wr_result=openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload)); fprintf(stderr,"wr=%d blocks=%llu size=%llu ext=%u flags=%u pending=%llu failed=%d\\n",(int)wr_result,(unsigned long long)working.blocks,(unsigned long long)working.size,working.extent_count,working.flags,(unsigned long long)tx.pending_count,tx.failed); assert(wr_result==OPENFS_FILE_OK);
-    assert(working.blocks==1U);
+    assert(openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload))==OPENFS_FILE_OK);    assert(working.blocks==1U);
     uint64_t staged_block=0U;
     assert(openfs_file_map_block_device(openfs_transaction_device(&tx),&mount.superblock,
                                         &working,0U,&staged_block)==OPENFS_FILE_OK);
