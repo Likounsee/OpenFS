@@ -10,6 +10,7 @@
 #include "openfs/inode.h"
 #include "openfs/runtime.h"
 #include "openfs/cow.h"
+#include "openfs/metadata_root.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +33,7 @@ static openfs_format_result_t fsck_read_superblock_at(openfs_block_device_t*d,ui
     out->block_size=sb_get32(raw+20U);out->total_blocks=sb_get64(raw+28U);out->metadata_start=sb_get64(raw+36U);out->metadata_blocks=sb_get64(raw+44U);
     out->block_bitmap_start=sb_get64(raw+52U);out->block_bitmap_blocks=sb_get64(raw+60U);out->inode_bitmap_start=sb_get64(raw+68U);out->inode_bitmap_blocks=sb_get64(raw+76U);
     out->inode_table_start=sb_get64(raw+84U);out->inode_table_blocks=sb_get64(raw+92U);out->journal_start=sb_get64(raw+100U);out->journal_blocks=sb_get64(raw+108U);
-    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);out->refcount_start=sb_get64(raw+164U);out->refcount_blocks=sb_get64(raw+172U);
+    out->data_start=sb_get64(raw+116U);out->data_blocks=sb_get64(raw+124U);out->root_inode=sb_get64(raw+132U);out->generation=sb_get64(raw+140U);out->refcount_start=sb_get64(raw+164U);out->refcount_blocks=sb_get64(raw+172U);out->metadata_root_block=sb_get64(raw+180U);out->metadata_root_generation=sb_get64(raw+188U);
     memcpy(out->uuid,raw+148U,16U);free(raw);
     return openfs_validate_superblock(d,out);
 }
@@ -44,7 +45,7 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
         a->inode_bitmap_start==b->inode_bitmap_start&&a->inode_bitmap_blocks==b->inode_bitmap_blocks&&
         a->inode_table_start==b->inode_table_start&&a->inode_table_blocks==b->inode_table_blocks&&
         a->journal_start==b->journal_start&&a->journal_blocks==b->journal_blocks&&a->refcount_start==b->refcount_start&&a->refcount_blocks==b->refcount_blocks&&
-        a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->root_inode==b->root_inode&&
+        a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->root_inode==b->root_inode&&a->metadata_root_block==b->metadata_root_block&&a->metadata_root_generation==b->metadata_root_generation&&
         memcmp(a->uuid,b->uuid,sizeof(a->uuid))==0;
 }
 
@@ -265,6 +266,12 @@ if(count==UINT64_MAX||count+1U>SIZE_MAX/sizeof(uint64_t)||count+1U>SIZE_MAX){fre
 if(count+1U>OPENFS_FSCK_MAX_DIR_REFS){free(refs);free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_IO_ERROR;}
 uint64_t*dir_refs=calloc((size_t)(count+1U),sizeof(*dir_refs));if(dir_refs==NULL){free(refs);free(inode_bitmap_snapshot.data);free(block_bitmap_snapshot.data);for(size_t i=0U;i<OPENFS_FSCK_CACHE_SLOTS;i++)free(io_cache.slots[i].buffer);return OPENFS_FSCK_IO_ERROR;}
 FSCK_PROGRESS(10U,100U,"préparation de la validation");
+if((s->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){
+    openfs_metadata_root_t mr;openfs_metadata_root_result_t mrr=openfs_metadata_root_read(d,s,s->metadata_root_block,&mr);
+    if(mrr!=OPENFS_METADATA_ROOT_OK||mr.generation!=s->metadata_root_generation){bad++;if(diagnostic.stage==NULL){diagnostic.stage="metadata root";diagnostic.reason="metadata root invalide ou incohérente";diagnostic.index=s->metadata_root_block;diagnostic.total=s->data_blocks;diagnostic.count=1U;}}
+    int root_set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,s->metadata_root_block,&root_set)){result=OPENFS_FSCK_IO_ERROR;goto done;}
+    if(!root_set)bad++;else if(!ref_mark(refs,s->data_blocks,s->metadata_root_block-s->data_start)){result=OPENFS_FSCK_CORRUPT;goto done;}
+}
 uint64_t bad=superblock_errors;if(superblock_errors!=0U){diagnostic.stage="superblock";diagnostic.reason="superblock incohérent ou invalide";diagnostic.index=0U;diagnostic.total=2U;diagnostic.count=superblock_errors;}
 openfs_fsck_result_t result=OPENFS_FSCK_OK;
 openfs_inode_t root;

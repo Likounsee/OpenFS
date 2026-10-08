@@ -7,9 +7,10 @@ struct openfs_runtime;
 extern "C" {
 #endif
 #define OPENFS_FORMAT_VERSION_MAJOR 1U
-#define OPENFS_FORMAT_VERSION_MINOR 4U
+#define OPENFS_FORMAT_VERSION_MINOR 5U
 #define OPENFS_FEATURE_EXTENT_TREE (1ULL << 0)
 #define OPENFS_FEATURE_COW (1ULL << 1)
+#define OPENFS_FEATURE_METADATA_ROOT (1ULL << 2)
 #define OPENFS_COW_MAX_REFCOUNT UINT16_MAX
 #define OPENFS_SUPERBLOCK_SIZE 4096U
 #define OPENFS_MIN_BLOCK_SIZE 4096U
@@ -47,7 +48,8 @@ typedef enum openfs_validation_code {
     OPENFS_VALIDATION_INODE_BITMAP_CAPACITY = 115,
     OPENFS_VALIDATION_BLOCK_BITMAP_CAPACITY = 116,
     OPENFS_VALIDATION_REFCOUNT_CHAIN = 117,
-    OPENFS_VALIDATION_REFCOUNT_CAPACITY = 118
+    OPENFS_VALIDATION_REFCOUNT_CAPACITY = 118,
+    OPENFS_VALIDATION_METADATA_ROOT = 119
 } openfs_validation_code_t;
 typedef struct openfs_superblock {
     uint16_t version_major;
@@ -72,6 +74,8 @@ typedef struct openfs_superblock {
     uint8_t uuid[16];
     uint64_t refcount_start;
     uint64_t refcount_blocks;
+    uint64_t metadata_root_block;
+    uint64_t metadata_root_generation;
     /* Runtime-only pointer; never serialized to disk. */
     struct openfs_runtime *runtime;
 } openfs_superblock_t;

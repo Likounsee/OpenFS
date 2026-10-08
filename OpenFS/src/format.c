@@ -4,6 +4,8 @@
 #include "openfs/crc32c.h"
 #include "openfs/inode.h"
 #include "openfs/time.h"
+#include "openfs/cow.h"
+#include "openfs/metadata_root.h"
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
@@ -84,7 +86,7 @@ static void encode(const openfs_superblock_t*sb,uint8_t*b){
     put64(b+84U,sb->inode_table_start);put64(b+92U,sb->inode_table_blocks);
     put64(b+100U,sb->journal_start);put64(b+108U,sb->journal_blocks);
     put64(b+116U,sb->data_start);put64(b+124U,sb->data_blocks);
-    put64(b+132U,sb->root_inode);put64(b+140U,sb->generation);memcpy(b+148U,sb->uuid,16U);put64(b+164U,sb->refcount_start);put64(b+172U,sb->refcount_blocks);
+    put64(b+132U,sb->root_inode);put64(b+140U,sb->generation);memcpy(b+148U,sb->uuid,16U);put64(b+164U,sb->refcount_start);put64(b+172U,sb->refcount_blocks);put64(b+180U,sb->metadata_root_block);put64(b+188U,sb->metadata_root_generation);
     put32(b+OPENFS_CHECKSUM_OFFSET,0U);put32(b+OPENFS_CHECKSUM_OFFSET,openfs_crc32c(b,OPENFS_CHECKSUM_OFFSET));
 }
 
@@ -96,15 +98,16 @@ static openfs_format_result_t decode(const uint8_t*b,openfs_superblock_t*sb){
     sb->metadata_start=get64(b+36U);sb->metadata_blocks=get64(b+44U);sb->block_bitmap_start=get64(b+52U);sb->block_bitmap_blocks=get64(b+60U);
     sb->inode_bitmap_start=get64(b+68U);sb->inode_bitmap_blocks=get64(b+76U);sb->inode_table_start=get64(b+84U);sb->inode_table_blocks=get64(b+92U);
     sb->journal_start=get64(b+100U);sb->journal_blocks=get64(b+108U);sb->data_start=get64(b+116U);sb->data_blocks=get64(b+124U);
-    sb->root_inode=get64(b+132U);sb->generation=get64(b+140U);memcpy(sb->uuid,b+148U,16U);sb->refcount_start=get64(b+164U);sb->refcount_blocks=get64(b+172U);sb->runtime=NULL;return OPENFS_FORMAT_OK;
+    sb->root_inode=get64(b+132U);sb->generation=get64(b+140U);memcpy(sb->uuid,b+148U,16U);sb->refcount_start=get64(b+164U);sb->refcount_blocks=get64(b+172U);sb->metadata_root_block=get64(b+180U);sb->metadata_root_generation=get64(b+188U);sb->runtime=NULL;return OPENFS_FORMAT_OK;
 }
 
 static openfs_format_result_t validate_superblock_ex(const openfs_block_device_t*d,const openfs_superblock_t*sb,const char **reason){
     if(!openfs_block_device_is_valid(d)||sb==NULL)return OPENFS_FORMAT_INVALID_ARGUMENT;
     if(sb->version_major!=OPENFS_FORMAT_VERSION_MAJOR||sb->version_minor>OPENFS_FORMAT_VERSION_MINOR)return validation_corrupt(reason,"invalid format version");
-    if((sb->feature_flags&~(OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW))!=0U)return validation_corrupt(reason,"unsupported feature flags");
+    if((sb->feature_flags&~(OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW|OPENFS_FEATURE_METADATA_ROOT))!=0U)return validation_corrupt(reason,"unsupported feature flags");
     if((sb->feature_flags&OPENFS_FEATURE_EXTENT_TREE)!=0U&&sb->version_minor<3U)return validation_corrupt(reason,"extent-tree feature requires format minor version 3");
     if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U&&sb->version_minor<4U)return validation_corrupt(reason,"CoW feature requires format minor version 4");
+    if((sb->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U&&sb->version_minor<5U)return validation_corrupt(reason,"metadata-root feature requires format minor version 5");
     if(sb->block_size<OPENFS_MIN_BLOCK_SIZE||sb->block_size>OPENFS_MAX_BLOCK_SIZE||!pow2(sb->block_size)||sb->block_size!=d->block_size)return OPENFS_FORMAT_UNSUPPORTED_DEVICE;
 if(sb->block_size%OPENFS_INODE_SIZE!=0U)return validation_corrupt(reason,"block size is not a multiple of inode size");
     if(sb->total_blocks!=d->block_count||sb->total_blocks<64U||sb->root_inode==0U||sb->generation==0U)return validation_corrupt(reason,"invalid device geometry or root/generation fields");
@@ -123,6 +126,7 @@ if(sb->block_size%OPENFS_INODE_SIZE!=0U)return validation_corrupt(reason,"block 
         if(end!=sb->data_start)return validation_corrupt(reason,"journal does not end at data region");
     }
     if(addov(sb->data_start,sb->data_blocks,&end)||end!=sb->total_blocks-1U)return validation_corrupt(reason,"data region does not end immediately before backup superblock");
+    if((sb->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){if(sb->metadata_root_block<sb->data_start||sb->metadata_root_block>=end||sb->metadata_root_generation==0U)return validation_corrupt(reason,"metadata root reference is invalid");}else if(sb->metadata_root_block!=0U||sb->metadata_root_generation!=0U)return validation_corrupt(reason,"legacy format has unexpected metadata root");
     if(sb->journal_blocks<8U||sb->data_blocks<8U||sb->journal_start==0U||sb->data_start==0U)return validation_corrupt(reason,"journal or data region is too small or starts at block zero");
     uint64_t meta_end=0U; if(addov(sb->metadata_start,sb->metadata_blocks,&meta_end)||meta_end!=sb->total_blocks-1U)return validation_corrupt(reason,"metadata region does not end immediately before backup superblock");
     uint64_t inode_bytes=0U;if(mulov(sb->inode_table_blocks,sb->block_size,&inode_bytes)||inode_bytes<OPENFS_INODE_SIZE)return validation_corrupt(reason,"inode table byte size is invalid");
@@ -160,6 +164,7 @@ openfs_validation_code_t openfs_validate_superblock_code(const openfs_block_devi
     if(strcmp(reason,"block bitmap cannot represent the device")==0)return OPENFS_VALIDATION_BLOCK_BITMAP_CAPACITY;
     if(strcmp(reason,"journal does not end at refcount table")==0||strcmp(reason,"refcount table does not end at data region")==0)return OPENFS_VALIDATION_REFCOUNT_CHAIN;
     if(strcmp(reason,"refcount table cannot represent data blocks")==0)return OPENFS_VALIDATION_REFCOUNT_CAPACITY;
+    if(strcmp(reason,"metadata root reference is invalid")==0||strcmp(reason,"legacy format has unexpected metadata root")==0||strcmp(reason,"metadata-root feature requires format minor version 5")==0)return OPENFS_VALIDATION_METADATA_ROOT;
     return OPENFS_VALIDATION_GEOMETRY;
 }
 
@@ -169,8 +174,8 @@ openfs_format_result_t openfs_prepare_superblock(openfs_block_device_t*d,const u
     uint64_t bb=0U,ib=0U,it=0U,jb=0U,rb=0U;if(!calculate_layout(d->block_count,d->block_size,&bb,&ib,&it,&jb,&rb))return OPENFS_FORMAT_TOO_SMALL;
     uint64_t metadata=d->block_count-3U;if(bb+ib>metadata||it>metadata-bb-ib||jb>metadata-bb-ib-it)return OPENFS_FORMAT_TOO_SMALL;
     uint64_t data=metadata-1U-bb-ib-it-jb-rb;if(data<8U)return OPENFS_FORMAT_TOO_SMALL;
-    memset(out,0,sizeof(*out));out->version_major=OPENFS_FORMAT_VERSION_MAJOR;out->version_minor=OPENFS_FORMAT_VERSION_MINOR;out->feature_flags=OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW;out->block_size=d->block_size;out->total_blocks=d->block_count;
-    out->metadata_start=2U;out->metadata_blocks=metadata;out->block_bitmap_start=3U;out->block_bitmap_blocks=bb;out->inode_bitmap_start=3U+bb;out->inode_bitmap_blocks=ib;out->inode_table_start=out->inode_bitmap_start+ib;out->inode_table_blocks=it;out->journal_start=out->inode_table_start+it;out->journal_blocks=jb;out->refcount_start=out->journal_start+jb;out->refcount_blocks=rb;out->data_start=out->refcount_start+rb;out->data_blocks=data;out->root_inode=1U;out->generation=1U;memcpy(out->uuid,uuid,16U);
+    memset(out,0,sizeof(*out));out->version_major=OPENFS_FORMAT_VERSION_MAJOR;out->version_minor=OPENFS_FORMAT_VERSION_MINOR;out->feature_flags=OPENFS_FEATURE_EXTENT_TREE|OPENFS_FEATURE_COW|OPENFS_FEATURE_METADATA_ROOT;out->block_size=d->block_size;out->total_blocks=d->block_count;
+    out->metadata_start=2U;out->metadata_blocks=metadata;out->block_bitmap_start=3U;out->block_bitmap_blocks=bb;out->inode_bitmap_start=3U+bb;out->inode_bitmap_blocks=ib;out->inode_table_start=out->inode_bitmap_start+ib;out->inode_table_blocks=it;out->journal_start=out->inode_table_start+it;out->journal_blocks=jb;out->refcount_start=out->journal_start+jb;out->refcount_blocks=rb;out->data_start=out->refcount_start+rb;out->data_blocks=data;out->root_inode=1U;out->generation=1U;out->metadata_root_block=out->data_start+1U;out->metadata_root_generation=1U;memcpy(out->uuid,uuid,16U);
     return validate_superblock_ex(d,out,NULL);
 }
 
@@ -218,9 +223,13 @@ openfs_format_result_t openfs_format_ex(openfs_block_device_t*d,const uint8_t uu
         }
         if(d->block_count-1U>=first_bit&&d->block_count-1U<end_bit)
             bitmap[(d->block_count-1U-first_bit)/8U]|=(uint8_t)(1U<<((d->block_count-1U-first_bit)%8U));
+        if(sb.metadata_root_block>=first_bit&&sb.metadata_root_block<end_bit)
+            bitmap[(sb.metadata_root_block-first_bit)/8U]|=(uint8_t)(1U<<((sb.metadata_root_block-first_bit)%8U));
         if(d->write(d->context,sb.block_bitmap_start+n,1U,bitmap)!=OPENFS_IO_OK){free(bitmap);return OPENFS_FORMAT_IO_ERROR;}
     }
     free(bitmap);
+    if(openfs_cow_refcount_set(d,&sb,sb.metadata_root_block,1U)!=OPENFS_COW_OK)return OPENFS_FORMAT_IO_ERROR;
+    if(openfs_metadata_root_initialize(d,&sb,sb.metadata_root_block,sb.metadata_root_generation)!=OPENFS_METADATA_ROOT_OK)return OPENFS_FORMAT_IO_ERROR;
 
     bitmap=calloc(1U,d->block_size);if(bitmap==NULL)return OPENFS_FORMAT_IO_ERROR;
     bitmap[0]=1U;
