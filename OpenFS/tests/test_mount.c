@@ -12,6 +12,7 @@
 #include "openfs/fd.h"
 #include "openfs/cow.h"
 #include "openfs/dir.h"
+#include "openfs/bitmap.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
