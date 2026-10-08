@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
-#define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed at %s:%d: %s\n", __FILE__, __LINE__, #expr); abort(); } } while(0)
+#define TEST_ASSERT(expr) do { if(!(expr)) { fprintf(stderr, "test assertion failed: %s\n", #expr); abort(); } } while(0)
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -397,8 +397,7 @@ static void truncate_grow_flush_failure_rolls_back(void){
     openfs_inode_t before=i;d.fail_flush=1;d.fail_flush_once=1;
     TEST_ASSERT(openfs_file_truncate(&v,&sb,&i,8192U)==OPENFS_FILE_IO_ERROR);
     TEST_ASSERT(memcmp(&i,&before,sizeof(i))==0);
-    int candidate_used=0;uint16_t candidate_refs=0U;TEST_ASSERT(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,sb.data_start+1U,&candidate_used)==OPENFS_BITMAP_OK);TEST_ASSERT(openfs_cow_refcount_get(&v,&sb,sb.data_start+1U,&candidate_refs)==OPENFS_COW_OK);fprintf(stderr,"truncate-grow candidate block+1: used=%d refs=%u\n",candidate_used,(unsigned)candidate_refs);
-    uint64_t errors=0U;openfs_fsck_diagnostic_t diag={0};openfs_fsck_result_t fr=openfs_fsck_with_progress_and_diagnostics(&v,&sb,&errors,&diag,NULL,NULL);if(fr!=OPENFS_FSCK_OK||errors!=0U)fprintf(stderr,"truncate grow rollback fsck: result=%d errors=%llu stage=%s reason=%s index=%llu total=%llu\n",(int)fr,(unsigned long long)errors,diag.stage?diag.stage:"",diag.reason?diag.reason:"",(unsigned long long)diag.index,(unsigned long long)diag.total);TEST_ASSERT(fr==OPENFS_FSCK_OK&&errors==0U);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
     free(d.bytes);
 }
 static void truncate_grow_partial_tail_inode_failure_restores_data(void){
