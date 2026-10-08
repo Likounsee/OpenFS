@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "openfs/allocator.h"
 #include "openfs/cow.h"
 #include "openfs/format.h"
 #include "openfs/mount.h"
