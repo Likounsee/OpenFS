@@ -793,3 +793,9 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 
 - The first transactional file-write regression intentionally exercised too much of the stack and caused the full CTest suite to time out after build success. The regression test is now narrowed to the exact WAL contract under audit: a real transaction-device data-block write plus openfs_data_checksum_set_tx(), followed by a real commit and normal file readback.
 - This keeps the persistent checksum and transaction machinery under test without masking an unrelated higher-level transaction integration hang. The allocator transaction-device fix remains in production and is covered by the existing allocator transaction tests.
+
+
+# 2026-10-08 — CI compile correction for checksum regression
+
+- Clang CI on run 37844180761 found that the narrowed checksum WAL regression used the checksum API without including its public header. This was a test compilation defect, not a production failure.
+- Added the existing openfs/data_checksum.h include; assertions and production code are unchanged.
