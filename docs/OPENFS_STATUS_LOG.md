@@ -1,3 +1,9 @@
+# 2026-10-08 — P0 checkpoint: transaction ordering verified in CI
+
+- Run `37838299193` completed green for the current corrected head: GCC, Clang, GCC/Clang sanitizer stages, and Windows all passed.
+- The suite now contains 42 tests; the new transaction-order regression passes and verifies the durable COMMIT-before-publication-before-checkpoint sequence at the real block-device boundary.
+- P0 is **~92%**: this adds concrete validation to P0.1 but does not close the remaining durable data-integrity and full FSCK-repair architecture gaps.
+
 # 2026-10-08 — P0: transaction ordering regression fixture corrected
 
 - CI found the new ordering test was observing formatter writes before the test's fault-observation window was armed, causing a false failure.
