@@ -165,6 +165,43 @@ static openfs_cow_result_t cow_load_extents(const openfs_block_device_t *d,const
     *out=ext;*count=n;return OPENFS_COW_OK;
 }
 
+openfs_cow_result_t openfs_cow_discard_inode(openfs_block_device_t *d,const openfs_superblock_t *sb,openfs_inode_t *inode)
+{
+    if(!openfs_block_device_is_valid(d)||sb==NULL||inode==NULL)return OPENFS_COW_INVALID_ARGUMENT;
+    if((sb->feature_flags&OPENFS_FEATURE_COW)==0U)return OPENFS_COW_UNSUPPORTED;
+    if((inode->mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_REGULAR||inode->link_count!=1U||inode->inode_number==0U)return OPENFS_COW_INVALID_ARGUMENT;
+    openfs_cow_result_t lr=cow_lock_inode(sb);if(lr!=OPENFS_COW_OK)return lr;
+    uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
+    if(inode_count==0U||inode->inode_number>inode_count){cow_unlock_inode(sb);return OPENFS_COW_CORRUPT;}
+    openfs_inode_t current;
+    openfs_inode_result_t ir=openfs_inode_read(d,sb->inode_table_start,inode->inode_number,inode_count,&current);
+    if(ir!=OPENFS_INODE_OK||current.generation!=inode->generation||current.link_count!=1U||
+       (current.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_REGULAR){cow_unlock_inode(sb);return ir==OPENFS_INODE_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;}
+    openfs_extent_t *ext=NULL;uint32_t count=0U;
+    openfs_cow_result_t r=cow_load_extents(d,sb,&current,&ext,&count);
+    if(r!=OPENFS_COW_OK){cow_unlock_inode(sb);return r;}
+    for(uint32_t i=0U;i<count&&r==OPENFS_COW_OK;i++){
+        for(uint64_t n=0U;n<ext[i].block_count;n++){
+            if(openfs_free_block(d,sb,ext[i].physical_start+n)!=OPENFS_ALLOC_OK){r=OPENFS_COW_CORRUPT;break;}
+        }
+    }
+    uint64_t root=openfs_inode_get_extent_tree_root(&current);
+    if(r==OPENFS_COW_OK&&root!=0U&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)r=OPENFS_COW_CORRUPT;
+    if(r==OPENFS_COW_OK){
+        current.mode=OPENFS_INODE_MODE_FREE;current.link_count=0U;current.parent_inode=0U;current.flags=0U;
+        current.extent_count=0U;current.blocks=0U;current.size=0U;
+        if(openfs_inode_write(d,sb->inode_table_start,inode_count,&current)!=OPENFS_INODE_OK)r=OPENFS_COW_IO_ERROR;
+        else{
+            openfs_inode_alloc_result_t fr=openfs_inode_free(d,sb,current.inode_number);
+            if(fr!=OPENFS_INODE_ALLOC_OK)r=fr==OPENFS_INODE_ALLOC_IO_ERROR?OPENFS_COW_IO_ERROR:OPENFS_COW_CORRUPT;
+            else if(d->flush(d->context)!=OPENFS_IO_OK)r=OPENFS_COW_IO_ERROR;
+        }
+    }
+    free(ext);
+    cow_unlock_inode(sb);
+    return r;
+}
+
 openfs_cow_result_t openfs_cow_clone_inode(openfs_block_device_t *d,const openfs_superblock_t *sb,
     const openfs_inode_t *source,uint64_t parent,uint64_t *new_inode_number)
 {
