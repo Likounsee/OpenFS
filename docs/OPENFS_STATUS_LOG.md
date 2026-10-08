@@ -576,3 +576,5 @@ This closes an important P0 durability gap for block allocation/free on mounted 
 - **e007be9** — direct `openfs_file_write` and `openfs_file_truncate` now automatically use the mounted filesystem WAL transaction when the runtime is journal-bound. The transaction-device path avoids nested WAL transactions while preserving the existing explicit transaction APIs.
 - **a26ee63** / **a81d150** — added and registered a fault-injection recovery test that fails the inode-table publication after WAL commit, remounts, and verifies both file metadata and payload were replayed.
 - **0bbd374** — updated the public file durability contract to document automatic WAL wrapping on mounted filesystems.
+
+- **0072fb2** — updated the README durability contract to reflect automatic WAL wrapping for mounted file writes/truncates and allocation/inode-allocation state transitions.
