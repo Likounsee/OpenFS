@@ -53,7 +53,7 @@ openfs_file_result_t openfs_file_read(
 /*
  * Write length bytes. Writes past EOF extend the file and zero-fill the gap.
  * The inode is updated in memory and persisted to the inode table before return.
- * Direct writes are not a transaction; use the transaction-aware API for crash-atomic mutation.
+ * On a mounted filesystem, direct writes are automatically wrapped in the active WAL transaction. The explicit transaction-aware API remains available for composing larger mutations.
  */
 openfs_file_result_t openfs_file_write(
     openfs_block_device_t *device,
