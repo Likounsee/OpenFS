@@ -890,3 +890,14 @@ P0 remains **~94%**. Format/FSCK validation is now stricter on both primary and 
 ### P0 checkpoint
 
 P0 moves to **~96%**. Transactional allocation/refcount coupling is now explicitly covered. Remaining blockers are persistent regular-file data checksums, full atomic FSCK refcount reconstruction, and the final crash/fault-injection interaction matrix.
+
+# 2026-10-08 — P0 atomic CoW refcount reconstruction
+
+- `cf22193b` exposes `openfs_fsck_repair_cow_refcounts()`.
+- `90df1998` implements reconstruction from every allocated inode's extents, extent-tree roots and xattr blocks, then rewrites only differing persistent refcount blocks inside one WAL transaction. If the transaction cannot commit, repair is not reported successful.
+- `f677f780` adds a real mounted-filesystem corruption/repair regression: a referenced block's refcount is forced to zero, FSCK detects it, atomic repair restores the exact count, and a final FSCK is clean.
+- `981447a7` / `aaf5d653` register the regression in CTest.
+
+### P0 checkpoint
+
+P0 moves to **~98%**. Persistent CoW ownership reconstruction is now repairable atomically. Remaining blocker is persistent regular-file data integrity/checksum coverage plus final fault-injection coverage proving the repair/transaction interaction under every commit boundary.
