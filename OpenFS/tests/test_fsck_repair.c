@@ -5,8 +5,9 @@
 #include "openfs/fsck.h"
 #include "openfs/bitmap.h"
 #include "openfs/format.h"
+#include "openfs/mount.h"
 
-typedef struct { uint8_t *data; uint32_t block_size; uint64_t blocks; } repair_device_t;
+typedef struct { uint8_t *data; uint32_t block_size; uint64_t blocks; uint64_t fail_block; unsigned fail_count; } repair_device_t;
 
 static openfs_io_result_t rd(void *ctx,uint64_t block,uint32_t count,void *buffer){
     repair_device_t *d=(repair_device_t *)ctx;
@@ -17,6 +18,7 @@ static openfs_io_result_t rd(void *ctx,uint64_t block,uint32_t count,void *buffe
 static openfs_io_result_t wr(void *ctx,uint64_t block,uint32_t count,const void *buffer){
     repair_device_t *d=(repair_device_t *)ctx;
     if(block>=d->blocks||(uint64_t)count>d->blocks-block)return OPENFS_IO_OUT_OF_RANGE;
+    if(d->fail_count!=0U && block==d->fail_block){d->fail_count--;return OPENFS_IO_IO_ERROR;}
     memcpy(d->data+(size_t)(block*d->block_size),buffer,(size_t)count*d->block_size);
     return OPENFS_IO_OK;
 }
@@ -58,6 +60,22 @@ int main(void){
     assert(openfs_bitmap_set(&d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,0)==OPENFS_BITMAP_OK);
     assert(openfs_fsck_repair_bitmap_tails(&d,&sb,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
     assert(openfs_bitmap_set(&d,sb.inode_bitmap_start,sb.inode_bitmap_blocks,0U,1)==OPENFS_BITMAP_OK);
+
+    /* Mounted repairs must use the WAL: fail the second DATA record and verify that neither bitmap is partially repaired. */
+    openfs_mount_t mounted;
+    assert(openfs_mount(&mounted,&d)==OPENFS_MOUNT_OK);
+    assert(openfs_bitmap_set(&d,mounted.superblock.block_bitmap_start,mounted.superblock.block_bitmap_blocks,stray_block,1)==OPENFS_BITMAP_OK);
+    assert(openfs_bitmap_set(&d,mounted.superblock.inode_bitmap_start,mounted.superblock.inode_bitmap_blocks,stray_inode,1)==OPENFS_BITMAP_OK);
+    int block_set=0,inode_set=0;
+    assert(openfs_bitmap_test(&d,mounted.superblock.block_bitmap_start,mounted.superblock.block_bitmap_blocks,stray_block,&block_set)==OPENFS_BITMAP_OK&&block_set);
+    assert(openfs_bitmap_test(&d,mounted.superblock.inode_bitmap_start,mounted.superblock.inode_bitmap_blocks,stray_inode,&inode_set)==OPENFS_BITMAP_OK&&inode_set);
+    mem.fail_block=mounted.superblock.journal_start+2U;mem.fail_count=1U;
+    assert(openfs_fsck_repair_bitmap_tails(&d,&mounted.superblock,&errors)==OPENFS_FSCK_IO_ERROR);
+    mem.fail_count=0U;
+    assert(openfs_bitmap_test(&d,mounted.superblock.block_bitmap_start,mounted.superblock.block_bitmap_blocks,stray_block,&block_set)==OPENFS_BITMAP_OK&&block_set);
+    assert(openfs_bitmap_test(&d,mounted.superblock.inode_bitmap_start,mounted.superblock.inode_bitmap_blocks,stray_inode,&inode_set)==OPENFS_BITMAP_OK&&inode_set);
+    assert(openfs_fsck_repair_bitmap_tails(&d,&mounted.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&mounted)==OPENFS_MOUNT_OK);
 
     free(mem.data);
     return 0;
