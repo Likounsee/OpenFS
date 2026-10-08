@@ -7,7 +7,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
+
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
 {
@@ -1076,7 +1076,7 @@ static openfs_file_result_t file_write_unlocked(
     r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
                            &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count);
     if(r!=OPENFS_FILE_OK){
-        if(r==OPENFS_FILE_CORRUPT)fprintf(stderr,"file_write sparse_prepare corrupt ino=%llu\\n",(unsigned long long)original.inode_number);
+        
         free_write_backups(backups,backup_count);
         return r;
     }
@@ -1101,7 +1101,7 @@ static openfs_file_result_t file_write_unlocked(
             int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
             *inode = original;
             free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);
-            if(!rollback_ok||r==OPENFS_FILE_CORRUPT)fprintf(stderr,"file_write map/validate corrupt ino=%llu\\n",(unsigned long long)original.inode_number);
+            
             return rollback_ok ? (r == OPENFS_FILE_OK ? OPENFS_FILE_CORRUPT : r) : OPENFS_FILE_CORRUPT;
         }
 
@@ -1158,7 +1158,7 @@ static openfs_file_result_t file_write_unlocked(
         int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
         *inode = original;
         free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);
-        if(!restored||!rollback_ok||r==OPENFS_FILE_CORRUPT)fprintf(stderr,"file_write inode_persist corrupt ino=%llu r=%d restored=%d rollback=%d\\n",(unsigned long long)original.inode_number,(int)r,restored,rollback_ok);
+        
         return (restored && rollback_ok) ? r : OPENFS_FILE_CORRUPT;
     }
     if (device->flush(device->context) != OPENFS_IO_OK) {
