@@ -95,6 +95,37 @@ int main(void)
                               &staged_used)==OPENFS_BITMAP_OK&&staged_used==0);
     assert(openfs_cow_discard_inode(&dev,&mount.superblock,&after)==OPENFS_COW_OK);
 
+    /* A committed file transaction must replay completely after a post-COMMIT base write failure. */
+    uint64_t recovery_ino=0U;
+    assert(openfs_inode_alloc(&dev,&mount.superblock,mount.superblock.root_inode,
+                              OPENFS_INODE_MODE_REGULAR|0600U,&recovery_ino)==OPENFS_INODE_ALLOC_OK);
+    openfs_inode_t recovery_inode;
+    assert(openfs_inode_read(&dev,mount.superblock.inode_table_start,recovery_ino,inode_count,&recovery_inode)==OPENFS_INODE_OK);
+    assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+    uint8_t recovery_payload[4096]; memset(recovery_payload,0xa7,sizeof(recovery_payload));
+    assert(openfs_file_write_tx(&tx,&mount.superblock,&recovery_inode,0U,recovery_payload,sizeof(recovery_payload))==OPENFS_FILE_OK);
+    uint64_t recovery_block=0U;
+    assert(openfs_file_map_block_device(openfs_transaction_device(&tx),&mount.superblock,
+                                        &recovery_inode,0U,&recovery_block)==OPENFS_FILE_OK);
+    disk.fail_block=mount.superblock.block_bitmap_start+
+        (recovery_block/((uint64_t)mount.superblock.block_size*8U));
+    disk.fail_enabled=1;
+    assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_IO_ERROR);
+    assert(tx.recovery_required!=0);
+    disk.fail_enabled=0;
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_CORRUPT);
+    assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
+    openfs_mount_t recovered_file={0};
+    assert(openfs_mount(&recovered_file,&dev)==OPENFS_MOUNT_OK);
+    openfs_inode_t recovered_inode;
+    assert(openfs_inode_read(&dev,recovered_file.superblock.inode_table_start,recovery_ino,inode_count,&recovered_inode)==OPENFS_INODE_OK);
+    assert(recovered_inode.blocks==1U&&recovered_inode.size==sizeof(recovery_payload));
+    uint8_t recovered_data[4096]; size_t got=0U;
+    assert(openfs_file_read(&dev,&recovered_file.superblock,&recovered_inode,0U,recovered_data,sizeof(recovered_data),&got)==OPENFS_FILE_OK);
+    assert(got==sizeof(recovered_data)&&memcmp(recovered_data,recovery_payload,sizeof(recovered_data))==0);
+    assert(openfs_cow_discard_inode(&dev,&recovered_file.superblock,&recovered_inode)==OPENFS_COW_OK);
+    assert(openfs_unmount(&recovered_file)==OPENFS_MOUNT_OK);
+
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
         (target/((uint64_t)mount.superblock.block_size*8U));
