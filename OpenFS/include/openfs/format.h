@@ -7,10 +7,11 @@ struct openfs_runtime;
 extern "C" {
 #endif
 #define OPENFS_FORMAT_VERSION_MAJOR 1U
-#define OPENFS_FORMAT_VERSION_MINOR 5U
+#define OPENFS_FORMAT_VERSION_MINOR 6U
 #define OPENFS_FEATURE_EXTENT_TREE (1ULL << 0)
 #define OPENFS_FEATURE_COW (1ULL << 1)
 #define OPENFS_FEATURE_METADATA_ROOT (1ULL << 2)
+#define OPENFS_FEATURE_DATA_CHECKSUM (1ULL << 3)
 #define OPENFS_COW_MAX_REFCOUNT UINT16_MAX
 #define OPENFS_SUPERBLOCK_SIZE 4096U
 #define OPENFS_MIN_BLOCK_SIZE 4096U
@@ -77,6 +78,8 @@ typedef struct openfs_superblock {
     uint64_t refcount_blocks;
     uint64_t metadata_root_block;
     uint64_t metadata_root_generation;
+    uint64_t data_checksum_start;
+    uint64_t data_checksum_blocks;
     /* Runtime-only pointer; never serialized to disk. */
     struct openfs_runtime *runtime;
 } openfs_superblock_t;
