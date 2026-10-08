@@ -335,6 +335,40 @@ For newer sparse-seeking commits, the available GitHub workflow/status API curre
 
 ---
 
+# Latest implementation pass
+
+### `560987d7fb4681507c2f3da2510b349b8903a89c`
+**TEST — sparse allocation-failure rollback**
+
+Added a sparse-write regression that injects an allocator bitmap failure after a sparse file already contains data.
+
+The test verifies:
+
+- inode state is restored;
+- allocation bitmap state is restored;
+- the failed sparse write does not become visible;
+- FSCK still reports zero errors.
+
+### `eccdcd70a94f3d4f340ffc9683d51d4b5b622cad`
+**TEST — sparse flush-failure rollback**
+
+Added a sparse-write flush-failure regression.
+
+The test verifies that a failed write which creates a distant sparse extent restores:
+
+- inode metadata;
+- allocation bitmap;
+- logical file visibility;
+- FSCK consistency.
+
+The test is part of the existing `openfs-file-test` CMake target.
+
+### CI status for this pass
+
+The available GitHub Actions/status APIs currently return no workflow runs or status entries for `eccdcd70a94f3d4f340ffc9683d51d4b5b622cad`.
+
+Therefore this pass is recorded as **not CI-verified yet**, rather than being incorrectly marked green.
+
 # Latest documented milestone
 
 ### `39bf5fed4bb94599d1c05b7da021926617fb5506`
