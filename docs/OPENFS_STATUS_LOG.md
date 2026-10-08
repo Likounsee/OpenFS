@@ -865,3 +865,12 @@ Le checkpoint passe à **~93%** après ces durcissements vérifiables. Ce pource
 ### P0 checkpoint
 
 P0 remains **~93%**. The repair idempotence invariant is now explicit, but persistent user-data checksums and full ownership/refcount repair + crash interaction coverage remain open.
+
+# 2026-10-08 — P0 FSCK backup-superblock validation
+
+- `28277446` makes the FSCK-specific superblock reader enforce the same zeroed reserved-field invariant as normal mount/format validation. This prevents a backup superblock with a recomputed CRC and unknown reserved bytes from being silently accepted.
+- `47e89529` adds this corruption cut to the existing FSCK boundary matrix.
+
+### P0 checkpoint
+
+P0 remains **~94%**. Format/FSCK validation is now stricter on both primary and backup superblocks. The remaining large blockers are still persistent regular-file data checksums and repair of detected ownership/CoW-refcount mismatches with complete crash/retry coverage.
