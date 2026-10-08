@@ -64,7 +64,41 @@ static void combined_corruption_cases(void){
     TEST_ASSERT(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,ex.physical_start,0)==OPENFS_BITMAP_OK);uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);uint8_t bad_journal[4096U]={0};bad_journal[0]='X';TEST_ASSERT(v.write(v.context,s.journal_start,1U,bad_journal)==OPENFS_IO_OK);
     errors=0U;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT);free(d.b);
 }
-int main(void){disconnected_directory_cycle();combined_corruption_cases();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t errors=99;uint64_t ic=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
+static void cow_refcount_exact_ownership_cases(void){
+    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);
+    openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t uuid[16]={91U};
+    TEST_ASSERT(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    uint64_t ic=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,ino=0U,clone_ino=0U;
+    TEST_ASSERT(openfs_path_create(&v,&s,"/cow",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    openfs_inode_t in;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,ino,ic,&in)==OPENFS_INODE_OK);
+    uint8_t data[4096U]={0xA5U};TEST_ASSERT(openfs_file_write(&v,&s,&in,0U,data,sizeof(data))==OPENFS_FILE_OK);
+    TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,ino,ic,&in)==OPENFS_INODE_OK);
+    openfs_extent_t ex;TEST_ASSERT(openfs_inode_get_extent(&in,0U,&ex)==OPENFS_EXTENT_OK);
+    uint16_t rc=0U;uint64_t errors=0U;
+    TEST_ASSERT(openfs_cow_refcount_get(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OK&&rc==1U);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    TEST_ASSERT(openfs_path_clone(&v,&s,"/cow","/cow-clone",&clone_ino)==OPENFS_PATH_OK);
+    TEST_ASSERT(openfs_cow_refcount_get(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OK&&rc==2U);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,1U)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,2U)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,0U)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,1U)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,ex.physical_start,0)==OPENFS_BITMAP_OK);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
+    TEST_ASSERT(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,ex.physical_start,1)==OPENFS_BITMAP_OK);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,0U)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_CORRUPT&&errors>0U);
+    TEST_ASSERT(openfs_cow_refcount_set(&v,&s,ex.physical_start,OPENFS_COW_MAX_REFCOUNT)==OPENFS_COW_OK);
+    TEST_ASSERT(openfs_cow_refcount_inc(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OVERFLOW);
+    TEST_ASSERT(openfs_cow_refcount_get(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OK&&rc==OPENFS_COW_MAX_REFCOUNT);
+    free(d.b);
+}
+
+int main(void){cow_refcount_exact_ownership_cases();disconnected_directory_cycle();combined_corruption_cases();D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t errors=99;uint64_t ic=(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
 {
  uint8_t backup_saved[4096U];uint64_t backup_block=s.total_blocks-1U;
  TEST_ASSERT(v.read(v.context,backup_block,1U,backup_saved)==OPENFS_IO_OK);
