@@ -21,6 +21,7 @@ static void legacy_record(openfs_block_device_t*v,const openfs_superblock_t*s,ui
 static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){uint32_t*hits=c;assert(tx==1U&&n==28U&&memcmp(p,"OJBD1",5U)==0);assert(hits);(*hits)++;return OPENFS_JOURNAL_OK;}
 
 int main(void){
+    { const uint8_t sample[] = "incremental-crc-regression"; size_t split = 9U; uint32_t state = openfs_crc32c_update(UINT32_MAX, sample, split); state = openfs_crc32c_update(state, sample + split, sizeof(sample) - 1U - split); assert(openfs_crc32c_finalize(state) == openfs_crc32c(sample, sizeof(sample) - 1U)); }
     disk_t d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,(size_t)d.bc);assert(d.b);
     openfs_block_device_t v=dev(&d);uint8_t uuid[16]={0xC1U};openfs_superblock_t s;
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
