@@ -720,3 +720,16 @@ The latest validated suite is 39/39 tests passing across GCC, Clang + ASan/UBSan
 Estimated P0 completion: **~80%**.
 
 The WAL/recovery matrix is stronger, including a real replay failure followed by retry. Remaining P0 blockers are still allocation ownership/reservation semantics, broader crash-cut coverage around allocator/metadata publication, transactional FSCK repair guarantees, and data-integrity checksums/scrub. Snapshots remain blocked until the persistent metadata-root is wired into live metadata paths.
+# 2026-10-08 — P0 transactional FSCK bitmap repair
+
+- `1020aa5f` changed mounted `openfs_fsck_repair_bitmap_tails()` to stage both bitmap repairs through the existing transaction/WAL device when a live runtime journal is available.
+- The repair now commits block-bitmap and inode-bitmap tail corrections as one transaction instead of exposing a crash window between the two writes.
+- `611d23cb` prevents the legacy direct rollback path from running after a transactional commit has started; a post-COMMIT failure is treated as recovery-required/corruption rather than silently overwriting a durable WAL decision.
+- `023f414e` added a mounted regression that faults the second WAL DATA record, verifies that neither bitmap is partially repaired, then retries successfully.
+- CI run `37826757878` for `023f414e` completed **green**: GCC, Clang, both sanitizer passes, and Windows.
+
+### P0 checkpoint
+
+Estimated P0 completion: **~81%**.
+
+This closes a concrete crash-consistency hole in FSCK repair. Remaining major P0 work is durable allocation ownership/claim semantics, broader allocator + metadata crash-cut coverage, repair coverage beyond bitmap tails, and data-block integrity checksums/scrub.
