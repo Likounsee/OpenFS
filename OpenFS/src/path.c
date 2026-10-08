@@ -382,18 +382,18 @@ static int path_directory_empty(openfs_block_device_t *d,const openfs_superblock
     return 1;
 }
 
-static openfs_path_result_t path_rename_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
+static openfs_path_result_t path_rename_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){fprintf(stderr,"R1\n");fflush(stderr);
 openfs_path_result_t old_trailing=require_trailing_directory(d,s,oldp);if(old_trailing!=OPENFS_PATH_OK)return old_trailing;
 if(path_has_trailing_slash(newp)){size_t nl=strlen(newp);while(nl>1U&&newp[nl-1U]=='/')--nl;char normalized[OPENFS_PATH_MAX];if(nl>=sizeof(normalized))return OPENFS_PATH_NAME_TOO_LONG;memcpy(normalized,newp,nl);normalized[nl]='\0';uint64_t nino=0U;openfs_path_result_t nr=openfs_path_lookup_follow(d,s,normalized,&nino);if(nr==OPENFS_PATH_NOT_FOUND)return OPENFS_PATH_NOT_DIRECTORY;if(nr!=OPENFS_PATH_OK)return nr;openfs_inode_t ni;if(read_inode(d,s,nino,&ni)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;if((ni.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;}
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
 if(split_last(oldp,op,sizeof(op),on,sizeof(on))!=OPENFS_PATH_OK||split_last(newp,np,sizeof(np),nn,sizeof(nn))!=OPENFS_PATH_OK)return OPENFS_PATH_INVALID_ARGUMENT;
-uint64_t oldparent=0U,newparent=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,op,&oldparent);if(lr!=OPENFS_PATH_OK)return lr;
-lr=openfs_path_lookup_follow(d,s,np,&newparent);if(lr!=OPENFS_PATH_OK)return lr;
+uint64_t oldparent=0U,newparent=0U;openfs_path_result_t lr=openfs_path_lookup_follow(d,s,op,&oldparent);fprintf(stderr,"R2 %d\n",(int)lr);fflush(stderr);if(lr!=OPENFS_PATH_OK)return lr;
+lr=openfs_path_lookup_follow(d,s,np,&newparent);fprintf(stderr,"R3 %d\n",(int)lr);fflush(stderr);if(lr!=OPENFS_PATH_OK)return lr;
 if(oldparent==0U||newparent==0U)return OPENFS_PATH_CORRUPT;
 openfs_inode_t odir,ndir;openfs_path_result_t odir_result=read_inode(d,s,oldparent,&odir);if(odir_result!=OPENFS_PATH_OK)return odir_result;
 openfs_path_result_t ndir_result=read_inode(d,s,newparent,&ndir);if(ndir_result!=OPENFS_PATH_OK)return ndir_result;
 if((odir.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY||(ndir.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;
-openfs_dir_entry_t source_entry,dest_entry;openfs_dir_result_t dr=openfs_dir_lookup(d,s,&odir,on,&source_entry);if(dr!=OPENFS_DIR_OK)return map_dir_result(dr);if(oldparent==newparent&&strcmp(on,nn)==0)return OPENFS_PATH_OK;
+openfs_dir_entry_t source_entry,dest_entry;fprintf(stderr,"R4\n");fflush(stderr);openfs_dir_result_t dr=openfs_dir_lookup(d,s,&odir,on,&source_entry);fprintf(stderr,"R5 %d\n",(int)dr);fflush(stderr);if(dr!=OPENFS_DIR_OK)return map_dir_result(dr);if(oldparent==newparent&&strcmp(on,nn)==0)return OPENFS_PATH_OK;
 dr=openfs_dir_lookup(d,s,&ndir,nn,&dest_entry);
 int destination_exists=(dr==OPENFS_DIR_OK);
 if(!destination_exists&&dr!=OPENFS_DIR_NOT_FOUND)return map_dir_result(dr);
