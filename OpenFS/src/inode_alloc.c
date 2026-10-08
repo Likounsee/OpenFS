@@ -192,7 +192,7 @@ static openfs_inode_alloc_result_t inode_free_unlocked(
 
 static int inode_transaction_available(const openfs_block_device_t*d,const openfs_superblock_t*sb)
 {
-    return sb!=NULL&&sb->runtime!=NULL&&sb->runtime->journal!=NULL&&sb->runtime->device==d;
+    return sb!=NULL&&sb->runtime!=NULL&&sb->runtime->journal!=NULL&&openfs_transaction_from_device(d)!=NULL;
 }
 static openfs_inode_alloc_result_t map_transaction_result(openfs_transaction_result_t r)
 {
