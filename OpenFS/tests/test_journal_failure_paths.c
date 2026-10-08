@@ -173,11 +173,44 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
     free(d.data);
 }
 
+static openfs_journal_result_t replay_noop(void *ctx, uint64_t tx, const uint8_t *data, uint32_t len)
+{
+    (void)ctx; (void)tx; (void)data; (void)len;
+    return OPENFS_JOURNAL_OK;
+}
+
+static void test_replay_rejects_interleaved_transactions(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U; d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x68U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s; assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j; assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U; assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "a", 1U) == OPENFS_JOURNAL_OK);
+    uint64_t seq = j.sequence + 1U;
+    uint8_t block[4096]; memset(block, 0, sizeof(block));
+    memcpy(block, OPENFS_JOURNAL_MAGIC, 5U);
+    block[5] = OPENFS_JOURNAL_BEGIN;
+    uint64_t tx2 = tx + 1U;
+    for(unsigned i=0U;i<8U;i++){block[8U+i]=(uint8_t)(tx2>>(8U*i));block[16U+i]=(uint8_t)(seq>>(8U*i));}
+    uint32_t crc = openfs_crc32c(block, sizeof(block));
+    block[28U]=(uint8_t)crc; block[29U]=(uint8_t)(crc>>8U); block[30U]=(uint8_t)(crc>>16U); block[31U]=(uint8_t)(crc>>24U);
+    assert(d.write(d.context, s.journal_start + j.next_record, 1U, block) == OPENFS_IO_OK);
+    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_CORRUPT);
+    free(d.data);
+}
+
 int main(void)
 {
     test_data_failure_restores_sequence();
     test_begin_failure_restores_sequence();
     test_block_write_failure_keeps_partial_transaction_abortable();
     test_block_write_partial_failure_is_abortable();
+    test_replay_rejects_interleaved_transactions();
     return 0;
 }
