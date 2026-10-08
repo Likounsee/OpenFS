@@ -63,7 +63,7 @@ static int fsck_bitmap_snapshot_load(const openfs_block_device_t *d,
     if(bytes>SIZE_MAX||blocks>UINT32_MAX||bytes>UINT64_MAX/8U)return 0;
     uint8_t *data=(uint8_t *)malloc((size_t)bytes);
     if(data==NULL)return 0;
-    if(d->read(d->context,start,(uint32_t)blocks,data)!=OPENFS_IO_OK){
+    if(blocks>UINT32_MAX)return 0;if(d->read(d->context,start,(uint32_t)blocks,data)!=OPENFS_IO_OK){
         free(data);return 0;
     }
     snapshot->data=data;
