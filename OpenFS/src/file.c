@@ -673,7 +673,6 @@ static openfs_file_result_t file_read_unlocked(    const openfs_block_device_t *
     }
     *bytes_read = 0U;
     openfs_file_result_t r = validate_file(device, sb, inode);
-    if (r != OPENFS_FILE_OK) fprintf(stderr,"validate_before_write=%d blocks=%llu extents=%u flags=%u\\n",(int)r,(unsigned long long)inode->blocks,inode->extent_count,inode->flags);
     if (r != OPENFS_FILE_OK || (length != 0U && buffer == NULL)) {
         return r != OPENFS_FILE_OK ? r : OPENFS_FILE_INVALID_ARGUMENT;
     }
