@@ -464,7 +464,7 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
-static void fsck_progress_probe(void *context,uint32_t done,uint32_t total,const char *stage){(void)context;(void)done;(void)total;(void)stage;}\nstatic void cow_clone_partial_refcount_rollback_regression(void)
+static void fsck_progress_probe(void *context,uint32_t done,uint32_t total,const char *stage){(void)context;(void)done;(void)total;fprintf(stderr,"fsck-stage:%s\\n",stage!=NULL?stage:"?");}\nstatic void cow_clone_partial_refcount_rollback_regression(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
     d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
