@@ -11,8 +11,6 @@ typedef struct openfs_transaction_pending openfs_transaction_pending_t;
 typedef struct { openfs_block_device_t *base; openfs_block_device_t device; openfs_journal_t *journal; uint64_t txid; openfs_transaction_pending_t *pending; uint64_t pending_count; uint64_t pending_capacity; int active; int failed; int commit_started; int committed; int recovery_required; } openfs_transaction_t;
 openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t *,openfs_block_device_t *,openfs_journal_t *);
 openfs_block_device_t *openfs_transaction_device(openfs_transaction_t *);
-/* Return the live transaction owning a transaction-device view, or NULL. */
-openfs_transaction_t *openfs_transaction_owner(const openfs_block_device_t *);
 openfs_transaction_result_t openfs_transaction_commit(openfs_transaction_t *);
 openfs_transaction_result_t openfs_transaction_abort(openfs_transaction_t *);
 #ifdef __cplusplus
