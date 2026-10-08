@@ -1193,7 +1193,15 @@ static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,c
         if(mul_overflow_u64(start,bs,&start_byte)||mul_overflow_u64(end,bs,&end_byte)){free(extents);return OPENFS_FILE_CORRUPT;}
         if(!hole){
             if(end_byte<=offset)continue;
-            *out=offset>start_byte?offset:start_byte;if(*out<eof){free(extents);return OPENFS_FILE_OK;}
+            if(offset<=start_byte){
+                *out=start_byte;
+            }else if(n+1U<count){
+                *out=extents[n+1U].logical_start*bs;
+            }else{
+                free(extents);
+                return OPENFS_FILE_OUT_OF_RANGE;
+            }
+            if(*out<eof){free(extents);return OPENFS_FILE_OK;}
         }else{
             if(offset<start_byte){*out=offset;free(extents);return OPENFS_FILE_OK;}
             if(offset>=start_byte&&offset<end_byte){
