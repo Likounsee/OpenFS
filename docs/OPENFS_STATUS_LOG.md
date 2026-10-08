@@ -901,3 +901,12 @@ P0 moves to **~96%**. Transactional allocation/refcount coupling is now explicit
 ### P0 checkpoint
 
 P0 moves to **~98%**. Persistent CoW ownership reconstruction is now repairable atomically. Remaining blocker is persistent regular-file data integrity/checksum coverage plus final fault-injection coverage proving the repair/transaction interaction under every commit boundary.
+
+# 2026-10-08 — P0 CoW repair fault-injection retry
+
+- `3aefabe9` extends the atomic refcount repair test with a real journal-write fault: repair must fail without changing the corrupted persistent refcount, then succeed after the fault is removed.
+- This specifically guards against reporting a partially repaired refcount table as successful.
+
+### P0 checkpoint
+
+P0 remains **~98%** until persistent regular-file data checksums are implemented. The CoW repair path now has detection, atomic reconstruction, and retry/fault coverage.
