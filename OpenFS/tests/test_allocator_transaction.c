@@ -76,6 +76,7 @@ int main(void)
     openfs_inode_t before;
     assert(openfs_inode_read(&dev,mount.superblock.inode_table_start,file_ino,inode_count,&before)==OPENFS_INODE_OK);
     assert(before.blocks==0U);
+    fprintf(stderr,"before inode=%llu gen=%llu mode=%o flags=%u extents=%u size=%llu parent=%llu links=%llu\\n",(unsigned long long)before.inode_number,(unsigned long long)before.generation,before.mode,before.flags,before.extent_count,(unsigned long long)before.size,(unsigned long long)before.parent_inode,(unsigned long long)before.link_count);
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     uint8_t payload[4096]; memset(payload,0x5a,sizeof(payload));
     openfs_inode_t working=before;
