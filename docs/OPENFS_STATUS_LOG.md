@@ -1,3 +1,14 @@
+# 2026-10-08 — P0 validation cleanup after transaction-device audit
+
+- The explicit transaction-device routing experiment was deliberately reverted after CI exposed that the existing file transaction path has additional CoW/extent interactions that must be integrated as one design rather than incrementally bypassing the established locks.
+- The allocator transaction regression was restored to its focused contract (allocation abort/commit) and now closes its journal, unmounts the test filesystem, and frees its backing image so sanitizer runs do not report leaked mount/journal resources.
+- No temporary diagnostics remain in the tree.
+- The branch remains on the previously validated P0 milestone: **~90%**. The remaining 10% is intentionally reserved for durable allocation ownership/claim semantics, final namespace/metadata crash-cut interactions, broader FSCK repair coverage, checksums/scrub, and the final concurrency/durability pass.
+
+### Validation
+
+A previous 39/39 run was green before this audit experiment. The current head is being revalidated after cleanup; no failure is being treated as resolved until CI reports green again.
+
 # OpenFS — Development Status Log
 
 This file is the chronological engineering log for the OpenFS filesystem-core hardening and feature-completion work.
