@@ -65,16 +65,21 @@ static void *file_worker(void *arg)
     uint8_t block[BLOCK_SIZE];
     for(unsigned round=0U;round<ROUNDS;round++){
         memset(block,(int)(0x40U+ctx->id),sizeof(block));
-        if(openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
-                             ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),block,sizeof(block))!=OPENFS_FILE_OK){
+        openfs_file_result_t write_result=openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
+                             ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),block,sizeof(block));
+        if(write_result!=OPENFS_FILE_OK){
+            fprintf(stderr,"worker %u round %u write result=%d\\n",ctx->id,round,(int)write_result);
             ctx->failures++;
             continue;
         }
         uint8_t readback[BLOCK_SIZE];
         size_t got=0U;
-        if(openfs_file_read(ctx->device,ctx->superblock,&ctx->inode,
-                            ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),readback,sizeof(readback),&got)!=OPENFS_FILE_OK ||
-           got!=sizeof(readback) || memcmp(readback,block,sizeof(block))!=0)ctx->failures++;
+        openfs_file_result_t read_result=openfs_file_read(ctx->device,ctx->superblock,&ctx->inode,
+                            ((uint64_t)ctx->id*(uint64_t)BLOCK_SIZE),readback,sizeof(readback),&got);
+        if(read_result!=OPENFS_FILE_OK || got!=sizeof(readback) || memcmp(readback,block,sizeof(block))!=0){
+            fprintf(stderr,"worker %u round %u read result=%d got=%zu match=%d\\n",ctx->id,round,(int)read_result,got,got==sizeof(readback)&&memcmp(readback,block,sizeof(block))==0);
+            ctx->failures++;
+        }
     }
 #if defined(_WIN32)
     return 0U;
