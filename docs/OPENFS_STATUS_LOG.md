@@ -832,3 +832,11 @@ Run **37832156724** for `a20f2cab7a736949b99cf723cb8bdb77948c8939` completed **g
 Estimated P0 completion: **~90%**.
 
 The remaining P0 work is now concentrated on final crash-cut coverage across namespace/metadata interactions, durable ownership/claim semantics for committed-but-not-yet-published metadata, broader FSCK repair coverage, integrity checksums/scrub, and a final concurrency/durability interaction pass. Snapshot implementation remains blocked until the persistent metadata root is wired into all live metadata paths.
+# 2026-10-08 — P0 on-disk format hardening
+
+- `dc2e369e` hardens superblock decoding: the reserved serialized region (bytes 196..4087) must remain zero even when an attacker recomputes the superblock CRC. This closes a format-validation gap where unknown future fields could otherwise be silently accepted as a valid current layout.
+- `53c8bb79` adds a regression that mutates a reserved superblock byte, recomputes the CRC, and requires `openfs_read_superblock()` to reject the image.
+
+### P0 checkpoint
+
+This closes one remaining on-disk format-validation invariant. It does **not** close the larger P0 ownership/refcount-repair and persistent user-data integrity gaps; no artificial 100% claim is made.
