@@ -564,3 +564,9 @@ All new work must update this log when a meaningful fix, feature, regression, or
 - GitHub Actions currently reports **no workflow runs and no status checks** for `23f2d46`; CI is therefore **unreported/unknown**, not green.
 
 This closes an important P0 durability gap for block allocation/free on mounted filesystems. Direct unmounted block-device calls retain their previous behavior because no journal is bound to the runtime.
+
+## 2026-10-08 — inode allocation durability integration
+
+- **d2ac289** — inode allocation/free now use the mounted filesystem WAL transaction path when a runtime is journal-bound, covering the inode bitmap plus inode-table publication as one durable unit. Direct unmounted calls retain the existing non-WAL path.
+- **2f59f70** — added a fault-injection recovery test for inode allocation: force the inode-bitmap publication to fail after WAL commit, unmount, remount, and verify replay restores both the bitmap and inode contents.
+- **ab35795** / **243c938** — registered the test and corrected the assertion for a committed transaction whose API returns an I/O error after base-device publication fails.
