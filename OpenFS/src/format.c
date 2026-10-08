@@ -6,6 +6,7 @@
 #include "openfs/time.h"
 #include "openfs/cow.h"
 #include "openfs/metadata_root.h"
+static openfs_io_result_t format_noflush(void *context){(void)context;return OPENFS_IO_OK;}
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
@@ -228,8 +229,9 @@ openfs_format_result_t openfs_format_ex(openfs_block_device_t*d,const uint8_t uu
         if(d->write(d->context,sb.block_bitmap_start+n,1U,bitmap)!=OPENFS_IO_OK){free(bitmap);return OPENFS_FORMAT_IO_ERROR;}
     }
     free(bitmap);
-    if(openfs_cow_refcount_set(d,&sb,sb.metadata_root_block,1U)!=OPENFS_COW_OK)return OPENFS_FORMAT_IO_ERROR;
-    if(openfs_metadata_root_initialize(d,&sb,sb.metadata_root_block,sb.metadata_root_generation)!=OPENFS_METADATA_ROOT_OK)return OPENFS_FORMAT_IO_ERROR;
+    openfs_block_device_t noflush=*d;noflush.flush=format_noflush;
+    if(openfs_cow_refcount_set(&noflush,&sb,sb.metadata_root_block,1U)!=OPENFS_COW_OK)return OPENFS_FORMAT_IO_ERROR;
+    if(openfs_metadata_root_initialize(&noflush,&sb,sb.metadata_root_block,sb.metadata_root_generation)!=OPENFS_METADATA_ROOT_OK)return OPENFS_FORMAT_IO_ERROR;
 
     bitmap=calloc(1U,d->block_size);if(bitmap==NULL)return OPENFS_FORMAT_IO_ERROR;
     bitmap[0]=1U;
