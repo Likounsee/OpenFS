@@ -466,7 +466,7 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
-static void fsck_progress_probe(void *context,uint32_t done,uint32_t total,const char *stage){(void)context;(void)done;(void)total;fprintf(stderr,"fsck-stage:%s\\n",stage!=NULL?stage:"?");}
+static void fsck_progress_probe(void *context,uint64_t done,uint64_t total,const char *stage){(void)context;(void)done;(void)total;fprintf(stderr,"fsck-stage:%s\\n",stage!=NULL?stage:"?");}
 static void dump_inode_bitmap_after_clone_failure(openfs_block_device_t *v,const openfs_superblock_t *s){uint64_t count=(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE;for(uint64_t n=1U;n<=count;n++){int used=0;if(openfs_bitmap_test(v,s->inode_bitmap_start,s->inode_bitmap_blocks,n-1U,&used)!=OPENFS_BITMAP_OK)continue;if(used){openfs_inode_t in;if(openfs_inode_read(v,s->inode_table_start,n,count,&in)==OPENFS_INODE_OK)fprintf(stderr,"used-inode:%llu mode=%u links=%llu\\n",(unsigned long long)n,(unsigned)(in.mode&OPENFS_INODE_TYPE_MASK),(unsigned long long)in.link_count);}}}
 static void cow_clone_partial_refcount_rollback_regression(void)
 {
