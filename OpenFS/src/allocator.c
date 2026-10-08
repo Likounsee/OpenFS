@@ -4,6 +4,7 @@
 #include "openfs/cow.h"
 #include "openfs/data_checksum.h"
 #include "openfs/transaction.h"
+#include <stdlib.h>
 static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block,int value){
     if(d==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count||sb->block_bitmap_start>=d->block_count||sb->block_bitmap_blocks==0U||sb->block_bitmap_blocks>d->block_count-sb->block_bitmap_start)return OPENFS_ALLOC_CORRUPT;
@@ -116,11 +117,6 @@ openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t*t,const openfs_s
     if(refs>1U)return openfs_cow_refcount_dec_tx(t,sb,block,NULL)==OPENFS_COW_OK?OPENFS_ALLOC_OK:OPENFS_ALLOC_CORRUPT;
     if(openfs_cow_refcount_set_tx(t,sb,block,0U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;
     return openfs_bitmap_set(td,sb->block_bitmap_start,sb->block_bitmap_blocks,block,0)==OPENFS_BITMAP_OK?OPENFS_ALLOC_OK:OPENFS_ALLOC_CORRUPT;
-}
-    if(t==NULL||!t->active||t->base==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
-    openfs_block_device_t *td=openfs_transaction_device(t);
-    if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
-    return free_block_unlocked(td,sb,block);
 }
 
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out)
