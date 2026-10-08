@@ -1,5 +1,6 @@
 #include "openfs/cow.h"
 #include <stdlib.h>
+#include <string.h>
 #include "openfs/runtime.h"
 #include "openfs/allocator.h"
 #include "openfs/extent.h"
