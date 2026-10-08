@@ -840,3 +840,9 @@ The remaining P0 work is now concentrated on final crash-cut coverage across nam
 ### P0 checkpoint
 
 This closes one remaining on-disk format-validation invariant. It does **not** close the larger P0 ownership/refcount-repair and persistent user-data integrity gaps; no artificial 100% claim is made.
+
+# 2026-10-08 — P0 format diagnostic hardening
+
+- `a6141d8e` adds a dedicated `OPENFS_VALIDATION_RESERVED_FIELDS` validation code instead of collapsing reserved-field violations into generic geometry errors.
+- `35f05a6e` wires the new diagnostic code into superblock validation.
+- `629f00a1` extends the corruption regression to assert the precise validation classification.
