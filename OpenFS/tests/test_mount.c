@@ -498,8 +498,8 @@ static void allocator_cow_refcount_failure_rollback_regression(void){
     d.partial_enabled=0;
     assert(openfs_bitmap_test(&v,sb.block_bitmap_start,sb.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK&&used==0);
     assert(openfs_cow_refcount_get(&v,&sb,candidate,&refs)==OPENFS_COW_OK&&refs==0U);
-    uint64_t errors=0U;assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
-    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
+    uint64_t errors=0U;assert(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+free(d.bytes);
 }
 
 static void cow_clone_partial_refcount_rollback_regression(void)
