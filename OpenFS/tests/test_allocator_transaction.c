@@ -93,7 +93,7 @@ int main(void)
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,
                               mount.superblock.block_bitmap_blocks,staged_block,
                               &staged_used)==OPENFS_BITMAP_OK&&staged_used==0);
-    assert(openfs_inode_free(&dev,&mount.superblock,file_ino)==OPENFS_INODE_ALLOC_OK);
+    assert(openfs_cow_discard_inode(&dev,&mount.superblock,&after)==OPENFS_COW_OK);
 
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
