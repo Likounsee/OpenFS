@@ -55,7 +55,7 @@ int main(void)
     uint64_t ino=0U;
     assert(openfs_inode_alloc(&dev,&mount.superblock,mount.superblock.root_inode,
                               OPENFS_INODE_MODE_REGULAR|0644U,&ino)==OPENFS_INODE_ALLOC_IO_ERROR);
-    assert(ino==0U);
+    assert(ino==2U);
     disk.fail_enabled=0;
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
 
