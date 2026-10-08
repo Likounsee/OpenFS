@@ -7,6 +7,8 @@
 #include "openfs/format.h"
 #include "openfs/mount.h"
 #include "openfs/bitmap.h"
+#include "openfs/file.h"
+#include "openfs/inode_alloc.h"
 
 typedef struct {
     uint8_t *bytes;
@@ -64,6 +66,35 @@ int main(void)
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==1);
     assert(openfs_free_block(&dev,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
+
+    /* File transactions must carry allocation/refcount changes in the same WAL. */
+    uint64_t file_ino=0U;
+    assert(openfs_inode_alloc(&dev,&mount.superblock,mount.superblock.root_inode,
+                              OPENFS_INODE_MODE_REGULAR|0600U,&file_ino)==OPENFS_INODE_ALLOC_OK);
+    uint64_t inode_count=(mount.superblock.inode_table_blocks*(uint64_t)mount.superblock.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t before;
+    assert(openfs_inode_read(&dev,mount.superblock.inode_table_start,file_ino,inode_count,&before)==OPENFS_INODE_OK);
+    assert(before.blocks==0U);
+    assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+    uint8_t payload[4096]; memset(payload,0x5a,sizeof(payload));
+    openfs_inode_t working=before;
+    assert(openfs_file_write_tx(&tx,&mount.superblock,&working,0U,payload,sizeof(payload))==OPENFS_FILE_OK);
+    assert(working.blocks==1U);
+    uint64_t staged_block=0U;
+    assert(openfs_file_map_block_device(openfs_transaction_device(&tx),&mount.superblock,
+                                        &working,0U,&staged_block)==OPENFS_FILE_OK);
+    int staged_used=0;
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,
+                              mount.superblock.block_bitmap_blocks,staged_block,
+                              &staged_used)==OPENFS_BITMAP_OK&&staged_used==0);
+    assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
+    openfs_inode_t after;
+    assert(openfs_inode_read(&dev,mount.superblock.inode_table_start,file_ino,inode_count,&after)==OPENFS_INODE_OK);
+    assert(after.blocks==0U&&after.size==0U);
+    assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,
+                              mount.superblock.block_bitmap_blocks,staged_block,
+                              &staged_used)==OPENFS_BITMAP_OK&&staged_used==0);
+    assert(openfs_inode_free(&dev,&mount.superblock,file_ino)==OPENFS_INODE_ALLOC_OK);
 
     uint64_t target=mount.superblock.data_start;
     uint64_t bitmap_block=mount.superblock.block_bitmap_start+
