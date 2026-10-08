@@ -109,6 +109,13 @@ state DELETING + cursor → reference releases → durable cursor advancement �
 
 A rollback failure is corruption-class and must remain visible to recovery/FSCK.
 
+## Current implementation checkpoint
+
+- v1.5 now persists a metadata-root block and generation in the superblock.
+- The root record is explicitly marked as LEGACY_LAYOUT until inode-table, directory, extent-tree and xattr objects are migrated behind it.
+- Typed OMCB1 control blocks use the metadata-CoW header; legacy fixed-size metadata uses the opaque CoW primitive so existing payload bytes are not lost.
+- Snapshots remain unimplemented until live metadata lookup paths consume the persistent root.
+
 ## Implementation order
 
 1. Add on-disk geometry/version validation for a snapshot catalog.
