@@ -681,6 +681,21 @@ static void sparse_seek_data_and_hole_reports_extents(void){
     free(d.bytes);
 }
 
+static void sparse_leading_hole_survives_fsck(void){
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-leading-hole",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t i;TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&i)==OPENFS_INODE_OK);
+    uint8_t value=0x6BU;TEST_ASSERT(openfs_file_write(&v,&sb,&i,3U*4096U,&value,1U)==OPENFS_FILE_OK);
+    TEST_ASSERT(i.extent_count==1U&&i.blocks==1U&&i.size==3U*4096U+1U);
+    openfs_extent_t e;TEST_ASSERT(openfs_inode_get_extent(&i,0U,&e)==OPENFS_EXTENT_OK);
+    TEST_ASSERT(e.logical_start==3U&&e.block_count==1U);
+    uint64_t errors=0U;TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    TEST_ASSERT(openfs_path_unlink(&v,&sb,"/sparse-leading-hole")==OPENFS_PATH_OK);
+    TEST_ASSERT(openfs_fsck(&v,&sb,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    free(d.bytes);
+}
+
 static void sparse_write_allocation_failure_rolls_back_layout(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-write-allocation-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
@@ -724,6 +739,7 @@ static void sparse_write_flush_failure_rolls_back_layout(void){
 }
 
 int main(void){
+    sparse_leading_hole_survives_fsck();
     sparse_seek_data_and_hole_reports_extents();
     sparse_write_allocation_failure_rolls_back_layout();
     sparse_write_flush_failure_rolls_back_layout();
