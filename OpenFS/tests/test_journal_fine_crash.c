@@ -527,5 +527,6 @@ int main(int argc,char **argv){
         assert(ok);
     }
     { int ok = journal_crash_case(argv[0],C7_MULTI_CHECKPOINT,1,id++); if(!ok) fprintf(stderr,"checkpoint cut failed: C6\\n"); assert(ok); }
-    for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }\n    return 0;
+    for(int k=0;k<9;k++) { int ok=replay_state_case(k,id++); if(!ok) fprintf(stderr,"replay case failed: %d\\n",k); assert(ok); }
+    return 0;
 }
