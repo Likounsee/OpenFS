@@ -125,25 +125,27 @@ int main(void)
     assert(got==sizeof(recovered_data)&&memcmp(recovered_data,recovery_payload,sizeof(recovered_data))==0);
     assert(openfs_cow_discard_inode(&dev,&recovered_file.superblock,&recovered_inode)==OPENFS_COW_OK);
     assert(openfs_unmount(&recovered_file)==OPENFS_MOUNT_OK);
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&dev)==OPENFS_MOUNT_OK);
 
-    uint64_t target=mount.superblock.data_start;
-    uint64_t bitmap_block=mount.superblock.block_bitmap_start+
-        (target/((uint64_t)mount.superblock.block_size*8U));
+    uint64_t target=recovered.superblock.data_start;
+    uint64_t bitmap_block=recovered.superblock.block_bitmap_start+
+        (target/((uint64_t)recovered.superblock.block_size*8U));
     disk.fail_block=bitmap_block;
     disk.fail_enabled=1;
 
     uint64_t allocated=0U;
-    assert(openfs_alloc_block(&dev,&mount.superblock,&allocated)==OPENFS_ALLOC_CORRUPT);
+    assert(openfs_alloc_block(&dev,&recovered.superblock,&allocated)==OPENFS_ALLOC_CORRUPT);
     disk.fail_enabled=0;
-    assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
-    openfs_mount_t recovered={0};
-    assert(openfs_mount(&recovered,&dev)==OPENFS_MOUNT_OK);
+    assert(openfs_unmount(&recovered_after_alloc)==OPENFS_MOUNT_OK);
+    openfs_mount_t recovered_after_alloc={0};
+    assert(openfs_mount(&recovered_after_alloc,&dev)==OPENFS_MOUNT_OK);
     int used=0;
     assert(openfs_bitmap_test(&dev,recovered.superblock.block_bitmap_start,
                               recovered.superblock.block_bitmap_blocks,target,&used)==OPENFS_BITMAP_OK);
     assert(used==1);
     uint16_t refs=0U;
-    assert(openfs_cow_refcount_get(&dev,&recovered.superblock,target,&refs)==OPENFS_COW_OK);
+    assert(openfs_cow_refcount_get(&dev,&recovered_after_alloc.superblock,target,&refs)==OPENFS_COW_OK);
     assert(refs==1U);
     assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
     free(disk.bytes);
