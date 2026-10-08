@@ -491,7 +491,7 @@ static void allocator_cow_refcount_failure_rollback_regression(void){
     openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x4CU};
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
     uint64_t candidate=m.superblock.data_start;uint16_t refs=0U;int used=1;
-    assert(openfs_bitmap_test(&v,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK&&used==0);
+    assert(openfs_bitmap_test(&v,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,candidate,&used)==OPENFS_BITMAP_OK); fprintf(stderr,"allocator candidate=%llu data_start=%llu data_blocks=%llu metadata_root=%llu used=%d\\n",(unsigned long long)candidate,(unsigned long long)m.superblock.data_start,(unsigned long long)m.superblock.data_blocks,(unsigned long long)m.superblock.metadata_root_block,used); assert(used==0);
     d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;
     uint64_t allocated=0U;openfs_alloc_result_t ar=openfs_alloc_block(&v,&m.superblock,&allocated);
     assert(ar==OPENFS_ALLOC_IO_ERROR||ar==OPENFS_ALLOC_CORRUPT);
