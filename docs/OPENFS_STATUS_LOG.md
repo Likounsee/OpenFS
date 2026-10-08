@@ -924,3 +924,13 @@ P0 remains **~98%** until persistent regular-file data checksums are implemented
 ### P0 checkpoint
 
 The persistent checksum mechanism is now implemented end-to-end at the basic data-path level. P0 is **not yet declared 100%**: the remaining work is to audit every data-producing path (CoW copies, metadata-root/data helpers, truncate/recovery), ensure checksum updates are transactionally coupled at every path, add crash/fault cuts around checksum writes, and obtain a fresh fully green GCC/Clang/sanitizer/Windows CI run.
+
+# 2026-10-08 — P0 checksum/FSCK/CoW integration audit
+
+- `a4b78295` updates the FSCK-specific superblock decoder for the v1.6 checksum geometry and keeps bytes 212..4087 reserved.
+- `496082c0` makes FSCK verify the CRC32C of every allocated regular-file data extent block, so checksum corruption is independently detected rather than relying only on the read path.
+- `ffcf6f81` restores strict validation of the newly extended superblock while retaining rejection of all future reserved bytes.
+- The transactional allocator path already routes checksum-table writes through the transaction device; this preserves WAL/publish atomicity when allocation and file writes are performed through `openfs_file_write_tx`.
+- CoW cloning preserves physical data blocks, so their existing checksums remain valid; CoW refcount changes do not require checksum changes.
+
+P0 is still deliberately not marked 100% until crash-cut/fault-injection tests prove the checksum/data pair survives every commit boundary and the full multi-platform CI is green on this exact HEAD.
