@@ -322,6 +322,7 @@ for(uint32_t i=0U;i<in.extent_count;i++){
             uint64_t physical=e.physical_start+b,rel=physical-s->data_start;int allocated=0;
             if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,physical,&allocated)){result=OPENFS_FSCK_IO_ERROR;goto done;}
             if(!allocated)bad++;
+            if(allocated&&(s->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U){uint8_t *cb=(uint8_t*)malloc(d->block_size);uint32_t expected=0U;if(cb==NULL){result=OPENFS_FSCK_IO_ERROR;goto done;}if(d->read(d->context,physical,1U,cb)!=OPENFS_IO_OK||openfs_data_checksum_get(d,s,physical,&expected)!=0){free(cb);result=OPENFS_FSCK_IO_ERROR;goto done;}if(expected!=openfs_data_checksum(cb,d->block_size))bad++;free(cb);}
             if(ref_test(refs,s->data_blocks,rel)){
         if((s->feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t rc=0U;if(openfs_cow_refcount_get(d,s,physical,&rc)!=OPENFS_COW_OK)bad++;}
         if((s->feature_flags&OPENFS_FEATURE_COW)!=0U&&!ref_mark(refs,s->data_blocks,rel)){result=OPENFS_FSCK_CORRUPT;goto done;}
