@@ -549,3 +549,5 @@ All new work must update this log when a meaningful fix, feature, regression, or
 - Ajout du test `openfs-fsck-repair`: réparation des deux queues + vérification qu'une corruption d'un bloc réel reste détectée.
 - Aucun changement du format disque n'est nécessaire pour cette étape.
 - Commits: `9268f4a`, `5c723d2`, `85d10e3`, `4bd2189`, `8c22999`.
+
+- `917ebb0` — rendu le repair FSCK bitmap transactionnel entre les deux bitmaps : préparation en mémoire, écritures, flush, puis rollback des modifications déjà publiées si une étape ultérieure échoue. Un échec de rollback reste classé corruption.
