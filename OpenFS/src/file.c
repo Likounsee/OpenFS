@@ -1184,50 +1184,39 @@ static openfs_file_result_t seek_sparse_unlocked(const openfs_block_device_t*d,c
     if(offset>=i->size)return OPENFS_FILE_OUT_OF_RANGE;
     openfs_extent_t *extents=NULL;uint32_t count=0U;
     openfs_file_result_t er=load_all_extents(d,s,i,&extents,&count);if(er!=OPENFS_FILE_OK)return er;
-    uint64_t bs=d->block_size;
-    uint64_t eof=i->size;
+    uint64_t bs=d->block_size,eof=i->size;
+    uint64_t cursor=offset;
     for(uint32_t n=0U;n<count;n++){
         uint64_t start=extents[n].logical_start,end=0U;
         if(add_overflow_u64(start,extents[n].block_count,&end)){free(extents);return OPENFS_FILE_CORRUPT;}
         uint64_t start_byte=0U,end_byte=0U;
         if(mul_overflow_u64(start,bs,&start_byte)||mul_overflow_u64(end,bs,&end_byte)){free(extents);return OPENFS_FILE_CORRUPT;}
         if(!hole){
-            if(end_byte<=offset)continue;
-            if(offset<=start_byte){
+            if(end_byte<=cursor)continue;
+            if(cursor<=start_byte){
                 *out=start_byte;
-            }else if(n+1U<count){
-                if(mul_overflow_u64(extents[n+1U].logical_start,bs,out)){
-                    free(extents);
-                    return OPENFS_FILE_CORRUPT;
-                }
             }else{
-                free(extents);
-                return OPENFS_FILE_OUT_OF_RANGE;
-            }
-            if(*out<eof){free(extents);return OPENFS_FILE_OK;}
-        }else{
-            /*
-             * SEEK_HOLE is a logical-byte operation.  A hole begins either at
-             * the requested byte when its logical block is unmapped, or at
-             * the first byte after the contiguous run of mapped blocks that
-             * contains the request.  Do not use physical adjacency here:
-             * sparse extents are allowed to be physically fragmented.
-             */
-            if(offset<start_byte){
-                *out=offset;
-                free(extents);
-                return OPENFS_FILE_OK;
-            }
-            if(offset<end_byte){
-                if(end_byte>=eof){
-                    *out=eof;
-                    free(extents);
-                    return OPENFS_FILE_OK;
+                uint64_t next=start_byte;
+                uint32_t m=n+1U;
+                while(m<count){
+                    uint64_t next_end=0U;
+                    if(add_overflow_u64(extents[m].logical_start,extents[m].block_count,&next_end)){free(extents);return OPENFS_FILE_CORRUPT;}
+                    if(extents[m].logical_start!=end){break;}
+                    if(mul_overflow_u64(next_end,bs,&next)){free(extents);return OPENFS_FILE_CORRUPT;}
+                    end=next_end;
+                    m++;
                 }
                 *out=end_byte;
-                free(extents);
-                return OPENFS_FILE_OK;
             }
+            if(*out<eof){free(extents);return OPENFS_FILE_OK;}
+            free(extents);return OPENFS_FILE_OUT_OF_RANGE;
+        }
+        if(cursor<start_byte){
+            *out=cursor;free(extents);return OPENFS_FILE_OK;
+        }
+        if(cursor<end_byte){
+            cursor=end_byte;
+            if(cursor>=eof){*out=eof;free(extents);return OPENFS_FILE_OK;}
         }
     }
     free(extents);
