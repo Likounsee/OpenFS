@@ -5,6 +5,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
 #include "openfs/runtime.h"
+#include "openfs/transaction.h"
 
 static openfs_inode_alloc_result_t inode_count(
     const openfs_superblock_t *sb,
@@ -189,17 +190,55 @@ static openfs_inode_alloc_result_t inode_free_unlocked(
     return OPENFS_INODE_ALLOC_OK;
 }
 
+static int inode_transaction_available(const openfs_block_device_t*d,const openfs_superblock_t*sb)
+{
+    return sb!=NULL&&sb->runtime!=NULL&&sb->runtime->journal!=NULL&&sb->runtime->device==d;
+}
+static openfs_inode_alloc_result_t map_transaction_result(openfs_transaction_result_t r)
+{
+    if(r==OPENFS_TRANSACTION_CORRUPT)return OPENFS_INODE_ALLOC_CORRUPT;
+    if(r==OPENFS_TRANSACTION_OK)return OPENFS_INODE_ALLOC_OK;
+    return OPENFS_INODE_ALLOC_IO_ERROR;
+}
 openfs_inode_alloc_result_t openfs_inode_alloc(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t parent,uint32_t mode,uint64_t*out){
     if(sb==NULL||sb->runtime==NULL)return inode_alloc_unlocked(d,sb,parent,mode,out);
     if(!openfs_runtime_enter(sb->runtime))return OPENFS_INODE_ALLOC_IO_ERROR;
     if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){openfs_runtime_leave(sb->runtime);return OPENFS_INODE_ALLOC_IO_ERROR;}
-    openfs_inode_alloc_result_t r=inode_alloc_unlocked(d,sb,parent,mode,out);
+    if(!inode_transaction_available(d,sb)){
+        openfs_inode_alloc_result_t r=inode_alloc_unlocked(d,sb,parent,mode,out);
+        (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
+    }
+    openfs_transaction_t tx;
+    openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,sb->runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return map_transaction_result(tr);}
+    openfs_inode_alloc_result_t r=inode_alloc_unlocked(openfs_transaction_device(&tx),sb,parent,mode,out);
+    if(r!=OPENFS_INODE_ALLOC_OK){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_CORRUPT;
+        (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
+    }
+    tr=openfs_transaction_commit(&tx);
+    if(tr!=OPENFS_TRANSACTION_OK)r=map_transaction_result(tr);
     (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
 }
 openfs_inode_alloc_result_t openfs_inode_free(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t n){
     if(sb==NULL||sb->runtime==NULL)return inode_free_unlocked(d,sb,n);
     if(!openfs_runtime_enter(sb->runtime))return OPENFS_INODE_ALLOC_IO_ERROR;
     if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){openfs_runtime_leave(sb->runtime);return OPENFS_INODE_ALLOC_IO_ERROR;}
-    openfs_inode_alloc_result_t r=inode_free_unlocked(d,sb,n);
+    if(!inode_transaction_available(d,sb)){
+        openfs_inode_alloc_result_t r=inode_free_unlocked(d,sb,n);
+        (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
+    }
+    openfs_transaction_t tx;
+    openfs_transaction_result_t tr=openfs_transaction_begin(&tx,d,sb->runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return map_transaction_result(tr);}
+    openfs_inode_alloc_result_t r=inode_free_unlocked(openfs_transaction_device(&tx),sb,n);
+    if(r!=OPENFS_INODE_ALLOC_OK){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+        if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_CORRUPT;
+        (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
+    }
+    tr=openfs_transaction_commit(&tx);
+    if(tr!=OPENFS_TRANSACTION_OK)r=map_transaction_result(tr);
     (void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
 }
