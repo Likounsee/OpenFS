@@ -2,6 +2,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/runtime.h"
 #include "openfs/cow.h"
+#include "openfs/data_checksum.h"
 #include "openfs/transaction.h"
 static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block,int value){
     if(d==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
@@ -20,7 +21,7 @@ static openfs_alloc_result_t set_block(openfs_block_device_t*d,const openfs_supe
     if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,block,used)!=OPENFS_BITMAP_OK||d->flush(d->context)!=OPENFS_IO_OK)return OPENFS_ALLOC_CORRUPT;
     return OPENFS_ALLOC_IO_ERROR;
 }
-static openfs_alloc_result_t alloc_block_tx_unlocked(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t*out){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count)return OPENFS_ALLOC_CORRUPT;uint64_t end=sb->data_start+sb->data_blocks;for(uint64_t b=sb->data_start;b<end;b++){int used=0;if(openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if(!used){if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U&&openfs_cow_refcount_set_tx(t,sb,b,1U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;*out=b;return OPENFS_ALLOC_OK;}}return OPENFS_ALLOC_OUT_OF_SPACE;}
+static openfs_alloc_result_t alloc_block_tx_unlocked(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t*out){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count)return OPENFS_ALLOC_CORRUPT;uint64_t end=sb->data_start+sb->data_blocks;for(uint64_t b=sb->data_start;b<end;b++){int used=0;if(openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if(!used){if(openfs_bitmap_set(d,sb->block_bitmap_start,sb->block_bitmap_blocks,b,1)!=OPENFS_BITMAP_OK)return OPENFS_ALLOC_IO_ERROR;if((sb->feature_flags&OPENFS_FEATURE_COW)!=0U&&openfs_cow_refcount_set_tx(t,sb,b,1U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;if((sb->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U){uint8_t *z=calloc(1U,d->block_size);if(z==NULL||openfs_data_checksum_set(t?openfs_transaction_device(t):d,sb,b,openfs_data_checksum(z,d->block_size))!=0){free(z);return OPENFS_ALLOC_IO_ERROR;}free(z);}*out=b;return OPENFS_ALLOC_OK;}}return OPENFS_ALLOC_OUT_OF_SPACE;}
 static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out){
     if(d==NULL||sb==NULL||out==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     if(sb->block_size!=d->block_size||sb->data_blocks==0U||sb->data_start>UINT64_MAX-sb->data_blocks||sb->data_start+sb->data_blocks>d->block_count||sb->block_bitmap_blocks==0U||sb->block_bitmap_start>=d->block_count||sb->block_bitmap_blocks>d->block_count-sb->block_bitmap_start)return OPENFS_ALLOC_CORRUPT;
