@@ -11,7 +11,8 @@ static openfs_cow_result_t lock_cow(const openfs_superblock_t *sb)
 {
     if(sb==NULL||sb->runtime==NULL)return OPENFS_COW_OK;
     if(!openfs_runtime_enter(sb->runtime))return OPENFS_COW_IO_ERROR;
-    if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK){
+    /* Refcount I/O can run inside an allocation transaction: allocation_lock is already held below transaction_lock, so the nested acquisition must not descend from rank 35 back to rank 30. */
+    if(openfs_mutex_lock(&sb->runtime->allocation_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){
         openfs_runtime_leave(sb->runtime);
         return OPENFS_COW_IO_ERROR;
     }
