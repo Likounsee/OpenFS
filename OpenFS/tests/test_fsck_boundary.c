@@ -54,6 +54,7 @@ static void patch_journal_record(openfs_block_device_t*v,const openfs_superblock
     for(unsigned k=0;k<8;k++)raw[8U+k]=(uint8_t)(tx>>(8U*k));for(unsigned k=0;k<8;k++)raw[16U+k]=(uint8_t)(seq>>(8U*k));for(unsigned k=0;k<4;k++)raw[24U+k]=(uint8_t)(len>>(8U*k));
     memset(raw+28U,0,4U);uint32_t c=openfs_crc32c(raw,4096U);for(unsigned k=0;k<4;k++)raw[28U+k]=(uint8_t)(c>>(8U*k));TEST_ASSERT(v->write(v->context,s->journal_start+slot,1U,raw)==OPENFS_IO_OK);
 }
+static void patch_refcount_zero(openfs_block_device_t*v,const openfs_superblock_t*s,uint64_t block){uint64_t idx=block-s->data_start,per=(uint64_t)s->block_size/2U,tb=s->refcount_start+idx/per;uint32_t off=(uint32_t)((idx%per)*2U);uint8_t raw[4096U];TEST_ASSERT(v->read(v->context,tb,1U,raw)==OPENFS_IO_OK);raw[off]=0U;raw[off+1U]=0U;TEST_ASSERT(v->write(v->context,tb,1U,raw)==OPENFS_IO_OK);}
 static void patch_backup_reserved(openfs_block_device_t*v){uint8_t raw[4096U];uint64_t block=v->block_count-1U;TEST_ASSERT(v->read(v->context,block,1U,raw)==OPENFS_IO_OK);raw[196U]=0xA5U;memset(raw+4088U,0,4U);uint32_t c=openfs_crc32c(raw,4088U);for(unsigned k=0;k<4;k++)raw[4088U+k]=(uint8_t)(c>>(8U*k));TEST_ASSERT(v->write(v->context,block,1U,raw)==OPENFS_IO_OK);}
 static void patch_sb_u64(openfs_block_device_t*v,const openfs_superblock_t*s,uint32_t off,uint64_t value){
     uint64_t blocks[2]={0U,v->block_count-1U};for(unsigned n=0;n<2;n++){uint8_t raw[4096U];TEST_ASSERT(v->read(v->context,blocks[n],1U,raw)==OPENFS_IO_OK);for(unsigned k=0;k<8;k++)raw[off+k]=(uint8_t)(value>>(8U*k));memset(raw+4088U,0,4U);uint32_t c=openfs_crc32c(raw,4088U);for(unsigned k=0;k<4;k++)raw[4088U+k]=(uint8_t)(c>>(8U*k));TEST_ASSERT(v->write(v->context,blocks[n],1U,raw)==OPENFS_IO_OK);}
@@ -86,8 +87,9 @@ static int corrupt_case(unsigned kind){
     case 20: {openfs_extent_t e;TEST_ASSERT(openfs_inode_get_extent(&fi,0U,&e)==OPENFS_EXTENT_OK);TEST_ASSERT(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,e.physical_start,0)==OPENFS_BITMAP_OK);break;} /* block bitmap */
     case 21: {uint64_t bit=d.bc;TEST_ASSERT(openfs_bitmap_set(&v,s.block_bitmap_start,s.block_bitmap_blocks,bit,1)==OPENFS_BITMAP_OK);break;} /* bitmap bit beyond device */
     case 22: patch_backup_reserved(&v); break; /* backup superblock reserved field */
+    case 23: {openfs_extent_t e;TEST_ASSERT(openfs_inode_get_extent(&fi,0U,&e)==OPENFS_EXTENT_OK);patch_refcount_zero(&v,&s,e.physical_start);break;} /* CoW refcount mismatch */
     default: TEST_ASSERT(0);
     }
     uint64_t errors=0;openfs_fsck_result_t r=openfs_fsck(&v,&s,&errors);int ok=(r!=OPENFS_FSCK_OK);free(d.b);return ok;
 }
-int main(void){for(unsigned k=0;k<=22;k++){if(!corrupt_case(k)){fprintf(stderr,"fsck boundary case %u failed\\n",k);return 1;}}return 0;}
+int main(void){for(unsigned k=0;k<=23;k++){if(!corrupt_case(k)){fprintf(stderr,"fsck boundary case %u failed\\n",k);return 1;}}return 0;}
