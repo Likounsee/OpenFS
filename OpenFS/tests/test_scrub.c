@@ -9,6 +9,7 @@
 #include "openfs/path.h"
 #include "openfs/inode.h"
 #include "openfs/file.h"
+#include "openfs/bitmap.h"
 
 #define BS 4096U
 #define BC 256U
