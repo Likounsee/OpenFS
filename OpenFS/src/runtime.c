@@ -108,6 +108,17 @@ int openfs_runtime_enter(openfs_runtime_t *r)
     tls_runtime=r;tls_runtime_depth=1U;return 1;
 }
 
+int openfs_runtime_is_accepting(openfs_runtime_t *r)
+{
+    if(r==NULL)return 0;
+    /* Callers that may race teardown must already hold an active runtime pin;
+     * that pin keeps lifecycle_lock alive until this probe returns. */
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    int accepting=r->initialized&&r->accepting&&!r->destroying;
+    (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    return accepting;
+}
+
 void openfs_runtime_leave(openfs_runtime_t *r)
 {
     if(r==NULL||tls_runtime!=r||tls_runtime_depth==0U)return;
