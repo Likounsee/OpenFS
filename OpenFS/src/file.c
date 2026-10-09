@@ -2,6 +2,14 @@
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
 
+#include "openfs/runtime.h"
+#include "openfs/cow.h"
+#include "openfs/data_checksum.h"
+
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+
 static openfs_file_result_t map_allocator_result(openfs_alloc_result_t result)
 {
     switch (result) {
@@ -19,13 +27,6 @@ static openfs_file_result_t map_allocator_result(openfs_alloc_result_t result)
         return OPENFS_FILE_CORRUPT;
     }
 }
-#include "openfs/runtime.h"
-#include "openfs/cow.h"
-#include "openfs/data_checksum.h"
-
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
 
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
