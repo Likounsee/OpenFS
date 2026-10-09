@@ -43,7 +43,7 @@ static openfs_file_lock_result_t handle_lock(openfs_file_handle_t *h){
 static void handle_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&h->lock);}
 static openfs_file_lock_result_t registry_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->superblock.runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
 static void registry_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&h->superblock.runtime->file_lock_registry_lock);}
-openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t type,uint32_t flags){
+static openfs_file_lock_result_t file_lock_impl(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t type,uint32_t flags){
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t hl=handle_lock(h);if(hl!=OPENFS_FILE_LOCK_OK)return hl;
     if(type!=OPENFS_FILE_LOCK_SHARED&&type!=OPENFS_FILE_LOCK_EXCLUSIVE){handle_unlock(h);return OPENFS_FILE_LOCK_INVALID_ARGUMENT;}
@@ -68,7 +68,7 @@ openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,uint64_t star
 #endif
     }
 }
-openfs_file_lock_result_t openfs_file_unlock(openfs_file_handle_t *h,uint64_t start,uint64_t length){
+static openfs_file_lock_result_t file_unlock_impl(openfs_file_handle_t *h,uint64_t start,uint64_t length){
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t hl=handle_lock(h);if(hl!=OPENFS_FILE_LOCK_OK)return hl;
     openfs_file_lock_result_t lr=registry_lock(h);if(lr!=OPENFS_FILE_LOCK_OK){handle_unlock(h);return lr;}
@@ -82,7 +82,7 @@ openfs_file_lock_result_t openfs_file_unlock(openfs_file_handle_t *h,uint64_t st
     }
     registry_unlock(h);handle_unlock(h);return OPENFS_FILE_LOCK_NOT_FOUND;
 }
-openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t *conflict_type){
+static openfs_file_lock_result_t file_lock_test_impl(openfs_file_handle_t *h,uint64_t start,uint64_t length,uint32_t *conflict_type){
     if(conflict_type==NULL)return OPENFS_FILE_LOCK_INVALID_ARGUMENT;
     *conflict_type=0U;
     if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;
@@ -95,7 +95,7 @@ openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,uint64_t
     }
     registry_unlock(h);handle_unlock(h);return OPENFS_FILE_LOCK_OK;
 }
-void openfs_file_lock_release_all(openfs_file_handle_t *h){
+static void file_lock_release_all_impl(openfs_file_handle_t *h){
     if(h==NULL||h->superblock.runtime==NULL)return;
     openfs_runtime_t *runtime=h->superblock.runtime;
     if(!openfs_runtime_enter(runtime))return;
@@ -104,4 +104,66 @@ void openfs_file_lock_release_all(openfs_file_handle_t *h){
     while(*pp!=NULL){openfs_file_lock_entry_t *e=*pp;if(e->owner==h){*pp=e->next;free(e);continue;}pp=&e->next;}
     (void)openfs_mutex_unlock(&runtime->file_lock_registry_lock);
     openfs_runtime_leave(runtime);
+}
+
+
+/*
+ * Pin the runtime across every operation on its lock registry.  Open handles
+ * normally prevent an unused shutdown, but shutdown temporarily closes
+ * admission while draining active users and checking the handle count.  These
+ * calls must participate in that protocol rather than touching the registry
+ * outside the runtime's active-user accounting.
+ */
+static int file_lock_runtime_enter(openfs_file_handle_t *h,
+                                   openfs_runtime_t **runtime_out)
+{
+    if (h == NULL || runtime_out == NULL) return 0;
+    if (!handle_open(h)) return 0;
+    openfs_runtime_t *runtime = h->superblock.runtime;
+    *runtime_out = runtime;
+    return runtime == NULL || openfs_runtime_enter(runtime);
+}
+
+openfs_file_lock_result_t openfs_file_lock(openfs_file_handle_t *h,
+                                           uint64_t start,
+                                           uint64_t length,
+                                           uint32_t type,
+                                           uint32_t flags)
+{
+    openfs_runtime_t *runtime = NULL;
+    if (!file_lock_runtime_enter(h, &runtime)) return OPENFS_FILE_LOCK_CLOSED;
+    openfs_file_lock_result_t result = file_lock_impl(h, start, length, type, flags);
+    if (runtime != NULL) openfs_runtime_leave(runtime);
+    return result;
+}
+
+openfs_file_lock_result_t openfs_file_unlock(openfs_file_handle_t *h,
+                                             uint64_t start,
+                                             uint64_t length)
+{
+    openfs_runtime_t *runtime = NULL;
+    if (!file_lock_runtime_enter(h, &runtime)) return OPENFS_FILE_LOCK_CLOSED;
+    openfs_file_lock_result_t result = file_unlock_impl(h, start, length);
+    if (runtime != NULL) openfs_runtime_leave(runtime);
+    return result;
+}
+
+openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,
+                                                uint64_t start,
+                                                uint64_t length,
+                                                uint32_t *conflict_type)
+{
+    openfs_runtime_t *runtime = NULL;
+    if (!file_lock_runtime_enter(h, &runtime)) return OPENFS_FILE_LOCK_CLOSED;
+    openfs_file_lock_result_t result = file_lock_test_impl(h, start, length, conflict_type);
+    if (runtime != NULL) openfs_runtime_leave(runtime);
+    return result;
+}
+
+void openfs_file_lock_release_all(openfs_file_handle_t *h)
+{
+    openfs_runtime_t *runtime = NULL;
+    if (!file_lock_runtime_enter(h, &runtime)) return;
+    file_lock_release_all_impl(h);
+    if (runtime != NULL) openfs_runtime_leave(runtime);
 }
