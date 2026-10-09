@@ -192,12 +192,16 @@ static openfs_journal_result_t validate_journal_data(void *ctx,uint64_t tx,const
 {
     (void)tx;
     const openfs_superblock_t *s=ctx;
-    if(s==NULL||data==NULL||len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
+    if(s==NULL||data==NULL||len<24U||memcmp(data,"OJBD1",5U)!=0||data[5U]!=0U||data[6U]!=0U||data[7U]!=0U)return OPENFS_JOURNAL_CORRUPT;
     uint64_t target=0U;for(unsigned k=0U;k<8U;k++)target|=(uint64_t)data[8U+k]<<(8U*k);
     uint32_t offset=(uint32_t)data[16U]|((uint32_t)data[17U]<<8U)|((uint32_t)data[18U]<<16U)|((uint32_t)data[19U]<<24U);
     uint32_t count=(uint32_t)data[20U]|((uint32_t)data[21U]<<8U)|((uint32_t)data[22U]<<16U)|((uint32_t)data[23U]<<24U);
+    uint64_t capacity=(uint64_t)s->block_size-OPENFS_JOURNAL_HEADER_SIZE-OPENFS_JOURNAL_BLOCK_DATA_HEADER;
+    uint64_t expected=offset<(uint64_t)s->block_size?(uint64_t)s->block_size-offset:0U;
+    if(expected>capacity)expected=capacity;
     if(target>=s->total_blocks||target==0U||target==s->total_blocks-1U||count==0U||count!=len-24U||
-       offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||
+       offset>=s->block_size||count>(uint32_t)((uint64_t)s->block_size-offset)||capacity==0U||
+       offset%capacity!=0U||count!=expected||
        (target>=s->journal_start&&target-s->journal_start<s->journal_blocks))return OPENFS_JOURNAL_CORRUPT;
     return OPENFS_JOURNAL_OK;
 }
