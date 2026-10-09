@@ -237,4 +237,16 @@ if(OPENFS_BUILD_TESTS)
     target_link_libraries(openfs-file-concurrency-test PRIVATE openfs Threads::Threads)
     openfs_enable_warnings(openfs-file-concurrency-test)
     add_test(NAME openfs-file-concurrency COMMAND openfs-file-concurrency-test)
+
+    # C assert() expressions in test programs often perform the operation being
+    # tested. Keep them enabled in Release builds so NDEBUG cannot erase tests.
+    get_property(OPENFS_LOCAL_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(OPENFS_TARGET IN LISTS OPENFS_LOCAL_TARGETS)
+        if(OPENFS_TARGET MATCHES "-test$")
+            target_compile_options(${OPENFS_TARGET} PRIVATE
+                $<$<C_COMPILER_ID:MSVC>:/UNDEBUG>
+                $<$<NOT:$<C_COMPILER_ID:MSVC>>:-UNDEBUG>
+            )
+        endif()
+    endforeach()
 endif()

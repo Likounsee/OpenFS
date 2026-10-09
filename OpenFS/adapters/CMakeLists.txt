@@ -78,6 +78,10 @@ if(WIN32)
         target_include_directories(openfs-windows-adapter-test PRIVATE windows)
         target_link_libraries(openfs-windows-adapter-test PRIVATE openfs-windows-adapter)
         openfs_enable_warnings(openfs-windows-adapter-test)
+        target_compile_options(openfs-windows-adapter-test PRIVATE
+            $<$<C_COMPILER_ID:MSVC>:/UNDEBUG>
+            $<$<NOT:$<C_COMPILER_ID:MSVC>>:-UNDEBUG>
+        )
         add_test(NAME openfs-windows-adapter COMMAND openfs-windows-adapter-test)
 
         set(OPENFS_WINDOWS_IMAGE_TEST
@@ -141,5 +145,9 @@ if(OPENFS_BUILD_TESTS)
     target_include_directories(openfs-archiaos-adapter-test PRIVATE archiaos)
     target_link_libraries(openfs-archiaos-adapter-test PRIVATE openfs-archiaos-adapter)
     openfs_enable_warnings(openfs-archiaos-adapter-test)
+    target_compile_options(openfs-archiaos-adapter-test PRIVATE
+        $<$<C_COMPILER_ID:MSVC>:/UNDEBUG>
+        $<$<NOT:$<C_COMPILER_ID:MSVC>>:-UNDEBUG>
+    )
     add_test(NAME openfs-archiaos-adapter COMMAND openfs-archiaos-adapter-test)
 endif()

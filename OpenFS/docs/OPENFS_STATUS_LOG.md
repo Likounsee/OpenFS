@@ -926,3 +926,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - Added a Release configure/build/test pass to Windows/MSVC as well.
 - Motivation: the recent always-on concurrency assertions specifically protect workloads from `NDEBUG`; Debug-only CI did not exercise the configuration in which that regression could recur. This change makes Release behavior observable on all three CI platforms instead of assuming Debug success transfers to Release.
 - Validation: this workflow change will be considered validated only after its new Release jobs and all existing Debug/sanitizer jobs pass on GitHub Actions.
+
+
+# 2026-10-10 — keep all test assertions active in Release builds
+
+- The first full Release matrix exposed four Clang Release failures, including segfaults in journal and mount tests. Inspection shows many test programs put setup and API calls inside standard `assert()`; Release's `NDEBUG` removes those expressions, so the tests do not execute their setup/workload correctly.
+- Apply an explicit undefinition of `NDEBUG` to test executable targets only, using compiler-specific options for MSVC and GCC/Clang. This preserves the intended test operations without changing Release assertion semantics in the OpenFS library itself.
+- Apply the same rule to adapter test executables created in the adapters subdirectory.
+- Validation pending: rerun Debug, sanitizers, and Release tests on Linux/Windows; this correction is not considered complete until the full CI matrix is green.
