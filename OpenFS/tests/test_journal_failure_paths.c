@@ -12,6 +12,7 @@ typedef struct {
     uint32_t block_size;
     uint64_t block_count;
     int fail_next_write;
+    int fail_write_count;
     int fail_write_after;
     int fail_next_flush;
 } disk_t;
@@ -37,6 +38,10 @@ static openfs_io_result_t write_blocks(void *ctx, uint64_t first, uint32_t count
     }
     if (d->fail_next_write) {
         d->fail_next_write = 0;
+        return OPENFS_IO_IO_ERROR;
+    }
+    if (d->fail_write_count > 0) {
+        d->fail_write_count--;
         return OPENFS_IO_IO_ERROR;
     }
     if (d->fail_write_after > 0) {
@@ -182,6 +187,32 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
 
 static openfs_journal_result_t replay_noop(void *, uint64_t, const uint8_t *, uint32_t);
 
+
+static void test_begin_restore_failure_requires_recovery(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6AU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    uint64_t tx = 0U;
+    d.fail_write_count = 2; /* Fail BEGIN write and its compensating restore. */
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    free(d.data);
+}
+
 static void test_commit_flush_failure_requires_recovery(void)
 {
     disk_t d = {0};
@@ -263,5 +294,6 @@ int main(void)
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
     test_commit_flush_failure_requires_recovery();
+    test_begin_restore_failure_requires_recovery();
     return 0;
 }
