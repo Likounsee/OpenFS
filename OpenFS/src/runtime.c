@@ -289,15 +289,20 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
         if(active==0U)break;
         /*
-         * Admission is closed while the lifecycle guard is held, but active
-         * operations still need to run their leave path. Yield so shutdown
-         * does not monopolize a CPU while waiting for those operations.
+         * Keep the runtime registered and marked as destroying, but release
+         * the global registry guard while waiting. This lets new callers
+         * acquire the guard and observe accepting == 0 instead of blocking
+         * behind shutdown; active operations can still complete their leave
+         * path. A second shutdown cannot destroy this runtime because the
+         * destroying flag remains set.
          */
+        runtime_lifecycle_unlock();
 #if defined(_WIN32)
         (void)SwitchToThread();
 #else
         (void)sched_yield();
 #endif
+        if(!runtime_lifecycle_lock())return 0;
     }
 
     if(require_unused){
