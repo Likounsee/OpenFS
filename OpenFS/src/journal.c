@@ -99,6 +99,7 @@ openfs_journal_result_t openfs_journal_commit(openfs_journal_t*j,openfs_block_de
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
     openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);(void)openfs_mutex_unlock(&j->runtime->journal_lock);openfs_runtime_leave(j->runtime);return r;
 }
+openfs_journal_result_t openfs_journal_recovery_complete(openfs_journal_t*j){if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->active_transaction_id!=0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;j->recovery_required=0U;return OPENFS_JOURNAL_OK;}
 openfs_journal_result_t openfs_journal_checkpoint(openfs_journal_t*j,openfs_block_device_t*d)
 {
     if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
