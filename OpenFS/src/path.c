@@ -1,4 +1,5 @@
 #include "openfs/path.h"
+#include <stdio.h>
 #include "openfs/bitmap.h"
 #include "openfs/crc32c.h"
 #include <string.h>
@@ -438,7 +439,7 @@ if(destination_exists&&destination.link_count==1U){
 }
 if(snapshot_ok)snapshot_ok &= path_snapshot_bitmap(d,s,s->inode_bitmap_start,s->inode_bitmap_blocks,&inode_bitmap_before);
 if(snapshot_ok)snapshot_ok &= path_snapshot_bitmap(d,s,s->block_bitmap_start,s->block_bitmap_blocks,&block_bitmap_before);
-if(!snapshot_ok){
+if(!snapshot_ok){ fprintf(stderr,"RN snapshot failed\\n");
     path_snapshot_free(&dir_snap);path_snapshot_free(&inode_snap);path_snapshot_free(&dest_data_snap);free(inode_bitmap_before);free(block_bitmap_before);free(dest_root_before);
     return OPENFS_PATH_IO_ERROR;
 }
@@ -446,12 +447,12 @@ if(!snapshot_ok){
 openfs_path_result_t failure=OPENFS_PATH_IO_ERROR;
 int ok=1;
 if(destination_exists){
-    if(openfs_dir_remove(d,s,&ndir,nn)!=OPENFS_DIR_OK){ok=0;failure=OPENFS_PATH_IO_ERROR;};
+    openfs_dir_result_t rm_dest_result=openfs_dir_remove(d,s,&ndir,nn); fprintf(stderr,"RN remove dest=%d exists=%d\\n",(int)rm_dest_result,destination_exists); if(rm_dest_result!=OPENFS_DIR_OK){ok=0;failure=OPENFS_PATH_IO_ERROR;};
 }
-if(ok&&openfs_dir_remove(d,s,&odir,on)!=OPENFS_DIR_OK){ok=0;}
+if(ok){openfs_dir_result_t rm_source_result=openfs_dir_remove(d,s,&odir,on); fprintf(stderr,"RN remove source=%d\\n",(int)rm_source_result); if(rm_source_result!=OPENFS_DIR_OK)ok=0;}
 if(ok){
     openfs_dir_entry_t moved=source_entry;
-    if(openfs_dir_add(d,s,&ndir,nn,&moved)!=OPENFS_DIR_OK){ok=0;}
+    openfs_dir_result_t add_result=openfs_dir_add(d,s,&ndir,nn,&moved); fprintf(stderr,"RN add=%d\\n",(int)add_result); if(add_result!=OPENFS_DIR_OK)ok=0;
 }
 if(ok&&source_is_dir){
     source.parent_inode=newparent;
@@ -476,8 +477,8 @@ if(ok&&destination_exists){
         }
     }
 }
-if(ok&&d->flush(d->context)!=OPENFS_IO_OK)ok=0;
-if(!ok){
+if(ok){openfs_io_result_t flush_result=d->flush(d->context); fprintf(stderr,"RN flush=%d\\n",(int)flush_result); if(flush_result!=OPENFS_IO_OK)ok=0;}
+if(!ok){ fprintf(stderr,"RN rollback failure=%d\\n",(int)failure);
     int rollback_ok=1;
     if(!path_restore_snapshots(d,&inode_snap))rollback_ok=0;
     if(!path_restore_snapshots(d,&dir_snap))rollback_ok=0;
