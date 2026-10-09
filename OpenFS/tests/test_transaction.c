@@ -90,7 +90,7 @@ d.partial_block=s.journal_start+j.next_record;d.partial_bytes=512U;d.partial_nex
 CHECK(td->write(td->context,s.data_start+8U,1U,a)==OPENFS_IO_IO_ERROR);
 CHECK(t.failed==1&&t.recovery_required==1&&t.active==1&&j.active_transaction_id==t.txid);
 d.partial_enabled=0;
-CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==0);CHECK(j.active_transaction_id==t.txid);
+CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==0);CHECK(j.active_transaction_id==0U);CHECK(j.recovery_required==1U);CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
 free(d.b);return 0;
 }
 
