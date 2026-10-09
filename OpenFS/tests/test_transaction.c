@@ -18,6 +18,30 @@ typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_da
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(d->partial_enabled&&f==d->partial_block){size_t bytes=(size_t)((uint64_t)n*d->bs);if(d->partial_bytes!=0U&&d->partial_bytes<bytes)bytes=d->partial_bytes;memcpy(d->b+(size_t)(f*d->bs),x,bytes);if(d->partial_once){if(d->partial_change_after_once)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){D*d=c;if(d->flush_failed||d->fail_flush)return OPENFS_IO_IO_ERROR;return OPENFS_IO_OK;}
+static int mock_device_rejects_out_of_range_before_fault_injection(void)
+{
+    D d = {0};
+    d.bs = 4U;
+    d.bc = 2U;
+    d.b = calloc((size_t)d.bc, d.bs);
+    CHECK(d.b);
+    uint8_t input[8];
+    memset(input, 0xA5U, sizeof(input));
+    d.partial_enabled = 1;
+    d.partial_block = d.bc - 1U;
+    d.partial_bytes = 2U;
+
+    CHECK(w(&d, d.bc, 1U, input) == OPENFS_IO_OUT_OF_RANGE);
+    CHECK(d.partial_enabled == 1);
+    CHECK(w(&d, d.bc - 1U, 2U, input) == OPENFS_IO_OUT_OF_RANGE);
+    CHECK(d.partial_enabled == 1);
+    for (size_t i = 0U; i < (size_t)d.bc * d.bs; ++i) {
+        CHECK(d.b[i] == 0U);
+    }
+
+    free(d.b);
+    return 0;
+}
 static openfs_journal_result_t recovery_payload_cb(void *ctx,uint64_t tx,const uint8_t *payload,uint32_t length){uint32_t *hits=(uint32_t*)ctx;if(tx!=1U||length!=3U||memcmp(payload,"abc",3U)!=0)return OPENFS_JOURNAL_CORRUPT;(*hits)++;return OPENFS_JOURNAL_OK;}
 static int commit_flush_failure_recovers_same_journal(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
@@ -316,6 +340,7 @@ static int committed_file_allocation_replays_with_inode_owner(void)
 }
 
 int main(void){
+CHECK(mock_device_rejects_out_of_range_before_fault_injection()==0);
 CHECK(allocator_metadata_failure_poison_transaction()==0);
 CHECK(committed_namespace_transaction_replays_as_a_unit()==0);CHECK(committed_file_allocation_replays_with_inode_owner()==0);
 CHECK(allocator_checksum_failure_poison_transaction()==0);
