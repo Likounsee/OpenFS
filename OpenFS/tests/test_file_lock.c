@@ -15,6 +15,20 @@
 #include <sched.h>
 #endif
 
+/*
+ * These regression tests must execute in Release builds too.  The standard
+ * assert macro removes its expression when NDEBUG is defined, which would
+ * otherwise skip formatting, mounting, thread creation, and the actual checks.
+ */
+#undef assert
+#define assert(expression) do { \
+    if (!(expression)) { \
+        fprintf(stderr, "check failed: %s (%s:%d)\\n", \
+                #expression, __FILE__, __LINE__); \
+        abort(); \
+    } \
+} while (0)
+
 typedef struct { uint8_t *data; uint32_t bs; uint64_t blocks; } disk_t;
 static openfs_io_result_t rd(void *ctx,uint64_t first,uint32_t count,void *out){
     disk_t *d=ctx;if(first>=d->blocks||(uint64_t)count>d->blocks-first)return OPENFS_IO_OUT_OF_RANGE;
