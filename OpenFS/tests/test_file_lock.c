@@ -67,6 +67,26 @@ static void *lock_race_worker(void *arg)
 #endif
 }
 
+typedef struct { openfs_file_handle_t *handle; atomic_int started; openfs_file_lock_result_t result; } blocking_lock_context_t;
+#if defined(_WIN32)
+static unsigned __stdcall blocking_lock_worker(void *arg)
+#else
+static void *blocking_lock_worker(void *arg)
+#endif
+{
+    blocking_lock_context_t *ctx=(blocking_lock_context_t *)arg;
+    atomic_store_explicit(&ctx->started,1,memory_order_release);
+    ctx->result=openfs_file_lock(ctx->handle,700U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,OPENFS_FILE_LOCK_BLOCK);
+    if(ctx->result==OPENFS_FILE_LOCK_OK){
+        if(openfs_file_unlock(ctx->handle,700U,25U)!=OPENFS_FILE_LOCK_OK)ctx->result=OPENFS_FILE_LOCK_IO_ERROR;
+    }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
 int main(void){
     disk_t d={0};d.bs=4096U;d.blocks=256U;d.data=calloc((size_t)d.blocks,d.bs);assert(d.data);
     openfs_block_device_t dev={&d,d.bs,d.blocks,rd,wr,fl};
@@ -104,6 +124,25 @@ int main(void){
     assert(openfs_file_lock(b,50U,10U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_unlock(b,50U,10U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_unlock(b,50U,10U)==OPENFS_FILE_LOCK_NOT_FOUND);
+
+    /* A blocking lock must wait for a conflicting owner and then proceed. */
+    assert(openfs_file_lock(a,700U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
+    blocking_lock_context_t blocking={b,ATOMIC_VAR_INIT(0),OPENFS_FILE_LOCK_IO_ERROR};
+#if defined(_WIN32)
+    uintptr_t blocking_thread=_beginthreadex(NULL,0U,blocking_lock_worker,&blocking,0U,NULL);
+    assert(blocking_thread!=0U);
+    while(atomic_load_explicit(&blocking.started,memory_order_acquire)==0)Sleep(0);
+    assert(openfs_file_unlock(a,700U,25U)==OPENFS_FILE_LOCK_OK);
+    assert(WaitForSingleObject((HANDLE)blocking_thread,60000U)==WAIT_OBJECT_0);
+    CloseHandle((HANDLE)blocking_thread);
+#else
+    pthread_t blocking_thread;
+    assert(pthread_create(&blocking_thread,NULL,blocking_lock_worker,&blocking)==0);
+    while(atomic_load_explicit(&blocking.started,memory_order_acquire)==0)sched_yield();
+    assert(openfs_file_unlock(a,700U,25U)==OPENFS_FILE_LOCK_OK);
+    assert(pthread_join(blocking_thread,NULL)==0);
+#endif
+    assert(blocking.result==OPENFS_FILE_LOCK_OK);
 
     assert(openfs_fd_dup(b,&dup)==OPENFS_FD_OK&&dup==b);
     assert(openfs_file_lock(b,300U,20U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
