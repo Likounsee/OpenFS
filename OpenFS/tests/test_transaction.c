@@ -204,9 +204,53 @@ static int allocator_metadata_failure_poison_transaction(void)
     return 0;
 }
 
+
+static int committed_namespace_transaction_replays_as_a_unit(void)
+{
+    D d = {0};
+    d.bs = 4096U;
+    d.bc = 256U;
+    d.b = calloc((size_t)d.bc, d.bs);
+    CHECK(d.b);
+    openfs_block_device_t v = {&d, d.bs, d.bc, r, w, fl};
+    uint8_t uuid[16] = {43U};
+    CHECK(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    CHECK(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    CHECK(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    openfs_transaction_t t;
+    CHECK(openfs_transaction_begin(&t, &v, &j) == OPENFS_TRANSACTION_OK);
+    uint64_t inode = 0U;
+    CHECK(openfs_path_create_tx(&t, &s, "/recovered-atomically",
+        OPENFS_INODE_MODE_REGULAR, &inode) == OPENFS_PATH_OK);
+    CHECK(inode != 0U && t.pending_count > 0U);
+
+    /* Fail publication after COMMIT; the journal must remain the authority. */
+    d.fail_start = s.data_start;
+    d.fail_data = 1;
+    CHECK(openfs_transaction_commit(&t) == OPENFS_TRANSACTION_IO_ERROR);
+    CHECK(t.committed == 1 && t.recovery_required == 1);
+    d.fail_data = 0;
+    CHECK(openfs_transaction_abort(&t) == OPENFS_TRANSACTION_CORRUPT);
+
+    openfs_mount_t recovered;
+    CHECK(openfs_mount(&recovered, &v) == OPENFS_MOUNT_OK);
+    uint64_t recovered_inode = 0U;
+    CHECK(openfs_path_lookup(&v, &recovered.superblock,
+        "/recovered-atomically", &recovered_inode) == OPENFS_PATH_OK);
+    CHECK(recovered_inode == inode);
+    CHECK(openfs_unmount(&recovered) == OPENFS_MOUNT_OK);
+    free(d.b);
+    return 0;
+}
+
 int main(void){
 CHECK(allocator_metadata_failure_poison_transaction()==0);
-CHECK(allocator_checksum_failure_poison_transaction()==0);\nCHECK(commit_flush_failure_recovers_same_journal()==0);
+CHECK(committed_namespace_transaction_replays_as_a_unit()==0);
+CHECK(allocator_checksum_failure_poison_transaction()==0);
+CHECK(commit_flush_failure_recovers_same_journal()==0);
 CHECK(failed_wal_write_and_failed_rollback_poison_journal()==0);
 CHECK(checkpoint_cannot_discard_pending_publication()==0);
 CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
