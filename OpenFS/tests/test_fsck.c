@@ -77,6 +77,7 @@ static void cow_refcount_exact_ownership_cases(void){
     openfs_extent_t ex;TEST_ASSERT(openfs_inode_get_extent(&in,0U,&ex)==OPENFS_EXTENT_OK);
     uint16_t rc=0U;uint64_t errors=0U;
     TEST_ASSERT(openfs_cow_refcount_get(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OK&&rc==1U);
+    d.fail_block=s.refcount_start;d.fail_read=1;TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_IO_ERROR);d.fail_read=0;
     TEST_ASSERT(openfs_fsck(&v,&s,&errors)==OPENFS_FSCK_OK&&errors==0U);
     TEST_ASSERT(openfs_path_clone(&v,&s,"/cow","/cow-clone",&clone_ino)==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_cow_refcount_get(&v,&s,ex.physical_start,&rc)==OPENFS_COW_OK&&rc==2U);
