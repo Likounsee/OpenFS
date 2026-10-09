@@ -32,8 +32,7 @@ static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t
 static void empty_boundary(void){
     TEST_ASSERT(OPENFS_JOURNAL_BLOCK_DATA_HEADER==24U);
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);openfs_journal_t j;TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);TEST_ASSERT(j.active_transaction_id==0U);TEST_ASSERT(j.commit_record_written==0U);
-    TEST_ASSERT(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
-    TEST_ASSERT(openfs_journal_recovery_complete(&j)==OPENFS_JOURNAL_OK);
+    TEST_ASSERT(openfs_journal_recover(&j,&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);openfs_journal_t r;TEST_ASSERT(openfs_journal_open(&r,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(r.next_record==0U);free(d.b);
 }
 static void physical_boundaries(void){
@@ -47,7 +46,7 @@ static void physical_boundaries(void){
     for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,4064U);
     raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_DATA,1U,jb,payload,sizeof(payload));
     TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==jb);TEST_ASSERT(j.commit_record_written==0U);
-    TEST_ASSERT(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);TEST_ASSERT(openfs_journal_recovery_complete(&j)==OPENFS_JOURNAL_OK);TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
+    TEST_ASSERT(openfs_journal_recover(&j,&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
     /* Exact-full committed journal through the real writer: BEGIN + (jb-2) DATA + COMMIT. */
     setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0x5CU);
     TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
