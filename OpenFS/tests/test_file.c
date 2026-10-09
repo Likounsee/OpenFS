@@ -721,6 +721,28 @@ static void sparse_leading_hole_survives_fsck(void){
     free(d.bytes);
 }
 
+static void sparse_write_reports_rollback_failure(void)
+{
+    disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    uint64_t ino=0U;
+    TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-rollback-failure",
+        OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
+    uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t inode;
+    TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&inode)==OPENFS_INODE_OK);
+    uint8_t seed=0x21U,tail=0x72U;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&inode,0U,&seed,1U)==OPENFS_FILE_OK);
+
+    /* Let one sparse allocation succeed, then make bitmap writes (including
+       cleanup writes) fail persistently during the next allocation. */
+    d.fail_block=sb.block_bitmap_start;
+    d.fail_block_enabled=1;
+    d.fail_after_writes=2U;
+    d.fail_once=0;
+    TEST_ASSERT(openfs_file_write(&v,&sb,&inode,4U*4096U,&tail,1U)==OPENFS_FILE_CORRUPT);
+    free(d.bytes);
+}
+
 static void sparse_write_allocation_failure_rolls_back_layout(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/sparse-write-allocation-failure",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
@@ -764,6 +786,7 @@ static void sparse_write_flush_failure_rolls_back_layout(void){
 }
 
 int main(void){
+    sparse_write_reports_rollback_failure();
     file_write_preserves_allocator_corruption();
     sparse_leading_hole_survives_fsck();
     sparse_seek_data_and_hole_reports_extents();
