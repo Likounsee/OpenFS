@@ -311,6 +311,40 @@ static openfs_journal_result_t replay_noop(void *ctx, uint64_t tx, const uint8_t
     return OPENFS_JOURNAL_OK;
 }
 
+static openfs_journal_result_t replay_count(void *ctx, uint64_t tx, const uint8_t *data, uint32_t len)
+{
+    unsigned *calls = (unsigned *)ctx;
+    (void)tx; (void)data; (void)len;
+    (*calls)++;
+    return OPENFS_JOURNAL_OK;
+}
+
+static void test_recovery_refuses_live_transaction_before_replay(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U; d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6CU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s; assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j; assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "live", 4U) == OPENFS_JOURNAL_OK);
+
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_recover(&j, &v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_INVALID_ARGUMENT);
+    assert(replay_calls == 0U);
+    assert(j.active_transaction_id == tx);
+    assert(j.recovery_required == 0U);
+    j.active_transaction_id = 0U;
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
+    free(d.data);
+}
+
 static void test_replay_rejects_interleaved_transactions(void)
 {
     disk_t d = {0};
@@ -349,6 +383,7 @@ int main(void)
     test_block_write_failure_keeps_partial_transaction_abortable();
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
+    test_recovery_refuses_live_transaction_before_replay();
     test_commit_flush_failure_requires_recovery();
     test_reopen_uncommitted_wal_requires_replay();
     test_begin_restore_failure_requires_recovery();
