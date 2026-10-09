@@ -169,7 +169,7 @@ int main(void){
      * pin, otherwise shutdown cannot drain active users. Since this test still
      * has open handles, shutdown must then refuse teardown and reopen admission.
      */
-    assert(openfs_file_lock(a,800U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
+    assert(openfs_file_lock(a,700U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
     blocking_lock_context_t shutdown_waiter={b,ATOMIC_VAR_INIT(0),OPENFS_FILE_LOCK_IO_ERROR};
 #if defined(_WIN32)
     uintptr_t shutdown_waiter_thread=_beginthreadex(NULL,0U,blocking_lock_worker,&shutdown_waiter,0U,NULL);
@@ -208,7 +208,7 @@ int main(void){
     assert(shutdown_waiter.result==OPENFS_FILE_LOCK_CLOSED);
     assert(shutdown.result==0);
     assert(openfs_runtime_is_accepting(m.superblock.runtime)==1);
-    assert(openfs_file_unlock(a,800U,25U)==OPENFS_FILE_LOCK_OK);
+    assert(openfs_file_unlock(a,700U,25U)==OPENFS_FILE_LOCK_OK);
 
     assert(openfs_fd_dup(b,&dup)==OPENFS_FD_OK&&dup==b);
     assert(openfs_file_lock(b,300U,20U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
