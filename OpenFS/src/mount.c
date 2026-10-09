@@ -111,6 +111,8 @@ static openfs_format_result_t read_at(openfs_block_device_t *d,uint64_t block,op
     memcpy(copy,raw,OPENFS_SUPERBLOCK_SIZE);
     copy[OPENFS_CHECKSUM_OFFSET]=copy[OPENFS_CHECKSUM_OFFSET+1U]=copy[OPENFS_CHECKSUM_OFFSET+2U]=copy[OPENFS_CHECKSUM_OFFSET+3U]=0U;
     if(stored!=openfs_crc32c(copy,OPENFS_CHECKSUM_OFFSET)){free(copy);free(raw);return OPENFS_FORMAT_CORRUPT;}
+    /* Match format.c: reject non-zero bytes in the reserved superblock area. */
+    for(size_t i=212U;i<OPENFS_CHECKSUM_OFFSET;i++)if(raw[i]!=0U){free(copy);free(raw);return OPENFS_FORMAT_CORRUPT;}
     free(copy);
     out->version_major=get16(raw+8U);out->version_minor=get16(raw+10U);out->feature_flags=get64(raw+12U);
     out->block_size=get32(raw+20U);out->total_blocks=get64(raw+28U);out->metadata_start=get64(raw+36U);out->metadata_blocks=get64(raw+44U);
