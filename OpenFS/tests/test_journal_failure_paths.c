@@ -333,6 +333,9 @@ static void test_recovery_refuses_live_transaction_before_replay(void)
     uint64_t tx = 0U;
     assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
     assert(openfs_journal_write(&j, &v, tx, "live", 4U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+    /* Simulate a stale in-memory live-transaction marker over a committed WAL. */
+    j.active_transaction_id = tx;
 
     unsigned replay_calls = 0U;
     assert(openfs_journal_recover(&j, &v, &s, replay_count, &replay_calls) ==
