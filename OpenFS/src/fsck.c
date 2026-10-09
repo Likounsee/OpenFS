@@ -281,9 +281,9 @@ if((s->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){
     if(!root_set)bad++;else if(!ref_mark(refs,s->data_blocks,s->metadata_root_block-s->data_start)){result=OPENFS_FSCK_CORRUPT;goto done;}
 }
 openfs_inode_t root;
-if(openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root)!=OPENFS_INODE_OK){
-bad++;
-}else if(root.inode_number!=s->root_inode||(root.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY||root.parent_inode!=s->root_inode||root.link_count==0U){
+openfs_inode_result_t root_read_result=openfs_inode_read(d,s->inode_table_start,s->root_inode,count,&root);
+if(root_read_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}
+if(root_read_result!=OPENFS_INODE_OK){bad++;}else if(root.inode_number!=s->root_inode||(root.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY||root.parent_inode!=s->root_inode||root.link_count==0U){
 bad++;
 }
 int root_allocated=0;
@@ -364,7 +364,7 @@ if(extent_total!=in.blocks)bad++;
 if(bad>inode_section_bad&&diagnostic.stage==NULL){diagnostic.stage="inode validation";diagnostic.reason="une ou plusieurs incohérences d'inode";diagnostic.index=0U;diagnostic.total=count;diagnostic.count=bad-inode_section_bad;}
 for(uint64_t n=1U;n<=count;n++){
 if(progress!=NULL&&(n==1U||(n%4096U)==0U||n==count))FSCK_PROGRESS(45U+(count==0U?20U:(20U*n)/count),100U,"directory validation");
-openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
+openfs_inode_t in;openfs_inode_result_t directory_inode_result=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(directory_inode_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}if(directory_inode_result!=OPENFS_INODE_OK)continue;
 if((in.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)continue;
 if(in.size%OPENFS_DIR_ENTRY_SIZE!=0U){bad++;continue;}
 uint64_t entries=in.size/OPENFS_DIR_ENTRY_SIZE;uint8_t raw[OPENFS_DIR_ENTRY_SIZE];
@@ -375,7 +375,7 @@ if(decoded==0){int empty=1;for(size_t z=0U;z<sizeof(raw);z++){if(raw[z]!=0U){emp
 if(decoded<0){bad++;continue;}
 for(uint64_t prior=0U;prior<e;prior++){uint8_t prev[OPENFS_DIR_ENTRY_SIZE];size_t prev_got=0U;openfs_file_result_t pfr=openfs_file_read(d,s,&in,prior*OPENFS_DIR_ENTRY_SIZE,prev,sizeof(prev),&prev_got);if(pfr!=OPENFS_FILE_OK||prev_got!=sizeof(prev)){if(pfr==OPENFS_FILE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}bad++;break;}uint64_t pino=0U,pgen=0U;uint8_t ptype=0U;int pd=decode_dir_entry(prev,&pino,&pgen,&ptype);if(pd==1&&same_dir_name(raw,prev)){bad++;break;}}
 if(target_ino==0U||target_ino>count||target_ino==s->root_inode||generation==0U){bad++;continue;}
-openfs_inode_t target;if(openfs_inode_read(d,s->inode_table_start,target_ino,count,&target)!=OPENFS_INODE_OK){bad++;continue;}
+openfs_inode_t target;openfs_inode_result_t target_read_result=openfs_inode_read(d,s->inode_table_start,target_ino,count,&target);if(target_read_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}if(target_read_result!=OPENFS_INODE_OK){bad++;continue;}
 if(target.generation!=generation||type!=inode_dir_type(target.mode)){bad++;continue;}
 if((target.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY&&target.parent_inode!=n)bad++;
 if(dir_refs[target_ino]==UINT64_MAX)bad++;else dir_refs[target_ino]++;
@@ -393,9 +393,9 @@ while(head<tail){
     uint64_t dir_ino=queue[head++];
     if(progress!=NULL&&(head==1U||(head%256U)==0U||head==tail))FSCK_PROGRESS(65U+(count==0U?20U:(20U*head)/count),100U,"reachability validation");
     openfs_inode_t dir_inode;
-    if(openfs_inode_read(d,s->inode_table_start,dir_ino,count,&dir_inode)!=OPENFS_INODE_OK){
-        bad++;continue;
-    }
+    openfs_inode_result_t dir_read_result=openfs_inode_read(d,s->inode_table_start,dir_ino,count,&dir_inode);
+    if(dir_read_result==OPENFS_INODE_IO_ERROR){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
+    if(dir_read_result!=OPENFS_INODE_OK){bad++;continue;}
     if((dir_inode.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY){
         bad++;continue;
     }
@@ -419,9 +419,9 @@ while(head<tail){
         if(decoded!=1)continue;
         if(target_ino==0U||target_ino>count){bad++;continue;}
         openfs_inode_t target;
-        if(openfs_inode_read(d,s->inode_table_start,target_ino,count,&target)!=OPENFS_INODE_OK){
-            bad++;continue;
-        }
+        openfs_inode_result_t reach_target_result=openfs_inode_read(d,s->inode_table_start,target_ino,count,&target);
+        if(reach_target_result==OPENFS_INODE_IO_ERROR){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
+        if(reach_target_result!=OPENFS_INODE_OK){bad++;continue;}
         if(target.generation!=generation||type!=inode_dir_type(target.mode)){
             bad++;continue;
         }
@@ -450,8 +450,9 @@ for(uint64_t n=1U;n<=count;n++){
     }
     if(used&&!reachable[n]){
         openfs_inode_t orphan_inode;
-        if(openfs_inode_read(d,s->inode_table_start,n,count,&orphan_inode)==OPENFS_INODE_OK&&
-           (orphan_inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U&&orphan_inode.link_count==0U){}
+        openfs_inode_result_t orphan_read_result=openfs_inode_read(d,s->inode_table_start,n,count,&orphan_inode);
+        if(orphan_read_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}
+        if(orphan_read_result==OPENFS_INODE_OK&&(orphan_inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U&&orphan_inode.link_count==0U){}
         else bad++;
     }
     if(!used&&reachable[n])bad++;
@@ -460,7 +461,7 @@ free(queue);free(reachable);
 for(uint64_t n=1U;n<=count;n++){
 int used=0;if(!fsck_bitmap_snapshot_test(&inode_bitmap_snapshot,n-1U,&used)){result=OPENFS_FSCK_IO_ERROR;goto done;}
 if(!used){if(dir_refs[n]!=0U)bad++;continue;}
-openfs_inode_t in;if(openfs_inode_read(d,s->inode_table_start,n,count,&in)!=OPENFS_INODE_OK)continue;
+openfs_inode_t in;openfs_inode_result_t link_inode_result=openfs_inode_read(d,s->inode_table_start,n,count,&in);if(link_inode_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}if(link_inode_result!=OPENFS_INODE_OK)continue;
 if(n==s->root_inode){if(dir_refs[n]!=0U||in.link_count!=1U)bad++;}
 else if((in.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U){if(dir_refs[n]!=0U||in.link_count!=0U)bad++;}
 else if(dir_refs[n]!=in.link_count||dir_refs[n]==0U)bad++;
