@@ -27,6 +27,10 @@ static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void 
 }
 static openfs_io_result_t fl(void *ctx){(void)ctx;return OPENFS_IO_OK;}
 
+static openfs_journal_result_t replay_ok(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len){
+    (void)ctx;(void)tx;(void)data;(void)len;return OPENFS_JOURNAL_OK;
+}
+
 static openfs_block_device_t dev(disk_t *d){
     openfs_block_device_t v={d,d->bs,d->bc,rd,wr,fl};
     return v;
