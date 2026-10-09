@@ -78,9 +78,23 @@ int openfs_data_checksum_get(const openfs_block_device_t *d,
     uint8_t *buffer = (uint8_t *)malloc(d->block_size);
     if (buffer == NULL)
         return -1;
+
+    openfs_runtime_t *runtime = s->runtime;
+    int locked = 0;
+    if (runtime != NULL) {
+        if (openfs_mutex_lock(&runtime->checksum_lock,
+                              OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
+            free(buffer);
+            return -1;
+        }
+        locked = 1;
+    }
+
     const int ok = d->read(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
     if (ok)
         *out = get32(buffer + offset);
+    if (locked)
+        (void)openfs_mutex_unlock(&runtime->checksum_lock);
     free(buffer);
     return ok ? 0 : -1;
 }
