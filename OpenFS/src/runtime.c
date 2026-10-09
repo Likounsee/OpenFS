@@ -1,6 +1,7 @@
 #include "openfs/runtime.h"
 #include <stdlib.h>
- #include <string.h>
+#include <limits.h>
+#include <string.h>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -81,7 +82,13 @@ static void runtime_registry_remove(openfs_runtime_t *r)
 int openfs_runtime_enter(openfs_runtime_t *r)
 {
     if(r==NULL)return 0;
-    if(tls_runtime==r){++tls_runtime_depth;return 1;}
+    if(tls_runtime==r){
+        /* Never let nesting wrap to zero: that would release the runtime pin
+         * too early and allow shutdown to race an outer operation. */
+        if(tls_runtime_depth==UINT_MAX)return 0;
+        ++tls_runtime_depth;
+        return 1;
+    }
     if(tls_runtime!=NULL)return 0;
     if(!runtime_lifecycle_ensure())return 0;
     if(openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
