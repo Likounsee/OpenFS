@@ -856,3 +856,10 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - Replaced the test-local assertion behavior with an always-on check that prints the failed expression and source location before aborting. This preserves test execution in Debug and Release configurations.
 - Commits: `ae5c134f` (always-on checks), `edbb2a97` (diagnostic newline correction).
 - **Validation: not run.** File content was fetched back from branch `OpenFS`; build, CTest, and CI remain required.
+
+
+# 2026-10-09 — deterministic file-lock conflict output on rejected calls
+
+- **FIX** — `openfs_file_lock_test()` now validates its output pointer and initializes `*conflict_type` to zero before attempting runtime admission. A call rejected because the runtime is shutting down no longer leaves the caller's output parameter stale.
+- Commit: `b068ccb5cee430d12f1c571d4a32b5375631b598`.
+- **Validation: not run.** This is a source-level correction and still needs compilation and regression execution.
