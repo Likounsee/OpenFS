@@ -863,3 +863,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - **FIX** — `openfs_file_lock_test()` now validates its output pointer and initializes `*conflict_type` to zero before attempting runtime admission. A call rejected because the runtime is shutting down no longer leaves the caller's output parameter stale.
 - Commit: `b068ccb5cee430d12f1c571d4a32b5375631b598`.
 - **Validation: not run.** This is a source-level correction and still needs compilation and regression execution.
+
+
+# 2026-10-09 — file-lock invalid-input regression coverage
+
+- Extended `OpenFS/tests/test_file_lock.c` to verify that invalid lock types and unsupported flag bits are rejected, a null conflict-output pointer is rejected, and successful conflict queries clear stale output values.
+- The checks run before and after lock acquisition to guard against invalid calls accidentally publishing registry entries.
+- Commit: `8ad364fb107cd39d2a1541623ffb94927e112b34`.
+- **Validation: not run.** The test source was committed to branch `OpenFS`; compilation and CTest/CI still need to run. No green result is claimed.
