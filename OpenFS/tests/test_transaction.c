@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdio.h>
 #include "openfs/transaction.h"
+#include "openfs/allocator.h"
+#include "openfs/bitmap.h"
 #include "openfs/format.h"
 #include "openfs/mount.h"
 #include "openfs/runtime.h"
@@ -130,8 +132,44 @@ CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==
 free(d.b);return 0;
 }
 
+
+static int allocator_metadata_failure_poison_transaction(void)
+{
+    D d = {0};
+    d.bs = 4096U;
+    d.bc = 256U;
+    d.b = calloc((size_t)d.bc, d.bs);
+    CHECK(d.b);
+    openfs_block_device_t v = {&d, d.bs, d.bc, r, w, fl};
+    uint8_t uuid[16] = {41U};
+    CHECK(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    CHECK(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    CHECK(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    /* Force the COW metadata update to fail validation after the allocation
+     * bitmap has already been staged in this transaction. */
+    s.feature_flags |= OPENFS_FEATURE_COW;
+    s.refcount_blocks = 0U;
+    openfs_transaction_t t;
+    CHECK(openfs_transaction_begin(&t, &v, &j) == OPENFS_TRANSACTION_OK);
+    uint64_t block = UINT64_MAX;
+    CHECK(openfs_alloc_block_tx(&t, &s, &block) == OPENFS_ALLOC_CORRUPT);
+    CHECK(t.failed == 1);
+    CHECK(openfs_transaction_commit(&t) == OPENFS_TRANSACTION_IO_ERROR);
+    CHECK(openfs_transaction_abort(&t) == OPENFS_TRANSACTION_OK);
+
+    int used = 1;
+    CHECK(openfs_bitmap_test(&v, s.block_bitmap_start,
+        s.block_bitmap_blocks, s.data_start, &used) == OPENFS_BITMAP_OK);
+    CHECK(used == 0);
+    free(d.b);
+    return 0;
+}
+
 int main(void){
-CHECK(commit_flush_failure_recovers_same_journal()==0);
+CHECK(allocator_metadata_failure_poison_transaction()==0);\nCHECK(commit_flush_failure_recovers_same_journal()==0);
 CHECK(failed_wal_write_and_failed_rollback_poison_journal()==0);
 CHECK(checkpoint_cannot_discard_pending_publication()==0);
 CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
