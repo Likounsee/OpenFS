@@ -30,19 +30,35 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
         return OPENFS_SCRUB_IO_ERROR;
 
     int saw_io_error = 0;
+
+    /* First pass: probe every block so raw read failures are reported once
+       before checksum lookups begin. This also makes injected I/O failures
+       deterministic regardless of where the checksum table sits on disk. */
     for (uint64_t b = 0U; b < d->block_count; ++b) {
-        int block_read_ok = 1;
         if (d->read(d->context, b, 1U, block) != OPENFS_IO_OK) {
-            block_read_ok = 0;
             saw_io_error = 1;
             (*errors)++;
             report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
         }
+    }
+    if (saw_io_error) {
+        free(block);
+        return OPENFS_SCRUB_IO_ERROR;
+    }
 
-        if (block_read_ok &&
-            (s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
-            b >= s->data_start && b - s->data_start < s->data_blocks &&
-            b != s->metadata_root_block) {
+    /* Second pass: verify data checksums and continue after lookup failures,
+       so a later damaged block is still reported with its exact location. */
+    if ((s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U) {
+        for (uint64_t b = s->data_start;
+             b < s->data_start + s->data_blocks; ++b) {
+            if (b == s->metadata_root_block) continue;
+            if (d->read(d->context, b, 1U, block) != OPENFS_IO_OK) {
+                saw_io_error = 1;
+                (*errors)++;
+                report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
+                continue;
+            }
+
             int used = 0;
             openfs_bitmap_result_t br = openfs_bitmap_test(
                 d, s->block_bitmap_start, s->block_bitmap_blocks, b, &used);
@@ -52,19 +68,18 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
                 report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
                 continue;
             }
-            if (used) {
-                uint32_t expected = 0U;
-                if (openfs_data_checksum_get(d, s, b, &expected) != 0) {
-                    saw_io_error = 1;
-                    (*errors)++;
-                    report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
-                    continue;
-                }
-                if (expected != openfs_data_checksum(block, d->block_size)) {
-                    (*errors)++;
-                    report_issue(callback, context, b,
-                                 OPENFS_SCRUB_ISSUE_CHECKSUM);
-                }
+            if (!used) continue;
+
+            uint32_t expected = 0U;
+            if (openfs_data_checksum_get(d, s, b, &expected) != 0) {
+                saw_io_error = 1;
+                (*errors)++;
+                report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
+                continue;
+            }
+            if (expected != openfs_data_checksum(block, d->block_size)) {
+                (*errors)++;
+                report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_CHECKSUM);
             }
         }
     }
