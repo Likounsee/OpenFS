@@ -13,6 +13,16 @@ typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_da
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){D*d=c;if(d->fail_exact_enabled&&f==d->fail_exact){if(d->fail_exact_once)d->fail_exact_enabled=0;return OPENFS_IO_IO_ERROR;}if(d->fail_data&&f>=d->fail_start)return OPENFS_IO_IO_ERROR;if(d->partial_enabled&&f==d->partial_block){size_t bytes=(size_t)((uint64_t)n*d->bs);if(d->partial_bytes!=0U&&d->partial_bytes<bytes)bytes=d->partial_bytes;memcpy(d->b+(size_t)(f*d->bs),x,bytes);if(d->partial_once){if(d->partial_change_after_once)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));if(d->arm_flush_fail&&f==d->arm_block)d->flush_failed=1;return OPENFS_IO_OK;}
 static openfs_io_result_t fl(void*c){D*d=c;if(d->flush_failed||d->fail_flush)return OPENFS_IO_IO_ERROR;return OPENFS_IO_OK;}
+static int checkpoint_cannot_discard_pending_publication(void){
+D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={31U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+uint64_t tx=0U;CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);uint8_t payload[16]={1U,2U,3U};CHECK(openfs_journal_write(&j,&v,tx,payload,sizeof(payload))==OPENFS_JOURNAL_OK);
+int committed=0;CHECK(openfs_journal_commit_transaction(&j,&v,tx,&committed)==OPENFS_JOURNAL_OK);CHECK(committed==1&&j.publication_in_progress==1U);
+CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);CHECK(j.next_record!=0U);
+CHECK(openfs_journal_checkpoint_transaction(&j,&v)==OPENFS_JOURNAL_OK);CHECK(j.publication_in_progress==0U&&j.next_record==0U);
+free(d.b);return 0;
+}
 static int commit_full_cleans_active_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
 openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={13U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
@@ -96,6 +106,7 @@ free(d.b);return 0;
 }
 
 int main(void){
+CHECK(checkpoint_cannot_discard_pending_publication()==0);
 CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
 CHECK(poisoned_namespace_transaction()==0);
 CHECK(checkpoint_partial_write_rollback()==0);
