@@ -38,7 +38,7 @@ static void empty_boundary(void){
 static void physical_boundaries(void){
     disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);uint64_t target=s.data_start;uint8_t payload[4064U];uint64_t jb=s.journal_blocks;TEST_ASSERT(jb>=8U);
     /* next_record=1: one incomplete BEGIN, then replay/remount/fsck must remain safe. */
-    raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);openfs_journal_t j;TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==1U);TEST_ASSERT(j.commit_record_written==0U);TEST_ASSERT(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
+    raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);openfs_journal_t j;TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==1U);TEST_ASSERT(j.commit_record_written==0U);TEST_ASSERT(openfs_journal_recover(&j,&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
     /* Leave exactly one slot and use it as DATA: then use the same last slot as COMMIT in a fresh exact-capacity transaction. */
     setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0xA5U);
