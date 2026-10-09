@@ -23,7 +23,7 @@
 #undef assert
 #define assert(expression) do { \
     if (!(expression)) { \
-        fprintf(stderr, "check failed: %s (%s:%d)\\n", \
+        fprintf(stderr, "check failed: %s (%s:%d)\n", \
                 #expression, __FILE__, __LINE__); \
         abort(); \
     } \
