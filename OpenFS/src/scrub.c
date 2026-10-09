@@ -32,5 +32,5 @@ openfs_scrub_result_t openfs_scrub(openfs_block_device_t *d,
     }
 
     free(block);
-    return OPENFS_SCRUB_OK;
+    return *errors == 0U ? OPENFS_SCRUB_OK : OPENFS_SCRUB_CORRUPT;
 }
