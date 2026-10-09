@@ -44,10 +44,11 @@ openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,open
 {
     if(t==NULL||!openfs_block_device_is_valid(base)||j==NULL||base->block_size==0U||j->block_size!=base->block_size)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
     /*
-     * Do not inspect mutable journal state before taking the journal lock, and
-     * do not overwrite an existing transaction object unless BEGIN succeeds.
-     * In particular, callers may retry begin on an already-active object.
+     * Preserve the historical fast rejection for a busy journal. The journal
+     * API repeats this validation while holding its own lock, so this check
+     * only avoids constructing a candidate for an already-active transaction.
      */
+    if(j->active_transaction_id!=0U||j->commit_record_written!=0U)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
     openfs_transaction_t candidate={0};
     candidate.magic=OPENFS_TRANSACTION_MAGIC;
     candidate.base=base;
