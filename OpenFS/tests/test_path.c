@@ -82,7 +82,7 @@ static void trailing_slash_regressions(void)
     TEST_ASSERT(openfs_path_lookup_follow(&v,&s,"/trail-created-dir/",&q)==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_path_unlink(&v,&s,"/trail-file/")==OPENFS_PATH_NOT_DIRECTORY);
     TEST_ASSERT(openfs_path_rename(&v,&s,"/trail-file/","/trail-renamed")==OPENFS_PATH_NOT_DIRECTORY);
-    openfs_path_result_t rename_result=openfs_path_rename(&v,&s,"/trail-dir/","/trail-renamed-dir"); if(rename_result!=OPENFS_PATH_OK) fprintf(stderr,"trailing dir rename result=%d\\n",(int)rename_result); TEST_ASSERT(rename_result==OPENFS_PATH_OK);
+    openfs_path_result_t rename_result=openfs_path_rename(&v,&s,"/trail-dir/","/trail-renamed-dir"); TEST_ASSERT(rename_result==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_path_lookup_follow(&v,&s,"/trail-renamed-dir/",&q)==OPENFS_PATH_OK);
     free(d.b);
 }
