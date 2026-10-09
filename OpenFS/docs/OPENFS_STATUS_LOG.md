@@ -934,3 +934,10 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - Apply an explicit undefinition of `NDEBUG` to test executable targets only, using compiler-specific options for MSVC and GCC/Clang. This preserves the intended test operations without changing Release assertion semantics in the OpenFS library itself.
 - Apply the same rule to adapter test executables created in the adapters subdirectory.
 - Validation pending: rerun Debug, sanitizers, and Release tests on Linux/Windows; this correction is not considered complete until the full CI matrix is green.
+
+
+# 2026-10-10 — validate WAL transaction ownership during journal open
+
+- **FIX** — `OpenFS/src/journal.c`: `openfs_journal_open()` now validates BEGIN/DATA/COMMIT ownership and strictly increasing transaction IDs while scanning the persistent log. DATA and COMMIT records must belong to the currently open transaction; a later BEGIN may still supersede an uncommitted transaction after a crash, matching replay's recovery model.
+- **REGRESSION COVERAGE** — extended `tests/test_journal.c` so journal open must reject an orphan DATA record and a COMMIT whose transaction ID does not match the active BEGIN. This prevents malformed WAL from being accepted as an open journal before recovery validation.
+- **Validation** — full Debug/sanitizer/Release GCC and Clang plus Windows CI is required before this change is considered complete.
