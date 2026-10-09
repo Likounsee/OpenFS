@@ -48,6 +48,7 @@ openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,open
      * API repeats this validation while holding its own lock, so this check
      * only avoids constructing a candidate for an already-active transaction.
      */
+    if(j->recovery_required!=0U)return OPENFS_TRANSACTION_IO_ERROR;
     if(j->active_transaction_id!=0U||j->commit_record_written!=0U)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
     openfs_transaction_t candidate={0};
     candidate.magic=OPENFS_TRANSACTION_MAGIC;
