@@ -276,6 +276,7 @@ openfs_fsck_result_t result=OPENFS_FSCK_OK;
 FSCK_PROGRESS(10U,100U,"préparation de la validation");
 if((s->feature_flags&OPENFS_FEATURE_METADATA_ROOT)!=0U){
     openfs_metadata_root_t mr;openfs_metadata_root_result_t mrr=openfs_metadata_root_read(d,s,s->metadata_root_block,&mr);
+    if(mrr==OPENFS_METADATA_ROOT_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}
     if(mrr!=OPENFS_METADATA_ROOT_OK||mr.generation!=s->metadata_root_generation){bad++;if(diagnostic.stage==NULL){diagnostic.stage="metadata root";diagnostic.reason="metadata root invalide ou incohérente";diagnostic.index=s->metadata_root_block;diagnostic.total=s->data_blocks;diagnostic.count=1U;}}
     int root_set=0;if(!fsck_bitmap_snapshot_test(&block_bitmap_snapshot,s->metadata_root_block,&root_set)){result=OPENFS_FSCK_IO_ERROR;goto done;}
     if(!root_set)bad++;else if(!ref_mark(refs,s->data_blocks,s->metadata_root_block-s->data_start)){result=OPENFS_FSCK_CORRUPT;goto done;}
