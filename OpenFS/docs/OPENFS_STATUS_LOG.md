@@ -1,3 +1,12 @@
+# 2026-10-09 — Blocking file-lock handoff regression
+
+- **TEST** — `OpenFS/tests/test_file_lock.c`: added a cross-platform worker that requests an exclusive range lock with `OPENFS_FILE_LOCK_BLOCK` while another handle owns the conflicting range. The test releases the owner lock, joins the worker, and checks that the blocked request succeeds and releases its acquired lock.
+- This covers the public blocking-lock handoff contract on Windows and POSIX. It does not replace stress testing or prove fairness under contention.
+- Commit: `81e765f375609b2f727ee93f5d98db5108934d50`.
+- **Validation: not run.** No local compile/CTest was executed; remote CI must be checked independently.
+
+---
+
 # 2026-10-09 — Runtime shutdown admission and quiescence regression
 
 - **FIX** — `OpenFS/src/runtime.c`: release the global runtime-registry guard during each wait iteration after admission is closed. New entrants can now acquire the guard and be rejected promptly rather than waiting behind shutdown; the runtime remains registered and marked `destroying` until quiescence completes.
