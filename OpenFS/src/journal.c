@@ -141,7 +141,7 @@ openfs_journal_result_t openfs_journal_checkpoint_transaction(openfs_journal_t*j
     else{
         r=journal_checkpoint_unlocked(j,d);
         if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=0U;
-        else j->recovery_required=1U;
+        else{j->recovery_required=1U;j->publication_in_progress=0U;}
     }
     (void)openfs_mutex_unlock(&j->runtime->journal_lock);
     openfs_runtime_leave(j->runtime);
