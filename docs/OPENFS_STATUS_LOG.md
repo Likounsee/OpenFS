@@ -954,3 +954,10 @@ The blocking infinite loop has a concrete correction. P0 remains open pending fr
 - `OpenFS/src/dir.c` now updates the stored CRC32C whenever `dir_remove_unlocked` changes a directory data block, and restores the original CRC alongside the original block on rollback paths. This keeps directory metadata mutations consistent with the format-v13.6 data-checksum feature.
 - Temporary rename diagnostics were removed from `path.c` and `test_path.c`. The existing trailing-slash rename assertion remains unchanged as the regression guard.
 - This fix is not considered validated until a fresh GCC/Clang/Windows CI run on the cleaned-up branch head completes successfully; P0 remains open.
+
+
+# 2026-10-09 — Mount decoding of persistent checksum geometry
+
+- The next GCC/Clang test run progressed past the directory-rename assertion and exposed a remount failure in `tests/test_path.c` after successful cross-directory replacement. The mount decoder was reading the legacy superblock fields but omitted the format-v1.6 checksum-table geometry stored at offsets 196 and 204, so remount reconstructed an invalid/incomplete layout.
+- `OpenFS/src/mount.c` now decodes `data_checksum_start` and `data_checksum_blocks` from those serialized offsets and includes both in primary/backup layout equality checks.
+- This diagnosis is based on the superblock serialization layout and the remount failure observed in GCC and Clang CI. The fix still requires the new CI run on the current branch head to pass; P0 remains open.
