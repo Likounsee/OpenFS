@@ -575,6 +575,44 @@ static void test_replay_rejects_interleaved_transactions(void)
 }
 
 
+static void test_corrupt_wal_recovery_stays_gated(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x73U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "must-not-apply", 14U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    /* Damage the committed DATA payload without updating its CRC. */
+    size_t data_offset = (size_t)((s.journal_start + 1U) * (uint64_t)s.block_size) +
+                         OPENFS_JOURNAL_HEADER_SIZE;
+    d.data[data_offset] ^= 0x80U;
+
+    openfs_journal_t rejected;
+    assert(openfs_journal_open(&rejected, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_recover(&reopened, &v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_CORRUPT);
+    assert(replay_calls == 0U);
+    assert(reopened.recovery_required != 0U);
+    assert(openfs_journal_begin(&reopened, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
+    free(d.data);
+}
+
 static void test_checkpoint_write_failure_restores_entire_wal(void)
 {
     disk_t d = {0};
@@ -673,6 +711,7 @@ int main(void)
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
     test_replay_flush_failure_keeps_recovery_gated();
+    test_corrupt_wal_recovery_stays_gated();
     test_checkpoint_write_failure_restores_entire_wal();
     test_checkpoint_rollback_failure_poison_journal();
     return 0;
