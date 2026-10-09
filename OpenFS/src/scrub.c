@@ -25,16 +25,6 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
 
     *errors = 0U;
 
-    uint64_t fsck_errors = 0U;
-    openfs_fsck_result_t fr = openfs_fsck(d, s, &fsck_errors);
-    if (fr != OPENFS_FSCK_OK) {
-        *errors = fsck_errors == 0U ? 1U : fsck_errors;
-        report_issue(callback, context, UINT64_MAX,
-                     OPENFS_SCRUB_ISSUE_FILESYSTEM);
-        return fr == OPENFS_FSCK_IO_ERROR ? OPENFS_SCRUB_IO_ERROR
-                                          : OPENFS_SCRUB_CORRUPT;
-    }
-
     uint8_t *block = (uint8_t *)malloc(d->block_size);
     if (block == NULL)
         return OPENFS_SCRUB_IO_ERROR;
@@ -79,8 +69,26 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
         }
     }
     free(block);
+
+    /*
+     * Check data checksums before fsck: fsck also detects checksum mismatches,
+     * but its summary cannot identify the damaged data block for the detailed
+     * scrub callback. The scan above can report that precise location and
+     * continue collecting independent checksum/read failures.
+     */
     if (saw_io_error) return OPENFS_SCRUB_IO_ERROR;
-    return *errors == 0U ? OPENFS_SCRUB_OK : OPENFS_SCRUB_CORRUPT;
+    if (*errors != 0U) return OPENFS_SCRUB_CORRUPT;
+
+    uint64_t fsck_errors = 0U;
+    openfs_fsck_result_t fr = openfs_fsck(d, s, &fsck_errors);
+    if (fr != OPENFS_FSCK_OK) {
+        *errors = fsck_errors == 0U ? 1U : fsck_errors;
+        report_issue(callback, context, UINT64_MAX,
+                     OPENFS_SCRUB_ISSUE_FILESYSTEM);
+        return fr == OPENFS_FSCK_IO_ERROR ? OPENFS_SCRUB_IO_ERROR
+                                          : OPENFS_SCRUB_CORRUPT;
+    }
+    return OPENFS_SCRUB_OK;
 }
 
 openfs_scrub_result_t openfs_scrub(openfs_block_device_t *d,
