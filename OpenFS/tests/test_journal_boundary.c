@@ -86,4 +86,14 @@ static void oversized_payload_does_not_advance_sequence(void){
     TEST_ASSERT(openfs_journal_replay(&v,&sb,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     free(payload);free(d.b);
 }
-int main(void){empty_boundary();physical_boundaries();exact_api_full_and_last_commit();oversized_payload_does_not_advance_sequence();return 0;}
+static void reject_records_after_commit(void){
+    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    raw_record(&v,&sb,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
+    raw_record(&v,&sb,1U,OPENFS_JOURNAL_COMMIT,1U,2U,NULL,0U);
+    raw_record(&v,&sb,2U,OPENFS_JOURNAL_BEGIN,2U,3U,NULL,0U);
+    openfs_journal_t j;
+    TEST_ASSERT(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_CORRUPT);
+    TEST_ASSERT(openfs_journal_replay(&v,&sb,replay_ok,NULL)==OPENFS_JOURNAL_CORRUPT);
+    free(d.b);
+}
+int main(void){empty_boundary();physical_boundaries();exact_api_full_and_last_commit();oversized_payload_does_not_advance_sequence();reject_records_after_commit();return 0;}
