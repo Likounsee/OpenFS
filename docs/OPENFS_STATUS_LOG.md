@@ -946,3 +946,11 @@ P0 is still deliberately not marked 100% until crash-cut/fault-injection tests p
 
 The blocking infinite loop has a concrete correction. P0 remains open pending fresh GCC, Clang and Windows CI results and follow-up on any remaining failures.
 
+
+
+# 2026-10-09 — P0 directory mutation checksum regression
+
+- The trailing-slash rename regression progressed past the fixed file-write hang and exposed a second issue: removing a directory entry wrote its data block directly, bypassing the persistent data-checksum table. The following directory lookup therefore rejected the just-mutated block as corrupt, and rename failed while adding the new name.
+- `OpenFS/src/dir.c` now updates the stored CRC32C whenever `dir_remove_unlocked` changes a directory data block, and restores the original CRC alongside the original block on rollback paths. This keeps directory metadata mutations consistent with the format-v13.6 data-checksum feature.
+- Temporary rename diagnostics were removed from `path.c` and `test_path.c`. The existing trailing-slash rename assertion remains unchanged as the regression guard.
+- This fix is not considered validated until a fresh GCC/Clang/Windows CI run on the cleaned-up branch head completes successfully; P0 remains open.
