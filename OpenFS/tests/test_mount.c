@@ -562,7 +562,30 @@ static void cow_clone_partial_refcount_rollback_regression(void)
     free(d.bytes);
 }
 
-int main(void){
+static void replay_rejects_nonzero_reserved_block_header(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x6BU};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    uint64_t tx=0U;assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    uint8_t payload[4096U];memset(payload,0xA9U,sizeof(payload));
+    assert(openfs_journal_write_block(&j,&v,tx,s.data_start+4U,payload)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+    uint64_t record=s.journal_start+1U;uint8_t raw[4096U];
+    assert(v.read(v.context,record,1U,raw)==OPENFS_IO_OK);
+    assert(memcmp(raw+32U,"OJBD1",5U)==0);
+    raw[32U+5U]=1U;raw[28U]=raw[29U]=raw[30U]=raw[31U]=0U;
+    uint32_t crc=openfs_crc32c(raw,d.block_size);
+    raw[28U]=(uint8_t)crc;raw[29U]=(uint8_t)(crc>>8U);raw[30U]=(uint8_t)(crc>>16U);raw[31U]=(uint8_t)(crc>>24U);
+    assert(v.write(v.context,record,1U,raw)==OPENFS_IO_OK);
+    openfs_mount_t rejected;assert(openfs_mount(&rejected,&v)==OPENFS_MOUNT_CORRUPT);
+    free(d.bytes);
+}
+
+int main(void){replay_rejects_nonzero_reserved_block_header();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
