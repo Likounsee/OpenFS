@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>\n#include <time.h>
+#include <stdatomic.h>
+#include <time.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <process.h>
