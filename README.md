@@ -59,7 +59,7 @@ The existing core already provides a substantial filesystem foundation:
 - handle duplication/reference counting;
 - filesystem mount/unmount with superblock fallback;
 - checksummed WAL/journal records;
-- read-only integrity scrub with optional block-level issue callbacks for checksum mismatches and read failures;
+- read-only integrity scrub with block-level issue callbacks, continued scanning after localized I/O failures, and multi-issue reporting;
 - transactions and committed-transaction replay;
 - mounted allocator and inode-allocation state transitions are WAL-backed and replayable after post-COMMIT publication failures; direct file writes/truncates remain explicit-transaction APIs to preserve concurrent I/O semantics;
 - journal checkpoint/reclamation;
