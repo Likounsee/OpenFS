@@ -158,16 +158,47 @@ openfs_alloc_result_t openfs_alloc_block_tx(openfs_transaction_t*t,const openfs_
     if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
     return alloc_block_tx_unlocked(t,sb,out);
 }
-openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block)
+openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t *t,
+    const openfs_superblock_t *sb, uint64_t block)
 {
-    if(t==NULL||!t->active||t->base==NULL||sb==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
-    openfs_block_device_t *td=openfs_transaction_device(t); if(td==NULL)return OPENFS_ALLOC_INVALID_ARGUMENT;
-    if((sb->feature_flags&OPENFS_FEATURE_COW)==0U)return set_block(td,sb,block,0);
-    uint16_t refs=0U; openfs_cow_result_t cr=openfs_cow_refcount_get_tx(t,sb,block,&refs);
-    if(cr!=OPENFS_COW_OK||refs==0U)return OPENFS_ALLOC_CORRUPT;
-    if(refs>1U)return openfs_cow_refcount_dec_tx(t,sb,block,NULL)==OPENFS_COW_OK?OPENFS_ALLOC_OK:OPENFS_ALLOC_CORRUPT;
-    if(openfs_cow_refcount_set_tx(t,sb,block,0U)!=OPENFS_COW_OK)return OPENFS_ALLOC_CORRUPT;
-    return openfs_bitmap_set(td,sb->block_bitmap_start,sb->block_bitmap_blocks,block,0)==OPENFS_BITMAP_OK?OPENFS_ALLOC_OK:OPENFS_ALLOC_CORRUPT;
+    if (t == NULL || !t->active || t->base == NULL || sb == NULL)
+        return OPENFS_ALLOC_INVALID_ARGUMENT;
+    openfs_block_device_t *td = openfs_transaction_device(t);
+    if (td == NULL)
+        return OPENFS_ALLOC_INVALID_ARGUMENT;
+
+    if ((sb->feature_flags & OPENFS_FEATURE_COW) == 0U) {
+        openfs_alloc_result_t result = set_block(td, sb, block, 0);
+        if (result != OPENFS_ALLOC_OK)
+            t->failed = 1;
+        return result;
+    }
+
+    uint16_t refs = 0U;
+    openfs_cow_result_t cr = openfs_cow_refcount_get_tx(t, sb, block, &refs);
+    if (cr != OPENFS_COW_OK || refs == 0U) {
+        t->failed = 1;
+        return OPENFS_ALLOC_CORRUPT;
+    }
+    if (refs > 1U) {
+        cr = openfs_cow_refcount_dec_tx(t, sb, block, NULL);
+        if (cr != OPENFS_COW_OK)
+            t->failed = 1;
+        return cr == OPENFS_COW_OK ? OPENFS_ALLOC_OK : OPENFS_ALLOC_CORRUPT;
+    }
+
+    if (openfs_cow_refcount_set_tx(t, sb, block, 0U) != OPENFS_COW_OK) {
+        t->failed = 1;
+        return OPENFS_ALLOC_CORRUPT;
+    }
+    if (openfs_bitmap_set(td, sb->block_bitmap_start,
+            sb->block_bitmap_blocks, block, 0) != OPENFS_BITMAP_OK) {
+        /* The refcount change is already staged; never let callers commit
+         * only half of a free operation. */
+        t->failed = 1;
+        return OPENFS_ALLOC_CORRUPT;
+    }
+    return OPENFS_ALLOC_OK;
 }
 
 openfs_alloc_result_t openfs_alloc_block(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t*out)
