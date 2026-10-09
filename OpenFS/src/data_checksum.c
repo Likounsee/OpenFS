@@ -1,5 +1,6 @@
 #include "openfs/data_checksum.h"
 #include "openfs/runtime.h"
+#include "openfs/transaction.h"
 #include "openfs/crc32c.h"
 
 #include <stdlib.h>
@@ -81,7 +82,7 @@ int openfs_data_checksum_get(const openfs_block_device_t *d,
 
     openfs_runtime_t *runtime = s->runtime;
     int locked = 0;
-    if (runtime != NULL) {
+    if (runtime != NULL && openfs_transaction_from_device(d) == NULL) {
         if (openfs_mutex_lock(&runtime->checksum_lock,
                               OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
             free(buffer);
@@ -117,7 +118,13 @@ int openfs_data_checksum_set(const openfs_block_device_t *d,
 
     openfs_runtime_t *runtime = s->runtime;
     int locked = 0;
-    if (runtime != NULL) {
+    if (runtime != NULL && openfs_transaction_from_device(d) == NULL) {
+        /*
+         * Transaction-device writes are already serialized by the journal's
+         * single-active-transaction contract. Taking checksum_lock here would
+         * invert the order when the transaction proxy enters the journal.
+         * For direct-device updates, use the runtime-bound checksum lock.
+         */
         /*
          * The runtime-bound mutex performs its own lifetime admission. Do
          * not call openfs_runtime_enter() here: checksum updates can happen
