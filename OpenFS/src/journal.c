@@ -164,7 +164,7 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
         if(j->active_transaction_id!=0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
         j->recovery_required=1U;
         openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
-        if(result==OPENFS_JOURNAL_OK)j->recovery_required=0U;
+        if(result==OPENFS_JOURNAL_OK){j->recovery_required=0U;j->publication_in_progress=0U;}
         return result;
     }
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
@@ -186,7 +186,7 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
             result=OPENFS_JOURNAL_IO_ERROR;
         }else{
             if(j->active_transaction_id!=0U)result=OPENFS_JOURNAL_INVALID_ARGUMENT;
-            else j->recovery_required=0U;
+            else{j->recovery_required=0U;j->publication_in_progress=0U;}
             (void)openfs_mutex_unlock(&j->runtime->journal_lock);
         }
     }
