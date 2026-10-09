@@ -628,8 +628,8 @@ static void test_checkpoint_rollback_failure_poison_journal(void)
     assert(openfs_journal_write(&j, &v, tx, "checkpoint", 10U) == OPENFS_JOURNAL_OK);
     assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
 
-    /* Fail after two clears, then fail one restore write as well. */
-    d.fail_write_after = 3;
+    /* Force the clear phase to fail at flush, then fail a restore write. */
+    d.fail_next_flush = 1;
     d.fail_write_count = 1;
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_CORRUPT);
     assert(j.recovery_required != 0U);
