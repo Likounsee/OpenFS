@@ -451,7 +451,7 @@ for(uint64_t n=1U;n<=count;n++){
     if(used&&!reachable[n]){
         openfs_inode_t orphan_inode;
         openfs_inode_result_t orphan_read_result=openfs_inode_read(d,s->inode_table_start,n,count,&orphan_inode);
-        if(orphan_read_result==OPENFS_INODE_IO_ERROR){result=OPENFS_FSCK_IO_ERROR;goto done;}
+        if(orphan_read_result==OPENFS_INODE_IO_ERROR){free(queue);free(reachable);result=OPENFS_FSCK_IO_ERROR;goto done;}
         if(orphan_read_result==OPENFS_INODE_OK&&(orphan_inode.flags&OPENFS_INODE_FLAG_ORPHAN)!=0U&&orphan_inode.link_count==0U){}
         else bad++;
     }
