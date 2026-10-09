@@ -49,9 +49,9 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
     /* Second pass: verify data checksums and continue after lookup failures,
        so a later damaged block is still reported with its exact location. */
     if ((s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U) {
-        for (uint64_t b = s->data_start;
-             b < s->data_start + s->data_blocks; ++b) {
-            if (b == s->metadata_root_block) continue;
+        for (uint64_t b = 0U; b < d->block_count; ++b) {
+            if (b < s->data_start || b - s->data_start >= s->data_blocks ||
+                b == s->metadata_root_block) continue;
             if (d->read(d->context, b, 1U, block) != OPENFS_IO_OK) {
                 saw_io_error = 1;
                 (*errors)++;
