@@ -1,4 +1,5 @@
 #include "openfs/data_checksum.h"
+#include "openfs/runtime.h"
 #include "openfs/crc32c.h"
 
 #include <stdlib.h>
