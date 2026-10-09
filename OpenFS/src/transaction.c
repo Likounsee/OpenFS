@@ -44,12 +44,10 @@ openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,open
 {
     if(t==NULL||!openfs_block_device_is_valid(base)||j==NULL||base->block_size==0U||j->block_size!=base->block_size)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
     /*
-     * Preserve the historical fast rejection for a busy journal. The journal
-     * API repeats this validation while holding its own lock, so this check
-     * only avoids constructing a candidate for an already-active transaction.
+     * Let the journal API validate mutable journal state under its lock.
+     * Reading recovery_required/active_transaction_id here would race with
+     * concurrent journal operations when a runtime is attached.
      */
-    if(j->recovery_required!=0U)return OPENFS_TRANSACTION_IO_ERROR;
-    if(j->active_transaction_id!=0U||j->commit_record_written!=0U)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
     openfs_transaction_t candidate={0};
     candidate.magic=OPENFS_TRANSACTION_MAGIC;
     candidate.base=base;
