@@ -1,3 +1,12 @@
+# 2026-10-09 — Cancel blocking file-lock waits during runtime shutdown
+
+- **FIX** — `OpenFS/src/file_lock.c`: blocking range-lock acquisition now checks whether its pinned runtime is still accepting work after each conflict poll. If shutdown closes admission, the waiter returns `OPENFS_FILE_LOCK_CLOSED` instead of retaining an active-user pin indefinitely.
+- **API** — `OpenFS/include/openfs/runtime.h` and `OpenFS/src/runtime.c`: added `openfs_runtime_is_accepting()`, a lifecycle-lock-protected probe intended for callers already holding an active runtime pin. That pin keeps the lifecycle mutex alive during the probe.
+- This prevents a shutdown deadlock where a blocked lock waiter prevents teardown while the conflicting lock owner can no longer enter the runtime to unlock.
+- **Validation: not run.** Source edits require compilation and a dedicated shutdown-versus-blocked-lock regression test before this is considered verified.
+
+---
+
 # 2026-10-09 — Blocking file-lock handoff regression
 
 - **TEST** — `OpenFS/tests/test_file_lock.c`: added a cross-platform worker that requests an exclusive range lock with `OPENFS_FILE_LOCK_BLOCK` while another handle owns the conflicting range. The test releases the owner lock, joins the worker, and checks that the blocked request succeeds and releases its acquired lock.
