@@ -79,12 +79,24 @@ int main(void){
     assert(openfs_fd_open(&dev,&m.superblock,"/lock-test",OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,&a)==OPENFS_FD_OK);
     assert(openfs_fd_open(&dev,&m.superblock,"/lock-test",OPENFS_FD_RDWR,0U,&b)==OPENFS_FD_OK);
 
+    /* Invalid requests must not publish a lock or mutate the registry. */
+    assert(openfs_file_lock(a,0U,10U,0U,0U)==OPENFS_FILE_LOCK_INVALID_ARGUMENT);
+    assert(openfs_file_lock(a,0U,10U,OPENFS_FILE_LOCK_SHARED,~OPENFS_FILE_LOCK_BLOCK)==OPENFS_FILE_LOCK_INVALID_ARGUMENT);
+    uint32_t invalid_conflict=123U;
+    assert(openfs_file_lock_test(a,0U,10U,NULL)==OPENFS_FILE_LOCK_INVALID_ARGUMENT);
+    assert(openfs_file_lock_test(a,0U,10U,&invalid_conflict)==OPENFS_FILE_LOCK_OK);
+    assert(invalid_conflict==0U);
+
     assert(openfs_file_lock(a,0U,100U,OPENFS_FILE_LOCK_SHARED,0U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_lock(b,50U,10U,OPENFS_FILE_LOCK_SHARED,0U)==OPENFS_FILE_LOCK_OK);
     assert(openfs_file_lock(b,50U,10U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_CONFLICT);
     uint32_t conflict=0U;
     assert(openfs_file_lock_test(b,50U,10U,&conflict)==OPENFS_FILE_LOCK_CONFLICT);
     assert(conflict==OPENFS_FILE_LOCK_SHARED);
+    /* A successful query must clear a previously populated output value. */
+    conflict=123U;
+    assert(openfs_file_lock_test(b,500U,10U,&conflict)==OPENFS_FILE_LOCK_OK);
+    assert(conflict==0U);
     assert(openfs_file_lock(b,200U,10U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
 
     assert(openfs_file_unlock(a,0U,100U)==OPENFS_FILE_LOCK_OK);
