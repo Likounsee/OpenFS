@@ -371,7 +371,12 @@ static void test_reopen_uncommitted_wal_requires_replay(void)
     assert(reopened.commit_record_written == 0U);
     assert(reopened.recovery_required != 0U);
     assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
-    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_replay(&v, &s, replay_count, &replay_calls) == OPENFS_JOURNAL_OK);
+    assert(replay_calls == 0U); /* An uncommitted DATA record must never be applied. */
+    assert(openfs_journal_recover(&reopened, &v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    assert(reopened.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
     free(d.data);
 }
 
