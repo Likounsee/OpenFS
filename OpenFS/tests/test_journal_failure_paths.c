@@ -6,6 +6,7 @@
 #include "openfs/format.h"
 #include "openfs/journal.h"
 #include "openfs/crc32c.h"
+#include "openfs/runtime.h"
 
 typedef struct {
     uint8_t *data;
@@ -381,6 +382,54 @@ static void test_recovery_refuses_live_transaction_before_replay(void)
     free(d.data);
 }
 
+typedef struct {
+    openfs_runtime_t *runtime;
+    int shutdown_result;
+    unsigned replay_calls;
+} recovery_runtime_ctx_t;
+
+static openfs_journal_result_t replay_attempt_runtime_shutdown(void *ctx, uint64_t tx,
+                                                               const uint8_t *data, uint32_t len)
+{
+    recovery_runtime_ctx_t *state = (recovery_runtime_ctx_t *)ctx;
+    (void)tx; (void)data; (void)len;
+    state->replay_calls++;
+    state->shutdown_result = openfs_runtime_shutdown_if_unused(state->runtime);
+    return OPENFS_JOURNAL_OK;
+}
+
+static void test_recovery_holds_runtime_admission_until_replay_finishes(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U; d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6EU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s; assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j; assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "runtime-check", 13U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    openfs_runtime_t runtime;
+    assert(openfs_runtime_init(&runtime));
+    reopened.runtime = &runtime;
+    recovery_runtime_ctx_t ctx = { &runtime, -1, 0U };
+    assert(openfs_journal_recover(&reopened, &v, &s,
+                                  replay_attempt_runtime_shutdown, &ctx) == OPENFS_JOURNAL_OK);
+    assert(ctx.replay_calls == 1U);
+    assert(ctx.shutdown_result == 0);
+    assert(reopened.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
+    assert(openfs_runtime_shutdown_if_unused(&runtime));
+    free(d.data);
+}
+
 static void test_replay_rejects_interleaved_transactions(void)
 {
     disk_t d = {0};
@@ -421,6 +470,7 @@ int main(void)
     test_replay_rejects_interleaved_transactions();
     test_recovery_failure_keeps_checkpoint_blocked();
     test_recovery_refuses_live_transaction_before_replay();
+    test_recovery_holds_runtime_admission_until_replay_finishes();
     test_commit_flush_failure_requires_recovery();
     test_reopen_uncommitted_wal_requires_replay();
     test_begin_restore_failure_requires_recovery();
