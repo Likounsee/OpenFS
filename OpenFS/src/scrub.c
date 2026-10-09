@@ -28,7 +28,7 @@ openfs_scrub_result_t openfs_scrub(openfs_block_device_t *d,
 
     for (uint64_t b = 0U; b < d->block_count; ++b) {
         if (d->read(d->context, b, 1U, block) != OPENFS_IO_OK) { free(block); *errors = 1U; return OPENFS_SCRUB_IO_ERROR; }
-        if ((s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U && b >= s->data_start && b < s->data_start+s->data_blocks && b != s->metadata_root_block) { int used=0; if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK){free(block);*errors=1U;return OPENFS_SCRUB_IO_ERROR;} if(used){uint32_t expected=0U;if(openfs_data_checksum_get(d,s,b,&expected)!=0||expected!=openfs_data_checksum(block,d->block_size)){(*errors)++;}} }
+        if ((s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U && b >= s->data_start && b - s->data_start < s->data_blocks && b != s->metadata_root_block) { int used=0; if(openfs_bitmap_test(d,s->block_bitmap_start,s->block_bitmap_blocks,b,&used)!=OPENFS_BITMAP_OK){free(block);*errors=1U;return OPENFS_SCRUB_IO_ERROR;} if(used){uint32_t expected=0U;if(openfs_data_checksum_get(d,s,b,&expected)!=0||expected!=openfs_data_checksum(block,d->block_size)){(*errors)++;}} }
     }
 
     free(block);
