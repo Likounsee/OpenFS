@@ -34,6 +34,19 @@ CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);CHECK(j.next_re
 CHECK(openfs_journal_checkpoint_transaction(&j,&v)==OPENFS_JOURNAL_OK);CHECK(j.publication_in_progress==0U&&j.next_record==0U);
 free(d.b);return 0;
 }
+static int failed_wal_write_and_failed_rollback_poison_journal(void){
+D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={34U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+d.partial_block=s.journal_start;d.partial_bytes=128U;d.partial_enabled=1;
+uint64_t tx=0U;CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_CORRUPT);
+CHECK(j.recovery_required==1U);CHECK(j.next_record==0U);CHECK(j.active_transaction_id==0U);
+d.partial_enabled=0;
+CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_IO_ERROR);
+CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
+CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
+free(d.b);return 0;
+}
 static int commit_full_cleans_active_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
 openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={13U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
@@ -118,6 +131,7 @@ free(d.b);return 0;
 
 int main(void){
 CHECK(commit_flush_failure_recovers_same_journal()==0);
+CHECK(failed_wal_write_and_failed_rollback_poison_journal()==0);
 CHECK(checkpoint_cannot_discard_pending_publication()==0);
 CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
 CHECK(poisoned_namespace_transaction()==0);
