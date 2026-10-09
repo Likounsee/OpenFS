@@ -17,6 +17,8 @@ typedef struct {
     int fail_write_count;
     int fail_write_after;
     int fail_next_flush;
+    int partial_next_write;
+    size_t partial_write_bytes;
 } disk_t;
 
 static openfs_io_result_t read_blocks(void *ctx, uint64_t first, uint32_t count, void *out)
@@ -40,6 +42,14 @@ static openfs_io_result_t write_blocks(void *ctx, uint64_t first, uint32_t count
     }
     if (d->fail_next_write) {
         d->fail_next_write = 0;
+        return OPENFS_IO_IO_ERROR;
+    }
+    if (d->partial_next_write) {
+        size_t bytes = (size_t)((uint64_t)count * d->block_size);
+        size_t partial = d->partial_write_bytes;
+        d->partial_next_write = 0;
+        if (partial == 0U || partial >= bytes) partial = bytes / 2U;
+        memcpy(d->data + (size_t)(first * d->block_size), in, partial);
         return OPENFS_IO_IO_ERROR;
     }
     if (d->fail_write_count > 0) {
@@ -580,6 +590,51 @@ static void test_replay_rejects_interleaved_transactions(void)
 }
 
 
+static void test_partial_commit_write_and_failed_restore_stay_gated(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x74U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    openfs_transaction_t transaction;
+    assert(openfs_transaction_begin(&transaction, &v, &j) == OPENFS_TRANSACTION_OK);
+    openfs_block_device_t *td = openfs_transaction_device(&transaction);
+    assert(td != NULL);
+    uint8_t block[4096];
+    memset(block, 0xA4U, sizeof(block));
+    assert(td->write(td->context, s.data_start + 13U, 1U, block) == OPENFS_IO_OK);
+
+    /* Leave a partial COMMIT header on disk, then fail its compensating restore. */
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 24U;
+    d.fail_write_count = 1;
+    assert(openfs_transaction_commit(&transaction) == OPENFS_TRANSACTION_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(openfs_transaction_abort(&transaction) == OPENFS_TRANSACTION_CORRUPT);
+    assert(transaction.active == 0);
+
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_recover(&j, &v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_CORRUPT);
+    assert(replay_calls == 0U);
+    assert(j.recovery_required != 0U);
+    assert(openfs_journal_begin(&j, &v, &transaction.txid) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    free(d.data);
+}
+
 static void test_corrupt_wal_recovery_stays_gated(void)
 {
     disk_t d = {0};
@@ -716,6 +771,7 @@ int main(void)
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
     test_replay_flush_failure_keeps_recovery_gated();
+    test_partial_commit_write_and_failed_restore_stay_gated();
     test_corrupt_wal_recovery_stays_gated();
     test_checkpoint_write_failure_restores_entire_wal();
     test_checkpoint_rollback_failure_poison_journal();
