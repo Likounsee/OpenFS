@@ -1,10 +1,120 @@
 #include "openfs/data_checksum.h"
 #include "openfs/crc32c.h"
+
 #include <stdlib.h>
-#include <string.h>
-uint32_t openfs_data_checksum(const void *data,uint32_t length){return openfs_crc32c(data,length);}
-static int locate(const openfs_superblock_t*s,uint64_t b,uint64_t*tb,uint32_t*off){if(s==NULL||tb==NULL||off==NULL||b<s->data_start||b>=s->data_start+s->data_blocks||s->data_checksum_blocks==0U)return 0;uint64_t idx=b-s->data_start,epb=(uint64_t)s->block_size/4U;if(epb==0U)return 0;*tb=s->data_checksum_start+idx/epb;*off=(uint32_t)((idx%epb)*4U);return *tb<s->data_checksum_start+s->data_checksum_blocks;}
-static uint32_t get32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8U)|((uint32_t)p[2]<<16U)|((uint32_t)p[3]<<24U);} static void put32(uint8_t*p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8U);p[2]=(uint8_t)(v>>16U);p[3]=(uint8_t)(v>>24U);}
-int openfs_data_checksum_get(const openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t b,uint32_t*out){if(!openfs_block_device_is_valid(d)||out==NULL)return -1;uint64_t tb;uint32_t off;if(!locate(s,b,&tb,&off))return -1;uint8_t*p=malloc(d->block_size);if(p==NULL)return -1;int ok=d->read(d->context,tb,1U,p)==OPENFS_IO_OK; if(ok)*out=get32(p+off);free(p);return ok?0:-1;}
-int openfs_data_checksum_set(const openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t b,uint32_t v){if(!openfs_block_device_is_valid(d))return -1;uint64_t tb;uint32_t off;if(!locate(s,b,&tb,&off))return -1;uint8_t*p=malloc(d->block_size);if(p==NULL)return -1;if(d->read(d->context,tb,1U,p)!=OPENFS_IO_OK){free(p);return -1;}put32(p+off,v);int ok=d->write(d->context,tb,1U,p)==OPENFS_IO_OK;free(p);return ok?0:-1;}
-int openfs_data_checksum_set_tx(openfs_transaction_t*t,const openfs_superblock_t*s,uint64_t b,uint32_t v){openfs_block_device_t*d=openfs_transaction_device(t);if(d==NULL)return -1;return openfs_data_checksum_set(d,s,b,v);}
+
+uint32_t openfs_data_checksum(const void *data, uint32_t length)
+{
+    return openfs_crc32c(data, length);
+}
+
+/*
+ * Validate all geometry before doing arithmetic or using the checksum-table
+ * offset to index a buffer. These helpers are public and can be called with a
+ * caller-provided superblock, not only one returned by mount/format.
+ */
+static int locate(const openfs_block_device_t *d,
+                  const openfs_superblock_t *s,
+                  uint64_t block, uint64_t *table_block, uint32_t *offset)
+{
+    if (!openfs_block_device_is_valid(d) || s == NULL ||
+        table_block == NULL || offset == NULL ||
+        s->block_size != d->block_size || s->block_size < 4U ||
+        (s->block_size % 4U) != 0U ||
+        s->total_blocks == 0U || s->total_blocks > d->block_count ||
+        s->data_start > s->total_blocks ||
+        s->data_blocks > s->total_blocks - s->data_start ||
+        s->data_checksum_start > s->total_blocks ||
+        s->data_checksum_blocks > s->total_blocks - s->data_checksum_start ||
+        s->data_blocks == 0U || s->data_checksum_blocks == 0U ||
+        block < s->data_start || block - s->data_start >= s->data_blocks)
+        return 0;
+
+    const uint64_t entries_per_block = (uint64_t)s->block_size / 4U;
+    const uint64_t required_blocks =
+        s->data_blocks / entries_per_block +
+        ((s->data_blocks % entries_per_block) != 0U ? 1U : 0U);
+    if (s->data_checksum_blocks < required_blocks)
+        return 0;
+
+    const uint64_t index = block - s->data_start;
+    const uint64_t relative_table_block = index / entries_per_block;
+    if (relative_table_block >= s->data_checksum_blocks)
+        return 0;
+
+    *table_block = s->data_checksum_start + relative_table_block;
+    *offset = (uint32_t)((index % entries_per_block) * 4U);
+    return *table_block < d->block_count &&
+           *offset <= d->block_size - 4U;
+}
+
+static uint32_t get32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) |
+           ((uint32_t)p[2] << 16U) | ((uint32_t)p[3] << 24U);
+}
+
+static void put32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8U);
+    p[2] = (uint8_t)(value >> 16U);
+    p[3] = (uint8_t)(value >> 24U);
+}
+
+int openfs_data_checksum_get(const openfs_block_device_t *d,
+                             const openfs_superblock_t *s,
+                             uint64_t block, uint32_t *out)
+{
+    if (!openfs_block_device_is_valid(d) || out == NULL)
+        return -1;
+
+    uint64_t table_block;
+    uint32_t offset;
+    if (!locate(d, s, block, &table_block, &offset))
+        return -1;
+
+    uint8_t *buffer = (uint8_t *)malloc(d->block_size);
+    if (buffer == NULL)
+        return -1;
+    const int ok = d->read(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
+    if (ok)
+        *out = get32(buffer + offset);
+    free(buffer);
+    return ok ? 0 : -1;
+}
+
+int openfs_data_checksum_set(const openfs_block_device_t *d,
+                             const openfs_superblock_t *s,
+                             uint64_t block, uint32_t value)
+{
+    if (!openfs_block_device_is_valid(d))
+        return -1;
+
+    uint64_t table_block;
+    uint32_t offset;
+    if (!locate(d, s, block, &table_block, &offset))
+        return -1;
+
+    uint8_t *buffer = (uint8_t *)malloc(d->block_size);
+    if (buffer == NULL)
+        return -1;
+    if (d->read(d->context, table_block, 1U, buffer) != OPENFS_IO_OK) {
+        free(buffer);
+        return -1;
+    }
+    put32(buffer + offset, value);
+    const int ok = d->write(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
+    free(buffer);
+    return ok ? 0 : -1;
+}
+
+int openfs_data_checksum_set_tx(openfs_transaction_t *transaction,
+                                const openfs_superblock_t *superblock,
+                                uint64_t block, uint32_t value)
+{
+    openfs_block_device_t *device = openfs_transaction_device(transaction);
+    if (device == NULL)
+        return -1;
+    return openfs_data_checksum_set(device, superblock, block, value);
+}
