@@ -619,6 +619,8 @@ static void test_partial_commit_write_and_failed_restore_stay_gated(void)
     d.fail_write_count = 1;
     assert(openfs_transaction_commit(&transaction) == OPENFS_TRANSACTION_CORRUPT);
     assert(j.recovery_required != 0U);
+    /* The pending filesystem block must not be published without a valid COMMIT. */
+    assert(d.data[(size_t)((s.data_start + 13U) * (uint64_t)s.block_size)] == 0U);
     assert(openfs_transaction_abort(&transaction) == OPENFS_TRANSACTION_CORRUPT);
     assert(transaction.active == 0);
 
@@ -627,7 +629,8 @@ static void test_partial_commit_write_and_failed_restore_stay_gated(void)
            OPENFS_JOURNAL_CORRUPT);
     assert(replay_calls == 0U);
     assert(j.recovery_required != 0U);
-    assert(openfs_journal_begin(&j, &v, &transaction.txid) == OPENFS_JOURNAL_IO_ERROR);
+    uint64_t blocked_tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &blocked_tx) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
 
     openfs_journal_t reopened;
