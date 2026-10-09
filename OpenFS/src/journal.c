@@ -105,10 +105,9 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
     if(j->journal_start!=s->journal_start||j->journal_blocks!=s->journal_blocks||j->block_size!=d->block_size||s->block_size!=d->block_size)return OPENFS_JOURNAL_INVALID_ARGUMENT;
 
     /*
-     * Reserve recovery before replay so a concurrent begin/write/checkpoint
-     * cannot mutate the journal while records are being replayed.  In
-     * particular, never replay over a live transaction and only clear this
-     * gate after a complete replay (including its device flush) succeeds.
+     * Reserve recovery before replay so journal mutations cannot race replay.
+     * Keep runtime admission for the entire replay: otherwise shutdown could
+     * destroy the runtime after the gate is set but before replay completes.
      */
     if(j->runtime==NULL){
         if(j->active_transaction_id!=0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
@@ -129,19 +128,17 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
     }
     j->recovery_required=1U;
     (void)openfs_mutex_unlock(&j->runtime->journal_lock);
-    openfs_runtime_leave(j->runtime);
 
     openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
-    if(result!=OPENFS_JOURNAL_OK)return result;
-
-    if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
-    if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){
-        openfs_runtime_leave(j->runtime);
-        return OPENFS_JOURNAL_IO_ERROR;
+    if(result==OPENFS_JOURNAL_OK){
+        if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){
+            result=OPENFS_JOURNAL_IO_ERROR;
+        }else{
+            if(j->active_transaction_id!=0U)result=OPENFS_JOURNAL_INVALID_ARGUMENT;
+            else j->recovery_required=0U;
+            (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+        }
     }
-    if(j->active_transaction_id!=0U)result=OPENFS_JOURNAL_INVALID_ARGUMENT;
-    else j->recovery_required=0U;
-    (void)openfs_mutex_unlock(&j->runtime->journal_lock);
     openfs_runtime_leave(j->runtime);
     return result;
 }
