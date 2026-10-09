@@ -6,6 +6,7 @@
 #include "openfs/transaction.h"
 #include "openfs/format.h"
 #include "openfs/mount.h"
+#include "openfs/runtime.h"
 #include "openfs/path.h"
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; } } while (0)
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change_after_once;}D;
@@ -15,11 +16,11 @@ static openfs_io_result_t fl(void*c){D*d=c;if(d->flush_failed||d->fail_flush)ret
 static int commit_full_cleans_active_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
 openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={13U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
-openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);openfs_runtime_t runtime;CHECK(openfs_runtime_init(&runtime));j.runtime=&runtime;
 openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);
 while(j.next_record<j.journal_blocks)CHECK(openfs_journal_write(&j,&v,t.txid,"x",1U)==OPENFS_JOURNAL_OK);
 CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_FULL);CHECK(t.active==0);CHECK(j.active_transaction_id==0);
-CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
+CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);CHECK(openfs_runtime_shutdown_if_unused(&runtime));
 free(d.b);return 0;
 }
 static int double_begin_preserves_transaction(void){
