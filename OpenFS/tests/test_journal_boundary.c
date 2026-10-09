@@ -23,7 +23,7 @@ static void p64(uint8_t*p,uint64_t v){for(unsigned k=0;k<8;k++)p[k]=(uint8_t)(v>
 static void raw_record(openfs_block_device_t*v,const openfs_superblock_t*s,uint64_t slot,uint8_t type,uint64_t tx,uint64_t seq,const uint8_t*payload,uint32_t len){
     uint8_t b[4096U];memset(b,0,sizeof(b));memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=type;p64(b+8U,tx);p64(b+16U,seq);p32(b+24U,len);if(len)memcpy(b+32U,payload,len);p32(b+28U,0U);p32(b+28U,openfs_crc32c(b,sizeof(b)));TEST_ASSERT(v->write(v->context,s->journal_start+slot,1U,b)==OPENFS_IO_OK);
 }
-static uint32_t data_payload(uint8_t*p,uint64_t target,uint8_t value){memset(p,0,25U);memcpy(p,"OJBD1",5U);p64(p+8U,target);p32(p+16U,0U);p32(p+20U,1U);p[24U]=value;return 25U;}
+static uint32_t data_payload(uint8_t*p,uint64_t target,uint8_t value){const uint32_t capacity=4096U-32U-24U;memset(p,0,24U+capacity);memcpy(p,"OJBD1",5U);p64(p+8U,target);p32(p+16U,0U);p32(p+20U,capacity);memset(p+24U,value,capacity);return 24U+capacity;}
 static void assert_clean_after_mount(openfs_block_device_t*v,openfs_superblock_t*s,uint64_t target,uint8_t value){(void)s;
     openfs_mount_t m;TEST_ASSERT(openfs_mount(&m,v)==OPENFS_MOUNT_OK);TEST_ASSERT(m.journal.next_record==0U);TEST_ASSERT(m.journal.active_transaction_id==0U);TEST_ASSERT(m.journal.commit_record_written==0U);
     uint8_t b[4096U];TEST_ASSERT(v->read(v->context,target,1U,b)==OPENFS_IO_OK);TEST_ASSERT(b[0]==value);uint64_t errors=0;TEST_ASSERT(openfs_fsck(v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);TEST_ASSERT(openfs_unmount(&m)==OPENFS_MOUNT_OK);
@@ -36,14 +36,14 @@ static void empty_boundary(void){
     TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);openfs_journal_t r;TEST_ASSERT(openfs_journal_open(&r,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(r.next_record==0U);free(d.b);
 }
 static void physical_boundaries(void){
-    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);uint64_t target=s.data_start;uint8_t payload[25];uint64_t jb=s.journal_blocks;TEST_ASSERT(jb>=8U);
+    disk_t d;openfs_block_device_t v;openfs_superblock_t s;setup(&d,&v,&s);uint64_t target=s.data_start;uint8_t payload[4064U];uint64_t jb=s.journal_blocks;TEST_ASSERT(jb>=8U);
     /* next_record=1: one incomplete BEGIN, then replay/remount/fsck must remain safe. */
     raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);openfs_journal_t j;TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==1U);TEST_ASSERT(j.commit_record_written==0U);TEST_ASSERT(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
     /* Leave exactly one slot and use it as DATA: then use the same last slot as COMMIT in a fresh exact-capacity transaction. */
     setup(&d,&v,&s);jb=s.journal_blocks;target=s.data_start;data_payload(payload,target,0xA5U);
     raw_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
-    for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,sizeof(payload));
+    for(uint64_t slot=1U;slot<jb-1U;slot++)raw_record(&v,&s,slot,OPENFS_JOURNAL_DATA,1U,slot+1U,payload,4064U);
     raw_record(&v,&s,jb-1U,OPENFS_JOURNAL_DATA,1U,jb,payload,sizeof(payload));
     TEST_ASSERT(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==jb);TEST_ASSERT(j.commit_record_written==0U);
     TEST_ASSERT(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
