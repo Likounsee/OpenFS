@@ -333,6 +333,13 @@ static int path_snapshot_file_blocks(openfs_block_device_t *d,const openfs_super
         uint64_t physical=0U;
         if(openfs_file_map_block_device(d,s,inode,logical,&physical)!=OPENFS_FILE_OK)return 0;
         if(!path_snapshot_add_block(d,snap,physical))return 0;
+        if((s->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U){
+            uint64_t entries_per_checksum_block=(uint64_t)s->block_size/4U;
+            if(physical<s->data_start||entries_per_checksum_block==0U)return 0;
+            uint64_t checksum_block=s->data_checksum_start+(physical-s->data_start)/entries_per_checksum_block;
+            if(checksum_block<s->data_checksum_start||checksum_block>=s->data_checksum_start+s->data_checksum_blocks||
+               !path_snapshot_add_block(d,snap,checksum_block))return 0;
+        }
     }
     return 1;
 }
