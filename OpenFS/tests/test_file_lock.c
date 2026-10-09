@@ -175,12 +175,15 @@ int main(void){
     assert(shutdown_waiter_thread!=0U);
     while(atomic_load_explicit(&shutdown_waiter.started,memory_order_acquire)==0)Sleep(0);
     Sleep(10);
+    /* Keep shutdown in its drain phase until the test observes closed admission. */
+    assert(openfs_runtime_enter(m.superblock.runtime)==1);
     shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
     uintptr_t shutdown_thread=_beginthreadex(NULL,0U,shutdown_worker,&shutdown,0U,NULL);
     assert(shutdown_thread!=0U);
     while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)Sleep(0);
     while(openfs_runtime_is_accepting(m.superblock.runtime))Sleep(0);
     assert(WaitForSingleObject((HANDLE)shutdown_waiter_thread,60000U)==WAIT_OBJECT_0);
+    openfs_runtime_leave(m.superblock.runtime);
     assert(WaitForSingleObject((HANDLE)shutdown_thread,60000U)==WAIT_OBJECT_0);
     CloseHandle((HANDLE)shutdown_waiter_thread);
     CloseHandle((HANDLE)shutdown_thread);
@@ -190,12 +193,15 @@ int main(void){
     while(atomic_load_explicit(&shutdown_waiter.started,memory_order_acquire)==0)sched_yield();
     struct timespec delay={0,10000000L};
     (void)nanosleep(&delay,NULL);
+    /* Keep shutdown in its drain phase until the test observes closed admission. */
+    assert(openfs_runtime_enter(m.superblock.runtime)==1);
     shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
     pthread_t shutdown_thread;
     assert(pthread_create(&shutdown_thread,NULL,shutdown_worker,&shutdown)==0);
     while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)sched_yield();
     while(openfs_runtime_is_accepting(m.superblock.runtime))sched_yield();
     assert(pthread_join(shutdown_waiter_thread,NULL)==0);
+    openfs_runtime_leave(m.superblock.runtime);
     assert(pthread_join(shutdown_thread,NULL)==0);
 #endif
     assert(shutdown_waiter.result==OPENFS_FILE_LOCK_CLOSED);
