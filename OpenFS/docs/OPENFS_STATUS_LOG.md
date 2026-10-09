@@ -840,3 +840,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 
 - The GCC/Clang path-test timeout was isolated to the early `rename_missing_same_path_regression` assertion, but temporary tracing did not produce a valid CI build because the diagnostic edit itself was malformed; all temporary tracing has now been removed from production and tests.
 - The inode transaction admission change was also corrected to preserve the intended base-device semantics; transaction-device routing remains handled by the allocator transaction detection already in production.
+
+
+# 2026-10-09 — file-lock registry participates in runtime quiescence
+
+- Audit found that public file-lock operations accessed the runtime's file-lock registry without pinning the runtime as an active user. During `openfs_runtime_shutdown_if_unused()`, that left a window where shutdown could inspect or destroy runtime synchronization state while a file-lock call was entering the registry.
+- Wrapped lock, unlock, conflict-test, and release-all entry points in runtime admission accounting; their existing implementations remain internal helpers. Shutdown now rejects new file-lock operations during quiescence and waits for operations already admitted.
+- Commit: `1d6347df9c797bf29b63cdb899f24ee004fd7588`.
+- Verification limitation: source was committed and fetched back from branch `OpenFS`; compilation, runtime tests, and CI were not run in this environment. This fix still requires Linux and Windows test runs.
