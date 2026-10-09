@@ -635,6 +635,18 @@ static void test_checkpoint_rollback_failure_poison_journal(void)
     assert(j.recovery_required != 0U);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+
+    /*
+     * Simulate a process restart after rollback itself failed. The on-disk WAL
+     * now contains a zeroed first slot followed by restored records. Reopening
+     * and replay must reject that non-contiguous log before invoking callbacks.
+     */
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_replay(&v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_CORRUPT);
+    assert(replay_calls == 0U);
     free(d.data);
 }
 
