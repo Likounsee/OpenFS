@@ -185,6 +185,9 @@ cleanup:
 openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t *errors){
     if(!openfs_block_device_is_valid(d)||sb==NULL||errors==NULL)return OPENFS_FSCK_INVALID_ARGUMENT;
     if(openfs_validate_superblock(d,sb)!=OPENFS_FORMAT_OK)return OPENFS_FSCK_CORRUPT;
+    /* A live runtime must never fall back to non-journalled writes against a
+     * different device (or a runtime without its journal). */
+    if(sb->runtime!=NULL&&(sb->runtime->device!=d||sb->runtime->journal==NULL))return OPENFS_FSCK_IO_ERROR;
     if(sb->inode_table_blocks>UINT64_MAX/sb->block_size)return OPENFS_FSCK_CORRUPT;
     uint64_t inode_count=(sb->inode_table_blocks*(uint64_t)sb->block_size)/OPENFS_INODE_SIZE;
     if(inode_count==0U)return OPENFS_FSCK_CORRUPT;
