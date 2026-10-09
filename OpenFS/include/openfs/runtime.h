@@ -30,6 +30,8 @@ typedef struct openfs_runtime {
 } openfs_runtime_t;
 int openfs_runtime_enter(openfs_runtime_t *);
 void openfs_runtime_leave(openfs_runtime_t *);
+/* Safe cancellation probe for operations that hold an active runtime pin. */
+int openfs_runtime_is_accepting(openfs_runtime_t *);
 int openfs_runtime_init(openfs_runtime_t *);
 void openfs_runtime_destroy(openfs_runtime_t *);
 int openfs_runtime_shutdown_if_unused(openfs_runtime_t *);
