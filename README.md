@@ -10,6 +10,24 @@ OpenFS is **not release-ready yet**. Development is intentionally incremental: a
 
 ---
 
+## P0 reliability status — 2026-10-09
+
+**Estimated progress: approximately 55% of the P0 work completed.** This is a rough engineering estimate based on the remaining roadmap items and the fixes/tests recorded in the development log; it is not a test pass rate, a formal completion metric, or a release-readiness claim.
+
+Recent work has focused on runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, and cancellation of blocked file-lock waiters during runtime shutdown. Regression tests have been added for several of these paths, including shutdown while a conflicting lock request is blocked.
+
+### P0 work still blocking completion
+
+- **Concurrency:** finish the audit of shared mutable state, lock ordering, handle/mount lifetimes, and races across namespace, file I/O, CoW/refcounts, and unmount.
+- **WAL and crash recovery:** close remaining post-COMMIT recovery/ownership gaps, including the case where replay restores an allocation/refcount but the resulting block has no durable namespace owner.
+- **FSCK and repair:** complete safe repair architecture and expand ownership, journal, link-count, and corruption fixtures without weakening consistency checks.
+- **Integrity:** extend persistent data-integrity coverage, corruption reporting, and scrub/repair capabilities.
+- **Validation:** compile and run the regression suite on supported GCC/Clang and Windows/MSVC configurations, then verify sanitizer and CI results for the current branch head.
+
+**Validation caveat:** the latest file-lock shutdown regression and its portability correction have been committed, but their compilation and execution have not yet been confirmed. Missing CI status/workflow results must not be interpreted as a passing build. OpenFS remains not release-ready until the outstanding P0 issues are fixed and the relevant test matrix passes.
+
+---
+
 ## Project status
 
 OpenFS is in an active **filesystem-core hardening and feature-completion phase**.
@@ -67,7 +85,8 @@ The existing core already provides a substantial filesystem foundation:
 | ACL / permissions / xattrs | Implemented |
 | File handles | Implemented |
 | WAL / transactions / replay | Implemented / actively hardened |
-| CoW / refcounting | Implemented / actively hardened |\n| Generic metadata-CoW block primitive | **Implemented as stage-1 groundwork; metadata roots not yet migrated** |
+| CoW / refcounting | Implemented / actively hardened |
+| Generic metadata-CoW block primitive | **Implemented as stage-1 groundwork; metadata roots not yet migrated** |
 | Orphans | Implemented |
 | FSCK consistency checking | Implemented / actively hardened |
 | Sparse files | **Implemented, final hardening ongoing** |
@@ -176,7 +195,8 @@ Required ordering:
 
 Implement snapshots using the existing CoW/refcount foundation.
 
-- [ ] Persistent snapshot metadata.\n- [x] Stage-1 generic metadata-CoW block header/refcount/copy-before-write primitive (not sufficient for snapshots by itself).
+- [ ] Persistent snapshot metadata.
+- [x] Stage-1 generic metadata-CoW block header/refcount/copy-before-write primitive (not sufficient for snapshots by itself).
 - [ ] Atomic snapshot creation.
 - [ ] Read-only snapshot view.
 - [ ] Persistent snapshot IDs.
