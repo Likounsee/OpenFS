@@ -543,6 +543,18 @@ static openfs_file_result_t file_truncate_unlocked(
                 free(block);free(old_tree_block);free(freed);free(shrink_tail_backup);free(tail_backup);*inode=original;
                 return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
             }
+            if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
+                openfs_data_checksum_set(device, sb, shrink_tail_physical,
+                                         openfs_data_checksum(block, device->block_size)) != 0) {
+                int ok = device->write(device->context, shrink_tail_physical, 1U,
+                                       shrink_tail_backup) == OPENFS_IO_OK;
+                if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
+                    openfs_data_checksum_set(device, sb, shrink_tail_physical,
+                                             openfs_data_checksum(shrink_tail_backup, device->block_size)) != 0) ok = 0;
+                if (device->flush(device->context) != OPENFS_IO_OK) ok = 0;
+                free(block); free(old_tree_block); free(freed); free(shrink_tail_backup); free(tail_backup); *inode = original;
+                return ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
+            }
             free(block);
         }
 
@@ -632,6 +644,16 @@ static openfs_file_result_t file_truncate_unlocked(
             int ok=device->write(device->context,tail_physical,1U,tail_backup)==OPENFS_IO_OK;
             if(device->flush(device->context)!=OPENFS_IO_OK)ok=0;
             free(block);free(tail_backup);return ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
+        }
+        if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
+            openfs_data_checksum_set(device, sb, tail_physical,
+                                     openfs_data_checksum(block, device->block_size)) != 0) {
+            int ok = device->write(device->context, tail_physical, 1U, tail_backup) == OPENFS_IO_OK;
+            if (openfs_data_checksum_set(device, sb, tail_physical,
+                                         openfs_data_checksum(tail_backup, device->block_size)) != 0) ok = 0;
+            if (device->flush(device->context) != OPENFS_IO_OK) ok = 0;
+            free(block); free(tail_backup);
+            return ok ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
         }
         free(block);
     }
