@@ -245,6 +245,7 @@ static void test_replay_flush_failure_keeps_recovery_gated(void)
 }
 
 static openfs_journal_result_t replay_noop(void *, uint64_t, const uint8_t *, uint32_t);
+static openfs_journal_result_t replay_count(void *, uint64_t, const uint8_t *, uint32_t);
 
 
 
