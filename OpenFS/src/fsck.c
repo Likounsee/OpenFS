@@ -47,7 +47,7 @@ static int fsck_same_superblock_layout(const openfs_superblock_t*a,const openfs_
         a->inode_bitmap_start==b->inode_bitmap_start&&a->inode_bitmap_blocks==b->inode_bitmap_blocks&&
         a->inode_table_start==b->inode_table_start&&a->inode_table_blocks==b->inode_table_blocks&&
         a->journal_start==b->journal_start&&a->journal_blocks==b->journal_blocks&&a->refcount_start==b->refcount_start&&a->refcount_blocks==b->refcount_blocks&&
-        a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->root_inode==b->root_inode&&a->metadata_root_block==b->metadata_root_block&&a->metadata_root_generation==b->metadata_root_generation&&
+        a->data_start==b->data_start&&a->data_blocks==b->data_blocks&&a->data_checksum_start==b->data_checksum_start&&a->data_checksum_blocks==b->data_checksum_blocks&&a->root_inode==b->root_inode&&a->metadata_root_block==b->metadata_root_block&&a->metadata_root_generation==b->metadata_root_generation&&
         memcmp(a->uuid,b->uuid,sizeof(a->uuid))==0;
 }
 
