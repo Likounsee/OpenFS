@@ -1,3 +1,11 @@
+# 2026-10-09 — Regression test for shutdown with a blocked file-lock waiter
+
+- **TEST** — `OpenFS/tests/test_file_lock.c`: hold an exclusive range lock, start a conflicting blocking waiter, then initiate runtime shutdown. The waiter must return `OPENFS_FILE_LOCK_CLOSED`, allowing shutdown to drain active users; because handles remain open, shutdown must refuse teardown and restore admission.
+- This specifically covers the shutdown deadlock scenario rather than only the ordinary lock handoff.
+- **Validation: not run.** The cross-platform test has been committed but must still be compiled and executed on POSIX and Windows CI; no green result is inferred.
+
+---
+
 # 2026-10-09 — Cancel blocking file-lock waits during runtime shutdown
 
 - **FIX** — `OpenFS/src/file_lock.c`: blocking range-lock acquisition now checks whether its pinned runtime is still accepting work after each conflict poll. If shutdown closes admission, the waiter returns `OPENFS_FILE_LOCK_CLOSED` instead of retaining an active-user pin indefinitely.
