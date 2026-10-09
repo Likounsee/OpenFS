@@ -848,3 +848,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - Wrapped lock, unlock, conflict-test, and release-all entry points in runtime admission accounting; their existing implementations remain internal helpers. Shutdown now rejects new file-lock operations during quiescence and waits for operations already admitted.
 - Commit: `1d6347df9c797bf29b63cdb899f24ee004fd7588`.
 - Verification limitation: source was committed and fetched back from branch `OpenFS`; compilation, runtime tests, and CI were not run in this environment. This fix still requires Linux and Windows test runs.
+
+
+# 2026-10-09 — file-lock regression test remains active in Release builds
+
+- **TEST HARDENING** — `OpenFS/tests/test_file_lock.c` used standard `assert()` around operations with side effects, including format/mount calls and thread creation. Under `NDEBUG`, those expressions disappear, so Release builds could skip the actual test workload.
+- Replaced the test-local assertion behavior with an always-on check that prints the failed expression and source location before aborting. This preserves test execution in Debug and Release configurations.
+- Commits: `ae5c134f` (always-on checks), `edbb2a97` (diagnostic newline correction).
+- **Validation: not run.** File content was fetched back from branch `OpenFS`; build, CTest, and CI remain required.
