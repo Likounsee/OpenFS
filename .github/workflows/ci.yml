@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: openfs-ci-${{ github.ref }}
+  group: openfs-ci-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
