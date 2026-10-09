@@ -737,7 +737,7 @@ static void sparse_write_reports_rollback_failure(void)
        cleanup writes) fail persistently during the next allocation. */
     d.fail_block=sb.block_bitmap_start;
     d.fail_block_enabled=1;
-    d.fail_after_writes=2U;
+    d.fail_after_writes=3U;
     d.fail_once=0;
     TEST_ASSERT(openfs_file_write(&v,&sb,&inode,4U*4096U,&tail,1U)==OPENFS_FILE_CORRUPT);
     free(d.bytes);
