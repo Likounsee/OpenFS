@@ -99,9 +99,12 @@ openfs_journal_result_t openfs_journal_commit(openfs_journal_t*j,openfs_block_de
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
     openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);(void)openfs_mutex_unlock(&j->runtime->journal_lock);openfs_runtime_leave(j->runtime);return r;
 }
-openfs_journal_result_t openfs_journal_recovery_complete(openfs_journal_t*j)
+openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx)
 {
-    if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    if(j==NULL||!openfs_block_device_is_valid(d)||s==NULL||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    if(j->journal_start!=s->journal_start||j->journal_blocks!=s->journal_blocks||j->block_size!=d->block_size||s->block_size!=d->block_size)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
+    if(result!=OPENFS_JOURNAL_OK)return result;
     if(j->runtime==NULL){
         if(j->active_transaction_id!=0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
         j->recovery_required=0U;
@@ -112,7 +115,6 @@ openfs_journal_result_t openfs_journal_recovery_complete(openfs_journal_t*j)
         openfs_runtime_leave(j->runtime);
         return OPENFS_JOURNAL_IO_ERROR;
     }
-    openfs_journal_result_t result=OPENFS_JOURNAL_OK;
     if(j->active_transaction_id!=0U)result=OPENFS_JOURNAL_INVALID_ARGUMENT;
     else j->recovery_required=0U;
     (void)openfs_mutex_unlock(&j->runtime->journal_lock);
