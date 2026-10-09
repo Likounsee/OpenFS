@@ -979,9 +979,9 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
                 }
                 free(block);
                 if(openfs_cow_refcount_dec(d,sb,old_physical,NULL)!=OPENFS_COW_OK){
-                    int rollback_ok=openfs_free_block(d,sb,replacement)==OPENFS_ALLOC_OK;
-                    if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
-                    r=rollback_ok?OPENFS_FILE_CORRUPT:OPENFS_FILE_CORRUPT;
+                    (void)openfs_free_block(d,sb,replacement);
+                    (void)d->flush(d->context);
+                    r=OPENFS_FILE_CORRUPT;
                     break;
                 }
                 if(cow_count>=list_cap){
