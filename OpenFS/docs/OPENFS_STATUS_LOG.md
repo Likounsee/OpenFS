@@ -941,3 +941,6 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - **FIX** — `OpenFS/src/journal.c`: `openfs_journal_open()` now validates BEGIN/DATA/COMMIT ownership and strictly increasing transaction IDs while scanning the persistent log. DATA and COMMIT records must belong to the currently open transaction; a later BEGIN may still supersede an uncommitted transaction after a crash, matching replay's recovery model.
 - **REGRESSION COVERAGE** — extended `tests/test_journal.c` so journal open must reject an orphan DATA record and a COMMIT whose transaction ID does not match the active BEGIN. This prevents malformed WAL from being accepted as an open journal before recovery validation.
 - **Validation** — full Debug/sanitizer/Release GCC and Clang plus Windows CI is required before this change is considered complete.
+
+
+- **CI follow-up (2026-10-10)** — GCC and Clang exposed stale test-fixture state in `journal_corruption_matrix()`: a previous malformed third record was not cleared before the next valid two-record WAL was constructed. Expanded the fixture reset to clear all three touched slots; production validation remains strict. Re-run the full matrix before considering this change green.

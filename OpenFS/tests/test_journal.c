@@ -25,7 +25,7 @@ static void journal_corruption_matrix(void){
     memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,UINT64_MAX,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_COMMIT,UINT64_MAX,2U,0U,1);assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_OK);
     memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,7U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_COMMIT,8U,2U,0U,1);assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
     memset(d.b+(size_t)(s.journal_start*d.bs),0,3U*d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,9U,1U,0U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_DATA,9U,2U,1U,1);raw[32U]=1U;assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);write_raw(raw,OPENFS_JOURNAL_BEGIN,10U,3U,0U,1);assert(v.write(v.context,s.journal_start+2U,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
-    memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);
+    memset(d.b+(size_t)(s.journal_start*d.bs),0,3U*d.bs);
     uint8_t full_payload[4064U];
     memset(full_payload,0x5AU,sizeof(full_payload));
     memset(raw,0,sizeof(raw));
