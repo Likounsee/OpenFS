@@ -1,5 +1,4 @@
 #include "openfs/runtime.h"
-#include <assert.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -141,9 +140,12 @@ int main(void)
     join_thread(worker);
     join_thread(shutdown);
 
-    assert(admission_closed);
-    assert(atomic_load_explicit(&shutdown_done, memory_order_acquire) == 1);
-    assert(atomic_load_explicit(&shutdown_result, memory_order_acquire) == 1);
+    if (!admission_closed ||
+        atomic_load_explicit(&shutdown_done, memory_order_acquire) != 1 ||
+        atomic_load_explicit(&shutdown_result, memory_order_acquire) != 1) {
+        fprintf(stderr, "runtime shutdown did not close admission and drain active users\n");
+        return 1;
+    }
     puts("runtime lifecycle quiescence test passed");
     return 0;
 }
