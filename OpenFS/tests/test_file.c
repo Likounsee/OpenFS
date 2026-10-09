@@ -59,6 +59,31 @@ static openfs_inode_t new_file(void){
     return i;
 }
 
+static void file_write_preserves_allocator_corruption(void)
+{
+    disk_t d = {0};
+    openfs_block_device_t v;
+    openfs_superblock_t sb;
+    setup(&d, &v, &sb);
+
+    uint64_t ino = 0U;
+    TEST_ASSERT(openfs_path_create(&v, &sb, "/allocator-corruption",
+        OPENFS_INODE_MODE_REGULAR, &ino) == OPENFS_PATH_OK);
+    uint64_t inode_count =
+        (sb.inode_table_blocks * (uint64_t)sb.block_size) / OPENFS_INODE_SIZE;
+    openfs_inode_t inode;
+    TEST_ASSERT(openfs_inode_read(&v, sb.inode_table_start, ino,
+        inode_count, &inode) == OPENFS_INODE_OK);
+
+    /* Invalid allocator geometry must not be reported as ordinary I/O. */
+    openfs_superblock_t damaged = sb;
+    damaged.block_bitmap_blocks = 0U;
+    const uint8_t byte = 0x5AU;
+    TEST_ASSERT(openfs_file_write(&v, &damaged, &inode, 0U,
+        &byte, sizeof(byte)) == OPENFS_FILE_CORRUPT);
+    free(d.bytes);
+}
+
 static void write_allocation_failure_rolls_back_partial_allocations(void){
     disk_t d={0};openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
     uint64_t ino=0U;TEST_ASSERT(openfs_path_create(&v,&sb,"/write-allocation-rollback",OPENFS_INODE_MODE_REGULAR,&ino)==OPENFS_PATH_OK);
@@ -739,6 +764,7 @@ static void sparse_write_flush_failure_rolls_back_layout(void){
 }
 
 int main(void){
+    file_write_preserves_allocator_corruption();
     sparse_leading_hole_survives_fsck();
     sparse_seek_data_and_hole_reports_extents();
     sparse_write_allocation_failure_rolls_back_layout();
