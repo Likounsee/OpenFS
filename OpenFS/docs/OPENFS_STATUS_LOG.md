@@ -1,3 +1,13 @@
+# 2026-10-09 — P0 concurrency audit: file-lock handle state
+
+- **FIX** — `OpenFS/src/file_lock.c`: `handle_open()` no longer reads mutable `closed`/`references` fields before acquiring the handle mutex. `handle_lock()` validates those fields after locking, preserving the closed-handle result while avoiding unsynchronized state reads.
+- **TEST** — `OpenFS/tests/test_file_lock.c`: added a cross-platform threaded regression that repeatedly queries a shared file-lock handle while another reference is closed; the remaining reference keeps the object alive. The test checks all lock-test calls remain successful.
+- Commits: `f02169ec` (initial state-read fix), `e9646325` (validate under mutex), `1dd93ed4` (concurrent close regression).
+- **CI status: not yet verified.** The connector returned no status checks or workflow runs for the test commit; this is not evidence of a green build. Local compiler/sanitizer execution is not available in this session.
+- Scope remains partial: this addresses the file-lock handle state race only. Runtime teardown/admission, retired-handle lifetime, lock fairness, and transaction/journal shared-state paths still require further audit.
+
+---
+
 # OpenFS — Development Status Log
 
 This file is the chronological engineering log for the OpenFS filesystem-core hardening and feature-completion work.
