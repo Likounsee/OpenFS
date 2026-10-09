@@ -99,6 +99,57 @@ openfs_journal_result_t openfs_journal_commit(openfs_journal_t*j,openfs_block_de
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
     openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);(void)openfs_mutex_unlock(&j->runtime->journal_lock);openfs_runtime_leave(j->runtime);return r;
 }
+openfs_journal_result_t openfs_journal_commit_transaction(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx,int*committed)
+{
+    if(j==NULL||committed==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    *committed=0;
+    if(j->runtime==NULL){
+        openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
+        if(j->commit_record_written!=0U){j->publication_in_progress=1U;*committed=1;}
+        return r;
+    }
+    if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
+    if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
+    openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
+    if(j->commit_record_written!=0U){j->publication_in_progress=1U;*committed=1;}
+    (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+    openfs_runtime_leave(j->runtime);
+    return r;
+}
+openfs_journal_result_t openfs_journal_checkpoint_transaction(openfs_journal_t*j,openfs_block_device_t*d)
+{
+    if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    if(j->runtime==NULL){
+        if(j->publication_in_progress==0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+        openfs_journal_result_t r=journal_checkpoint_unlocked(j,d);
+        if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=0U;
+        else j->recovery_required=1U;
+        return r;
+    }
+    if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
+    if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
+    openfs_journal_result_t r;
+    if(j->publication_in_progress==0U)r=OPENFS_JOURNAL_INVALID_ARGUMENT;
+    else{
+        r=journal_checkpoint_unlocked(j,d);
+        if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=0U;
+        else j->recovery_required=1U;
+    }
+    (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+    openfs_runtime_leave(j->runtime);
+    return r;
+}
+openfs_journal_result_t openfs_journal_mark_recovery_required(openfs_journal_t*j)
+{
+    if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    if(j->runtime==NULL){j->recovery_required=1U;return OPENFS_JOURNAL_OK;}
+    if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
+    if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
+    j->recovery_required=1U;
+    (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+    openfs_runtime_leave(j->runtime);
+    return OPENFS_JOURNAL_OK;
+}
 openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx)
 {
     if(j==NULL||!openfs_block_device_is_valid(d)||s==NULL||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
@@ -145,10 +196,14 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
 openfs_journal_result_t openfs_journal_checkpoint(openfs_journal_t*j,openfs_block_device_t*d)
 {
     if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
-    if(j->runtime==NULL)return journal_checkpoint_unlocked(j,d);
+    if(j->runtime==NULL){
+        if(j->publication_in_progress!=0U)return OPENFS_JOURNAL_IO_ERROR;
+        return journal_checkpoint_unlocked(j,d);
+    }
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
-    openfs_journal_result_t r=journal_checkpoint_unlocked(j,d);(void)openfs_mutex_unlock(&j->runtime->journal_lock);openfs_runtime_leave(j->runtime);return r;
+    openfs_journal_result_t r=j->publication_in_progress!=0U?OPENFS_JOURNAL_IO_ERROR:journal_checkpoint_unlocked(j,d);
+    (void)openfs_mutex_unlock(&j->runtime->journal_lock);openfs_runtime_leave(j->runtime);return r;
 }
 openfs_journal_result_t openfs_journal_write_block(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx,uint64_t target,const void*data)
 {
