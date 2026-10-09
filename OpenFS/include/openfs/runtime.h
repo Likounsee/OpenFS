@@ -14,6 +14,7 @@ typedef struct openfs_runtime {
     openfs_mutex_t allocation_lock;
     openfs_mutex_t transaction_lock;
     openfs_mutex_t journal_lock;
+    openfs_mutex_t checksum_lock;
     openfs_mutex_t handle_registry_lock;
     openfs_mutex_t file_lock_registry_lock;
     void *open_handles;
