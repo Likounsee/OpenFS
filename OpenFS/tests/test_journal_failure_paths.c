@@ -636,7 +636,8 @@ static void test_checkpoint_rollback_failure_poison_journal(void)
 
     /* Force the clear phase to fail at flush, then fail a restore write. */
     d.fail_next_flush = 1;
-    d.fail_write_count = 1;
+    /* Let every clear write succeed, then fail the first rollback write. */
+    d.fail_write_after = (int)s.journal_blocks + 1;
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_CORRUPT);
     assert(j.recovery_required != 0U);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
