@@ -977,7 +977,13 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
                 if(openfs_cow_refcount_dec(d,sb,old_physical,NULL)!=OPENFS_COW_OK){
                     (void)openfs_free_block(d,sb,replacement);r=OPENFS_FILE_CORRUPT;break;
                 }
-                if(cow_count>=list_cap){(void)openfs_cow_refcount_inc(d,sb,old_physical,NULL);(void)openfs_free_block(d,sb,replacement);r=OPENFS_FILE_OUT_OF_RANGE;break;}
+                if(cow_count>=list_cap){
+                    int rollback_ok=openfs_cow_refcount_inc(d,sb,old_physical,NULL)==OPENFS_COW_OK;
+                    if(openfs_free_block(d,sb,replacement)!=OPENFS_ALLOC_OK)rollback_ok=0;
+                    if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
+                    r=rollback_ok?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
+                    break;
+                }
                 cow_old[cow_count]=old_physical;cow_new[cow_count]=replacement;cow_count++;
                 if(out_n>=cap64){r=OPENFS_FILE_OUT_OF_RANGE;break;}
                 work[out_n++]=(openfs_extent_t){logical,replacement,1U};
@@ -1016,16 +1022,14 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
                 return rollback_ok?map_allocator_result(ar):OPENFS_FILE_CORRUPT;
             }
             if(zero_block(d,physical)!=OPENFS_FILE_OK){
-                (void)openfs_free_block(d,sb,physical);
-                sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
-                for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+                int rollback_ok=openfs_free_block(d,sb,physical)==OPENFS_ALLOC_OK;
+                if(!sparse_rollback_allocations(d,sb,new_blocks,*new_count_out,cow_old,cow_new,cow_count))rollback_ok=0;
                 free(new_blocks);free(cow_old);free(cow_new);free(work);
                 return rollback_ok?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
             }
             if(*new_count_out>=list_cap){
-                (void)openfs_free_block(d,sb,physical);
-                sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
-                for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
+                int rollback_ok=openfs_free_block(d,sb,physical)==OPENFS_ALLOC_OK;
+                if(!sparse_rollback_allocations(d,sb,new_blocks,*new_count_out,cow_old,cow_new,cow_count))rollback_ok=0;
                 free(new_blocks);free(cow_old);free(cow_new);free(work);
                 return rollback_ok?OPENFS_FILE_OUT_OF_RANGE:OPENFS_FILE_CORRUPT;
             }
