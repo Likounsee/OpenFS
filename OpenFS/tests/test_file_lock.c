@@ -146,7 +146,7 @@ int main(void){
 
     /* A blocking lock must wait for a conflicting owner and then proceed. */
     assert(openfs_file_lock(a,700U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
-    blocking_lock_context_t blocking={b,ATOMIC_VAR_INIT(0),OPENFS_FILE_LOCK_IO_ERROR};
+    blocking_lock_context_t blocking={b,0,OPENFS_FILE_LOCK_IO_ERROR};
 #if defined(_WIN32)
     uintptr_t blocking_thread=_beginthreadex(NULL,0U,blocking_lock_worker,&blocking,0U,NULL);
     assert(blocking_thread!=0U);
@@ -170,7 +170,7 @@ int main(void){
      * has open handles, shutdown must then refuse teardown and reopen admission.
      */
     assert(openfs_file_lock(a,700U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
-    blocking_lock_context_t shutdown_waiter={b,ATOMIC_VAR_INIT(0),OPENFS_FILE_LOCK_IO_ERROR};
+    blocking_lock_context_t shutdown_waiter={b,0,OPENFS_FILE_LOCK_IO_ERROR};
 #if defined(_WIN32)
     uintptr_t shutdown_waiter_thread=_beginthreadex(NULL,0U,blocking_lock_worker,&shutdown_waiter,0U,NULL);
     assert(shutdown_waiter_thread!=0U);
@@ -178,7 +178,7 @@ int main(void){
     Sleep(10);
     /* Keep shutdown in its drain phase until the test observes closed admission. */
     assert(openfs_runtime_enter(m.superblock.runtime)==1);
-    shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
+    shutdown_context_t shutdown={m.superblock.runtime,0,-1};
     uintptr_t shutdown_thread=_beginthreadex(NULL,0U,shutdown_worker,&shutdown,0U,NULL);
     assert(shutdown_thread!=0U);
     while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)Sleep(0);
@@ -196,7 +196,7 @@ int main(void){
     (void)nanosleep(&delay,NULL);
     /* Keep shutdown in its drain phase until the test observes closed admission. */
     assert(openfs_runtime_enter(m.superblock.runtime)==1);
-    shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
+    shutdown_context_t shutdown={m.superblock.runtime,0,-1};
     pthread_t shutdown_thread;
     assert(pthread_create(&shutdown_thread,NULL,shutdown_worker,&shutdown)==0);
     while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)sched_yield();
