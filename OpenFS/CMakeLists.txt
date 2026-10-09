@@ -6,6 +6,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+if(MSVC)
+    add_compile_options(/experimental:c11atomics)
+endif()
+
 option(OPENFS_BUILD_TESTS "Build OpenFS tests" ON)
 
 add_library(openfs STATIC
