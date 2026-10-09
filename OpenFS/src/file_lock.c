@@ -30,7 +30,9 @@ static int conflicts(const openfs_file_lock_entry_t *e,const openfs_file_handle_
     if(e->device!=h->device||e->inode_number!=h->inode.inode_number||e->generation!=h->inode.generation||e->owner==h)return 0;
     return overlaps(e->start,e->length,start,length)&&(e->type==OPENFS_FILE_LOCK_EXCLUSIVE||type==OPENFS_FILE_LOCK_EXCLUSIVE);
 }
-static int handle_open(const openfs_file_handle_t *h){return h!=NULL&&h->lock_initialized&&!h->closed&&h->references!=0U&&h->superblock.runtime!=NULL;}
+/* Only inspect immutable handle fields here.  Callers must hold h->lock before
+ * reading closed/references; probing those fields before locking races close. */
+static int handle_open(const openfs_file_handle_t *h){return h!=NULL&&h->lock_initialized&&h->superblock.runtime!=NULL;}
 static openfs_file_lock_result_t handle_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
 static void handle_unlock(openfs_file_handle_t *h){(void)openfs_mutex_unlock(&h->lock);}
 static openfs_file_lock_result_t registry_lock(openfs_file_handle_t *h){if(!handle_open(h))return OPENFS_FILE_LOCK_CLOSED;return openfs_mutex_lock(&h->superblock.runtime->file_lock_registry_lock,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_OK?OPENFS_FILE_LOCK_OK:OPENFS_FILE_LOCK_IO_ERROR;}
