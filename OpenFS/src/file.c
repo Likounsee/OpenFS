@@ -1,6 +1,24 @@
 #include "openfs/file.h"
 #include "openfs/bitmap.h"
 #include "openfs/time.h"
+
+static openfs_file_result_t map_allocator_result(openfs_alloc_result_t result)
+{
+    switch (result) {
+    case OPENFS_ALLOC_OK:
+        return OPENFS_FILE_OK;
+    case OPENFS_ALLOC_INVALID_ARGUMENT:
+        return OPENFS_FILE_INVALID_ARGUMENT;
+    case OPENFS_ALLOC_OUT_OF_SPACE:
+        return OPENFS_FILE_NO_SPACE;
+    case OPENFS_ALLOC_CORRUPT:
+        return OPENFS_FILE_CORRUPT;
+    case OPENFS_ALLOC_IO_ERROR:
+        return OPENFS_FILE_IO_ERROR;
+    default:
+        return OPENFS_FILE_CORRUPT;
+    }
+}
 #include "openfs/runtime.h"
 #include "openfs/cow.h"
 #include "openfs/data_checksum.h"
@@ -242,7 +260,7 @@ static openfs_file_result_t store_all_extents(openfs_block_device_t*d,const open
     if(n>OPENFS_INODE_TREE_INLINE_EXTENT_MAX){
         if(cap==0U||n-OPENFS_INODE_TREE_INLINE_EXTENT_MAX>cap)return OPENFS_FILE_TOO_MANY_EXTENTS;
         uint64_t root=oldroot;int newroot=0;
-        if(root==0U){if(openfs_alloc_block(d,sb,&root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_NO_SPACE;newroot=1;}
+        if(root==0U){openfs_alloc_result_t ar=openfs_alloc_block(d,sb,&root);if(ar!=OPENFS_ALLOC_OK)return map_allocator_result(ar);newroot=1;}
         for(uint32_t i=0U;i<n;i++)if(extent_contains_block(&a[i],root)){if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;return OPENFS_FILE_CORRUPT;}
         openfs_inode_t tmp=*inode;if(openfs_inode_set_extent_tree_root(&tmp,root)!=OPENFS_EXTENT_OK){
             if(newroot&&openfs_free_block(d,sb,root)!=OPENFS_ALLOC_OK)return OPENFS_FILE_CORRUPT;
@@ -329,11 +347,8 @@ static openfs_file_result_t allocate_blocks(
 {
     while (inode->blocks < target_blocks) {        uint64_t physical = 0U;
         openfs_alloc_result_t ar = openfs_alloc_block(device, sb, &physical);
-        if (ar == OPENFS_ALLOC_OUT_OF_SPACE) {
-            return OPENFS_FILE_NO_SPACE;
-        }
         if (ar != OPENFS_ALLOC_OK) {
-            return ar == OPENFS_ALLOC_CORRUPT ? OPENFS_FILE_CORRUPT : OPENFS_FILE_IO_ERROR;
+            return map_allocator_result(ar);
         }
         openfs_file_result_t r = append_block_to_inode(device, sb, inode, physical);
         if (r != OPENFS_FILE_OK) {
@@ -935,7 +950,7 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
                 }
                 uint64_t replacement=0U;
                 openfs_alloc_result_t ar=openfs_alloc_block(d,sb,&replacement);
-                if(ar!=OPENFS_ALLOC_OK){r=ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:OPENFS_FILE_IO_ERROR;break;}
+                if(ar!=OPENFS_ALLOC_OK){r=map_allocator_result(ar);break;}
                 uint8_t *block=(uint8_t*)malloc(d->block_size);
                 if(block==NULL||d->read(d->context,old_physical,1U,block)!=OPENFS_IO_OK||
                    d->write(d->context,replacement,1U,block)!=OPENFS_IO_OK||
@@ -984,7 +999,7 @@ static openfs_file_result_t sparse_prepare_write(openfs_block_device_t *d,
                 sparse_free_blocks(d,sb,new_blocks,*new_count_out);sparse_free_blocks(d,sb,cow_new,cow_count);
                 for(uint64_t i=cow_count;i>0U;i--)(void)openfs_cow_refcount_inc(d,sb,cow_old[i-1U],NULL);
                 free(new_blocks);free(cow_old);free(cow_new);free(work);
-                return ar==OPENFS_ALLOC_OUT_OF_SPACE?OPENFS_FILE_NO_SPACE:OPENFS_FILE_IO_ERROR;
+                return map_allocator_result(ar);
             }
             if(zero_block(d,physical)!=OPENFS_FILE_OK){
                 (void)openfs_free_block(d,sb,physical);
