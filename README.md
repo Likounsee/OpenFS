@@ -64,6 +64,7 @@ The existing core already provides a substantial filesystem foundation:
 - mounted allocator and inode-allocation state transitions are WAL-backed and replayable after post-COMMIT publication failures; direct file writes/truncates remain explicit-transaction APIs to preserve concurrent I/O semantics;
 - journal checkpoint/reclamation;
 - transaction-aware namespace/file mutation;
+- allocation/free operations poison their transaction if a later refcount or checksum metadata step fails, preventing partial allocator updates from being committed;
 - transaction fault-injection coverage;
 - copy-on-write cloning and refcounting;
 - discard/free handling for shared CoW blocks;
