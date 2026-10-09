@@ -221,7 +221,7 @@ static openfs_dir_result_t dir_remove_unlocked(
             memset(block + within, 0, OPENFS_DIR_ENTRY_SIZE);
             openfs_io_result_t io = d->write(d->context, physical, 1U, block);
             if(io==OPENFS_IO_OK && (sb->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U &&
-               openfs_data_checksum_set(d,sb,physical,openfs_data_checksum(block,d->block_size))!=0)io=OPENFS_IO_ERROR;
+               openfs_data_checksum_set(d,sb,physical,openfs_data_checksum(block,d->block_size))!=0)io=OPENFS_IO_IO_ERROR;
             if (io != OPENFS_IO_OK) {
                 int rollback_ok=restore_directory_data_block(d,sb,physical,original_block);
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
