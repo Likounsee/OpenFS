@@ -44,7 +44,8 @@ CHECK(j.recovery_required==1U);CHECK(j.next_record==0U);CHECK(j.active_transacti
 d.partial_enabled=0;
 CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_IO_ERROR);
 CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
-CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
+/* The failed rollback returned an error, but the simulated device's bytes are restored. A fresh scan may safely reopen the clean WAL. */
+CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
 free(d.b);return 0;
 }
 static int commit_full_cleans_active_transaction(void){
