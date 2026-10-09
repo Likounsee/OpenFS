@@ -577,11 +577,18 @@ static void replay_rejects_nonzero_reserved_block_header(void)
     uint64_t record=s.journal_start+1U;uint8_t raw[4096U];
     assert(v.read(v.context,record,1U,raw)==OPENFS_IO_OK);
     assert(memcmp(raw+32U,"OJBD1",5U)==0);
-    raw[32U+5U]=1U;raw[28U]=raw[29U]=raw[30U]=raw[31U]=0U;
-    uint32_t crc=openfs_crc32c(raw,d.block_size);
-    raw[28U]=(uint8_t)crc;raw[29U]=(uint8_t)(crc>>8U);raw[30U]=(uint8_t)(crc>>16U);raw[31U]=(uint8_t)(crc>>24U);
-    assert(v.write(v.context,record,1U,raw)==OPENFS_IO_OK);
-    openfs_mount_t rejected;assert(openfs_mount(&rejected,&v)==OPENFS_MOUNT_CORRUPT);
+    uint8_t original[4096U];memcpy(original,raw,sizeof(original));
+    for(unsigned scenario=0U;scenario<3U;scenario++){
+        memcpy(raw,original,sizeof(raw));
+        if(scenario==0U)raw[32U+5U]=1U; /* Reserved byte. */
+        if(scenario==1U)raw[32U+16U]=1U; /* Fragment offset must align to capacity. */
+        if(scenario==2U)raw[32U+20U]=(uint8_t)(raw[32U+20U]-1U); /* Fragment length must be exact. */
+        raw[28U]=raw[29U]=raw[30U]=raw[31U]=0U;
+        uint32_t crc=openfs_crc32c(raw,d.block_size);
+        raw[28U]=(uint8_t)crc;raw[29U]=(uint8_t)(crc>>8U);raw[30U]=(uint8_t)(crc>>16U);raw[31U]=(uint8_t)(crc>>24U);
+        assert(v.write(v.context,record,1U,raw)==OPENFS_IO_OK);
+        openfs_mount_t rejected;assert(openfs_mount(&rejected,&v)==OPENFS_MOUNT_CORRUPT);
+    }
     free(d.bytes);
 }
 
