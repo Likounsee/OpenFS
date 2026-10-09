@@ -19,6 +19,7 @@ openfs_journal_result_t openfs_journal_write(openfs_journal_t *,openfs_block_dev
 openfs_journal_result_t openfs_journal_write_block(openfs_journal_t *,openfs_block_device_t *,uint64_t,uint64_t,const void *);
 openfs_journal_result_t openfs_journal_commit(openfs_journal_t *,openfs_block_device_t *,uint64_t);
 openfs_journal_result_t openfs_journal_checkpoint(openfs_journal_t *,openfs_block_device_t *);
+openfs_journal_result_t openfs_journal_recovery_complete(openfs_journal_t *);
 openfs_journal_result_t openfs_journal_replay(const openfs_block_device_t *,const openfs_superblock_t *,openfs_journal_replay_fn,void *);
 #ifdef __cplusplus
 }
