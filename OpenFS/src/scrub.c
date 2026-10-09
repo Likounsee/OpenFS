@@ -39,33 +39,36 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
     if (block == NULL)
         return OPENFS_SCRUB_IO_ERROR;
 
+    int saw_io_error = 0;
     for (uint64_t b = 0U; b < d->block_count; ++b) {
+        int block_read_ok = 1;
         if (d->read(d->context, b, 1U, block) != OPENFS_IO_OK) {
-            free(block);
-            *errors = 1U;
+            block_read_ok = 0;
+            saw_io_error = 1;
+            (*errors)++;
             report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
-            return OPENFS_SCRUB_IO_ERROR;
         }
 
-        if ((s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
+        if (block_read_ok &&
+            (s->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U &&
             b >= s->data_start && b - s->data_start < s->data_blocks &&
             b != s->metadata_root_block) {
             int used = 0;
             openfs_bitmap_result_t br = openfs_bitmap_test(
                 d, s->block_bitmap_start, s->block_bitmap_blocks, b, &used);
             if (br != OPENFS_BITMAP_OK) {
-                free(block);
-                *errors = 1U;
+                saw_io_error = 1;
+                (*errors)++;
                 report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
-                return OPENFS_SCRUB_IO_ERROR;
+                continue;
             }
             if (used) {
                 uint32_t expected = 0U;
                 if (openfs_data_checksum_get(d, s, b, &expected) != 0) {
-                    free(block);
-                    *errors = 1U;
+                    saw_io_error = 1;
+                    (*errors)++;
                     report_issue(callback, context, b, OPENFS_SCRUB_ISSUE_READ);
-                    return OPENFS_SCRUB_IO_ERROR;
+                    continue;
                 }
                 if (expected != openfs_data_checksum(block, d->block_size)) {
                     (*errors)++;
@@ -75,8 +78,8 @@ openfs_scrub_result_t openfs_scrub_ex(openfs_block_device_t *d,
             }
         }
     }
-
     free(block);
+    if (saw_io_error) return OPENFS_SCRUB_IO_ERROR;
     return *errors == 0U ? OPENFS_SCRUB_OK : OPENFS_SCRUB_CORRUPT;
 }
 
