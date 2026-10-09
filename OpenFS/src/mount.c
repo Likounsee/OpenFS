@@ -164,9 +164,41 @@ static openfs_journal_result_t replay_block_internal(void *ctx,uint64_t tx,const
 }
 
 
+typedef struct {
+    openfs_mount_t *mount;
+    uint64_t transaction_id;
+    uint64_t target_block;
+    uint32_t next_offset;
+    int block_in_progress;
+} replay_validation_t;
+
 static openfs_journal_result_t replay_block_validate(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
 {
-    return replay_block_internal(ctx,tx,data,len,0);
+    replay_validation_t *state=(replay_validation_t *)ctx;
+    if(state==NULL||state->mount==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    openfs_journal_result_t result=replay_block_internal(state->mount,tx,data,len,0);
+    if(result!=OPENFS_JOURNAL_OK)return result;
+
+    uint64_t target=get64(data+8U);
+    uint32_t offset=get32(data+16U);
+    uint32_t count=get32(data+20U);
+    uint32_t block_size=state->mount->device->block_size;
+    if(state->block_in_progress){
+        if(state->transaction_id!=tx||state->target_block!=target||offset!=state->next_offset)
+            return OPENFS_JOURNAL_CORRUPT;
+    }else{
+        if(offset!=0U)return OPENFS_JOURNAL_CORRUPT;
+        state->transaction_id=tx;
+        state->target_block=target;
+        state->block_in_progress=1;
+    }
+    if(count>block_size-offset)return OPENFS_JOURNAL_CORRUPT;
+    state->next_offset=offset+count;
+    if(state->next_offset==block_size){
+        state->block_in_progress=0;
+        state->next_offset=0U;
+    }
+    return OPENFS_JOURNAL_OK;
 }
 
 static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
@@ -219,7 +251,11 @@ openfs_mount_result_t openfs_mount(openfs_mount_t *mount,openfs_block_device_t *
      * but a malformed later OJBD1 payload must not leave earlier blocks
      * partially published during mount recovery.
      */
-    jr=openfs_journal_replay(device,&mount->superblock,replay_block_validate,mount);
+    replay_validation_t validation={0};
+    validation.mount=mount;
+    jr=openfs_journal_replay(device,&mount->superblock,replay_block_validate,&validation);
+    if(jr==OPENFS_JOURNAL_OK&&validation.block_in_progress)
+        jr=OPENFS_JOURNAL_CORRUPT;
     if(jr==OPENFS_JOURNAL_OK)
         jr=openfs_journal_recover(&mount->journal,device,&mount->superblock,replay_block,mount);
     if(jr!=OPENFS_JOURNAL_OK){openfs_runtime_destroy(&mount->runtime);openfs_rwlock_unlock(&mount->state_lock);openfs_rwlock_destroy(&mount->state_lock);mount->state_lock_initialized=0;free(registry_entry);memset(mount,0,sizeof(*mount));mount_lifecycle_unlock();return jr==OPENFS_JOURNAL_IO_ERROR?OPENFS_MOUNT_IO_ERROR:OPENFS_MOUNT_CORRUPT;}
