@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "openfs/file_lock.h"
 #include "openfs/mount.h"
 #include "openfs/format.h"
