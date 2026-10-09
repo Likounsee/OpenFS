@@ -231,7 +231,17 @@ int main(void)
     assert(openfs_file_map_block_device(&v, &io_mount.superblock, &io_inode,
                                         0U, &io_data_block) == OPENFS_FILE_OK);
     d.fail_block = (uint32_t)io_mount.superblock.data_checksum_start;
-    d.fail_read_match = 2U; /* scan succeeds; checksum-table lookup fails */
+    /* The raw scan reads the checksum table once. Skip checksum lookups for
+       earlier allocated blocks so the injected failure targets this file. */
+    d.fail_read_match = 2U;
+    for (uint64_t b = io_mount.superblock.data_start; b < io_data_block; ++b) {
+        if (b == io_mount.superblock.metadata_root_block) continue;
+        int used = 0;
+        assert(openfs_bitmap_test(&v, io_mount.superblock.block_bitmap_start,
+                                  io_mount.superblock.block_bitmap_blocks,
+                                  b, &used) == OPENFS_BITMAP_OK);
+        if (used) d.fail_read_match++;
+    }
     d.matching_reads = 0U;
     d.fail_enabled = 1;
     report = (scrub_report_t){ UINT64_MAX, 0U, 0U };
