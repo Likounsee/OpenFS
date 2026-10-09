@@ -1,3 +1,12 @@
+# 2026-10-09 — Runtime shutdown admission and quiescence regression
+
+- **FIX** — `OpenFS/src/runtime.c`: release the global runtime-registry guard during each wait iteration after admission is closed. New entrants can now acquire the guard and be rejected promptly rather than waiting behind shutdown; the runtime remains registered and marked `destroying` until quiescence completes.
+- **TEST** — added `OpenFS/tests/test_runtime_lifecycle.c` and registered `openfs-runtime-lifecycle` in CMake. The cross-platform test keeps one runtime user active, starts shutdown, waits for admission to close, then releases the active user and checks shutdown succeeds.
+- Commits: `43b531f5` (shutdown admission fix), `53c6efc9` (regression test), `29cf2220` (CMake registration).
+- **Validation: not run.** The test and CMake wiring were reviewed from source but could not be compiled/executed in this session; CI status must be checked independently.
+
+---
+
 # 2026-10-09 — Runtime shutdown wait-loop hardening
 
 - **HARDEN** — `OpenFS/src/runtime.c`: yield the current thread while `runtime_shutdown_internal()` waits for `active_users` to drain (`SwitchToThread()` on Windows, `sched_yield()` on POSIX), instead of continuously re-locking and polling without yielding.
