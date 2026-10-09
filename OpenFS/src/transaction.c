@@ -1,4 +1,5 @@
 #include "openfs/transaction.h"
+#include "openfs/runtime.h"
 #include <stdlib.h>
 #include <string.h>
 struct openfs_transaction_pending { uint64_t block; uint8_t *data; };
