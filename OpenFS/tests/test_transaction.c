@@ -19,6 +19,7 @@ openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={31U};CHECK(openf
 openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
 uint64_t tx=0U;CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);uint8_t payload[16]={1U,2U,3U};CHECK(openfs_journal_write(&j,&v,tx,payload,sizeof(payload))==OPENFS_JOURNAL_OK);
 int committed=0;CHECK(openfs_journal_commit_transaction(&j,&v,tx,&committed)==OPENFS_JOURNAL_OK);CHECK(committed==1&&j.publication_in_progress==1U);
+uint64_t blocked_tx=0U;CHECK(openfs_journal_begin(&j,&v,&blocked_tx)==OPENFS_JOURNAL_IO_ERROR);CHECK(blocked_tx==0U);CHECK(openfs_journal_write(&j,&v,tx,payload,sizeof(payload))==OPENFS_JOURNAL_IO_ERROR);
 CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);CHECK(j.next_record!=0U);
 CHECK(openfs_journal_checkpoint_transaction(&j,&v)==OPENFS_JOURNAL_OK);CHECK(j.publication_in_progress==0U&&j.next_record==0U);
 free(d.b);return 0;
