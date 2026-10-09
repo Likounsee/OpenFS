@@ -153,6 +153,8 @@ openfs_file_lock_result_t openfs_file_lock_test(openfs_file_handle_t *h,
                                                 uint64_t length,
                                                 uint32_t *conflict_type)
 {
+    if (conflict_type == NULL) return OPENFS_FILE_LOCK_INVALID_ARGUMENT;
+    *conflict_type = 0U;
     openfs_runtime_t *runtime = NULL;
     if (!file_lock_runtime_enter(h, &runtime)) return OPENFS_FILE_LOCK_CLOSED;
     openfs_file_lock_result_t result = file_lock_test_impl(h, start, length, conflict_type);
