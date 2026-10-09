@@ -130,8 +130,33 @@ CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_CORRUPT);CHECK(t.active==
 free(d.b);return 0;
 }
 
+static int staging_allocation_overflow_poison_aborts_partial_write(void)
+{
+    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
+    openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};
+    uint8_t uuid[16]={0xA1U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);
+    openfs_block_device_t *td=openfs_transaction_device(&t);CHECK(td!=NULL);
+    uint8_t first[4096],second[4096];memset(first,0xA1U,sizeof(first));memset(second,0xB2U,sizeof(second));
+    uint64_t target1=s.data_start+8U,target2=s.data_start+9U;
+    CHECK(td->write(td->context,target1,1U,first)==OPENFS_IO_OK);
+    CHECK(t.pending_count==1U);
+    /* Simulate capacity growth overflow after one block has already been staged. */
+    t.pending_capacity=UINT64_MAX;
+    CHECK(td->write(td->context,target2,1U,second)==OPENFS_IO_IO_ERROR);
+    CHECK(t.failed==1);
+    CHECK(openfs_transaction_commit(&t)==OPENFS_TRANSACTION_IO_ERROR);
+    CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);
+    CHECK(t.active==0);
+    CHECK(memcmp(d.b+(size_t)(target1*d.bs),first,sizeof(first))!=0);
+    CHECK(memcmp(d.b+(size_t)(target2*d.bs),second,sizeof(second))!=0);
+    free(d.b);return 0;
+}
 int main(void){
 CHECK(commit_flush_failure_recovers_same_journal()==0);
+CHECK(staging_allocation_overflow_poison_aborts_partial_write()==0);
 CHECK(failed_wal_write_and_failed_rollback_poison_journal()==0);
 CHECK(checkpoint_cannot_discard_pending_publication()==0);
 CHECK(wal_corruption_poison_aborts_without_checkpoint()==0);CHECK(commit_full_cleans_active_transaction()==0);CHECK(double_begin_preserves_transaction()==0);
