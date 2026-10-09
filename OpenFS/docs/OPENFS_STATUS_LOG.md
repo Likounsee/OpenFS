@@ -1,3 +1,10 @@
+# 2026-10-09 — Correct file-lock test portability include
+
+- **TEST FIX** — `OpenFS/tests/test_file_lock.c`: corrected the include separator between `stdatomic.h` and `time.h`, retaining the POSIX feature-test macro needed to declare `nanosleep`.
+- **Validation: not run.** This is a source-level correction; compilation and execution are still required.
+
+---
+
 # 2026-10-09 — Regression test for shutdown with a blocked file-lock waiter
 
 - **TEST** — `OpenFS/tests/test_file_lock.c`: hold an exclusive range lock, start a conflicting blocking waiter, then initiate runtime shutdown. The waiter must return `OPENFS_FILE_LOCK_CLOSED`, allowing shutdown to drain active users; because handles remain open, shutdown must refuse teardown and restore admission.
