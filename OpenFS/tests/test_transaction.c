@@ -24,7 +24,7 @@ free(d.b);return 0;
 }
 static int double_begin_preserves_transaction(void){
 D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bc,d.bs);CHECK(d.b);
-openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={23U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};CHECK(openfs_transaction_from_device(&v)==NULL);uint8_t uuid[16]={23U};CHECK(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
 openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
 openfs_transaction_t t;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_OK);uint64_t tx=t.txid;CHECK(t.active==1&&t.txid==tx);openfs_block_device_t*td=openfs_transaction_device(&t);CHECK(td!=NULL);
 uint64_t target=s.data_start+7U;uint8_t a[4096];memset(a,0x4DU,sizeof(a));CHECK(td->write(td->context,target,1U,a)==OPENFS_IO_OK);uint64_t pending=t.pending_count;CHECK(openfs_transaction_begin(&t,&v,&j)==OPENFS_TRANSACTION_INVALID_ARGUMENT);CHECK(t.active==1&&t.txid==tx&&t.pending_count==pending&&t.pending!=NULL);CHECK(openfs_transaction_abort(&t)==OPENFS_TRANSACTION_OK);free(d.b);return 0;
