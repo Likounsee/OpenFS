@@ -177,6 +177,41 @@ int main(void)
     assert(openfs_unmount(&report_mount) == OPENFS_MOUNT_OK);
     cleanup(&d);
 
+    /* Continue after a checksum-table I/O error and report later corruption. */
+    setup(&d, &v, &s);
+    openfs_mount_t multi_mount = { 0 };
+    assert(openfs_mount(&multi_mount, &v) == OPENFS_MOUNT_OK);
+    uint64_t multi_ino = 0U;
+    assert(openfs_path_create(&v, &multi_mount.superblock, "/scrub-multiple-issues",
+                              OPENFS_INODE_MODE_REGULAR, &multi_ino) == OPENFS_PATH_OK);
+    uint64_t multi_inode_count = multi_mount.superblock.inode_table_blocks *
+                                 (uint64_t)multi_mount.superblock.block_size /
+                                 OPENFS_INODE_SIZE;
+    openfs_inode_t multi_inode;
+    assert(openfs_inode_read(&v, multi_mount.superblock.inode_table_start,
+                             multi_ino, multi_inode_count, &multi_inode) == OPENFS_INODE_OK);
+    assert(openfs_file_write(&v, &multi_mount.superblock, &multi_inode, 0U,
+                             report_payload, sizeof(report_payload)) == OPENFS_FILE_OK);
+    assert(openfs_file_write(&v, &multi_mount.superblock, &multi_inode, BS,
+                             report_payload, sizeof(report_payload)) == OPENFS_FILE_OK);
+    uint64_t second_data_block = 0U;
+    assert(openfs_file_map_block_device(&v, &multi_mount.superblock, &multi_inode,
+                                        1U, &second_data_block) == OPENFS_FILE_OK);
+    d.bytes[second_data_block * (uint64_t)BS] ^= 0x80U;
+    d.fail_block = (uint32_t)multi_mount.superblock.data_checksum_start;
+    d.fail_read_match = 2U; /* fail first checksum lookup after the scan read */
+    d.matching_reads = 0U;
+    d.fail_enabled = 1;
+    report = (scrub_report_t){ UINT64_MAX, 0U, 0U };
+    assert(openfs_scrub_ex(&v, &multi_mount.superblock, &errors,
+                           record_scrub_issue, &report) == OPENFS_SCRUB_IO_ERROR);
+    assert(errors == 2U);
+    assert(report.calls == 2U);
+    assert(report.block == second_data_block);
+    assert(report.issue == OPENFS_SCRUB_ISSUE_CHECKSUM);
+    d.fail_enabled = 0;
+    assert(openfs_unmount(&multi_mount) == OPENFS_MOUNT_OK);
+    cleanup(&d);
     /* Checksum-table I/O errors identify the data block being verified. */
     setup(&d, &v, &s);
     openfs_mount_t io_mount = { 0 };
