@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
+#include <stdatomic.h>\n#include <time.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <process.h>
@@ -60,6 +60,23 @@ static void *lock_race_worker(void *arg)
         uint32_t conflict=0U;
         if(openfs_file_lock_test(ctx->handle,300U,20U,&conflict)!=OPENFS_FILE_LOCK_OK)ctx->failures++;
     }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+typedef struct { openfs_runtime_t *runtime; atomic_int started; int result; } shutdown_context_t;
+#if defined(_WIN32)
+static unsigned __stdcall shutdown_worker(void *arg)
+#else
+static void *shutdown_worker(void *arg)
+#endif
+{
+    shutdown_context_t *ctx=(shutdown_context_t *)arg;
+    atomic_store_explicit(&ctx->started,1,memory_order_release);
+    ctx->result=openfs_runtime_shutdown_if_unused(ctx->runtime);
 #if defined(_WIN32)
     return 0U;
 #else
@@ -143,6 +160,47 @@ int main(void){
     assert(pthread_join(blocking_thread,NULL)==0);
 #endif
     assert(blocking.result==OPENFS_FILE_LOCK_OK);
+
+    /*
+     * Shutdown closes runtime admission before waiting for active operations.
+     * A blocking lock waiter must notice that transition and leave its runtime
+     * pin, otherwise shutdown cannot drain active users. Since this test still
+     * has open handles, shutdown must then refuse teardown and reopen admission.
+     */
+    assert(openfs_file_lock(a,800U,25U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
+    blocking_lock_context_t shutdown_waiter={b,ATOMIC_VAR_INIT(0),OPENFS_FILE_LOCK_IO_ERROR};
+#if defined(_WIN32)
+    uintptr_t shutdown_waiter_thread=_beginthreadex(NULL,0U,blocking_lock_worker,&shutdown_waiter,0U,NULL);
+    assert(shutdown_waiter_thread!=0U);
+    while(atomic_load_explicit(&shutdown_waiter.started,memory_order_acquire)==0)Sleep(0);
+    Sleep(10);
+    shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
+    uintptr_t shutdown_thread=_beginthreadex(NULL,0U,shutdown_worker,&shutdown,0U,NULL);
+    assert(shutdown_thread!=0U);
+    while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)Sleep(0);
+    while(openfs_runtime_is_accepting(m.superblock.runtime))Sleep(0);
+    assert(WaitForSingleObject((HANDLE)shutdown_waiter_thread,60000U)==WAIT_OBJECT_0);
+    assert(WaitForSingleObject((HANDLE)shutdown_thread,60000U)==WAIT_OBJECT_0);
+    CloseHandle((HANDLE)shutdown_waiter_thread);
+    CloseHandle((HANDLE)shutdown_thread);
+#else
+    pthread_t shutdown_waiter_thread;
+    assert(pthread_create(&shutdown_waiter_thread,NULL,blocking_lock_worker,&shutdown_waiter)==0);
+    while(atomic_load_explicit(&shutdown_waiter.started,memory_order_acquire)==0)sched_yield();
+    struct timespec delay={0,10000000L};
+    (void)nanosleep(&delay,NULL);
+    shutdown_context_t shutdown={m.superblock.runtime,ATOMIC_VAR_INIT(0),-1};
+    pthread_t shutdown_thread;
+    assert(pthread_create(&shutdown_thread,NULL,shutdown_worker,&shutdown)==0);
+    while(atomic_load_explicit(&shutdown.started,memory_order_acquire)==0)sched_yield();
+    while(openfs_runtime_is_accepting(m.superblock.runtime))sched_yield();
+    assert(pthread_join(shutdown_waiter_thread,NULL)==0);
+    assert(pthread_join(shutdown_thread,NULL)==0);
+#endif
+    assert(shutdown_waiter.result==OPENFS_FILE_LOCK_CLOSED);
+    assert(shutdown.result==0);
+    assert(openfs_runtime_is_accepting(m.superblock.runtime)==1);
+    assert(openfs_file_unlock(a,800U,25U)==OPENFS_FILE_LOCK_OK);
 
     assert(openfs_fd_dup(b,&dup)==OPENFS_FD_OK&&dup==b);
     assert(openfs_file_lock(b,300U,20U,OPENFS_FILE_LOCK_EXCLUSIVE,0U)==OPENFS_FILE_LOCK_OK);
