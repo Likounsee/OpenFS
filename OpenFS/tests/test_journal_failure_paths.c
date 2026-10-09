@@ -330,6 +330,9 @@ static void test_failed_transaction_can_be_retired_before_recovery(void)
     assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
     openfs_superblock_t s; assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
     openfs_journal_t j; assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    openfs_runtime_t runtime;
+    assert(openfs_runtime_init(&runtime));
+    j.runtime = &runtime;
 
     openfs_transaction_t tx;
     assert(openfs_transaction_begin(&tx, &v, &j) == OPENFS_TRANSACTION_OK);
@@ -350,6 +353,7 @@ static void test_failed_transaction_can_be_retired_before_recovery(void)
     assert(openfs_journal_recover(&j, &v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
     assert(j.recovery_required == 0U);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
+    assert(openfs_runtime_shutdown_if_unused(&runtime));
     free(d.data);
 }
 
