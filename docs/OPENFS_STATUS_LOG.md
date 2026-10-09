@@ -934,3 +934,15 @@ The persistent checksum mechanism is now implemented end-to-end at the basic dat
 - CoW cloning preserves physical data blocks, so their existing checksums remain valid; CoW refcount changes do not require checksum changes.
 
 P0 is still deliberately not marked 100% until crash-cut/fault-injection tests prove the checksum/data pair survives every commit boundary and the full multi-platform CI is green on this exact HEAD.
+
+# 2026-10-09 — P0 file-write hang root cause and correction
+
+- The GCC and Clang timeout traces reached `file_write_unlocked()`: `sparse_prepare_write()` returned `OPENFS_FILE_OK`, after which the write loop never advanced its `done` offset.
+- Root cause: the per-chunk write loop omitted `done += chunk`. For every non-empty write, it therefore repeated the same chunk indefinitely; this explains the path-create timeout and the broad Windows test timeouts rather than implicating inode allocation or directory locking.
+- Commit `7e4cd035` restores progress advancement after each successful data/checksum chunk. The temporary diagnostics used to locate the hang have been removed from production code and `test_path.c`.
+- This is a source-level root-cause correction, **not yet a validated P0 completion**. The full CI must pass on the cleaned-up branch HEAD; Windows mount/image-device failures and any remaining tests must be evaluated from that run. Earlier log entries that attributed this particular timeout to transaction-device inode allocation or named `rename_missing_same_path_regression` were incorrect hypotheses and are superseded by this finding.
+
+### P0 checkpoint
+
+The blocking infinite loop has a concrete correction. P0 remains open pending fresh GCC, Clang and Windows CI results and follow-up on any remaining failures.
+
