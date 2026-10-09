@@ -180,6 +180,8 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
 }
 
 
+static openfs_journal_result_t replay_noop(void *, uint64_t, const uint8_t *, uint32_t);
+
 static void test_commit_flush_failure_requires_recovery(void)
 {
     disk_t d = {0};
