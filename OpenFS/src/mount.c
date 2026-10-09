@@ -10,6 +10,7 @@
 #include "openfs/crc32c.h"
 #include "openfs/journal.h"
 #include "openfs/orphan.h"
+#include "openfs/data_checksum.h"
 
 #define OPENFS_CHECKSUM_OFFSET 4088U
 
@@ -144,6 +145,13 @@ static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t 
     }
     memcpy(b+(size_t)offset,data+24U,count);
     openfs_io_result_t io=m->device->write(m->device->context,target,1U,b);
+    if(io==OPENFS_IO_OK &&
+       (m->superblock.feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U &&
+       target>=m->superblock.data_start &&
+       target-m->superblock.data_start<m->superblock.data_blocks &&
+       openfs_data_checksum_set(m->device,&m->superblock,target,
+                                openfs_data_checksum(b,m->device->block_size))!=0)
+        io=OPENFS_IO_IO_ERROR;
     free(b);
     return io==OPENFS_IO_OK?OPENFS_JOURNAL_OK:OPENFS_JOURNAL_IO_ERROR;
 }
