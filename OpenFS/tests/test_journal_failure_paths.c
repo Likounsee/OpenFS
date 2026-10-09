@@ -7,6 +7,7 @@
 #include "openfs/journal.h"
 #include "openfs/crc32c.h"
 #include "openfs/runtime.h"
+#include "openfs/transaction.h"
 
 typedef struct {
     uint8_t *data;
@@ -318,6 +319,40 @@ static openfs_journal_result_t replay_fail(void *ctx, uint64_t tx, const uint8_t
     return OPENFS_JOURNAL_IO_ERROR;
 }
 
+static void test_failed_transaction_can_be_retired_before_recovery(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U; d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6FU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s; assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j; assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    openfs_transaction_t tx;
+    assert(openfs_transaction_begin(&tx, &v, &j) == OPENFS_TRANSACTION_OK);
+    openfs_block_device_t *td = openfs_transaction_device(&tx);
+    assert(td != NULL);
+    uint8_t block[4096]; memset(block, 0xA7U, sizeof(block));
+
+    /* Fail the DATA write and its compensating restore. */
+    d.fail_write_count = 2;
+    assert(td->write(td->context, s.data_start + 12U, 1U, block) == OPENFS_IO_IO_ERROR);
+    assert(j.recovery_required != 0U);
+    assert(j.active_transaction_id == tx.txid);
+    assert(openfs_transaction_abort(&tx) == OPENFS_TRANSACTION_CORRUPT);
+    assert(tx.active == 0);
+    assert(j.active_transaction_id == 0U);
+
+    /* A failed transaction must not permanently block replay on this journal. */
+    assert(openfs_journal_recover(&j, &v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    assert(j.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
+    free(d.data);
+}
+
 static void test_recovery_failure_keeps_checkpoint_blocked(void)
 {
     disk_t d = {0};
@@ -469,6 +504,7 @@ int main(void)
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
     test_recovery_failure_keeps_checkpoint_blocked();
+    test_failed_transaction_can_be_retired_before_recovery();
     test_recovery_refuses_live_transaction_before_replay();
     test_recovery_holds_runtime_admission_until_replay_finishes();
     test_commit_flush_failure_requires_recovery();
