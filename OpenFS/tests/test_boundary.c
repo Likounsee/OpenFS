@@ -133,8 +133,7 @@ static void successive_transactions(void){
     assert(reopened.transaction_id==4U);
     assert(reopened.sequence==12U);
     assert(reopened.next_record==3U);
-    assert(openfs_journal_replay(&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
-    assert(openfs_journal_recovery_complete(&reopened)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_recover(&reopened,&v,&s,replay_ok,NULL)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_checkpoint(&reopened,&v)==OPENFS_JOURNAL_OK);
     assert(reopened.next_record==0U);
     free(d.b);
