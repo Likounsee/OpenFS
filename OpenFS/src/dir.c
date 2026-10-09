@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "openfs/crc32c.h"
+#include "openfs/data_checksum.h"
 #include "openfs/time.h"
 #include "openfs/runtime.h"
 
@@ -178,6 +179,14 @@ static openfs_dir_result_t dir_add_unlocked(
     return map_file_result(openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)));
 }
 
+static int restore_directory_data_block(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t physical,const uint8_t *original)
+{
+    int ok=d->write(d->context,physical,1U,original)==OPENFS_IO_OK;
+    if((sb->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U &&
+       openfs_data_checksum_set(d,sb,physical,openfs_data_checksum(original,d->block_size))!=0)ok=0;
+    return ok;
+}
+
 static openfs_dir_result_t dir_remove_unlocked(
     openfs_block_device_t *d,
     const openfs_superblock_t *sb,
@@ -211,15 +220,17 @@ static openfs_dir_result_t dir_remove_unlocked(
             memcpy(original_block, block, d->block_size);
             memset(block + within, 0, OPENFS_DIR_ENTRY_SIZE);
             openfs_io_result_t io = d->write(d->context, physical, 1U, block);
+            if(io==OPENFS_IO_OK && (sb->feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U &&
+               openfs_data_checksum_set(d,sb,physical,openfs_data_checksum(block,d->block_size))!=0)io=OPENFS_IO_ERROR;
             if (io != OPENFS_IO_OK) {
-                int rollback_ok=d->write(d->context,physical,1U,original_block)==OPENFS_IO_OK;
+                int rollback_ok=restore_directory_data_block(d,sb,physical,original_block);
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
                 free(block); free(original_block);
                 return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
             uint64_t inode_bytes=0U;
             if (d->block_size!=0U && sb->inode_table_blocks>UINT64_MAX/d->block_size) {
-                int rollback_ok=d->write(d->context, physical, 1U, original_block)==OPENFS_IO_OK;
+                int rollback_ok=restore_directory_data_block(d,sb,physical,original_block);
                 if(d->flush(d->context)!=OPENFS_IO_OK)rollback_ok=0;
                 free(block); free(original_block); return rollback_ok?OPENFS_DIR_IO_ERROR:OPENFS_DIR_CORRUPT;
             }
@@ -276,7 +287,7 @@ static openfs_dir_result_t dir_remove_unlocked(
              * to be durable.
              */
             int rollback_ok = 1;
-            if (d->write(d->context, physical, 1U, original_block) != OPENFS_IO_OK) {
+            if (!restore_directory_data_block(d,sb,physical,original_block)) {
                 rollback_ok = 0;
             }
             dir->mtime_ns = old_mtime;
