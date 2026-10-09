@@ -568,6 +568,76 @@ static void test_replay_rejects_interleaved_transactions(void)
     free(d.data);
 }
 
+
+static void test_checkpoint_write_failure_restores_entire_wal(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x71U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "checkpoint", 10U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    size_t wal_size = (size_t)(s.journal_blocks * (uint64_t)s.block_size);
+    size_t wal_offset = (size_t)(s.journal_start * (uint64_t)s.block_size);
+    uint8_t *before = malloc(wal_size);
+    assert(before != NULL);
+    memcpy(before, d.data + wal_offset, wal_size);
+    uint64_t records_before = j.next_record;
+    /* Two slots clear; the third write fails. Rollback must restore the full WAL. */
+    d.fail_write_after = 3;
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    assert(j.recovery_required == 0U);
+    assert(j.next_record == records_before);
+    assert(memcmp(before, d.data + wal_offset, wal_size) == 0);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == records_before);
+    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    free(before);
+    free(d.data);
+}
+
+static void test_checkpoint_rollback_failure_poison_journal(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x72U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "checkpoint", 10U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    /* Fail after two clears, then fail one restore write as well. */
+    d.fail_write_after = 3;
+    d.fail_write_count = 1;
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+    free(d.data);
+}
+
 int main(void)
 {
     test_data_failure_restores_sequence();
@@ -584,5 +654,7 @@ int main(void)
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
     test_replay_flush_failure_keeps_recovery_gated();
+    test_checkpoint_write_failure_restores_entire_wal();
+    test_checkpoint_rollback_failure_poison_journal();
     return 0;
 }
