@@ -20,7 +20,7 @@ openfs_block_device_t v={&d,d.bs,d.bc,r,w,fl};uint8_t uuid[16]={32U};CHECK(openf
 openfs_superblock_t s;CHECK(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;CHECK(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
 uint64_t tx=0U;CHECK(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);CHECK(openfs_journal_write(&j,&v,tx,"abc",3U)==OPENFS_JOURNAL_OK);
 d.fail_flush=1;int committed=0;CHECK(openfs_journal_commit_transaction(&j,&v,tx,&committed)==OPENFS_JOURNAL_IO_ERROR);CHECK(committed==1);CHECK(j.recovery_required==1U&&j.publication_in_progress==0U);
-d.fail_flush=0;uint32_t hits=0U;CHECK(openfs_journal_recover(&j,&v,&s,recovery_payload_cb,&hits)==OPENFS_JOURNAL_OK);CHECK(hits==1U);CHECK(j.recovery_required==0U&&j.publication_in_progress==0U);CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);
+uint32_t hits=0U;CHECK(openfs_journal_recover(&j,&v,&s,recovery_payload_cb,&hits)==OPENFS_JOURNAL_IO_ERROR);CHECK(hits==1U);CHECK(j.recovery_required==1U);d.fail_flush=0;CHECK(openfs_journal_recover(&j,&v,&s,recovery_payload_cb,&hits)==OPENFS_JOURNAL_OK);CHECK(hits==2U);CHECK(j.recovery_required==0U&&j.publication_in_progress==0U);CHECK(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);
 free(d.b);return 0;
 }
 static int checkpoint_cannot_discard_pending_publication(void){
