@@ -188,6 +188,34 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
 static openfs_journal_result_t replay_noop(void *, uint64_t, const uint8_t *, uint32_t);
 
 
+
+static void test_data_restore_failure_requires_recovery(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6BU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;
+    assert(openfs_read_superblock(&v, &sb) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &sb) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+
+    d.fail_write_count = 2; /* Fail DATA write and restoration of its slot. */
+    assert(openfs_journal_write(&j, &v, tx, "payload", 7U) == OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(openfs_journal_write(&j, &v, tx, "retry", 5U) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    free(d.data);
+}
+
 static void test_begin_restore_failure_requires_recovery(void)
 {
     disk_t d = {0};
@@ -295,5 +323,6 @@ int main(void)
     test_replay_rejects_interleaved_transactions();
     test_commit_flush_failure_requires_recovery();
     test_begin_restore_failure_requires_recovery();
+    test_data_restore_failure_requires_recovery();
     return 0;
 }
