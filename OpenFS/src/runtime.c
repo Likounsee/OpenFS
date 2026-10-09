@@ -5,6 +5,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <sched.h>
 #endif
 
 static _Thread_local openfs_runtime_t *tls_runtime;
@@ -287,6 +288,16 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
         uint64_t active=r->active_users;
         (void)openfs_mutex_unlock(&r->lifecycle_lock);
         if(active==0U)break;
+        /*
+         * Admission is closed while the lifecycle guard is held, but active
+         * operations still need to run their leave path. Yield so shutdown
+         * does not monopolize a CPU while waiting for those operations.
+         */
+#if defined(_WIN32)
+        (void)SwitchToThread();
+#else
+        (void)sched_yield();
+#endif
     }
 
     if(require_unused){
