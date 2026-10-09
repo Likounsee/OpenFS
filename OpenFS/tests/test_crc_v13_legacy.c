@@ -18,14 +18,14 @@ static void p64(uint8_t*p,uint64_t v){for(unsigned k=0;k<8;k++)p[k]=(uint8_t)(v>
 static void legacy_record(openfs_block_device_t*v,const openfs_superblock_t*s,uint64_t slot,uint8_t type,uint64_t tx,uint64_t seq,const uint8_t*payload,uint32_t len){
     uint8_t b[4096U];assert(s->block_size==sizeof(b));memset(b,0,sizeof(b));memcpy(b,OPENFS_JOURNAL_MAGIC,5U);b[5]=type;p64(b+8U,tx);p64(b+16U,seq);p32(b+24U,len);if(len)memcpy(b+32U,payload,len);p32(b+28U,openfs_crc32c(b,sizeof(b)-4U));assert(v->write(v->context,s->journal_start+slot,1U,b)==OPENFS_IO_OK);
 }
-static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){uint32_t*hits=c;assert(tx==1U&&n==28U&&memcmp(p,"OJBD1",5U)==0);assert(hits);(*hits)++;return OPENFS_JOURNAL_OK;}
+static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){uint32_t*hits=c;assert(tx==1U&&n==4064U&&memcmp(p,"OJBD1",5U)==0);assert(hits);(*hits)++;return OPENFS_JOURNAL_OK;}
 
 int main(void){
     { const uint8_t sample[] = "incremental-crc-regression"; size_t split = 9U; uint32_t state = openfs_crc32c_update(UINT32_MAX, sample, split); state = openfs_crc32c_update(state, sample + split, sizeof(sample) - 1U - split); assert(openfs_crc32c_finalize(state) == openfs_crc32c(sample, sizeof(sample) - 1U)); }
     disk_t d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,(size_t)d.bc);assert(d.b);
     openfs_block_device_t v=dev(&d);uint8_t uuid[16]={0xC1U};openfs_superblock_t s;
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
-    uint64_t target=s.data_start;uint8_t payload[28U]={0};memcpy(payload,"OJBD1",5U);p64(payload+8U,target);p32(payload+16U,0U);p32(payload+20U,4U);memcpy(payload+24U,"V13!",4U);
+    uint64_t target=s.data_start;uint8_t payload[4064U]={0};memcpy(payload,"OJBD1",5U);p64(payload+8U,target);p32(payload+16U,0U);p32(payload+20U,4040U);memcpy(payload+24U,"V13!",4U);
     legacy_record(&v,&s,0U,OPENFS_JOURNAL_BEGIN,1U,1U,NULL,0U);
     legacy_record(&v,&s,1U,OPENFS_JOURNAL_DATA,1U,2U,payload,sizeof(payload));
     legacy_record(&v,&s,2U,OPENFS_JOURNAL_COMMIT,1U,3U,NULL,0U);
