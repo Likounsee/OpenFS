@@ -8,7 +8,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
@@ -1076,16 +1075,14 @@ static openfs_file_result_t file_write_unlocked(
 
     uint64_t *new_blocks=NULL;uint64_t new_count=0U;uint8_t *old_root_data=NULL;
     uint64_t old_root=openfs_inode_get_extent_tree_root(&original);uint64_t *cow_old_blocks=NULL,*cow_new_blocks=NULL,cow_count=0U;
-    fprintf(stderr,"FW before sparse_prepare\\n"); r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
-                           &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count); fprintf(stderr,"FW after sparse_prepare %d\\n",(int)r);
+    r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
+                           &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count);
     if(r!=OPENFS_FILE_OK){
         free_write_backups(backups,backup_count);
         return r;
     }
 
-    fprintf(stderr,"FW after sparse: blocks=%llu extents=%u size=%llu\\n",(unsigned long long)inode->blocks,(unsigned)inode->extent_count,(unsigned long long)inode->size);
     uint8_t *block = malloc(device->block_size);
-    fprintf(stderr,"FW after malloc %p\\n",(void*)block);
     if (block == NULL) {
         int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
         *inode = original;
@@ -1095,17 +1092,12 @@ static openfs_file_result_t file_write_unlocked(
 
     size_t done = 0U;
     while (done < length) {
-        fprintf(stderr,"FW loop done=%zu length=%zu\\n",done,length);
         uint64_t absolute = offset + (uint64_t)done;
         uint64_t logical = absolute / device->block_size;
         uint32_t within = (uint32_t)(absolute % device->block_size);
         uint64_t physical = 0U;
-        fprintf(stderr,"FW before map logical=%llu\\n",(unsigned long long)logical);
         r = map_block_on_disk(device, sb, inode, logical, &physical);
-        fprintf(stderr,"FW after map r=%d physical=%llu\\n",(int)r,(unsigned long long)physical);
-        openfs_file_result_t alloc_check = r == OPENFS_FILE_OK ? validate_allocated_block(device, sb, physical) : r;
-        fprintf(stderr,"FW after alloc check=%d\\n",(int)alloc_check);
-        if (r != OPENFS_FILE_OK || alloc_check != OPENFS_FILE_OK) {
+        if (r != OPENFS_FILE_OK || validate_allocated_block(device, sb, physical) != OPENFS_FILE_OK) {
             free(block);
             int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
             *inode = original;
@@ -1141,7 +1133,6 @@ static openfs_file_result_t file_write_unlocked(
         } else {
             memcpy(block + within, (const uint8_t *)buffer + done, chunk);
         }
-        fprintf(stderr,"FW before data write\\n");
         if (device->write(device->context, physical, 1U, block) != OPENFS_IO_OK) {
             int restored=restore_write_backups(device,backups,backup_count);
             int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
@@ -1150,13 +1141,12 @@ static openfs_file_result_t file_write_unlocked(
             free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);
             return (restored && rollback_ok) ? OPENFS_FILE_IO_ERROR : OPENFS_FILE_CORRUPT;
         }
-        fprintf(stderr,"FW after data write flags=%llu\\n",(unsigned long long)sb->feature_flags);
         if ((sb->feature_flags & OPENFS_FEATURE_DATA_CHECKSUM) != 0U && openfs_data_checksum_set(device,sb,physical,openfs_data_checksum(block,device->block_size)) != 0) {
             int restored=restore_write_backups(device,backups,backup_count);
             int rollback_ok=sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count)==OPENFS_FILE_OK;
             *inode=original; free(block); free_write_backups(backups,backup_count);free(old_root_data);free(new_blocks);free(cow_old_blocks);free(cow_new_blocks);return (restored&&rollback_ok)?OPENFS_FILE_IO_ERROR:OPENFS_FILE_CORRUPT;
         }
-
+        done += chunk;
     }
     free(block);
 
@@ -1168,9 +1158,7 @@ static openfs_file_result_t file_write_unlocked(
         inode->mtime_ns = now;
         inode->ctime_ns = now;
     }
-    fprintf(stderr,"FW before inode write size=%llu blocks=%llu\\n",(unsigned long long)inode->size,(unsigned long long)inode->blocks);
     r = write_inode(device, sb, inode);
-    fprintf(stderr,"FW after inode write r=%d\\n",(int)r);
     if (r != OPENFS_FILE_OK) {
         int restored=restore_write_backups(device,backups,backup_count);
         int rollback_ok = sparse_restore_layout(device,sb,inode,&original,old_root_data,old_root,new_blocks,new_count,cow_old_blocks,cow_new_blocks,cow_count) == OPENFS_FILE_OK;
