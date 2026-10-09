@@ -177,16 +177,37 @@ int main(void)
     assert(openfs_unmount(&report_mount) == OPENFS_MOUNT_OK);
     cleanup(&d);
 
-    /* Read errors are localized too, without changing the legacy API. */
+    /* Checksum-table I/O errors identify the data block being verified. */
     setup(&d, &v, &s);
-    d.fail_block = 7U;
+    openfs_mount_t io_mount = { 0 };
+    assert(openfs_mount(&io_mount, &v) == OPENFS_MOUNT_OK);
+    uint64_t io_ino = 0U;
+    assert(openfs_path_create(&v, &io_mount.superblock, "/scrub-report-io",
+                              OPENFS_INODE_MODE_REGULAR, &io_ino) == OPENFS_PATH_OK);
+    uint64_t io_inode_count = io_mount.superblock.inode_table_blocks *
+                              (uint64_t)io_mount.superblock.block_size /
+                              OPENFS_INODE_SIZE;
+    openfs_inode_t io_inode;
+    assert(openfs_inode_read(&v, io_mount.superblock.inode_table_start,
+                             io_ino, io_inode_count, &io_inode) == OPENFS_INODE_OK);
+    assert(openfs_file_write(&v, &io_mount.superblock, &io_inode, 0U,
+                             report_payload, sizeof(report_payload)) == OPENFS_FILE_OK);
+    uint64_t io_data_block = 0U;
+    assert(openfs_file_map_block_device(&v, &io_mount.superblock, &io_inode,
+                                        0U, &io_data_block) == OPENFS_FILE_OK);
+    d.fail_block = (uint32_t)io_mount.superblock.data_checksum_start;
+    d.fail_read_match = 2U; /* scan succeeds; checksum-table lookup fails */
+    d.matching_reads = 0U;
     d.fail_enabled = 1;
     report = (scrub_report_t){ UINT64_MAX, 0U, 0U };
-    assert(openfs_scrub_ex(&v, &s, &errors, record_scrub_issue, &report) == OPENFS_SCRUB_IO_ERROR);
+    assert(openfs_scrub_ex(&v, &io_mount.superblock, &errors,
+                           record_scrub_issue, &report) == OPENFS_SCRUB_IO_ERROR);
     assert(errors == 1U);
     assert(report.calls == 1U);
-    assert(report.block == 7U);
+    assert(report.block == io_data_block);
     assert(report.issue == OPENFS_SCRUB_ISSUE_READ);
+    d.fail_enabled = 0;
+    assert(openfs_unmount(&io_mount) == OPENFS_MOUNT_OK);
     cleanup(&d);
 
     return 0;
