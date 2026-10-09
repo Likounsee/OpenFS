@@ -73,6 +73,20 @@ static void cleanup(disk_t *d)
     d->bytes = NULL;
 }
 
+typedef struct {
+    uint64_t block;
+    uint32_t issue;
+    unsigned calls;
+} scrub_report_t;
+
+static void record_scrub_issue(void *context, uint64_t block, uint32_t issue)
+{
+    scrub_report_t *report = (scrub_report_t *)context;
+    report->block = block;
+    report->issue = issue;
+    report->calls++;
+}
+
 static void corrupt_inode(disk_t *d, const openfs_superblock_t *s)
 {
     uint64_t byte_offset = s->inode_table_start * (uint64_t)BS + 32U;
@@ -129,6 +143,50 @@ int main(void)
     assert(errors == 1U);
     d.fail_enabled = 0;
     assert(openfs_unmount(&mount) == OPENFS_MOUNT_OK);
+    cleanup(&d);
+
+    /* Detailed scrub reports the exact block for a data checksum mismatch. */
+    setup(&d, &v, &s);
+    openfs_mount_t report_mount = { 0 };
+    assert(openfs_mount(&report_mount, &v) == OPENFS_MOUNT_OK);
+    uint64_t report_ino = 0U;
+    assert(openfs_path_create(&v, &report_mount.superblock, "/scrub-report",
+                              OPENFS_INODE_MODE_REGULAR, &report_ino) == OPENFS_PATH_OK);
+    uint64_t report_inode_count = report_mount.superblock.inode_table_blocks *
+                                  (uint64_t)report_mount.superblock.block_size /
+                                  OPENFS_INODE_SIZE;
+    openfs_inode_t report_inode;
+    assert(openfs_inode_read(&v, report_mount.superblock.inode_table_start,
+                             report_ino, report_inode_count,
+                             &report_inode) == OPENFS_INODE_OK);
+    uint8_t report_payload[BS];
+    memset(report_payload, 0xC3, sizeof(report_payload));
+    assert(openfs_file_write(&v, &report_mount.superblock, &report_inode, 0U,
+                             report_payload, sizeof(report_payload)) == OPENFS_FILE_OK);
+    uint64_t data_block = 0U;
+    assert(openfs_file_map_block_device(&v, &report_mount.superblock,
+                                        &report_inode, 0U, &data_block) == OPENFS_FILE_OK);
+    d.bytes[data_block * (uint64_t)BS] ^= 0x01U;
+    scrub_report_t report = { UINT64_MAX, 0U, 0U };
+    assert(openfs_scrub_ex(&v, &report_mount.superblock, &errors,
+                           record_scrub_issue, &report) == OPENFS_SCRUB_CORRUPT);
+    assert(errors == 1U);
+    assert(report.calls == 1U);
+    assert(report.block == data_block);
+    assert(report.issue == OPENFS_SCRUB_ISSUE_CHECKSUM);
+    assert(openfs_unmount(&report_mount) == OPENFS_MOUNT_OK);
+    cleanup(&d);
+
+    /* Read errors are localized too, without changing the legacy API. */
+    setup(&d, &v, &s);
+    d.fail_block = 7U;
+    d.fail_enabled = 1;
+    report = (scrub_report_t){ UINT64_MAX, 0U, 0U };
+    assert(openfs_scrub_ex(&v, &s, &errors, record_scrub_issue, &report) == OPENFS_SCRUB_IO_ERROR);
+    assert(errors == 1U);
+    assert(report.calls == 1U);
+    assert(report.block == 7U);
+    assert(report.issue == OPENFS_SCRUB_ISSUE_READ);
     cleanup(&d);
 
     return 0;
