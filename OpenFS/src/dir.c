@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "openfs/crc32c.h"
 #include "openfs/time.h"
 #include "openfs/runtime.h"
@@ -175,7 +176,7 @@ static openfs_dir_result_t dir_add_unlocked(
 
     uint64_t offset = dir->size;
     if (offset > UINT64_MAX - OPENFS_DIR_ENTRY_SIZE) return OPENFS_DIR_NO_SPACE;
-    return map_file_result(openfs_file_write(d, sb, dir, offset, raw, sizeof(raw)));
+    fprintf(stderr,"DA before file_write\\n"); openfs_file_result_t fwr=openfs_file_write(d,sb,dir,offset,raw,sizeof(raw)); fprintf(stderr,"DA after file_write %d\\n",(int)fwr); return map_file_result(fwr);
 }
 
 static openfs_dir_result_t dir_remove_unlocked(
