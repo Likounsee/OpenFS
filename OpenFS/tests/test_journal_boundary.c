@@ -70,4 +70,20 @@ static void exact_api_full_and_last_commit(void){
     }
     TEST_ASSERT(j.next_record==j.journal_blocks-1U);TEST_ASSERT(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==j.journal_blocks);TEST_ASSERT(j.commit_record_written==1U);TEST_ASSERT(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_INVALID_ARGUMENT);TEST_ASSERT(openfs_journal_write(&j,&v,tx,"x",1U)==OPENFS_JOURNAL_INVALID_ARGUMENT);TEST_ASSERT(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_OK);TEST_ASSERT(j.next_record==0U);free(d.b);
 }
-int main(void){empty_boundary();physical_boundaries();exact_api_full_and_last_commit();return 0;}
+static void oversized_payload_does_not_advance_sequence(void){
+    disk_t d;openfs_block_device_t v;openfs_superblock_t sb;setup(&d,&v,&sb);
+    openfs_journal_t j;uint64_t tx=0U;
+    TEST_ASSERT(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_OK);
+    TEST_ASSERT(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    uint64_t seq=j.sequence;uint64_t next=j.next_record;
+    size_t too_large=(size_t)v.block_size-OPENFS_JOURNAL_HEADER_SIZE+1U;
+    uint8_t *payload=calloc(1U,too_large);TEST_ASSERT(payload!=NULL);
+    TEST_ASSERT(openfs_journal_write(&j,&v,tx,payload,(uint32_t)too_large)==OPENFS_JOURNAL_INVALID_ARGUMENT);
+    TEST_ASSERT(j.sequence==seq&&j.next_record==next&&j.recovery_required==0U);
+    TEST_ASSERT(openfs_journal_write(&j,&v,tx,"ok",2U)==OPENFS_JOURNAL_OK);
+    TEST_ASSERT(j.sequence==seq+1U&&j.next_record==next+1U);
+    TEST_ASSERT(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+    TEST_ASSERT(openfs_journal_replay(&v,&sb,replay_ok,NULL)==OPENFS_JOURNAL_OK);
+    free(payload);free(d.b);
+}
+int main(void){empty_boundary();physical_boundaries();exact_api_full_and_last_commit();oversized_payload_does_not_advance_sequence();return 0;}
