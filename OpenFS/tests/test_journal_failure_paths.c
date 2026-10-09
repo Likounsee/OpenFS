@@ -187,6 +187,63 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
 }
 
 
+
+typedef struct { unsigned hits; } replay_flush_state_t;
+
+static openfs_journal_result_t replay_count_effect(void *ctx, uint64_t tx,
+                                                    const uint8_t *data, uint32_t len)
+{
+    replay_flush_state_t *state = (replay_flush_state_t *)ctx;
+    if (state == NULL || tx != 1U || len != 7U ||
+        memcmp(data, "payload", 7U) != 0) {
+        return OPENFS_JOURNAL_CORRUPT;
+    }
+    state->hits++;
+    return OPENFS_JOURNAL_OK;
+}
+
+/*
+ * A callback can apply its effects before replay's final flush fails.
+ * Recovery must stay gated, and retry may invoke the callback again.
+ */
+static void test_replay_flush_failure_keeps_recovery_gated(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6FU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;
+    assert(openfs_read_superblock(&v, &sb) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &sb) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "payload", 7U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    replay_flush_state_t state = {0U};
+    d.fail_next_flush = 1;
+    assert(openfs_journal_recover(&j, &v, &sb, replay_count_effect, &state) ==
+           OPENFS_JOURNAL_IO_ERROR);
+    assert(state.hits == 1U);
+    assert(j.recovery_required == 1U);
+    uint64_t blocked_tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &blocked_tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+
+    assert(openfs_journal_recover(&j, &v, &sb, replay_count_effect, &state) ==
+           OPENFS_JOURNAL_OK);
+    assert(state.hits == 2U);
+    assert(j.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
+    free(d.data);
+}
+
 static openfs_journal_result_t replay_noop(void *, uint64_t, const uint8_t *, uint32_t);
 
 
@@ -526,5 +583,6 @@ int main(void)
     test_reopen_uncommitted_wal_requires_replay();
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
+    test_replay_flush_failure_keeps_recovery_gated();
     return 0;
 }
