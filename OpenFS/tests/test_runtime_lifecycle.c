@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
 #if defined(_WIN32)
 #include <windows.h>
@@ -26,7 +27,7 @@ static void *active_worker(void *unused)
 #endif
 {
     (void)unused;
-    assert(openfs_runtime_enter(&runtime));
+    if (!openfs_runtime_enter(&runtime)) abort();
     atomic_store_explicit(&worker_entered, 1, memory_order_release);
     while (atomic_load_explicit(&release_worker, memory_order_acquire) == 0) {
 #if defined(_WIN32)
@@ -98,9 +99,12 @@ int main(void)
     atomic_init(&release_worker, 0);
     atomic_init(&shutdown_done, 0);
     atomic_init(&shutdown_result, 0);
-    assert(openfs_runtime_init(&runtime));
+    if (!openfs_runtime_init(&runtime)) return 1;
 
-    assert(start_thread(&worker, active_worker));
+    if (!start_thread(&worker, active_worker)) {
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
     while (atomic_load_explicit(&worker_entered, memory_order_acquire) == 0) {
 #if defined(_WIN32)
         Sleep(0);
@@ -109,7 +113,12 @@ int main(void)
 #endif
     }
 
-    assert(start_thread(&shutdown, shutdown_worker));
+    if (!start_thread(&shutdown, shutdown_worker)) {
+        atomic_store_explicit(&release_worker, 1, memory_order_release);
+        join_thread(worker);
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
     /*
      * Shutdown must stop admitting new users, then wait for the already
      * active worker. Probe admission until it is rejected before releasing
