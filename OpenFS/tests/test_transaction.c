@@ -284,12 +284,15 @@ static int committed_file_allocation_replays_with_inode_owner(void)
         sizeof(payload)) == OPENFS_FILE_OK);
     CHECK(t.pending_count > 0U);
 
-    /* The COMMIT is durable, but publishing the allocated data block fails. */
-    d.fail_start = s.data_start;
-    d.fail_data = 1;
+    /* Fail the exact data-block publication, not the WAL COMMIT record. */
+    uint64_t allocated_data_block = 0U;
+    CHECK(openfs_file_map_block(&inode, 0U, &allocated_data_block) == OPENFS_FILE_OK);
+    d.fail_exact = allocated_data_block;
+    d.fail_exact_enabled = 1;
+    d.fail_exact_once = 1;
     CHECK(openfs_transaction_commit(&t) == OPENFS_TRANSACTION_IO_ERROR);
     CHECK(t.committed == 1 && t.recovery_required == 1);
-    d.fail_data = 0;
+    d.fail_exact_enabled = 0;
     CHECK(openfs_transaction_abort(&t) == OPENFS_TRANSACTION_CORRUPT);
 
     openfs_mount_t recovered;
