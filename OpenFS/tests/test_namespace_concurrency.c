@@ -2,6 +2,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#undef assert
+#define assert(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "CHECK failed: %s (%s:%d)\\n", #condition, __FILE__, __LINE__); \
+        abort(); \
+    } \
+} while (0)
 #include <string.h>
 #include "openfs/format.h"
 #include "openfs/mount.h"

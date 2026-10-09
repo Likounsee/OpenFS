@@ -3,6 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+#undef assert
+#define assert(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "CHECK failed: %s (%s:%d)\\n", #condition, __FILE__, __LINE__); \
+        abort(); \
+    } \
+} while (0)
 #include "openfs/mount.h"
 #include "openfs/link.h"
 #include "openfs/path.h"
