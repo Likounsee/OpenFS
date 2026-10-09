@@ -871,3 +871,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - The checks run before and after lock acquisition to guard against invalid calls accidentally publishing registry entries.
 - Commit: `8ad364fb107cd39d2a1541623ffb94927e112b34`.
 - **Validation: not run.** The test source was committed to branch `OpenFS`; compilation and CTest/CI still need to run. No green result is claimed.
+
+
+# 2026-10-09 — runtime admission nesting overflow guard
+
+- `openfs_runtime_enter()` now rejects a nested admission when the thread-local nesting depth reaches `UINT_MAX`, rather than allowing the unsigned counter to wrap to zero and release the active-user pin prematurely.
+- Extended `test_runtime_lifecycle.c` so the worker enters the same runtime twice and leaves the nested admission before holding the outer admission across the shutdown/quiescence test.
+- Commits: `64824d30fb4be111ce89b24fc8e8ebc92db92d27` (guard), `a6b8f9dae01ae12d71b23f22cecb39f1b9c4bc69` (regression coverage).
+- **Validation: not run.** Source and test changes were committed to branch `OpenFS`; build, CTest, and CI status still need confirmation.
