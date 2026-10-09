@@ -10,6 +10,9 @@
 #include "openfs/mount.h"
 #include "openfs/runtime.h"
 #include "openfs/path.h"
+#include "openfs/file.h"
+#include "openfs/inode.h"
+#include "openfs/fsck.h"
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; } } while (0)
 typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_start;int fail_data;int arm_flush_fail;int flush_failed;uint64_t arm_block;int fail_flush;uint64_t fail_exact;int fail_exact_enabled;int fail_exact_once;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change_after_once;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(n==0U||f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
@@ -246,9 +249,72 @@ static int committed_namespace_transaction_replays_as_a_unit(void)
     return 0;
 }
 
+
+static int committed_file_allocation_replays_with_inode_owner(void)
+{
+    D d = {0};
+    d.bs = 4096U;
+    d.bc = 256U;
+    d.b = calloc((size_t)d.bc, d.bs);
+    CHECK(d.b);
+    openfs_block_device_t v = {&d, d.bs, d.bc, r, w, fl};
+    uint8_t uuid[16] = {44U};
+    CHECK(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    CHECK(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    CHECK(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    openfs_transaction_t t;
+    CHECK(openfs_transaction_begin(&t, &v, &j) == OPENFS_TRANSACTION_OK);
+    uint64_t inode_number = 0U;
+    CHECK(openfs_path_create_tx(&t, &s, "/file-owner-replay",
+        OPENFS_INODE_MODE_REGULAR, &inode_number) == OPENFS_PATH_OK);
+    CHECK(openfs_transaction_commit(&t) == OPENFS_TRANSACTION_OK);
+
+    uint64_t inode_count =
+        (s.inode_table_blocks * (uint64_t)s.block_size) / OPENFS_INODE_SIZE;
+    openfs_inode_t inode;
+    CHECK(openfs_inode_read(&v, s.inode_table_start, inode_number,
+        inode_count, &inode) == OPENFS_INODE_OK);
+
+    const uint8_t payload[] = "durable owner";
+    CHECK(openfs_transaction_begin(&t, &v, &j) == OPENFS_TRANSACTION_OK);
+    CHECK(openfs_file_write_tx(&t, &s, &inode, 0U, payload,
+        sizeof(payload)) == OPENFS_FILE_OK);
+    CHECK(t.pending_count > 0U);
+
+    /* The COMMIT is durable, but publishing the allocated data block fails. */
+    d.fail_start = s.data_start;
+    d.fail_data = 1;
+    CHECK(openfs_transaction_commit(&t) == OPENFS_TRANSACTION_IO_ERROR);
+    CHECK(t.committed == 1 && t.recovery_required == 1);
+    d.fail_data = 0;
+    CHECK(openfs_transaction_abort(&t) == OPENFS_TRANSACTION_CORRUPT);
+
+    openfs_mount_t recovered;
+    CHECK(openfs_mount(&recovered, &v) == OPENFS_MOUNT_OK);
+    openfs_inode_t persisted;
+    CHECK(openfs_inode_read(&v, recovered.superblock.inode_table_start,
+        inode_number, inode_count, &persisted) == OPENFS_INODE_OK);
+    uint8_t actual[sizeof(payload)];
+    size_t bytes_read = 0U;
+    CHECK(openfs_file_read(&v, &recovered.superblock, &persisted, 0U,
+        actual, sizeof(actual), &bytes_read) == OPENFS_FILE_OK);
+    CHECK(bytes_read == sizeof(payload));
+    CHECK(memcmp(actual, payload, sizeof(payload)) == 0);
+
+    uint64_t errors = 0U;
+    CHECK(openfs_fsck(&v, &recovered.superblock, &errors) == OPENFS_FSCK_OK);
+    CHECK(errors == 0U);
+    CHECK(openfs_unmount(&recovered) == OPENFS_MOUNT_OK);
+    free(d.b);
+    return 0;
+}
+
 int main(void){
 CHECK(allocator_metadata_failure_poison_transaction()==0);
-CHECK(committed_namespace_transaction_replays_as_a_unit()==0);
+CHECK(committed_namespace_transaction_replays_as_a_unit()==0);CHECK(committed_file_allocation_replays_with_inode_owner()==0);
 CHECK(allocator_checksum_failure_poison_transaction()==0);
 CHECK(commit_flush_failure_recovers_same_journal()==0);
 CHECK(failed_wal_write_and_failed_rollback_poison_journal()==0);
