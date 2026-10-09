@@ -30,7 +30,35 @@ static int retire_failed_transaction(openfs_transaction_t*t)
     return 1;
 }
 static void clear(openfs_transaction_t*t){if(t->pending!=NULL){for(uint64_t i=0U;i<t->pending_count;i++)free(t->pending[i].data);free(t->pending);}t->pending=NULL;t->pending_count=0U;t->pending_capacity=0U;}
-openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,openfs_block_device_t*base,openfs_journal_t*j){if(t==NULL||!openfs_block_device_is_valid(base)||j==NULL||base->block_size==0U||j->block_size!=base->block_size)return OPENFS_TRANSACTION_INVALID_ARGUMENT;/* journal_begin serializes and validates mutable journal state under its lock. */memset(t,0,sizeof(*t));t->magic=OPENFS_TRANSACTION_MAGIC;t->base=base;t->journal=j;openfs_journal_result_t jr=openfs_journal_begin(j,base,&t->txid);if(jr!=OPENFS_JOURNAL_OK){memset(t,0,sizeof(*t));return jr==OPENFS_JOURNAL_FULL?OPENFS_TRANSACTION_FULL:(jr==OPENFS_JOURNAL_CORRUPT?OPENFS_TRANSACTION_CORRUPT:OPENFS_TRANSACTION_IO_ERROR);}t->device.context=t;t->device.block_size=base->block_size;t->device.block_count=base->block_count;t->device.read=tx_read;t->device.write=tx_write;t->device.flush=tx_flush;t->active=1;return OPENFS_TRANSACTION_OK;}
+openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,openfs_block_device_t*base,openfs_journal_t*j)
+{
+    if(t==NULL||!openfs_block_device_is_valid(base)||j==NULL||base->block_size==0U||j->block_size!=base->block_size)return OPENFS_TRANSACTION_INVALID_ARGUMENT;
+    /*
+     * Do not inspect mutable journal state before taking the journal lock, and
+     * do not overwrite an existing transaction object unless BEGIN succeeds.
+     * In particular, callers may retry begin on an already-active object.
+     */
+    openfs_transaction_t candidate={0};
+    candidate.magic=OPENFS_TRANSACTION_MAGIC;
+    candidate.base=base;
+    candidate.journal=j;
+    openfs_journal_result_t jr=openfs_journal_begin(j,base,&candidate.txid);
+    if(jr!=OPENFS_JOURNAL_OK)
+        return jr==OPENFS_JOURNAL_FULL?OPENFS_TRANSACTION_FULL:
+               (jr==OPENFS_JOURNAL_CORRUPT?OPENFS_TRANSACTION_CORRUPT:
+                (jr==OPENFS_JOURNAL_INVALID_ARGUMENT?OPENFS_TRANSACTION_INVALID_ARGUMENT:OPENFS_TRANSACTION_IO_ERROR));
+    candidate.device.context=&candidate;
+    candidate.device.block_size=base->block_size;
+    candidate.device.block_count=base->block_count;
+    candidate.device.read=tx_read;
+    candidate.device.write=tx_write;
+    candidate.device.flush=tx_flush;
+    candidate.active=1;
+    *t=candidate;
+    /* The device callbacks use the caller-owned transaction, not the local. */
+    t->device.context=t;
+    return OPENFS_TRANSACTION_OK;
+}
 openfs_transaction_t*openfs_transaction_from_device(const openfs_block_device_t*d){if(d==NULL||d->context==NULL||d->read!=tx_read||d->write!=tx_write||d->flush!=tx_flush)return NULL;openfs_transaction_t*t=(openfs_transaction_t*)d->context;if(t->magic!=OPENFS_TRANSACTION_MAGIC||!t->active||&t->device!=d)return NULL;return t;}
 openfs_block_device_t*openfs_transaction_device(openfs_transaction_t*t){return t!=NULL&&t->active&&t->device.block_size!=0U?&t->device:NULL;}
 openfs_transaction_result_t openfs_transaction_commit(openfs_transaction_t*t){if(t==NULL||!t->active||t->journal==NULL||t->base==NULL)return OPENFS_TRANSACTION_INVALID_ARGUMENT;if(t->failed||t->commit_started)return OPENFS_TRANSACTION_IO_ERROR;t->commit_started=1;openfs_journal_result_t jr=openfs_journal_commit(t->journal,t->base,t->txid);if(jr!=OPENFS_JOURNAL_OK){t->failed=1;if(jr==OPENFS_JOURNAL_FULL){if(!retire_failed_transaction(t))return OPENFS_TRANSACTION_IO_ERROR;t->commit_started=0;openfs_journal_result_t cr=openfs_journal_checkpoint(t->journal,t->base);clear(t);t->active=0;if(cr==OPENFS_JOURNAL_CORRUPT)return OPENFS_TRANSACTION_CORRUPT;return cr==OPENFS_JOURNAL_OK?OPENFS_TRANSACTION_FULL:OPENFS_TRANSACTION_IO_ERROR;}if(jr==OPENFS_JOURNAL_CORRUPT){t->failed=1;t->recovery_required=1;t->commit_started=1;clear(t);return OPENFS_TRANSACTION_CORRUPT;}if(t->journal->commit_record_written!=0U){t->committed=1;t->recovery_required=1;}t->commit_started=1;clear(t);return OPENFS_TRANSACTION_IO_ERROR;}t->committed=1;for(uint64_t i=0U;i<t->pending_count;i++){if(t->base->write(t->base->context,t->pending[i].block,1U,t->pending[i].data)!=OPENFS_IO_OK){t->failed=1;t->recovery_required=1;t->journal->recovery_required=1U;clear(t);return OPENFS_TRANSACTION_IO_ERROR;}}if(t->base->flush(t->base->context)!=OPENFS_IO_OK){t->failed=1;t->recovery_required=1;t->journal->recovery_required=1U;clear(t);return OPENFS_TRANSACTION_IO_ERROR;}openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint(t->journal,t->base);if(checkpoint_result!=OPENFS_JOURNAL_OK){t->failed=1;t->recovery_required=1;t->journal->recovery_required=1U;clear(t);return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_TRANSACTION_CORRUPT:OPENFS_TRANSACTION_IO_ERROR;}clear(t);t->active=0;return OPENFS_TRANSACTION_OK;}
