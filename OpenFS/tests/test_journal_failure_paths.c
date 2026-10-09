@@ -272,7 +272,8 @@ static void test_commit_flush_failure_requires_recovery(void)
     /* Reopening re-evaluates the on-disk log instead of erasing an uncertain commit. */
     openfs_journal_t reopened;
     assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
-    assert(reopened.recovery_required == 0U);
+    assert(reopened.recovery_required != 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
     free(d.data);
 }
