@@ -711,7 +711,11 @@ static void test_checkpoint_write_failure_restores_entire_wal(void)
     openfs_journal_t reopened;
     assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
     assert(reopened.next_record == records_before);
-    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_recover(&reopened, &v, &s, replay_noop, NULL) ==
+           OPENFS_JOURNAL_OK);
+    assert(reopened.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == 0U);
     free(before);
     free(d.data);
 }
@@ -755,6 +759,10 @@ static void test_checkpoint_rollback_failure_poison_journal(void)
     assert(openfs_journal_replay(&v, &s, replay_count, &replay_calls) ==
            OPENFS_JOURNAL_CORRUPT);
     assert(replay_calls == 0U);
+    assert(openfs_journal_recover(&j, &v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_CORRUPT);
+    assert(replay_calls == 0U);
+    assert(j.recovery_required != 0U);
     free(d.data);
 }
 
