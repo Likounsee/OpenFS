@@ -103,13 +103,37 @@ openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_b
 {
     if(j==NULL||!openfs_block_device_is_valid(d)||s==NULL||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
     if(j->journal_start!=s->journal_start||j->journal_blocks!=s->journal_blocks||j->block_size!=d->block_size||s->block_size!=d->block_size)return OPENFS_JOURNAL_INVALID_ARGUMENT;
-    openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
-    if(result!=OPENFS_JOURNAL_OK)return result;
+
+    /*
+     * Reserve recovery before replay so a concurrent begin/write/checkpoint
+     * cannot mutate the journal while records are being replayed.  In
+     * particular, never replay over a live transaction and only clear this
+     * gate after a complete replay (including its device flush) succeeds.
+     */
     if(j->runtime==NULL){
         if(j->active_transaction_id!=0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
-        j->recovery_required=0U;
-        return OPENFS_JOURNAL_OK;
+        j->recovery_required=1U;
+        openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
+        if(result==OPENFS_JOURNAL_OK)j->recovery_required=0U;
+        return result;
     }
+    if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
+    if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){
+        openfs_runtime_leave(j->runtime);
+        return OPENFS_JOURNAL_IO_ERROR;
+    }
+    if(j->active_transaction_id!=0U){
+        (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+        openfs_runtime_leave(j->runtime);
+        return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    }
+    j->recovery_required=1U;
+    (void)openfs_mutex_unlock(&j->runtime->journal_lock);
+    openfs_runtime_leave(j->runtime);
+
+    openfs_journal_result_t result=openfs_journal_replay(d,s,cb,ctx);
+    if(result!=OPENFS_JOURNAL_OK)return result;
+
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){
         openfs_runtime_leave(j->runtime);
