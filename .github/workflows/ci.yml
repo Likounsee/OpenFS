@@ -34,6 +34,14 @@ jobs:
           cmake -S OpenFS -B build-${{ matrix.compiler }}-asan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build build-${{ matrix.compiler }}-asan --parallel
           ctest --test-dir build-${{ matrix.compiler }}-asan --output-on-failure --timeout 180
+      - name: Configure Release
+        run: cmake -S OpenFS -B build-${{ matrix.compiler }}-release -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build Release
+        run: cmake --build build-${{ matrix.compiler }}-release --parallel
+      - name: Test Release
+        run: |
+          timeout 45s ./build-${{ matrix.compiler }}-release/openfs-path-test
+          ctest --test-dir build-${{ matrix.compiler }}-release --output-on-failure --timeout 180
 
   windows:
     runs-on: windows-latest
@@ -45,3 +53,9 @@ jobs:
         run: cmake --build build-windows --config Debug --parallel
       - name: Test
         run: ctest --test-dir build-windows -C Debug --output-on-failure --timeout 180
+      - name: Configure Release
+        run: cmake -S OpenFS -B build-windows-release -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build Release
+        run: cmake --build build-windows-release --config Release --parallel
+      - name: Test Release
+        run: ctest --test-dir build-windows-release -C Release --output-on-failure --timeout 180

@@ -918,3 +918,11 @@ The latest validated head before this docs update is 1bf393d5. Its GitHub Action
 - **TEST HARDENING** — `test_file_concurrency.c`, `test_link_concurrency.c`, and `test_namespace_concurrency.c` used standard `assert()` for operations with side effects. With `NDEBUG`, those operations could disappear, allowing Release CI to pass without exercising concurrent file I/O, hard-link, or namespace workloads.
 - Replaced the test-local assertion behavior with an always-on check that reports the failed expression and source location, then aborts. The operations and assertions remain unchanged; only their accidental Release-build elision is prevented.
 - Validation is delegated to the branch CI matrix; this commit is not considered green until GCC, Clang/sanitizers, and Windows jobs finish successfully.
+
+
+# 2026-10-10 — Release configuration joins required CI validation
+
+- Added a dedicated Release configure/build/test pass to both GCC and Clang jobs, including the path-test timeout preflight and the complete CTest suite.
+- Added a Release configure/build/test pass to Windows/MSVC as well.
+- Motivation: the recent always-on concurrency assertions specifically protect workloads from `NDEBUG`; Debug-only CI did not exercise the configuration in which that regression could recur. This change makes Release behavior observable on all three CI platforms instead of assuming Debug success transfers to Release.
+- Validation: this workflow change will be considered validated only after its new Release jobs and all existing Debug/sanitizer jobs pass on GitHub Actions.
