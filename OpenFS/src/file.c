@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 
 static int add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out)
@@ -1075,8 +1076,8 @@ static openfs_file_result_t file_write_unlocked(
 
     uint64_t *new_blocks=NULL;uint64_t new_count=0U;uint8_t *old_root_data=NULL;
     uint64_t old_root=openfs_inode_get_extent_tree_root(&original);uint64_t *cow_old_blocks=NULL,*cow_new_blocks=NULL,cow_count=0U;
-    r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
-                           &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count);
+    fprintf(stderr,"FW before sparse_prepare\\n"); r=sparse_prepare_write(device,sb,inode,first_logical,last_logical,&original,
+                           &new_blocks,&new_count,&old_root_data,&old_root,&cow_old_blocks,&cow_new_blocks,&cow_count); fprintf(stderr,"FW after sparse_prepare %d\\n",(int)r);
     if(r!=OPENFS_FILE_OK){
         free_write_backups(backups,backup_count);
         return r;
