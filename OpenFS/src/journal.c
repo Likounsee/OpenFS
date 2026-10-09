@@ -105,13 +105,21 @@ openfs_journal_result_t openfs_journal_commit_transaction(openfs_journal_t*j,ope
     *committed=0;
     if(j->runtime==NULL){
         openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
-        if(j->commit_record_written!=0U){j->publication_in_progress=1U;*committed=1;}
+        if(j->commit_record_written!=0U){
+            *committed=1;
+            if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=1U;
+            else{j->recovery_required=1U;j->publication_in_progress=0U;}
+        }
         return r;
     }
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
     openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
-    if(j->commit_record_written!=0U){j->publication_in_progress=1U;*committed=1;}
+    if(j->commit_record_written!=0U){
+        *committed=1;
+        if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=1U;
+        else{j->recovery_required=1U;j->publication_in_progress=0U;}
+    }
     (void)openfs_mutex_unlock(&j->runtime->journal_lock);
     openfs_runtime_leave(j->runtime);
     return r;
@@ -123,7 +131,7 @@ openfs_journal_result_t openfs_journal_checkpoint_transaction(openfs_journal_t*j
         if(j->publication_in_progress==0U)return OPENFS_JOURNAL_INVALID_ARGUMENT;
         openfs_journal_result_t r=journal_checkpoint_unlocked(j,d);
         if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=0U;
-        else j->recovery_required=1U;
+        else{j->recovery_required=1U;j->publication_in_progress=0U;}
         return r;
     }
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
@@ -142,10 +150,11 @@ openfs_journal_result_t openfs_journal_checkpoint_transaction(openfs_journal_t*j
 openfs_journal_result_t openfs_journal_mark_recovery_required(openfs_journal_t*j)
 {
     if(j==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
-    if(j->runtime==NULL){j->recovery_required=1U;return OPENFS_JOURNAL_OK;}
+    if(j->runtime==NULL){j->recovery_required=1U;j->publication_in_progress=0U;return OPENFS_JOURNAL_OK;}
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
     j->recovery_required=1U;
+    j->publication_in_progress=0U;
     (void)openfs_mutex_unlock(&j->runtime->journal_lock);
     openfs_runtime_leave(j->runtime);
     return OPENFS_JOURNAL_OK;
