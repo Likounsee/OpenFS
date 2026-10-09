@@ -127,9 +127,13 @@ static openfs_journal_result_t replay_block(void *ctx,uint64_t tx,const uint8_t 
     (void)tx;
     openfs_mount_t *m=(openfs_mount_t *)ctx;
     if(m==NULL||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
-    if(len<24U||memcmp(data,"OJBD1",5U)!=0)return OPENFS_JOURNAL_CORRUPT;
+    if(len<24U||memcmp(data,"OJBD1",5U)!=0||data[5U]!=0U||data[6U]!=0U||data[7U]!=0U)return OPENFS_JOURNAL_CORRUPT;
     uint64_t target=get64(data+8U),offset=(uint64_t)get32(data+16U);
     uint32_t count=get32(data+20U);
+    uint64_t capacity=(uint64_t)m->device->block_size-OPENFS_JOURNAL_HEADER_SIZE-OPENFS_JOURNAL_BLOCK_DATA_HEADER;
+    uint64_t expected=offset<(uint64_t)m->device->block_size?(uint64_t)m->device->block_size-offset:0U;
+    if(expected>capacity)expected=capacity;
+    if(capacity==0U||offset%capacity!=0U||count!=expected)return OPENFS_JOURNAL_CORRUPT;
     int target_in_journal=m->superblock.journal_start<m->device->block_count &&
         target>=m->superblock.journal_start &&
         target-m->superblock.journal_start<m->superblock.journal_blocks;
