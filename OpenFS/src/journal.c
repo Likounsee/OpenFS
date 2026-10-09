@@ -104,8 +104,9 @@ openfs_journal_result_t openfs_journal_commit_transaction(openfs_journal_t*j,ope
     if(j==NULL||committed==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
     *committed=0;
     if(j->runtime==NULL){
+        uint64_t next_record_before=j->next_record;
         openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
-        if(j->commit_record_written!=0U){
+        if(j->commit_record_written!=0U&&j->next_record>next_record_before){
             *committed=1;
             if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=1U;
             else{j->recovery_required=1U;j->publication_in_progress=0U;}
@@ -114,8 +115,9 @@ openfs_journal_result_t openfs_journal_commit_transaction(openfs_journal_t*j,ope
     }
     if(!openfs_runtime_enter(j->runtime))return OPENFS_JOURNAL_IO_ERROR;
     if(openfs_mutex_lock(&j->runtime->journal_lock,OPENFS_LOCK_RANK_JOURNAL)!=OPENFS_LOCK_OK){openfs_runtime_leave(j->runtime);return OPENFS_JOURNAL_IO_ERROR;}
+    uint64_t next_record_before=j->next_record;
     openfs_journal_result_t r=journal_commit_unlocked(j,d,tx);
-    if(j->commit_record_written!=0U){
+    if(j->commit_record_written!=0U&&j->next_record>next_record_before){
         *committed=1;
         if(r==OPENFS_JOURNAL_OK)j->publication_in_progress=1U;
         else{j->recovery_required=1U;j->publication_in_progress=0U;}
