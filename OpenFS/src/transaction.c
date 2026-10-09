@@ -15,8 +15,11 @@ static int retire_failed_transaction(openfs_transaction_t*t)
     if(t==NULL||t->journal==NULL)return 0;
     openfs_journal_t*j=t->journal;
     if(j->runtime==NULL){
-        if(j->active_transaction_id==t->txid)j->active_transaction_id=0U;
-        return 1;
+        if(j->active_transaction_id==t->txid){
+            j->active_transaction_id=0U;
+            return 1;
+        }
+        return j->active_transaction_id==0U&&t->recovery_required;
     }
     openfs_runtime_t*r=j->runtime;
     if(!openfs_runtime_enter(r))return 0;
@@ -24,10 +27,17 @@ static int retire_failed_transaction(openfs_transaction_t*t)
         openfs_runtime_leave(r);
         return 0;
     }
-    if(j->active_transaction_id==t->txid)j->active_transaction_id=0U;
+    int retired=0;
+    if(j->active_transaction_id==t->txid){
+        j->active_transaction_id=0U;
+        retired=1;
+    }else if(j->active_transaction_id==0U&&t->recovery_required){
+        /* COMMIT may already have retired the active ID before flush failed. */
+        retired=1;
+    }
     (void)openfs_mutex_unlock(&r->journal_lock);
     openfs_runtime_leave(r);
-    return 1;
+    return retired;
 }
 static void clear(openfs_transaction_t*t){if(t->pending!=NULL){for(uint64_t i=0U;i<t->pending_count;i++)free(t->pending[i].data);free(t->pending);}t->pending=NULL;t->pending_count=0U;t->pending_capacity=0U;}
 openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,openfs_block_device_t*base,openfs_journal_t*j)
