@@ -65,6 +65,7 @@ The existing core already provides a substantial filesystem foundation:
 - journal checkpoint/reclamation;
 - transaction-aware namespace/file mutation;
 - allocation/free operations poison their transaction if a later refcount or checksum metadata step fails, preventing partial allocator updates from being committed;
+- transaction fault-injection tests cover both CoW refcount-table and data-checksum-table failures after an allocation bit is staged;
 - transaction fault-injection coverage;
 - copy-on-write cloning and refcounting;
 - discard/free handling for shared CoW blocks;
