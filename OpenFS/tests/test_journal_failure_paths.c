@@ -344,8 +344,13 @@ static void test_commit_flush_failure_requires_recovery(void)
     assert(reopened.recovery_required != 0U);
     assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
     committed_replay_state_t replay_state = {0U};
-    assert(openfs_journal_replay(&v, &s, replay_committed_payload, &replay_state) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_recover(&reopened, &v, &s,
+                                  replay_committed_payload, &replay_state) ==
+           OPENFS_JOURNAL_OK);
     assert(replay_state.hits == 1U);
+    assert(reopened.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == 0U);
     free(d.data);
 }
 
