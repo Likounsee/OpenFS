@@ -61,6 +61,10 @@ static openfs_file_lock_result_t file_lock_impl(openfs_file_handle_t *h,uint64_t
         }
         registry_unlock(h);
         if((flags&OPENFS_FILE_LOCK_BLOCK)==0U){handle_unlock(h);return OPENFS_FILE_LOCK_CONFLICT;}
+        /* A blocking waiter owns an active runtime pin. Abort it when shutdown
+         * closes admission, otherwise shutdown could wait forever for a lock
+         * whose owner can no longer enter the runtime to release it. */
+        if(!openfs_runtime_is_accepting(h->superblock.runtime)){handle_unlock(h);return OPENFS_FILE_LOCK_CLOSED;}
 #ifdef _WIN32
         Sleep(1);
 #else
