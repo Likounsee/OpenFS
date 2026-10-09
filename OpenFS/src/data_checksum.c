@@ -102,17 +102,16 @@ int openfs_data_checksum_set(const openfs_block_device_t *d,
         return -1;
 
     openfs_runtime_t *runtime = s->runtime;
-    int entered = 0;
     int locked = 0;
     if (runtime != NULL) {
-        if (!openfs_runtime_enter(runtime)) {
-            free(buffer);
-            return -1;
-        }
-        entered = 1;
+        /*
+         * The runtime-bound mutex performs its own lifetime admission. Do
+         * not call openfs_runtime_enter() here: checksum updates can happen
+         * while a higher-ranked inode/allocation lock is already held, and
+         * admission would then invert the global lock order.
+         */
         if (openfs_mutex_lock(&runtime->checksum_lock,
                               OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
-            openfs_runtime_leave(runtime);
             free(buffer);
             return -1;
         }
@@ -127,8 +126,6 @@ int openfs_data_checksum_set(const openfs_block_device_t *d,
 
     if (locked)
         (void)openfs_mutex_unlock(&runtime->checksum_lock);
-    if (entered)
-        openfs_runtime_leave(runtime);
     free(buffer);
     return ok ? 0 : -1;
 }
