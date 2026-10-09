@@ -27,6 +27,9 @@ static void *active_worker(void *unused)
 {
     (void)unused;
     if (!openfs_runtime_enter(&runtime)) abort();
+    /* A nested admission must not release the outer active-user pin. */
+    if (!openfs_runtime_enter(&runtime)) abort();
+    openfs_runtime_leave(&runtime);
     atomic_store_explicit(&worker_entered, 1, memory_order_release);
     while (atomic_load_explicit(&release_worker, memory_order_acquire) == 0) {
 #if defined(_WIN32)
