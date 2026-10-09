@@ -613,7 +613,52 @@ static void mount_rejects_reserved_superblock_bytes(void)
     free(d.bytes);
 }
 
-int main(void){mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
+
+static void malformed_later_replay_payload_does_not_publish_earlier_blocks(void)
+{
+    disk_t d={.block_size=4096U,.block_count=128U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes!=NULL);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0xD7U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    uint64_t tx=0U;
+    uint64_t first_target=s.data_start+10U;
+    uint64_t second_target=s.data_start+11U;
+    uint8_t first[4096U],second[4096U];
+    memset(first,0xA1U,sizeof(first));
+    memset(second,0xB2U,sizeof(second));
+    assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&j,&v,tx,first_target,first)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&j,&v,tx,second_target,second)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+
+    /* BEGIN, two DATA chunks per block, then COMMIT. Keep CRC valid while
+       making the later filesystem-specific payload semantically invalid. */
+    uint64_t bad_slot=s.journal_start+3U;
+    uint8_t *raw=d.bytes+(size_t)(bad_slot*d.block_size);
+    assert(memcmp(raw,OPENFS_JOURNAL_MAGIC,5U)==0);
+    assert(raw[5U]==OPENFS_JOURNAL_DATA);
+    uint64_t invalid_target=s.journal_start;
+    for(unsigned k=0U;k<8U;k++)raw[40U+k]=(uint8_t)(invalid_target>>(8U*k));
+    raw[28U]=raw[29U]=raw[30U]=raw[31U]=0U;
+    uint32_t crc=openfs_crc32c(raw,d.block_size);
+    raw[28U]=(uint8_t)crc;raw[29U]=(uint8_t)(crc>>8U);
+    raw[30U]=(uint8_t)(crc>>16U);raw[31U]=(uint8_t)(crc>>24U);
+    memset(d.bytes+(size_t)(first_target*d.block_size),0,d.block_size);
+
+    openfs_mount_t rejected;
+    assert(openfs_mount(&rejected,&v)==OPENFS_MOUNT_CORRUPT);
+    for(size_t k=0U;k<d.block_size;k++)
+        assert(d.bytes[(size_t)(first_target*d.block_size)+k]==0U);
+    free(d.bytes);
+}
+
+int main(void){
+    malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  runtime_shutdown_handle_admission_regression();
