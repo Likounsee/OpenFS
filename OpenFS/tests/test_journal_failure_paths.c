@@ -243,6 +243,15 @@ static void test_begin_restore_failure_requires_recovery(void)
     free(d.data);
 }
 
+typedef struct { uint32_t hits; } committed_replay_state_t;
+static openfs_journal_result_t replay_committed_payload(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
+{
+    committed_replay_state_t *state=(committed_replay_state_t *)ctx;
+    if(state==NULL||tx!=1U||len!=9U||memcmp(data,"committed",9U)!=0)return OPENFS_JOURNAL_CORRUPT;
+    state->hits++;
+    return OPENFS_JOURNAL_OK;
+}
+
 static void test_commit_flush_failure_requires_recovery(void)
 {
     disk_t d = {0};
@@ -276,7 +285,9 @@ static void test_commit_flush_failure_requires_recovery(void)
     assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
     assert(reopened.recovery_required != 0U);
     assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
-    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    committed_replay_state_t replay_state = {0U};
+    assert(openfs_journal_replay(&v, &s, replay_committed_payload, &replay_state) == OPENFS_JOURNAL_OK);
+    assert(replay_state.hits == 1U);
     free(d.data);
 }
 
