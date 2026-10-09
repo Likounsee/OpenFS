@@ -278,6 +278,33 @@ static void test_commit_flush_failure_requires_recovery(void)
     free(d.data);
 }
 
+static void test_reopen_uncommitted_wal_requires_replay(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6AU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "uncommitted", 11U) == OPENFS_JOURNAL_OK);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.commit_record_written == 0U);
+    assert(reopened.recovery_required != 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_replay(&v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    free(d.data);
+}
+
 static openfs_journal_result_t replay_noop(void *ctx, uint64_t tx, const uint8_t *data, uint32_t len)
 {
     (void)ctx; (void)tx; (void)data; (void)len;
@@ -323,6 +350,7 @@ int main(void)
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
     test_commit_flush_failure_requires_recovery();
+    test_reopen_uncommitted_wal_requires_replay();
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
     return 0;
