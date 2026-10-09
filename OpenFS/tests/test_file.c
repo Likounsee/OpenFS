@@ -730,16 +730,17 @@ static void sparse_write_reports_rollback_failure(void)
     uint64_t ic=(sb.inode_table_blocks*(uint64_t)sb.block_size)/OPENFS_INODE_SIZE;
     openfs_inode_t inode;
     TEST_ASSERT(openfs_inode_read(&v,sb.inode_table_start,ino,ic,&inode)==OPENFS_INODE_OK);
-    uint8_t seed=0x21U,tail=0x72U;
+    uint8_t seed=0x21U,tail[2U*4096U];
+    memset(tail,0x72U,sizeof(tail));
     TEST_ASSERT(openfs_file_write(&v,&sb,&inode,0U,&seed,1U)==OPENFS_FILE_OK);
 
-    /* Let one sparse allocation succeed, then make bitmap writes (including
-       cleanup writes) fail persistently during the next allocation. */
+    /* Allocate two separated sparse blocks: the first bitmap update succeeds,
+       the second fails, and persistent failures also break rollback. */
     d.fail_block=sb.block_bitmap_start;
     d.fail_block_enabled=1;
-    d.fail_after_writes=3U;
+    d.fail_after_writes=2U;
     d.fail_once=0;
-    TEST_ASSERT(openfs_file_write(&v,&sb,&inode,4U*4096U,&tail,1U)==OPENFS_FILE_CORRUPT);
+    TEST_ASSERT(openfs_file_write(&v,&sb,&inode,3U*4096U,tail,sizeof(tail))==OPENFS_FILE_CORRUPT);
     free(d.bytes);
 }
 
