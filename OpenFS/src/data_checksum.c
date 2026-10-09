@@ -88,7 +88,7 @@ int openfs_data_checksum_set(const openfs_block_device_t *d,
                              const openfs_superblock_t *s,
                              uint64_t block, uint32_t value)
 {
-    if (!openfs_block_device_is_valid(d))
+    if (!openfs_block_device_is_valid(d) || s == NULL)
         return -1;
 
     uint64_t table_block;
@@ -99,12 +99,35 @@ int openfs_data_checksum_set(const openfs_block_device_t *d,
     uint8_t *buffer = (uint8_t *)malloc(d->block_size);
     if (buffer == NULL)
         return -1;
-    if (d->read(d->context, table_block, 1U, buffer) != OPENFS_IO_OK) {
-        free(buffer);
-        return -1;
+
+    openfs_runtime_t *runtime = s->runtime;
+    int entered = 0;
+    int locked = 0;
+    if (runtime != NULL) {
+        if (!openfs_runtime_enter(runtime)) {
+            free(buffer);
+            return -1;
+        }
+        entered = 1;
+        if (openfs_mutex_lock(&runtime->checksum_lock,
+                              OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
+            openfs_runtime_leave(runtime);
+            free(buffer);
+            return -1;
+        }
+        locked = 1;
     }
-    put32(buffer + offset, value);
-    const int ok = d->write(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
+
+    int ok = d->read(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
+    if (ok) {
+        put32(buffer + offset, value);
+        ok = d->write(d->context, table_block, 1U, buffer) == OPENFS_IO_OK;
+    }
+
+    if (locked)
+        (void)openfs_mutex_unlock(&runtime->checksum_lock);
+    if (entered)
+        openfs_runtime_leave(runtime);
     free(buffer);
     return ok ? 0 : -1;
 }
