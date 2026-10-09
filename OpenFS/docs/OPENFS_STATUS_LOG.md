@@ -1,3 +1,12 @@
+# 2026-10-09 — Runtime shutdown wait-loop hardening
+
+- **HARDEN** — `OpenFS/src/runtime.c`: yield the current thread while `runtime_shutdown_internal()` waits for `active_users` to drain (`SwitchToThread()` on Windows, `sched_yield()` on POSIX), instead of continuously re-locking and polling without yielding.
+- This reduces the chance that a shutdown caller monopolizes a CPU, but it is **not** a blocking condition-variable/event wait and does not prove lifecycle teardown race-free.
+- **Validation: not run.** No local build/test environment or usable CI result was available during this change. A cross-platform compile and shutdown-with-active-operation regression test are still required.
+- Commit: `5f3befe0`.
+
+---
+
 # 2026-10-09 — P0 concurrency audit: file-lock handle state
 
 - **FIX** — `OpenFS/src/file_lock.c`: `handle_open()` no longer reads mutable `closed`/`references` fields before acquiring the handle mutex. `handle_lock()` validates those fields after locking, preserving the closed-handle result while avoiding unsynchronized state reads.
