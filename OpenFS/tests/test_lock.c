@@ -147,6 +147,20 @@ int main(void)
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&lower_after_try)==OPENFS_LOCK_OK);
 
+    /*
+     * The per-thread rank stack has a fixed capacity. The acquisition beyond
+     * that limit must fail without taking the native mutex or corrupting the
+     * stack, and all successful recursive acquisitions must remain releasable.
+     */
+    openfs_mutex_t stack_limit;
+    assert(openfs_mutex_init(&stack_limit)==OPENFS_LOCK_OK);
+    for(unsigned i=0U;i<32U;i++)
+        assert(openfs_mutex_lock(&stack_limit,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&stack_limit,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_DEADLOCK);
+    for(unsigned i=0U;i<32U;i++)
+        assert(openfs_mutex_unlock(&stack_limit)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&stack_limit)==OPENFS_LOCK_OK);
+
     /* Lock ordering must reject a lower-ranked lock while a higher-ranked
        lock is held, preventing the most common lock-order deadlock. */
     openfs_mutex_t journal;
