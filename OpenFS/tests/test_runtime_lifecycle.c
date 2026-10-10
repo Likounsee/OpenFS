@@ -103,6 +103,35 @@ int main(void)
     atomic_init(&shutdown_result, 0);
     if (!openfs_runtime_init(&runtime)) return 1;
 
+    /*
+     * An open handle must prevent unused-shutdown from destroying the
+     * runtime. A rejected shutdown must also restore admission so the caller
+     * can release the handle and continue using the runtime.
+     */
+    static int fake_device;
+    if (!openfs_runtime_handle_acquire(&runtime, &fake_device, 1U, 1U)) {
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+    if (openfs_runtime_shutdown_if_unused(&runtime) != 0) {
+        fprintf(stderr, "runtime shutdown succeeded while a handle was open\\n");
+        return 1;
+    }
+    if (!openfs_runtime_enter(&runtime)) {
+        fprintf(stderr, "runtime admission was not restored after rejected shutdown\\n");
+        return 1;
+    }
+    int accepting = openfs_runtime_is_accepting(&runtime);
+    openfs_runtime_leave(&runtime);
+    if (!accepting ||
+        openfs_runtime_handle_count(&runtime, &fake_device, 1U, 1U) != 1U ||
+        !openfs_runtime_handle_release(&runtime, &fake_device, 1U, 1U) ||
+        openfs_runtime_handle_count(&runtime, &fake_device, 1U, 1U) != 0U) {
+        fprintf(stderr, "runtime handle accounting failed after rejected shutdown\\n");
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+
     if (!start_thread(&worker, active_worker)) {
         openfs_runtime_destroy(&runtime);
         return 1;
