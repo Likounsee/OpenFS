@@ -6,6 +6,7 @@
 #include <limits.h>
 #include "openfs/time.h"
 #include "openfs/runtime.h"
+#include "openfs/lock.h"
 #include "openfs/orphan.h"
 #include "openfs/acl.h"
 #include "openfs/cow.h"
@@ -705,5 +706,136 @@ openfs_path_result_t openfs_path_unlink_as(openfs_block_device_t*d,const openfs_
 openfs_path_result_t openfs_path_rename_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_rename_as_unlocked(d,s,a,b,uid,gid));}
 openfs_path_result_t openfs_path_chmod_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_chmod_as_unlocked(d,s,p,mode,uid,gid));}
 openfs_path_result_t openfs_path_set_times_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t a,uint64_t m){PATH_LOCKED_CALL(s,path_set_times_as_unlocked(d,s,p,uid,gid,a,m));}
-openfs_path_result_t openfs_path_clone(openfs_block_device_t*d,const openfs_superblock_t*s,const char*source_path,const char*new_path,uint64_t*out){PATH_LOCKED_CALL(s,path_clone_unlocked(d,s,source_path,new_path,out));}
+static openfs_path_result_t map_clone_transaction_result(openfs_transaction_result_t r)
+{
+    if(r==OPENFS_TRANSACTION_OK)return OPENFS_PATH_OK;
+    if(r==OPENFS_TRANSACTION_FULL)return OPENFS_PATH_NO_SPACE;
+    if(r==OPENFS_TRANSACTION_CORRUPT)return OPENFS_PATH_CORRUPT;
+    if(r==OPENFS_TRANSACTION_INVALID_ARGUMENT)return OPENFS_PATH_INVALID_ARGUMENT;
+    return OPENFS_PATH_IO_ERROR;
+}
+
+static openfs_path_result_t path_clone_mounted_transaction(
+    openfs_block_device_t*d,const openfs_superblock_t*s,
+    const char*source_path,const char*new_path,uint64_t*out)
+{
+    openfs_runtime_t *runtime=s->runtime;
+    openfs_path_result_t result=OPENFS_PATH_IO_ERROR;
+    int runtime_entered=0,directory_locked=0,inode_locked=0;
+    int allocation_locked=0,transaction_locked=0,transaction_started=0;
+    openfs_transaction_t transaction={0};
+
+    if(!openfs_block_device_is_valid(d))return OPENFS_PATH_INVALID_ARGUMENT;
+    if(!openfs_runtime_enter(runtime))return OPENFS_PATH_IO_ERROR;
+    runtime_entered=1;
+    if(runtime->device!=d||runtime->journal==NULL)
+        goto done;
+
+    if(openfs_mutex_lock(&runtime->directory_lock,OPENFS_LOCK_RANK_DIRECTORY)!=OPENFS_LOCK_OK)
+        goto done;
+    directory_locked=1;
+    if(openfs_mutex_lock(&runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)
+        goto done;
+    inode_locked=1;
+    if(openfs_mutex_lock(&runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)
+        goto done;
+    allocation_locked=1;
+    if(openfs_mutex_lock(&runtime->transaction_lock,OPENFS_LOCK_RANK_TRANSACTION)!=OPENFS_LOCK_OK)
+        goto done;
+    transaction_locked=1;
+
+    openfs_transaction_result_t tr=openfs_transaction_begin(
+        &transaction,d,runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){
+        result=map_clone_transaction_result(tr);
+        goto done;
+    }
+    transaction_started=1;
+
+    openfs_block_device_t *td=openfs_transaction_device(&transaction);
+    if(td==NULL){
+        result=OPENFS_PATH_INVALID_ARGUMENT;
+        goto abort_transaction;
+    }
+
+    /*
+     * Use the transactional device and a runtime-free superblock copy so the
+     * unlocked clone path stages inode allocation, CoW refcounts, extent-tree
+     * blocks, and the directory entry in this one WAL transaction.
+     */
+    openfs_superblock_t transaction_superblock=*s;
+    transaction_superblock.runtime=NULL;
+    uint64_t created_inode=0U;
+    result=path_clone_unlocked(td,&transaction_superblock,
+                               source_path,new_path,&created_inode);
+    if(result!=OPENFS_PATH_OK)
+        goto abort_transaction;
+
+    tr=openfs_transaction_commit(&transaction);
+    if(tr==OPENFS_TRANSACTION_OK){
+        transaction_started=0;
+        *out=created_inode;
+        result=OPENFS_PATH_OK;
+        goto done;
+    }
+
+    result=map_clone_transaction_result(tr);
+    /*
+     * After a durable COMMIT, recovery owns publication. Do not try to undo
+     * that transaction just because one home-block write failed.
+     */
+    if(transaction.active&&!transaction.recovery_required){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
+        transaction_started=transaction.active;
+        if(ar==OPENFS_TRANSACTION_CORRUPT)
+            result=OPENFS_PATH_CORRUPT;
+        else if(ar!=OPENFS_TRANSACTION_OK)
+            result=OPENFS_PATH_IO_ERROR;
+    }else{
+        transaction_started=0;
+    }
+    goto done;
+
+abort_transaction:
+    if(transaction_started&&transaction.active){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
+        transaction_started=transaction.active;
+        if(ar==OPENFS_TRANSACTION_CORRUPT)
+            result=OPENFS_PATH_CORRUPT;
+        else if(ar!=OPENFS_TRANSACTION_OK)
+            result=OPENFS_PATH_IO_ERROR;
+    }
+
+done:
+    if(transaction_started&&transaction.active)
+        (void)openfs_transaction_abort(&transaction);
+    if(transaction_locked)(void)openfs_mutex_unlock(&runtime->transaction_lock);
+    if(allocation_locked)(void)openfs_mutex_unlock(&runtime->allocation_lock);
+    if(inode_locked)(void)openfs_mutex_unlock(&runtime->inode_lock);
+    if(directory_locked)(void)openfs_mutex_unlock(&runtime->directory_lock);
+    if(runtime_entered)openfs_runtime_leave(runtime);
+    return result;
+}
+
+openfs_path_result_t openfs_path_clone(
+    openfs_block_device_t*d,const openfs_superblock_t*s,
+    const char*source_path,const char*new_path,uint64_t*out)
+{
+    if(s==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
+
+    openfs_transaction_t *owner=openfs_transaction_from_device(d);
+    if(owner!=NULL){
+        openfs_superblock_t transaction_superblock=*s;
+        transaction_superblock.runtime=NULL;
+        openfs_path_result_t result=path_clone_unlocked(
+            d,&transaction_superblock,source_path,new_path,out);
+        if(result!=OPENFS_PATH_OK)owner->failed=1;
+        return result;
+    }
+    if(s->runtime==NULL)
+        return path_clone_unlocked(d,s,source_path,new_path,out);
+    if(source_path==NULL||new_path==NULL||out==NULL)
+        return OPENFS_PATH_INVALID_ARGUMENT;
+    return path_clone_mounted_transaction(d,s,source_path,new_path,out);
+}
 #undef PATH_LOCKED_CALL
