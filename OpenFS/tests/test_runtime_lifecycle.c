@@ -135,10 +135,20 @@ int main(void)
         }
         openfs_runtime_leave(&runtime);
     }
+    /*
+     * Shutdown must also acquire the lifecycle registry guard while this
+     * highest-ranked caller lock is held. It must not strand the runtime in
+     * destroying state or violate the caller's lock stack.
+     */
+    if (!openfs_runtime_shutdown_if_unused(&runtime)) {
+        fprintf(stderr, "runtime shutdown failed under a high-ranked lock\n");
+        (void)openfs_mutex_unlock(&external_high_rank);
+        (void)openfs_mutex_destroy(&external_high_rank);
+        return 1;
+    }
     if (openfs_mutex_unlock(&external_high_rank) != OPENFS_LOCK_OK ||
-        openfs_mutex_destroy(&external_high_rank) != OPENFS_LOCK_OK ||
-        !openfs_runtime_shutdown_if_unused(&runtime)) {
-        fprintf(stderr, "runtime leave leaked an active pin under a higher-ranked lock\n");
+        openfs_mutex_destroy(&external_high_rank) != OPENFS_LOCK_OK) {
+        fprintf(stderr, "external high-ranked lock cleanup failed\n");
         return 1;
     }
     if (!openfs_runtime_init(&runtime)) return 1;
