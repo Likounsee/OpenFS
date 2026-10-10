@@ -852,7 +852,7 @@ static openfs_path_result_t path_create_mounted_transaction(
 
     result=map_path_transaction_result(tr);
     /* A committed but incompletely published transaction belongs to recovery. */
-    if(transaction.active&&!transaction.recovery_required){
+    if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
         if(ar==OPENFS_TRANSACTION_CORRUPT)
@@ -989,7 +989,7 @@ static openfs_path_result_t path_rename_mounted_transaction(
 
     result=map_path_transaction_result(tr);
     /* Once COMMIT is durable, recovery owns publication; never roll it back. */
-    if(transaction.active&&!transaction.recovery_required){
+    if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
         if(ar==OPENFS_TRANSACTION_CORRUPT)
@@ -1225,7 +1225,7 @@ static openfs_path_result_t path_clone_mounted_transaction(
      * After a durable COMMIT, recovery owns publication. Do not try to undo
      * that transaction just because one home-block write failed.
      */
-    if(transaction.active&&!transaction.recovery_required){
+    if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
         if(ar==OPENFS_TRANSACTION_CORRUPT)

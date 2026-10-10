@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: retire active transaction IDs in commit-error wrappers
+
+- AUDIT FINDING — the transaction API intentionally keeps a pre-COMMIT failed transaction active for explicit abort. Some higher-level wrappers in allocator.c, inode_alloc.c, fsck_repair.c, and mounted path create/rename/clone returned after a failed COMMIT without always calling abort. If both the COMMIT write and its compensating slot restoration fail, the journal's active transaction ID can remain set and recovery rejects the still-active transaction.
+- FIX — preserve the transaction API contract and make each wrapper retire any still-active transaction on commit error. For recovery-required transactions, abort only retires the in-memory active ID; the on-disk WAL remains gated for recovery and is not rolled back.
+- REGRESSION — test_path.c injects a COMMIT-record write failure and a failure of the compensating restore through mounted openfs_path_rename(). It verifies that the wrapper retires active_transaction_id, recovery can run, the pre-rename namespace remains intact, and FSCK is clean.
+- VALIDATION — pending fresh GCC, Clang/ASan/UBSan, Release, and Windows Debug/Release CI.
+
+---
+
 # 2026-10-10 — P0 audit correction: failed pre-COMMIT remains explicitly abortable
 
 - **AUDIT RESULT** — a COMMIT write that fails before publication, with the original journal slot restored, intentionally leaves the transaction active so its owner can call \`openfs_transaction_abort()\`. \`OpenFS/tests/test_path.c\` asserts this state and then verifies abort restores the journal and preserves the pre-rename namespace.

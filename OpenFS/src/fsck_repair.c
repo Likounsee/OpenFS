@@ -183,9 +183,17 @@ openfs_fsck_result_t openfs_fsck_repair_cow_refcounts(
 
     if (r == OPENFS_FSCK_OK) {
         tr = openfs_transaction_commit(&tx);
-        if (tr != OPENFS_TRANSACTION_OK)
+        if (tr != OPENFS_TRANSACTION_OK) {
             r = (tx.recovery_required || tr == OPENFS_TRANSACTION_CORRUPT)
                 ? OPENFS_FSCK_CORRUPT : OPENFS_FSCK_IO_ERROR;
+            if (tx.active) {
+                openfs_transaction_result_t ar = openfs_transaction_abort(&tx);
+                if (ar == OPENFS_TRANSACTION_CORRUPT)
+                    r = OPENFS_FSCK_CORRUPT;
+                else if (ar != OPENFS_TRANSACTION_OK)
+                    r = OPENFS_FSCK_IO_ERROR;
+            }
+        }
     } else {
         openfs_transaction_result_t ar = openfs_transaction_abort(&tx);
         if (ar == OPENFS_TRANSACTION_CORRUPT)
@@ -231,7 +239,14 @@ openfs_fsck_result_t openfs_fsck_repair_bitmap_tails(openfs_block_device_t *d,co
                 if(r==OPENFS_FSCK_OK)r=write_plan(td,&inode_plan);
                 if(r==OPENFS_FSCK_OK){
                     tr=openfs_transaction_commit(&tx);
-                    if(tr!=OPENFS_TRANSACTION_OK)r=(tx.recovery_required||tr==OPENFS_TRANSACTION_CORRUPT)?OPENFS_FSCK_CORRUPT:OPENFS_FSCK_IO_ERROR;
+                    if(tr!=OPENFS_TRANSACTION_OK){
+                        r=(tx.recovery_required||tr==OPENFS_TRANSACTION_CORRUPT)?OPENFS_FSCK_CORRUPT:OPENFS_FSCK_IO_ERROR;
+                        if(tx.active){
+                            openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
+                            if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_FSCK_CORRUPT;
+                            else if(ar!=OPENFS_TRANSACTION_OK)r=OPENFS_FSCK_IO_ERROR;
+                        }
+                    }
                 }else{
                     openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
                     if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_FSCK_CORRUPT;

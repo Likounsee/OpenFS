@@ -12,7 +12,7 @@
 #include "openfs/mount.h"
 #include "openfs/journal.h"
 #include "openfs/fd.h"
-typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;uint32_t flush_calls;uint32_t fail_flush_call;uint64_t journal_start;uint64_t journal_blocks;int fail_home_after_commit;int commit_seen;}D;
+typedef struct{uint8_t*b;uint32_t bs;uint64_t bc;uint64_t fail_read_block;uint64_t fail_write_block;uint64_t arm_block;openfs_superblock_t *mutate_sb_after_write;uint64_t mutate_after_write_block;uint64_t partial_write_block;uint32_t partial_write_bytes;int mutate_after_write;int partial_write_once;int fail_read_enabled;int fail_write_enabled;int arm_on_write;int armed;int fail_next_read;int fail_write_count;int fail_next_armed_write;int fail_flush;int fail_flush_once;uint32_t flush_calls;uint32_t fail_flush_call;uint64_t journal_start;uint64_t journal_blocks;int fail_home_after_commit;int commit_seen;int fail_commit_write_and_restore;int commit_write_failed;uint64_t failed_commit_slot;}D;
 static openfs_io_result_t r(void*c,uint64_t f,uint32_t n,void*x){D*d=c;if(d->fail_next_read&&d->armed){d->fail_next_read=0;return OPENFS_IO_IO_ERROR;}if(d->fail_read_enabled&&f==d->fail_read_block)return OPENFS_IO_IO_ERROR;if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(x,d->b+(size_t)(f*d->bs),(size_t)((uint64_t)n*d->bs));return OPENFS_IO_OK;}
 static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){
     D*d=c;
@@ -21,6 +21,19 @@ static openfs_io_result_t w(void*c,uint64_t f,uint32_t n,const void*x){
     if(d->armed&&d->fail_next_armed_write){d->fail_next_armed_write=0;return OPENFS_IO_IO_ERROR;}
     if(f>=d->bc||(uint64_t)n>d->bc-f)return OPENFS_IO_OUT_OF_RANGE;
     int in_journal=d->journal_blocks!=0U&&f>=d->journal_start&&f-d->journal_start<d->journal_blocks;
+    if(d->fail_commit_write_and_restore&&in_journal&&n==1U){
+        const uint8_t *raw=(const uint8_t *)x;
+        if(d->commit_write_failed&&f==d->failed_commit_slot){
+            d->commit_write_failed=0;
+            d->fail_commit_write_and_restore=0;
+            return OPENFS_IO_IO_ERROR;
+        }
+        if(!d->commit_write_failed&&memcmp(raw,OPENFS_JOURNAL_MAGIC,5U)==0&&raw[5U]==OPENFS_JOURNAL_COMMIT){
+            d->failed_commit_slot=f;
+            d->commit_write_failed=1;
+            return OPENFS_IO_IO_ERROR;
+        }
+    }
     if(d->fail_home_after_commit&&d->commit_seen&&!in_journal){d->fail_home_after_commit=0;return OPENFS_IO_IO_ERROR;}
     if(d->partial_write_once&&f==d->partial_write_block){uint32_t bytes=d->partial_write_bytes<d->bs?d->partial_write_bytes:d->bs;memcpy(d->b+(size_t)(f*d->bs),x,bytes);d->partial_write_once=0;return OPENFS_IO_IO_ERROR;}
     memcpy(d->b+(size_t)(f*d->bs),x,(size_t)((uint64_t)n*d->bs));
@@ -368,7 +381,39 @@ static void direct_create_mkdir_post_commit_recovery(void)
     free(d.b);
 }
 
-int main(void){rename_over_open_destination_preserves_open_handle();direct_rename_and_rename_as_post_commit_recovery();direct_create_as_mkdir_as_post_commit_recovery();direct_create_mkdir_post_commit_recovery();direct_clone_post_commit_recovery();unallocated_root_inode_regression();rename_missing_same_path_regression();trailing_slash_regressions();create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=1024U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;TEST_ASSERT(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);TEST_ASSERT(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);TEST_ASSERT(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
+static openfs_journal_result_t replay_noop_for_commit_failure(void *ctx,uint64_t tx,const uint8_t *data,uint32_t len)
+{
+    (void)ctx;(void)tx;(void)data;(void)len;
+    return OPENFS_JOURNAL_OK;
+}
+static void mounted_rename_commit_restore_failure_retires_transaction(void)
+{
+    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);
+    openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};
+    uint8_t uuid[16]={0x5DU};TEST_ASSERT(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m={0};TEST_ASSERT(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+    d.journal_start=m.superblock.journal_start;d.journal_blocks=m.superblock.journal_blocks;
+    uint64_t src=0U,dst=0U;
+    TEST_ASSERT(openfs_path_create(&v,&m.superblock,"/commit-fail-src",OPENFS_INODE_MODE_REGULAR,&src)==OPENFS_PATH_OK);
+    TEST_ASSERT(openfs_path_create(&v,&m.superblock,"/commit-fail-dst",OPENFS_INODE_MODE_REGULAR,&dst)==OPENFS_PATH_OK);
+    d.fail_commit_write_and_restore=1;
+    TEST_ASSERT(openfs_path_rename(&v,&m.superblock,"/commit-fail-src","/commit-fail-dst")==OPENFS_PATH_CORRUPT);
+    TEST_ASSERT(d.fail_commit_write_and_restore==0);
+    TEST_ASSERT(m.journal.active_transaction_id==0U);
+    TEST_ASSERT(m.journal.recovery_required!=0U);
+    TEST_ASSERT(openfs_journal_recover(&m.journal,&v,&m.superblock,replay_noop_for_commit_failure,NULL)==OPENFS_JOURNAL_OK);
+    TEST_ASSERT(m.journal.recovery_required==0U);
+    TEST_ASSERT(openfs_journal_checkpoint(&m.journal,&v)==OPENFS_JOURNAL_OK);
+    uint64_t found=0U;
+    TEST_ASSERT(openfs_path_lookup(&v,&m.superblock,"/commit-fail-src",&found)==OPENFS_PATH_OK&&found==src);
+    TEST_ASSERT(openfs_path_lookup(&v,&m.superblock,"/commit-fail-dst",&found)==OPENFS_PATH_OK&&found==dst);
+    uint64_t errors=0U;
+    TEST_ASSERT(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    TEST_ASSERT(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    free(d.b);
+}
+
+int main(void){mounted_rename_commit_restore_failure_retires_transaction();rename_over_open_destination_preserves_open_handle();direct_rename_and_rename_as_post_commit_recovery();direct_create_as_mkdir_as_post_commit_recovery();direct_create_mkdir_post_commit_recovery();direct_clone_post_commit_recovery();unallocated_root_inode_regression();rename_missing_same_path_regression();trailing_slash_regressions();create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=1024U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;TEST_ASSERT(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);TEST_ASSERT(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);TEST_ASSERT(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
     openfs_inode_t home_inode;
     TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_inode)==OPENFS_INODE_OK);
     uint64_t home_block=0U;TEST_ASSERT(openfs_file_map_block_device(&v,&s,&home_inode,0U,&home_block)==OPENFS_FILE_OK);
