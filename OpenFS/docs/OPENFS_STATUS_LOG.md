@@ -1,3 +1,13 @@
+# 2026-10-10 — P0: stage WAL replay before callback publication
+
+- **AUDIT FINDING** — `OpenFS/src/journal.c`: replay's second scan used to invoke callbacks inline. A device read failure later in that scan could return `OPENFS_JOURNAL_IO_ERROR` after earlier callbacks had already applied committed DATA records.
+- **FIX** — collect committed DATA payloads in a staging buffer and complete the second journal read/CRC pass before invoking any callback. Allocation/read/CRC errors during staging now return before publication. The buffer grows with overflow checks; allocation failure also occurs before callbacks.
+- **REGRESSION** — `OpenFS/tests/test_journal.c` injects a read error after the old implementation would have called back for a committed DATA record, asserts zero callbacks on failure, then verifies a successful retry applies the payload once.
+- **API CONTRACT** — clarified that callbacks must be idempotent when a callback fails after previous callbacks succeeded or the final flush fails; these cases can still cause retry of earlier callbacks.
+- **Validation** — pending fresh GCC, Clang/sanitizers, Release, and Windows Debug/Release CI on the new commit. The previous head's CI is not evidence that this change passes.
+
+---
+
 # 2026-10-10 — P0: validate CoW refcount mutations against allocation bitmap
 
 - **FIX** — `OpenFS/src/cow.c`: direct and transaction-aware refcount increment/decrement now require the block's allocation bit to be set before changing the count. A bitmap I/O failure returns `OPENFS_COW_IO_ERROR`; a free/unowned block returns `OPENFS_COW_CORRUPT`.

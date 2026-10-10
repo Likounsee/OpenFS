@@ -13,9 +13,11 @@ typedef enum { OPENFS_JOURNAL_OK=0, OPENFS_JOURNAL_INVALID_ARGUMENT=1, OPENFS_JO
 typedef enum { OPENFS_JOURNAL_BEGIN=1, OPENFS_JOURNAL_DATA=2, OPENFS_JOURNAL_COMMIT=3 } openfs_journal_type_t;
 typedef struct { uint64_t transaction_id; uint64_t sequence; uint64_t active_transaction_id; uint64_t next_record; uint8_t commit_record_written; uint8_t recovery_required; uint8_t publication_in_progress; uint64_t journal_start; uint64_t journal_blocks; uint32_t block_size; struct openfs_runtime *runtime; } openfs_journal_t;
 /*
- * Replay callbacks must be idempotent: if a callback succeeds but replay's
- * final device flush fails, a subsequent recovery attempt can invoke it again.
- * The journal guarantees retry gating, not exactly-once callback side effects.
+ * Replay callbacks must be idempotent. If a callback fails after earlier
+ * callbacks succeeded, or the final device flush fails, recovery can invoke
+ * those callbacks again on retry. The journal guarantees retry gating, not
+ * exactly-once callback side effects. All journal reads are completed before
+ * the first callback, so a read failure does not publish a partial replay.
  */
 typedef openfs_journal_result_t (*openfs_journal_replay_fn)(void *,uint64_t,const uint8_t *,uint32_t);
 openfs_journal_result_t openfs_journal_open(openfs_journal_t *,const openfs_block_device_t *,const openfs_superblock_t *);
