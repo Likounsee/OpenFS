@@ -512,7 +512,10 @@ static void test_recovery_refuses_live_transaction_before_replay(void)
 
 typedef struct {
     openfs_runtime_t *runtime;
+    openfs_journal_t *journal;
+    openfs_block_device_t *device;
     int shutdown_result;
+    openfs_journal_result_t begin_result;
     unsigned replay_calls;
 } recovery_runtime_ctx_t;
 
@@ -523,6 +526,8 @@ static openfs_journal_result_t replay_attempt_runtime_shutdown(void *ctx, uint64
     (void)tx; (void)data; (void)len;
     state->replay_calls++;
     state->shutdown_result = openfs_runtime_shutdown_if_unused(state->runtime);
+    uint64_t tx = 0U;
+    state->begin_result = openfs_journal_begin(state->journal, state->device, &tx);
     return OPENFS_JOURNAL_OK;
 }
 
@@ -547,11 +552,16 @@ static void test_recovery_holds_runtime_admission_until_replay_finishes(void)
     openfs_runtime_t runtime;
     assert(openfs_runtime_init(&runtime));
     reopened.runtime = &runtime;
-    recovery_runtime_ctx_t ctx = { &runtime, -1, 0U };
+    recovery_runtime_ctx_t ctx = { &runtime, &reopened, &v, -1,
+                                          OPENFS_JOURNAL_OK, 0U };
     assert(openfs_journal_recover(&reopened, &v, &s,
                                   replay_attempt_runtime_shutdown, &ctx) == OPENFS_JOURNAL_OK);
     assert(ctx.replay_calls == 1U);
     assert(ctx.shutdown_result == 0);
+    /* Replay callbacks run outside the journal mutex, but the recovery gate
+     * must still reject a concurrent/new transaction until replay completes. */
+    assert(ctx.begin_result == OPENFS_JOURNAL_IO_ERROR);
+    assert(reopened.active_transaction_id == 0U);
     assert(reopened.recovery_required == 0U);
     assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
     assert(openfs_runtime_shutdown_if_unused(&runtime));
