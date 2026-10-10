@@ -104,6 +104,24 @@ static void *rw_worker(void *arg)
 
 int main(void)
 {
+    /* Reject undocumented rank values instead of letting callers bypass the
+       hierarchy with an artificially high rank; failures must leave no stack entry. */
+    openfs_mutex_t invalid_rank_mutex;
+    openfs_rwlock_t invalid_rank_rwlock;
+    assert(openfs_mutex_init(&invalid_rank_mutex)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_init(&invalid_rank_rwlock)==OPENFS_LOCK_OK);
+    openfs_lock_rank_t invalid_rank=(openfs_lock_rank_t)999;
+    assert(openfs_mutex_lock(&invalid_rank_mutex,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_mutex_trylock(&invalid_rank_mutex,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_rwlock_read_lock(&invalid_rank_rwlock,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_rwlock_try_read_lock(&invalid_rank_rwlock,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_rwlock_write_lock(&invalid_rank_rwlock,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_rwlock_try_write_lock(&invalid_rank_rwlock,invalid_rank)==OPENFS_LOCK_INVALID_ARGUMENT);
+    assert(openfs_mutex_lock(&invalid_rank_mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&invalid_rank_mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&invalid_rank_mutex)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_destroy(&invalid_rank_rwlock)==OPENFS_LOCK_OK);
+
     openfs_mutex_t mutex;
     assert(openfs_mutex_init(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
