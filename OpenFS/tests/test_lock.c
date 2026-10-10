@@ -125,6 +125,8 @@ int main(void)
     openfs_mutex_t mutex;
     assert(openfs_mutex_init(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_trylock(&mutex,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_destroy(&mutex)==OPENFS_LOCK_ERROR);
     assert(openfs_mutex_trylock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     wrong_unlock_context_t wrong_unlock={&mutex,OPENFS_LOCK_OK};
