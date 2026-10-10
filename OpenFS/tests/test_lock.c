@@ -161,6 +161,24 @@ int main(void)
         assert(openfs_mutex_unlock(&stack_limit)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&stack_limit)==OPENFS_LOCK_OK);
 
+    /*
+     * Recursive mutexes are permitted only when the mutex is the current
+     * top-ranked lock. Reacquiring one hidden beneath a different lock can
+     * bypass the intended lock hierarchy even though the native mutex is
+     * recursive, and must be rejected by both blocking and try-lock APIs.
+     */
+    openfs_mutex_t nested_low, nested_high;
+    assert(openfs_mutex_init(&nested_low)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_init(&nested_high)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&nested_low,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&nested_high,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&nested_low,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_trylock(&nested_low,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_unlock(&nested_high)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&nested_low)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&nested_high)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&nested_low)==OPENFS_LOCK_OK);
+
     /* Lock ordering must reject a lower-ranked lock while a higher-ranked
        lock is held, preventing the most common lock-order deadlock. */
     openfs_mutex_t journal;
