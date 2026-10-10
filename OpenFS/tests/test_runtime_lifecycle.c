@@ -245,6 +245,15 @@ int main(void)
         return 1;
     }
 
+    /* Exercise shutdown/admission/lock-holder interleavings repeatedly, not
+     * just once: each iteration has a fresh runtime and two real threads. */
+    for (unsigned shutdown_cycle = 0U; shutdown_cycle < 100U; ++shutdown_cycle) {
+        atomic_store_explicit(&worker_entered, 0, memory_order_relaxed);
+        atomic_store_explicit(&release_worker, 0, memory_order_relaxed);
+        atomic_store_explicit(&shutdown_done, 0, memory_order_relaxed);
+        atomic_store_explicit(&shutdown_result, 0, memory_order_relaxed);
+        admission_closed = 0;
+        concurrent_shutdown_rejected = 0;
     if (!start_thread(&worker, active_worker)) {
         openfs_runtime_destroy(&runtime);
         return 1;
@@ -324,6 +333,12 @@ int main(void)
         fprintf(stderr, "runtime admitted a stale reference after shutdown\\n");
         openfs_runtime_leave(&runtime);
         return 1;
+    }
+
+        if (shutdown_cycle + 1U < 100U && !openfs_runtime_init(&runtime)) {
+            fprintf(stderr, "runtime reinitialization failed before shutdown cycle %u\\n", shutdown_cycle + 1U);
+            return 1;
+        }
     }
 
     /*
