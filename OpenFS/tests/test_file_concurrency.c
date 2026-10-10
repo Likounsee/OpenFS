@@ -17,6 +17,7 @@
 #include "openfs/path.h"
 #include "openfs/file.h"
 #include "openfs/fsck.h"
+#include "openfs/allocator.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <process.h>
@@ -105,6 +106,13 @@ typedef struct {
 typedef struct {
     openfs_block_device_t *device;
     openfs_superblock_t *superblock;
+    uint64_t block;
+    openfs_alloc_result_t result;
+} gated_alloc_context_t;
+
+typedef struct {
+    openfs_block_device_t *device;
+    openfs_superblock_t *superblock;
     const char *old_path;
     const char *new_path;
     openfs_path_result_t result;
@@ -146,6 +154,21 @@ static void *gated_file_writer(void *arg)
 #endif
 }
 
+
+#if defined(_WIN32)
+static unsigned __stdcall gated_block_allocator(void *arg)
+#else
+static void *gated_block_allocator(void *arg)
+#endif
+{
+    gated_alloc_context_t *ctx=(gated_alloc_context_t *)arg;
+    ctx->result=openfs_alloc_block(ctx->device,ctx->superblock,&ctx->block);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
 
 #if defined(_WIN32)
 static unsigned __stdcall gated_path_renamer(void *arg)
@@ -495,6 +518,75 @@ int main(void)
         assert(openfs_path_lookup(&device,&mount.superblock,old_path,&observed_inode)==OPENFS_PATH_NOT_FOUND);
         assert(openfs_path_lookup(&device,&mount.superblock,new_path,&observed_inode)==OPENFS_PATH_OK);
         assert(observed_inode==rename_inode);
+        errors=UINT64_MAX;
+        assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
+        assert(errors==0U);
+    }
+
+    /* Deterministically hold a block allocation inside device I/O while
+     * unmount closes runtime admission. The allocation pin must keep the
+     * mounted runtime alive until the allocator has finished. Free the
+     * allocated block after remount so every cycle remains FSCK-clean. */
+    for(unsigned alloc_cycle=0U;alloc_cycle<32U;alloc_cycle++){
+        gated_alloc_context_t alloc_ctx={&device,&mount.superblock,0U,OPENFS_ALLOC_IO_ERROR};
+        atomic_store_explicit(&disk.gate_entered,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_release,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_enabled,1,memory_order_release);
+#if defined(_WIN32)
+        uintptr_t alloc_thread_value=_beginthreadex(NULL,0U,gated_block_allocator,&alloc_ctx,0U,NULL);
+        assert(alloc_thread_value!=0U);
+        HANDLE alloc_thread=(HANDLE)alloc_thread_value;
+#else
+        pthread_t alloc_thread;
+        assert(pthread_create(&alloc_thread,NULL,gated_block_allocator,&alloc_ctx)==0);
+#endif
+        for(unsigned spin=0U;spin<10000000U &&
+            atomic_load_explicit(&disk.gate_entered,memory_order_acquire)==0;spin++){
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(atomic_load_explicit(&disk.gate_entered,memory_order_acquire)!=0);
+        unmount_context_t alloc_unmount={&mount,0,OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+        uintptr_t alloc_unmount_value=_beginthreadex(NULL,0U,unmount_worker,&alloc_unmount,0U,NULL);
+        assert(alloc_unmount_value!=0U);
+        HANDLE alloc_unmount_thread=(HANDLE)alloc_unmount_value;
+#else
+        pthread_t alloc_unmount_thread;
+        assert(pthread_create(&alloc_unmount_thread,NULL,unmount_worker,&alloc_unmount)==0);
+#endif
+        int alloc_admission_accepted=1;
+        for(unsigned spin=0U;spin<10000000U && alloc_admission_accepted!=0;spin++){
+            alloc_admission_accepted=openfs_runtime_enter(&mount.runtime);
+            if(alloc_admission_accepted!=0)openfs_runtime_leave(&mount.runtime);
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(alloc_admission_accepted==0);
+        assert(atomic_load_explicit(&alloc_unmount.done,memory_order_acquire)==0);
+        atomic_store_explicit(&disk.gate_release,1,memory_order_release);
+#if defined(_WIN32)
+        assert(WaitForSingleObject(alloc_thread,60000U)==WAIT_OBJECT_0);
+        assert(WaitForSingleObject(alloc_unmount_thread,60000U)==WAIT_OBJECT_0);
+        CloseHandle(alloc_thread);
+        CloseHandle(alloc_unmount_thread);
+#else
+        assert(pthread_join(alloc_thread,NULL)==0);
+        assert(pthread_join(alloc_unmount_thread,NULL)==0);
+#endif
+        atomic_store_explicit(&disk.gate_enabled,0,memory_order_release);
+        assert(alloc_ctx.result==OPENFS_ALLOC_OK);
+        assert(alloc_ctx.block!=0U);
+        assert(alloc_unmount.result==OPENFS_MOUNT_OK);
+        assert(atomic_load_explicit(&alloc_unmount.done,memory_order_acquire)!=0);
+        assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
+        assert(openfs_free_block(&device,&mount.superblock,alloc_ctx.block)==OPENFS_ALLOC_OK);
         errors=UINT64_MAX;
         assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
         assert(errors==0U);
