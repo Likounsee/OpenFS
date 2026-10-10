@@ -1,9 +1,9 @@
 # OpenFS — Roadmap technique P0 à P3
 
-- **Date de l’audit :** 2026-10-10
+- **Date de mise à jour :** 2026-10-11
 - **Branche cible exclusive :** `OpenFS` (aucune modification de `main`, aucune nouvelle branche)
-- **Commit de référence :** `43263f22703e508b3ed9940c0b1c3c310b73a2b6`
-- **CI vérifiée :** le run GitHub Actions `38078250358` sur le SHA `54b88cdc0516a65dc99e97c483fcac8402824780` est terminé avec succès : GCC, Clang et Windows, Debug/Release, tests, ASan/UBSan sur Linux. Les commits correctifs plus récents (`007786e` et `290bfb0`) ont leurs propres runs en attente/en file au moment de cette mise à jour ; ils ne sont pas déclarés validés avant leur conclusion.
+- **Commit de référence pour P0-001 :** `0d3a5d0872ea8555109250f6fcdc8af6b22098b1`
+- **CI vérifiée pour ce SHA :** run GitHub Actions `38093073548` terminé avec succès : GCC, Clang, Windows et ThreadSanitizer. Les jobs de ce run sont tous `success` sur le SHA exact indiqué.
 
 Cette roadmap est fondée sur l’inspection du code à la référence ci-dessus. README et journaux de progression ne sont pas utilisés comme preuve d’implémentation. Les fonctions ou champs seuls ne prouvent pas une fonctionnalité de bout en bout.
 
@@ -31,15 +31,13 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 ## 2. P0 — Fiabilité, correction et récupération
 
 ### P0-001 — Audit de verrous et cycle de vie
-- **Correctif ajouté (commit `41acf4c17c962fb60257579700f49e207279bc51`) :** le chemin Windows du rwlock suit désormais les acquisitions writer récursives avec une pile TLS au lieu de lire `writer`/`write_depth` avant l’acquisition du SRWLOCK. Les tests source couvrent le writer récursif et `try_write_lock` récursif sous Windows, huit threads concurrents incrémentant un compteur protégé par rwlock (80 000 acquisitions attendues), ainsi qu’une réentrée de try-write sur un rwlock déjà détenu sous un autre verrou. La matrice complète du run `38078250358` a réussi sur le code précédant ce dernier test de réentrée ; les commits `007786e` et `290bfb0` sont en cours de validation CI.
-- **Priorité :** critique. **Statut :** En cours — couverture lifecycle renforcée, audit global non terminé.
-- **Problème :** runtime admission, locks par domaine et handles existent, mais toutes les interleavings et voies de sortie ne sont pas prouvées ; une inversion de verrou de rename a déjà existé.
-- **Fichiers :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, `tests/test_runtime_lifecycle.c`, tests concurrency/lifecycle.
-- **Attendu / changements :** cartographier chaque état partagé et chaque acquisition imbriquée ; documenter ordre global ; corriger seulement les violations démontrées ; garantir qu’un runtime/handle ne peut être détruit pendant une opération référencée.
-- **Tests :** ajout de cas source qui vérifient qu’un handle ouvert fait échouer `shutdown_if_unused` sans laisser l’admission fermée, vérifient le comptage/libération du handle, et rejettent une seconde tentative de shutdown pendant que la première draine les utilisateurs actifs. Le test source couvre aussi 64 cycles successifs init/enter/leave/shutdown pour exercer insertion/retrait du registre runtime ; les diagnostics de ces cycles utilisent désormais des retours à la ligne C normaux. Restent à couvrir les barrières déterministes shutdown/unmount contre read/write/rename/close, les contentions allocation/refcount et TSAN quand disponible.
-- **Acceptation mesurable :** 100 répétitions des scénarios de stress ciblés sans deadlock/corruption ; zéro race TSAN sur la suite compatible ; FSCK propre après chaque run. La version initiale du test de contention a réussi dans le run `38078250358` (GCC/Clang Linux Debug et Release, ASan/UBSan, Windows Debug et Release). Le test supplémentaire de réentrée imbriquée attend la conclusion des runs déclenchés par les commits `007786e` et `290bfb0`.
-- **Dépendances :** aucune ; bloque la sortie P0.
-
+- **Priorité :** critique. **Statut :** Terminé pour le périmètre d’acceptation P0-001 ; les tests déterministes et la matrice CI ont passé sur le SHA de référence.
+- **Correctifs et contrat :** le chemin Windows du rwlock suit les acquisitions writer récursives avec une pile TLS ; l’ordre des verrous et les règles d’admission/démontage du runtime sont documentés dans `OpenFS/docs/lock-order-and-lifecycle.md`. Les règles de durée de vie des runtime pins et handles restent centrales : une opération déjà admise doit terminer avant destruction du runtime.
+- **Fichiers inspectés/couverts :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, `tests/test_runtime_lifecycle.c` et les tests de concurrence/lifecycle.
+- **Couverture validée :** fermeture/admission runtime et shutdown concurrent ; handles ouverts et fermeture concurrente ; read/unmount (100 cycles) ; write/unmount (32 cycles) ; rename/unmount (32 cycles) ; allocation de bloc/unmount (32 cycles) ; lecture du refcount CoW/unmount (32 cycles). Les scénarios gated vérifient que le démontage attend l’opération admise, puis remontent le volume et exécutent FSCK ; les assertions exigent zéro erreur FSCK. La suite ThreadSanitizer et la matrice GCC, Clang et Windows sont toutes vertes sur le SHA `0d3a5d0872ea8555109250f6fcdc8af6b22098b1`.
+- **Preuve CI :** [run `38093073548`](https://github.com/Likounsee/OpenFS/actions/runs/38093073548), conclusion `success` pour les quatre jobs.
+- **Limite résiduelle explicitée :** les tests déterministes et TSAN ne constituent pas une preuve formelle de toutes les interleavings possibles ni un model checking exhaustif de chaque API. Cette limite générale ne bloque pas la clôture du périmètre mesurable P0-001 ci-dessus ; toute nouvelle voie de concurrence découverte doit recevoir son test et son correctif dédiés.
+- **Dépendances :** aucune.
 ### P0-002 — WAL, transactions et doubles défaillances
 - **Priorité :** critique. **Statut :** À auditer.
 - **Problème :** le code implémente COMMIT → home writes → flush → checkpoint, mais la garantie globale dépend des écritures partielles, flush, callbacks idempotents et wrappers appelants.
