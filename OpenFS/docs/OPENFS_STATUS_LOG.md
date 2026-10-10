@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: validate CoW refcount mutations against allocation bitmap
+
+- **FIX** — `OpenFS/src/cow.c`: direct and transaction-aware refcount increment/decrement now require the block's allocation bit to be set before changing the count. A bitmap I/O failure returns `OPENFS_COW_IO_ERROR`; a free/unowned block returns `OPENFS_COW_CORRUPT`.
+- **TEST** — `OpenFS/tests/test_allocator.c` and `OpenFS/tests/test_allocator_transaction.c`: both direct and transactional APIs reject increment/decrement against a free bitmap bit and preserve the stale nonzero refcount for recovery/diagnosis.
+- **Validation** — [CI run 38057081587](https://github.com/Likounsee/OpenFS/actions/runs/38057081587) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for commit `4144f5e`.
+- **P0 scope note** — this closes one allocation/refcount consistency gap; it does not resolve the remaining post-COMMIT ownership, namespace recovery, concurrency-stress, or broader FSCK/integrity roadmap items.
+
+---
+
 # 2026-10-10 — P0: replay retry idempotency regression
 
 - **TEST** — `OpenFS/tests/test_journal_failure_paths.c`: the replay callback now models an idempotent effect by overwriting a fixed payload. When the final replay flush fails, recovery remains gated; on retry, the callback runs again and the resulting effect remains exactly the committed payload rather than accumulating a duplicate effect.
