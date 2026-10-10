@@ -2,7 +2,6 @@
 #include "openfs/bitmap.h"
 #include "openfs/crc32c.h"
 #include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
 #include "openfs/time.h"
@@ -402,27 +401,29 @@ static openfs_path_result_t path_rename_handle_probe(
     *destination_generation=0U;
     *needs_registry_lock=0;
     if(runtime==NULL)return OPENFS_PATH_OK;
+    openfs_superblock_t probe_superblock=*s;
+    probe_superblock.runtime=NULL;
 
     char parent_path[OPENFS_PATH_MAX],name[OPENFS_DIR_NAME_MAX+1U];
     openfs_path_result_t result=split_last(new_path,parent_path,sizeof(parent_path),
                                            name,sizeof(name));
     if(result!=OPENFS_PATH_OK)return result;
     uint64_t parent_ino=0U;
-    result=path_lookup_follow_unlocked(d,s,parent_path,&parent_ino);
+    result=path_lookup_follow_unlocked(d,&probe_superblock,parent_path,&parent_ino);
     if(result!=OPENFS_PATH_OK)return result;
     openfs_inode_t parent_inode;
-    result=read_inode(d,s,parent_ino,&parent_inode);
+    result=read_inode(d,&probe_superblock,parent_ino,&parent_inode);
     if(result!=OPENFS_PATH_OK)return result;
     if((parent_inode.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)
         return OPENFS_PATH_NOT_DIRECTORY;
 
     openfs_dir_entry_t entry;
-    openfs_dir_result_t dr=openfs_dir_lookup(d,s,&parent_inode,name,&entry);
+    openfs_dir_result_t dr=openfs_dir_lookup(d,&probe_superblock,&parent_inode,name,&entry);
     if(dr==OPENFS_DIR_NOT_FOUND)return OPENFS_PATH_OK;
     if(dr!=OPENFS_DIR_OK)return map_dir_result(dr);
 
     openfs_inode_t destination;
-    result=read_inode(d,s,entry.inode_number,&destination);
+    result=read_inode(d,&probe_superblock,entry.inode_number,&destination);
     if(result!=OPENFS_PATH_OK)return result;
     if(destination.generation!=entry.generation)return OPENFS_PATH_CORRUPT;
     if(destination.link_count!=1U)return OPENFS_PATH_OK;
@@ -923,12 +924,11 @@ static openfs_path_result_t path_rename_mounted_transaction(
     int needs_registry_lock=0;
     result=path_rename_handle_probe(d,s,new_path,runtime,&destination_ino,
                                     &destination_generation,&needs_registry_lock);
-    if(result!=OPENFS_PATH_OK){fprintf(stderr,"rename-debug probe=%d\n",(int)result);goto done;}
+    if(result!=OPENFS_PATH_OK)goto done;
     if(needs_registry_lock){
         if(openfs_mutex_lock(&runtime->handle_registry_lock,
                              OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){
             result=OPENFS_PATH_IO_ERROR;
-            fprintf(stderr,"rename-debug registry-lock failed\n");
             goto done;
         }
         registry_locked=1;
@@ -936,10 +936,8 @@ static openfs_path_result_t path_rename_mounted_transaction(
             runtime,d,destination_ino,destination_generation);
         if(destination_open_handles==UINT64_MAX){
             result=OPENFS_PATH_IO_ERROR;
-            fprintf(stderr,"rename-debug registry-count failed\n");
             goto done;
         }
-        fprintf(stderr,"rename-debug registry-count=%llu\n",(unsigned long long)destination_open_handles);
     }
 
     if(openfs_mutex_lock(&runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)
@@ -953,7 +951,6 @@ static openfs_path_result_t path_rename_mounted_transaction(
         openfs_transaction_begin(&transaction,d,runtime->journal);
     if(tr!=OPENFS_TRANSACTION_OK){
         result=map_path_transaction_result(tr);
-        fprintf(stderr,"rename-debug begin tx=%d result=%d\n",(int)tr,(int)result);
         goto done;
     }
     transaction_started=1;
@@ -980,7 +977,6 @@ static openfs_path_result_t path_rename_mounted_transaction(
                                     old_path,new_path,destination_open_handles);
     }
     if(result!=OPENFS_PATH_OK){
-        fprintf(stderr,"rename-debug core result=%d\n",(int)result);
         goto abort_transaction;
     }
 
@@ -992,8 +988,6 @@ static openfs_path_result_t path_rename_mounted_transaction(
     }
 
     result=map_path_transaction_result(tr);
-    fprintf(stderr,"rename-debug commit tx=%d result=%d recovery=%u active=%d\n",
-            (int)tr,(int)result,(unsigned)transaction.recovery_required,transaction.active);
     /* Once COMMIT is durable, recovery owns publication; never roll it back. */
     if(transaction.active&&!transaction.recovery_required){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
