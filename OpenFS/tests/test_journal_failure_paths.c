@@ -568,6 +568,39 @@ static void test_partial_commit_write_restores_slot_and_can_retry(void)
     free(d.data);
 }
 
+static void test_partial_commit_rollback_flush_failure_poison_journal(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x6AU};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "before-commit", 13U) ==
+           OPENFS_JOURNAL_OK);
+
+    /* The COMMIT write is partial; restoring its slot cannot be confirmed durable. */
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 17U;
+    d.fail_next_flush = 1;
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(j.active_transaction_id == tx);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_write(&j, &v, tx, "blocked", 7U) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+
+    free(d.data);
+}
+
 static void test_commit_flush_failure_requires_recovery(void)
 {
     disk_t d = {0};
@@ -1047,6 +1080,7 @@ int main(void)
     test_failed_transaction_can_be_retired_before_recovery();
     test_recovery_refuses_live_transaction_before_replay();
     test_recovery_holds_runtime_admission_until_replay_finishes();
+    test_partial_commit_rollback_flush_failure_poison_journal();
     test_partial_commit_write_restores_slot_and_can_retry();
     test_commit_flush_failure_requires_recovery();
     test_reopen_uncommitted_wal_requires_replay();
