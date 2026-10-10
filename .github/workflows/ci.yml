@@ -89,5 +89,5 @@ jobs:
         run: cmake -S OpenFS -B build-tsan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
       - name: Build ThreadSanitizer tests
         run: cmake --build build-tsan --parallel
-      - name: Test lock and lifecycle concurrency under ThreadSanitizer
-        run: ctest --test-dir build-tsan --output-on-failure --timeout 180 -R "openfs-(runtime-lifecycle|lock|file-lock|link-concurrency|namespace-concurrency|file-concurrency)$"
+      - name: Test runtime, filesystem entry points, and concurrency under ThreadSanitizer
+        run: ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 180 -R "openfs-(runtime-lifecycle|lock|file-lock|fd|path|dir|mount|link-concurrency|namespace-concurrency|file-concurrency)$"
