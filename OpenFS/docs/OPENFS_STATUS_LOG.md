@@ -4,7 +4,7 @@
 - **FIX** — collect committed DATA payloads in a staging buffer and complete the second journal read/CRC pass before invoking any callback. Allocation/read/CRC errors during staging now return before publication. The buffer grows with overflow checks; allocation failure also occurs before callbacks.
 - **REGRESSION** — `OpenFS/tests/test_journal.c` injects a read error after the old implementation would have called back for a committed DATA record, asserts zero callbacks on failure, then verifies a successful retry applies the payload once.
 - **API CONTRACT** — clarified that callbacks must be idempotent when a callback fails after previous callbacks succeeded or the final flush fails; these cases can still cause retry of earlier callbacks.
-- **Validation** — pending fresh GCC, Clang/sanitizers, Release, and Windows Debug/Release CI on the new commit. The previous head's CI is not evidence that this change passes.
+- **Validation** — first CI attempt (run 38058277609) caught a test-fixture compile error: the injected read failure used the nonexistent `OPENFS_IO_ERROR` enum instead of `OPENFS_IO_IO_ERROR`. Corrected the test symbol without weakening its assertions; rerun the full GCC, Clang/sanitizers, Release, and Windows Debug/Release matrix before declaring this change green.
 
 ---
 
