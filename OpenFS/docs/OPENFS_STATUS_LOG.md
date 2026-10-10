@@ -3,7 +3,7 @@
 - **AUDIT FINDING** — `openfs_journal_recover()` set `recovery_required` before `openfs_journal_replay()` validated the journal range. An out-of-range device could make replay return `OPENFS_JOURNAL_INVALID_ARGUMENT` while leaving the journal object gated.
 - **FIX** — validate the complete device/superblock journal range up front, before modifying recovery state.
 - **REGRESSION** — the journal test shrinks the advertised device length so its journal range no longer fits, then checks that recovery rejects it without callbacks and without setting the gate; after restoring the device, a transaction must still succeed.
-- **Validation** — pending fresh GCC, Clang/sanitizer, Release and Windows Debug/Release CI for this commit.
+- **Validation** — the first CI attempt (run 38059976077) exposed a test-fixture error: it changed the mock backing length instead of the block device's advertised `block_count`, so the range remained valid. The fixture now mutates the exact field checked by `range()`; the invalid-range assertion is unchanged. Fresh full CI is required.
 
 ---
 # 2026-10-10 — P0: reject undersized journal blocks before CRC access

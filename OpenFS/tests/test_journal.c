@@ -30,7 +30,7 @@ static void write_raw(uint8_t *b,uint32_t type,uint64_t tx,uint64_t seq,uint32_t
     b[28U]=(uint8_t)crc;b[29U]=(uint8_t)(crc>>8U);b[30U]=(uint8_t)(crc>>16U);b[31U]=(uint8_t)(crc>>24U);
 }
 static void journal_corruption_matrix(void){
-    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={21U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
+    D d={0};d.bs=4096U;v.block_count=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={21U};assert(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
     uint8_t raw[4096U];
     write_raw(raw,OPENFS_JOURNAL_BEGIN,1U,1U,4096U,1);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
     memset(d.b+(size_t)(s.journal_start*d.bs),0,d.bs);write_raw(raw,OPENFS_JOURNAL_BEGIN,1U,1U,0U,0);assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
@@ -115,7 +115,7 @@ static void recover_invalid_range_does_not_stick_gate(void){
     openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
     openfs_journal_t j;assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_OK);
     uint32_t hits=0U;
-    d.bc=s.journal_start+s.journal_blocks-1U;
+    v.block_count=s.journal_start+s.journal_blocks-1U;
     assert(openfs_journal_recover(&j,&v,&s,cb,&hits)==OPENFS_JOURNAL_INVALID_ARGUMENT);
     assert(j.recovery_required==0U&&hits==0U);
     d.bc=256U;
