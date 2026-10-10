@@ -1,10 +1,19 @@
+# 2026-10-10 — P0: reject undersized journal blocks before CRC access
+
+- **AUDIT FINDING** — \`range()\` accepted any nonzero device block size. A block smaller than \`OPENFS_JOURNAL_HEADER_SIZE\` that begins with the journal magic could reach \`crc_valid()\`, which reads and writes the checksum at offset 28 beyond the allocated block.
+- **FIX** — \`OpenFS/src/journal.c\`: \`range()\` now rejects block sizes smaller than the 32-byte journal header, and \`crc_valid()\` independently rejects null or undersized buffers before touching the CRC field.
+- **REGRESSION** — \`OpenFS/tests/test_journal.c\` supplies a 16-byte block device with the journal magic at the journal start and asserts \`OPENFS_JOURNAL_INVALID_ARGUMENT\`, zero callbacks, and zero device reads.
+- **Validation** — pending the fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+
+---
+
 # 2026-10-10 — P0: validate and stage WAL replay with bounded memory
 
 - **AUDIT FINDING** — replay's second scan could return a different, CRC-valid DATA payload than the one seen during the transaction-structure validation scan.
 - **FIX** — \`OpenFS/src/journal.c\`: the first scan stores a whole-block CRC32C fingerprint for every journal slot. The second scan compares each returned block with its first-pass fingerprint, validates the record again, and stages committed DATA payloads. Read errors or changed block contents return before any callback runs.
 - **MEMORY** — retain bounded per-slot fingerprints and stage only committed DATA payloads, rather than allocating a buffer the size of the entire journal (which can be up to 256 MiB). Size and growth overflow are checked; allocation failure occurs before callbacks.
 - **REGRESSION** — \`OpenFS/tests/test_journal.c\` makes the mock device change a DATA payload during the second read and recompute that record's CRC. Replay must reject the changed block with no callback; a stable retry then applies the original payload once. The late-read failure test still injects an error after the DATA block would previously have been applied, and verifies zero callbacks.
-- **Validation** — pending the fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+- **Validation** — [CI run 38059241901](https://github.com/Likounsee/OpenFS/actions/runs/38059241901) passed GCC Debug/build/tests, Clang Debug/build/tests, both ASan/UBSan jobs, GCC/Clang Release build/tests, and Windows Debug/Release build/tests for commit `06b3afd`.
 
 ---
 
