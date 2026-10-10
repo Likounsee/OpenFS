@@ -23,10 +23,10 @@
 #include <sched.h>
 #endif
 
-typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;uint64_t fail_write_block;unsigned fail_write_count;uint64_t applied_error_block;unsigned applied_error_count;const uint8_t *applied_error_data;} disk_t;
+typedef struct {uint8_t *bytes;uint32_t block_size;uint64_t block_count;unsigned flushes;unsigned fail_flush_at;uint64_t partial_block;size_t partial_bytes;size_t partial_next_bytes;int partial_enabled;int partial_once;int partial_change;uint64_t fail_write_block;unsigned fail_write_count;uint64_t applied_error_block;unsigned applied_error_count;const uint8_t *applied_error_data;} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(b,d->bytes+(size_t)(f*d->block_size),(size_t)((uint64_t)n*d->block_size));return OPENFS_IO_OK;}
 static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*b){disk_t*d=c;if(n==0U||f>=d->block_count||(uint64_t)n>d->block_count-f)return OPENFS_IO_OUT_OF_RANGE;size_t bytes=(size_t)((uint64_t)n*d->block_size);if(d->partial_enabled&&f==d->partial_block){size_t copy=d->partial_bytes!=0U&&d->partial_bytes<bytes?d->partial_bytes:bytes;memcpy(d->bytes+(size_t)(f*d->block_size),b,copy);if(d->partial_once){if(d->partial_change)d->partial_bytes=d->partial_next_bytes;else d->partial_enabled=0;}return OPENFS_IO_IO_ERROR;}if(d->fail_write_count!=0U&&f==d->fail_write_block){d->fail_write_count--;return OPENFS_IO_IO_ERROR;}memcpy(d->bytes+(size_t)(f*d->block_size),b,bytes);if(d->applied_error_count!=0U&&f==d->applied_error_block&&(d->applied_error_data==NULL||memcmp(b,d->applied_error_data,bytes)==0)){d->applied_error_count--;return OPENFS_IO_IO_ERROR;}return OPENFS_IO_OK;}
-static openfs_io_result_t fl(void*c){((disk_t*)c)->flushes++;return OPENFS_IO_OK;} static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){unsigned *hits=c;(void)tx;(void)p;if(n>=24U&&memcmp(p,"OJBD1",5U)==0)(*hits)++;return OPENFS_JOURNAL_OK;}
+static openfs_io_result_t fl(void*c){disk_t*d=(disk_t*)c;d->flushes++;return d->fail_flush_at!=0U&&d->flushes==d->fail_flush_at?OPENFS_IO_IO_ERROR:OPENFS_IO_OK;} static openfs_journal_result_t replay_probe(void*c,uint64_t tx,const uint8_t*p,uint32_t n){unsigned *hits=c;(void)tx;(void)p;if(n>=24U&&memcmp(p,"OJBD1",5U)==0)(*hits)++;return OPENFS_JOURNAL_OK;}
 
 typedef struct {
     openfs_mount_t *mount;
@@ -634,6 +634,38 @@ static void replay_retry_after_applied_write_reports_error(void)
     openfs_mount_t failed={0};
     assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
     assert(d.applied_error_count==0U);
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
+static void replay_retry_after_replay_flush_failure(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4FU,0x53U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;assert(openfs_read_superblock(&v,&sb)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;assert(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_OK);
+    uint64_t target=sb.data_start+23U,tx=0U;
+    uint8_t payload[4096U];for(size_t i=0U;i<sizeof(payload);i++)payload[i]=(uint8_t)(i*29U+7U);
+    assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&j,&v,tx,target,payload)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+    memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);
+
+    /* Mount validates the WAL first, then replays it. Fail the replay flush,
+       after the home-block callbacks have run, to exercise recovery retry. */
+    d.fail_flush_at=d.flushes+2U;
+    openfs_mount_t failed={0};
+    assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
+    assert(d.flushes==d.fail_flush_at);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+
     openfs_mount_t recovered={0};
     assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
     assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
