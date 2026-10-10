@@ -105,6 +105,17 @@ int main(void)
     if (!openfs_runtime_init(&runtime)) return 1;
 
     /*
+     * Reinitializing a live runtime at the same address must be rejected
+     * without zeroing its mutexes or removing its registry entry.
+     */
+    if (openfs_runtime_init(&runtime) != 0 ||
+        !openfs_runtime_enter(&runtime)) {
+        fprintf(stderr, "duplicate runtime initialization corrupted live state\\n");
+        return 1;
+    }
+    openfs_runtime_leave(&runtime);
+
+    /*
      * A thread must not shut down a runtime while it owns an active pin:
      * doing so would wait on itself. Rejection must preserve admission and
      * allow the pin to be released normally.
