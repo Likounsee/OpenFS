@@ -302,6 +302,17 @@ int main(void)
         return 1;
     }
     /*
+     * A stale pointer to the same storage must not admit a new operation
+     * after shutdown removed the runtime from the registry and destroyed its
+     * locks. Admission checks registry membership before touching those locks.
+     */
+    if (openfs_runtime_enter(&runtime)) {
+        fprintf(stderr, "runtime admitted a stale reference after shutdown\\n");
+        openfs_runtime_leave(&runtime);
+        return 1;
+    }
+
+    /*
      * Repeated init/enter/shutdown cycles exercise registry insertion/removal
      * and ensure a stale registry entry cannot make a later runtime appear
      * initialized. Keep this bounded for normal CI runs.
