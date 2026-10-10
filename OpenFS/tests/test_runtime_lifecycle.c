@@ -105,6 +105,21 @@ int main(void)
     if (!openfs_runtime_init(&runtime)) return 1;
 
     /*
+     * A thread must not shut down a runtime while it owns an active pin:
+     * doing so would wait on itself. Rejection must preserve admission and
+     * allow the pin to be released normally.
+     */
+    if (!openfs_runtime_enter(&runtime)) return 1;
+    if (openfs_runtime_shutdown_if_unused(&runtime) != 0 ||
+        !openfs_runtime_is_accepting(&runtime)) {
+        fprintf(stderr, "runtime shutdown was not safely rejected for its active caller\n");
+        openfs_runtime_leave(&runtime);
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+    openfs_runtime_leave(&runtime);
+
+    /*
      * Leaving the final runtime pin while holding an unrelated high-ranked
      * lock must still decrement active_users. Otherwise shutdown can wait
      * forever after the TLS pin has already been cleared.
