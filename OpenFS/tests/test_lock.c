@@ -16,6 +16,11 @@ typedef struct {
 } worker_context_t;
 
 typedef struct {
+    openfs_mutex_t *mutex;
+    openfs_lock_result_t result;
+} wrong_unlock_context_t;
+
+typedef struct {
     openfs_rwlock_t *lock;
     uint64_t *counter;
 } rw_worker_context_t;
@@ -32,6 +37,21 @@ static void *worker(void *arg)
         (*ctx->counter)++;
         assert(openfs_mutex_unlock(ctx->mutex)==OPENFS_LOCK_OK);
     }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall wrong_unlock_worker(void *arg)
+#else
+static void *wrong_unlock_worker(void *arg)
+#endif
+{
+    wrong_unlock_context_t *ctx=(wrong_unlock_context_t *)arg;
+    ctx->result=openfs_mutex_unlock(ctx->mutex);
 #if defined(_WIN32)
     return 0U;
 #else
@@ -65,6 +85,18 @@ int main(void)
     assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&mutex)==OPENFS_LOCK_ERROR);
     assert(openfs_mutex_trylock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    wrong_unlock_context_t wrong_unlock={&mutex,OPENFS_LOCK_OK};
+#if defined(_WIN32)
+    uintptr_t wrong_handle=_beginthreadex(NULL,0U,wrong_unlock_worker,&wrong_unlock,0U,NULL);
+    assert(wrong_handle!=0U);
+    assert(WaitForSingleObject((HANDLE)wrong_handle,60000U)==WAIT_OBJECT_0);
+    CloseHandle((HANDLE)wrong_handle);
+#else
+    pthread_t wrong_thread;
+    assert(pthread_create(&wrong_thread,NULL,wrong_unlock_worker,&wrong_unlock)==0);
+    assert(pthread_join(wrong_thread,NULL)==0);
+#endif
+    assert(wrong_unlock.result==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
 
