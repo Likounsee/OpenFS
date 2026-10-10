@@ -85,6 +85,14 @@ typedef struct {
     openfs_mount_result_t result;
 } unmount_context_t;
 
+typedef struct {
+    openfs_block_device_t *device;
+    openfs_superblock_t *superblock;
+    openfs_inode_t inode;
+    openfs_file_result_t result;
+} gated_write_context_t;
+
+
 #if defined(_WIN32)
 static unsigned __stdcall gated_file_reader(void *arg)
 #else
@@ -95,6 +103,24 @@ static void *gated_file_reader(void *arg)
     uint8_t block[BLOCK_SIZE];
     ctx->result=openfs_file_read(ctx->device,ctx->superblock,&ctx->inode,0U,
                                  block,sizeof(block),&ctx->bytes_read);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall gated_file_writer(void *arg)
+#else
+static void *gated_file_writer(void *arg)
+#endif
+{
+    gated_write_context_t *ctx=(gated_write_context_t *)arg;
+    uint8_t block[BLOCK_SIZE];
+    memset(block,0xD7,sizeof(block));
+    ctx->result=openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
+                                  0U,block,sizeof(block));
 #if defined(_WIN32)
     return 0U;
 #else
@@ -293,6 +319,66 @@ int main(void)
     assert(errors==0U);
 
     }
+
+    /* Also hold an in-flight write inside a block-device callback while
+     * unmount closes admission. Teardown must wait for the writer's pin. */
+    atomic_store_explicit(&disk.gate_entered,0,memory_order_release);
+    atomic_store_explicit(&disk.gate_release,0,memory_order_release);
+    atomic_store_explicit(&disk.gate_enabled,1,memory_order_release);
+    gated_write_context_t gated_write={&device,&mount.superblock,final_inode,OPENFS_FILE_IO_ERROR};
+#if defined(_WIN32)
+    uintptr_t write_thread=_beginthreadex(NULL,0U,gated_file_writer,&gated_write,0U,NULL);
+    assert(write_thread!=0U);
+#else
+    pthread_t write_thread;
+    assert(pthread_create(&write_thread,NULL,gated_file_writer,&gated_write)==0);
+#endif
+    for(unsigned spin=0U;spin<10000000U && atomic_load_explicit(&disk.gate_entered,memory_order_acquire)==0;spin++){
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+    assert(atomic_load_explicit(&disk.gate_entered,memory_order_acquire)!=0);
+    unmount_context_t write_unmount={&mount,0,OPENFS_MOUNT_ERROR};
+#if defined(_WIN32)
+    uintptr_t write_unmount_thread=_beginthreadex(NULL,0U,unmount_worker,&write_unmount,0U,NULL);
+    assert(write_unmount_thread!=0U);
+#else
+    pthread_t write_unmount_thread;
+    assert(pthread_create(&write_unmount_thread,NULL,unmount_worker,&write_unmount)==0);
+#endif
+    int write_admission_accepted=1;
+    for(unsigned spin=0U;spin<10000000U && write_admission_accepted!=0;spin++){
+        write_admission_accepted=openfs_runtime_enter(&mount.runtime);
+        if(write_admission_accepted!=0)openfs_runtime_leave(&mount.runtime);
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+    assert(write_admission_accepted==0);
+    assert(atomic_load_explicit(&write_unmount.done,memory_order_acquire)==0);
+    atomic_store_explicit(&disk.gate_release,1,memory_order_release);
+#if defined(_WIN32)
+    assert(WaitForSingleObject((HANDLE)write_thread,60000U)==WAIT_OBJECT_0);
+    assert(WaitForSingleObject((HANDLE)write_unmount_thread,60000U)==WAIT_OBJECT_0);
+    CloseHandle((HANDLE)write_thread);
+    CloseHandle((HANDLE)write_unmount_thread);
+#else
+    assert(pthread_join(write_thread,NULL)==0);
+    assert(pthread_join(write_unmount_thread,NULL)==0);
+#endif
+    atomic_store_explicit(&disk.gate_enabled,0,memory_order_release);
+    assert(gated_write.result==OPENFS_FILE_OK);
+    assert(write_unmount.result==OPENFS_MOUNT_OK);
+    assert(atomic_load_explicit(&write_unmount.done,memory_order_acquire)!=0);
+    assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
+    errors=UINT64_MAX;
+    assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
+    assert(errors==0U);
 
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
