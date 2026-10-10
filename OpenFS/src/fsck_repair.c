@@ -120,6 +120,28 @@ openfs_fsck_result_t openfs_fsck_repair_cow_refcounts(
     if (r != OPENFS_FSCK_OK)
         goto unlock_allocation;
 
+    /*
+     * Refcount repair must not "repair" one half of an allocation mismatch.
+     * If the bitmap and the inode-derived ownership map disagree, leave both
+     * structures untouched for a higher-level repair or manual recovery.
+     * In particular, do not publish zero refcounts for allocated orphan blocks.
+     */
+    for (uint64_t i = 0U; i < sb->data_blocks; i++) {
+        int allocated = 0;
+        openfs_bitmap_result_t bitmap_result = openfs_bitmap_test(
+            d, sb->block_bitmap_start, sb->block_bitmap_blocks,
+            sb->data_start + i, &allocated);
+        if (bitmap_result != OPENFS_BITMAP_OK) {
+            r = bitmap_result == OPENFS_BITMAP_IO_ERROR
+                ? OPENFS_FSCK_IO_ERROR : OPENFS_FSCK_CORRUPT;
+            goto unlock_allocation;
+        }
+        if ((allocated != 0) != (counts[i] != 0U)) {
+            r = OPENFS_FSCK_CORRUPT;
+            goto unlock_allocation;
+        }
+    }
+
     if (openfs_mutex_lock(&sb->runtime->transaction_lock,
                           OPENFS_LOCK_RANK_TRANSACTION) != OPENFS_LOCK_OK) {
         r = OPENFS_FSCK_IO_ERROR;

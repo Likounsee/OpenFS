@@ -981,3 +981,10 @@ The blocking infinite loop has a concrete correction. P0 remains open pending fr
 - `OpenFS/src/allocator.c` now checks that a CoW block is marked allocated before decrementing or clearing its reference count in both transactional and legacy free paths. A free bitmap bit paired with a nonzero CoW count is reported as corruption; the transactional path also marks the transaction failed so callers cannot commit a partial free.
 - `OpenFS/tests/test_allocator_transaction.c` injects this inconsistent on-disk state and verifies the free is rejected, abort preserves the stale count, and the normal free path still works after restoring the fixture.
 - Validation is pending CI on the exact branch head; P0 remains open until the run completes green.
+
+
+# 2026-10-10 — P0 FSCK refcount repair refuses bitmap ownership conflicts
+
+- `openfs_fsck_repair_cow_refcounts()` now preflights the inode-derived ownership map against the allocation bitmap before opening a WAL transaction. If an allocated block has no owner, or an inode-referenced block is marked free, repair stops without rewriting any refcount blocks; it no longer risks making one side of an allocation inconsistency look repaired while leaving the filesystem corrupt.
+- `test_fsck_refcount_repair.c` injects a referenced-but-free block with a deliberately wrong refcount and asserts repair refuses the operation and leaves that refcount unchanged. The existing normal mismatch repair and journal-fault retry checks remain in place.
+- Validation is pending CI on this exact branch head.
