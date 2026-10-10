@@ -28,6 +28,15 @@ _Static_assert(sizeof(rwlock_impl_t)<=sizeof(openfs_rwlock_t), "openfs_rwlock_t 
 typedef struct { const void *object; openfs_lock_rank_t rank; } lock_entry_t;
 static _Thread_local lock_entry_t lock_stack[OPENFS_LOCK_STACK_MAX];
 static _Thread_local unsigned lock_depth;
+#if defined(_WIN32)
+/* SRWLOCK is not recursive. Track recursive writer ownership per thread so
+   other threads never inspect writer metadata without owning the native lock. */
+static _Thread_local const void *rwlock_writer_stack[OPENFS_LOCK_STACK_MAX];
+static _Thread_local unsigned rwlock_writer_depth;
+static int rwlock_writer_is_top(const void *object){return rwlock_writer_depth!=0U&&rwlock_writer_stack[rwlock_writer_depth-1U]==object;}
+static int rwlock_writer_push(const void *object){if(rwlock_writer_depth>=OPENFS_LOCK_STACK_MAX)return 0;rwlock_writer_stack[rwlock_writer_depth++]=object;return 1;}
+static int rwlock_writer_pop(const void *object){if(!rwlock_writer_is_top(object))return 0;rwlock_writer_stack[--rwlock_writer_depth]=NULL;return 1;}
+#endif
 static openfs_lock_result_t rank_enter(const void *object,openfs_lock_rank_t rank){if(object==NULL||rank==OPENFS_LOCK_RANK_NONE)return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&rank<lock_stack[lock_depth-1U].rank)return OPENFS_LOCK_DEADLOCK;if(lock_depth>=OPENFS_LOCK_STACK_MAX)return OPENFS_LOCK_DEADLOCK;lock_stack[lock_depth].object=object;lock_stack[lock_depth].rank=rank;++lock_depth;return OPENFS_LOCK_OK;}
 static void rank_cancel(void){if(lock_depth!=0U)--lock_depth;}
 static int rank_is_top(const void *object){return lock_depth!=0U&&lock_stack[lock_depth-1U].object==object;}
@@ -97,7 +106,7 @@ openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_
 openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
-    int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&ri(l)->writer==lock_thread_id()&&ri(l)->write_depth!=0U);
+    int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&rwlock_writer_is_top(l));
 #else
     int recursive=0;
 #endif
@@ -105,9 +114,14 @@ openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank
     openfs_lock_result_t r=rank_enter(l,rank);
     if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
-    DWORD tid=lock_thread_id();
-    if(ri(l)->writer==tid&&ri(l)->write_depth!=0U){ri(l)->write_depth++;return OPENFS_LOCK_OK;}
-    AcquireSRWLockExclusive(&ri(l)->native);ri(l)->writer=tid;ri(l)->write_depth=1U;return OPENFS_LOCK_OK;
+    if(recursive){
+        if(!rwlock_writer_push(l)){rank_cancel();return OPENFS_LOCK_DEADLOCK;}
+        ri(l)->write_depth++;
+        return OPENFS_LOCK_OK;
+    }
+    AcquireSRWLockExclusive(&ri(l)->native);
+    if(!rwlock_writer_push(l)){ReleaseSRWLockExclusive(&ri(l)->native);rank_cancel();return OPENFS_LOCK_DEADLOCK;}
+    ri(l)->writer=lock_thread_id();ri(l)->write_depth=1U;return OPENFS_LOCK_OK;
 #else
     if(pthread_rwlock_wrlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}
     ri(l)->writer=pthread_self();ri(l)->writer_owned=1;ri(l)->write_depth++;return OPENFS_LOCK_OK;
@@ -127,7 +141,7 @@ openfs_lock_result_t openfs_rwlock_try_read_lock(openfs_rwlock_t*l,openfs_lock_r
 openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
-    int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&ri(l)->writer==lock_thread_id()&&ri(l)->write_depth!=0U);
+    int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&rwlock_writer_is_top(l));
 #else
     int recursive=0;
 #endif
@@ -135,10 +149,14 @@ openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_
     openfs_lock_result_t r=rank_enter(l,rank);
     if(r!=OPENFS_LOCK_OK)return r;
 #if defined(_WIN32)
-    DWORD tid=lock_thread_id();
-    if(ri(l)->writer==tid&&ri(l)->write_depth!=0U){ri(l)->write_depth++;return OPENFS_LOCK_OK;}
+    if(recursive){
+        if(!rwlock_writer_push(l)){rank_cancel();return OPENFS_LOCK_DEADLOCK;}
+        ri(l)->write_depth++;
+        return OPENFS_LOCK_OK;
+    }
     if(!TryAcquireSRWLockExclusive(&ri(l)->native)){rank_cancel();return OPENFS_LOCK_ERROR;}
-    ri(l)->writer=tid;ri(l)->write_depth=1U;return OPENFS_LOCK_OK;
+    if(!rwlock_writer_push(l)){ReleaseSRWLockExclusive(&ri(l)->native);rank_cancel();return OPENFS_LOCK_DEADLOCK;}
+    ri(l)->writer=lock_thread_id();ri(l)->write_depth=1U;return OPENFS_LOCK_OK;
 #else
     if(pthread_rwlock_trywrlock(&ri(l)->native)!=0){rank_cancel();return OPENFS_LOCK_ERROR;}
     ri(l)->writer=pthread_self();ri(l)->writer_owned=1;ri(l)->write_depth++;return OPENFS_LOCK_OK;
@@ -146,7 +164,12 @@ openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_
 }
 openfs_lock_result_t openfs_rwlock_unlock(openfs_rwlock_t*l){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(!rank_is_top(l))return OPENFS_LOCK_DEADLOCK;
 #if defined(_WIN32)
-if(ri(l)->write_depth!=0U&&ri(l)->writer==lock_thread_id()){ri(l)->write_depth--;if(ri(l)->write_depth==0U){ri(l)->writer=0;ReleaseSRWLockExclusive(&ri(l)->native);}}else ReleaseSRWLockShared(&ri(l)->native);
+if(rwlock_writer_is_top(l)){
+    if(!rwlock_writer_pop(l))return OPENFS_LOCK_ERROR;
+    if(ri(l)->write_depth==0U)return OPENFS_LOCK_ERROR;
+    ri(l)->write_depth--;
+    if(ri(l)->write_depth==0U){ri(l)->writer=0;ReleaseSRWLockExclusive(&ri(l)->native);}
+}else ReleaseSRWLockShared(&ri(l)->native);
 #else
 if(ri(l)->writer_owned&&ri(l)->write_depth!=0U&&same_thread(ri(l)->writer,pthread_self())){ri(l)->write_depth--;if(ri(l)->write_depth==0U)ri(l)->writer_owned=0;}if(pthread_rwlock_unlock(&ri(l)->native)!=0)return OPENFS_LOCK_ERROR;
 #endif
