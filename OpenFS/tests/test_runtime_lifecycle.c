@@ -27,8 +27,10 @@ static void *active_worker(void *unused)
 {
     (void)unused;
     if (!openfs_runtime_enter(&runtime)) abort();
-    /* A nested admission must not release the outer active-user pin. */
+    /* A nested admission and a runtime-bound lock must not release the outer
+     * active-user pin. Keep the lock held while shutdown closes admission. */
     if (!openfs_runtime_enter(&runtime)) abort();
+    if (openfs_mutex_lock(&runtime.directory_lock, OPENFS_LOCK_RANK_DIRECTORY) != OPENFS_LOCK_OK) abort();
     openfs_runtime_leave(&runtime);
     atomic_store_explicit(&worker_entered, 1, memory_order_release);
     while (atomic_load_explicit(&release_worker, memory_order_acquire) == 0) {
@@ -38,6 +40,7 @@ static void *active_worker(void *unused)
         sched_yield();
 #endif
     }
+    if (openfs_mutex_unlock(&runtime.directory_lock) != OPENFS_LOCK_OK) abort();
     openfs_runtime_leave(&runtime);
 #if defined(_WIN32)
     return 0U;
