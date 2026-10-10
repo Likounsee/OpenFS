@@ -452,7 +452,6 @@ openfs_inode_t source;openfs_path_result_t sr=read_inode(d,s,source_entry.inode_
 openfs_inode_t destination;memset(&destination,0,sizeof(destination));
 if(destination_exists){openfs_path_result_t tr=read_inode(d,s,dest_entry.inode_number,&destination);if(tr!=OPENFS_PATH_OK)return tr;if(destination.generation!=dest_entry.generation)return OPENFS_PATH_CORRUPT;}
 if(destination_exists&&destination.link_count==0U)return OPENFS_PATH_CORRUPT;
-uint64_t destination_open_handles=0U;
 int source_is_dir=(source.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY;
 if(destination_exists){
     int dest_is_dir=(destination.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY;
@@ -776,31 +775,6 @@ static openfs_path_result_t path_create_mounted_transaction(
         goto done;
     inode_locked=1;
 
-    /*
-     * Handle-registry rank (25) must be taken before allocation (30) and
-     * transaction (35). Holding it through publication prevents a final
-     * close from racing the last-link orphan decision.
-     */
-    uint64_t destination_ino=0U,destination_generation=0U;
-    int needs_registry_lock=0;
-    result=path_rename_handle_probe(d,s,new_path,runtime,&destination_ino,
-                                    &destination_generation,&needs_registry_lock);
-    if(result!=OPENFS_PATH_OK)goto done;
-    if(needs_registry_lock){
-        if(openfs_mutex_lock(&runtime->handle_registry_lock,
-                             OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){
-            result=OPENFS_PATH_IO_ERROR;
-            goto done;
-        }
-        registry_locked=1;
-        destination_open_handles=openfs_runtime_handle_count(
-            runtime,d,destination_ino,destination_generation);
-        if(destination_open_handles==UINT64_MAX){
-            result=OPENFS_PATH_IO_ERROR;
-            goto done;
-        }
-    }
-
     if(openfs_mutex_lock(&runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)
         goto done;
     allocation_locked=1;
@@ -903,7 +877,6 @@ done:
         (void)openfs_transaction_abort(&transaction);
     if(transaction_locked)(void)openfs_mutex_unlock(&runtime->transaction_lock);
     if(allocation_locked)(void)openfs_mutex_unlock(&runtime->allocation_lock);
-    if(registry_locked)(void)openfs_mutex_unlock(&runtime->handle_registry_lock);
     if(inode_locked)(void)openfs_mutex_unlock(&runtime->inode_lock);
     if(directory_locked)(void)openfs_mutex_unlock(&runtime->directory_lock);
     openfs_runtime_leave(runtime);
@@ -938,6 +911,33 @@ static openfs_path_result_t path_rename_mounted_transaction(
     if(openfs_mutex_lock(&runtime->inode_lock,OPENFS_LOCK_RANK_INODE)!=OPENFS_LOCK_OK)
         goto done;
     inode_locked=1;
+
+    /*
+     * Probe the destination before taking allocation/transaction locks. Keep
+     * REGISTRY held through the transaction so a final close cannot race the
+     * last-link orphan decision. This respects DIRECTORY -> INODE -> REGISTRY
+     * -> ALLOCATION -> TRANSACTION lock ordering.
+     */
+    uint64_t destination_ino=0U,destination_generation=0U;
+    int needs_registry_lock=0;
+    result=path_rename_handle_probe(d,s,new_path,runtime,&destination_ino,
+                                    &destination_generation,&needs_registry_lock);
+    if(result!=OPENFS_PATH_OK)goto done;
+    if(needs_registry_lock){
+        if(openfs_mutex_lock(&runtime->handle_registry_lock,
+                             OPENFS_LOCK_RANK_REGISTRY)!=OPENFS_LOCK_OK){
+            result=OPENFS_PATH_IO_ERROR;
+            goto done;
+        }
+        registry_locked=1;
+        destination_open_handles=openfs_runtime_handle_count(
+            runtime,d,destination_ino,destination_generation);
+        if(destination_open_handles==UINT64_MAX){
+            result=OPENFS_PATH_IO_ERROR;
+            goto done;
+        }
+    }
+
     if(openfs_mutex_lock(&runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)
         goto done;
     allocation_locked=1;
@@ -1013,6 +1013,7 @@ done:
         (void)openfs_transaction_abort(&transaction);
     if(transaction_locked)(void)openfs_mutex_unlock(&runtime->transaction_lock);
     if(allocation_locked)(void)openfs_mutex_unlock(&runtime->allocation_lock);
+    if(registry_locked)(void)openfs_mutex_unlock(&runtime->handle_registry_lock);
     if(inode_locked)(void)openfs_mutex_unlock(&runtime->inode_lock);
     if(directory_locked)(void)openfs_mutex_unlock(&runtime->directory_lock);
     if(runtime_entered)openfs_runtime_leave(runtime);

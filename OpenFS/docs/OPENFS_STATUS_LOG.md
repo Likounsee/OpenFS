@@ -3,7 +3,7 @@
 - AUDIT FINDING — replacing a destination with its last namespace link while a file handle remained open truncated/freed the destination inode. Mounted rename also needs the original runtime/device identity to count handles while its mutations use a transaction proxy.
 - FIX — the rename core now receives the base device/runtime separately from the transaction view. If the destination still has an open handle and link count one, replacement persists the orphan flag and keeps inode/data/refcounts until the last handle closes.
 - REGRESSION — OpenFS/tests/test_path.c opens the destination, writes distinct payloads to source and destination, replaces the destination with rename, verifies the old open handle still reads old contents, closes it, then verifies the destination reads the source data and FSCK remains clean.
-- VALIDATION — the first full CI attempt (`38068596609`) found a lock-rank bug in the new handle-count probe: it requested REGISTRY while TRANSACTION was held, so GCC/Clang rename tests returned I/O error. The code now probes and holds REGISTRY before ALLOCATION/TRANSACTION, using a cached handle count in the core; a fresh full CI is required.
+- VALIDATION — run `38068596609` exposed a lock-rank issue (REGISTRY was queried after TRANSACTION); the follow-up `38068864064` then caught an over-broad replacement that put the preflight block in the create helper and left a duplicate cached-count variable. The preflight and its cleanup are now scoped only to `path_rename_mounted_transaction`, registry is acquired before ALLOCATION/TRANSACTION, and the core consumes a cached count. Fresh full CI is required.
 
 ---
 
