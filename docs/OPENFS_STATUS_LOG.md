@@ -967,3 +967,10 @@ The blocking infinite loop has a concrete correction. P0 remains open pending fr
 - The next GCC/Clang test run progressed past the directory-rename assertion and exposed a remount failure in `tests/test_path.c` after successful cross-directory replacement. The mount decoder was reading the legacy superblock fields but omitted the format-v1.6 checksum-table geometry stored at offsets 196 and 204, so remount reconstructed an invalid/incomplete layout.
 - `OpenFS/src/mount.c` now decodes `data_checksum_start` and `data_checksum_blocks` from those serialized offsets and includes both in primary/backup layout equality checks.
 - This diagnosis is based on the superblock serialization layout and the remount failure observed in GCC and Clang CI. The fix still requires the new CI run on the current branch head to pass; P0 remains open.
+
+
+# 2026-10-10 — P0 checksum transaction-abort invariant
+
+- `OpenFS/tests/test_data_checksum.c` now stages a second data-block mutation and its CRC32C update in one WAL transaction, aborts it, then reads the block through the public file API and verifies every byte remains at the previously committed value. This directly checks that aborted transactional data and checksum changes are not published or mismatched.
+- The existing committed-update, read-time corruption detection, and scrub corruption checks remain unchanged.
+- Validation is pending the fresh GCC, Clang + ASan/UBSan, Release, and Windows CI run for this exact branch head; P0 remains open until that run completes green.
