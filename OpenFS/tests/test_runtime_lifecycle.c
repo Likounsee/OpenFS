@@ -154,6 +154,40 @@ int main(void)
     if (!openfs_runtime_init(&runtime)) return 1;
 
     /*
+     * Exhaust the caller's lock-rank stack after admission. A failed final
+     * leave must preserve its TLS pin so the caller can free stack capacity
+     * and retry, rather than leaking active_users with no way to drain it.
+     */
+    openfs_mutex_t stack_locks[32];
+    for (unsigned i = 0U; i < 32U; ++i) {
+        if (openfs_mutex_init(&stack_locks[i]) != OPENFS_LOCK_OK) return 1;
+    }
+    for (unsigned i = 0U; i < 30U; ++i) {
+        if (openfs_mutex_lock(&stack_locks[i], OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK)
+            return 1;
+    }
+    if (!openfs_runtime_enter(&runtime)) {
+        fprintf(stderr, "runtime admission failed with available rank-stack slots\\n");
+        return 1;
+    }
+    if (openfs_mutex_lock(&stack_locks[30], OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK ||
+        openfs_mutex_lock(&stack_locks[31], OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK)
+        return 1;
+    openfs_runtime_leave(&runtime); /* stack full: pin must remain live */
+    if (openfs_mutex_unlock(&stack_locks[31]) != OPENFS_LOCK_OK ||
+        openfs_mutex_unlock(&stack_locks[30]) != OPENFS_LOCK_OK)
+        return 1;
+    openfs_runtime_leave(&runtime); /* retry after making stack capacity */
+    for (unsigned i = 30U; i > 0U; --i) {
+        if (openfs_mutex_unlock(&stack_locks[i - 1U]) != OPENFS_LOCK_OK) return 1;
+    }
+    for (unsigned i = 0U; i < 32U; ++i) {
+        if (openfs_mutex_destroy(&stack_locks[i]) != OPENFS_LOCK_OK) return 1;
+    }
+    if (!openfs_runtime_shutdown_if_unused(&runtime) || !openfs_runtime_init(&runtime))
+        return 1;
+
+    /*
      * An open handle must prevent unused-shutdown from destroying the
      * runtime. A rejected shutdown must also restore admission so the caller
      * can release the handle and continue using the runtime.
