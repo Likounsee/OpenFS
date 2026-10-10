@@ -117,7 +117,7 @@ These are the highest priority. Advanced features must not be built on top of un
 - [ ] Close multi-step namespace TOCTOU windows.
 - [x] Stress concurrent create/remove/rename (regression coverage exists; full matrix validation still required).
 - [x] Stress concurrent read/write/truncate (regression coverage exists; full matrix validation still required).
-- [x] Stress concurrent hard-link operations; symlink concurrency still needs explicit coverage.
+- [x] Stress concurrent hard-link and symlink creation (full matrix validation still required).
 - [x] Stress concurrent CoW/refcount operations (regression coverage exists; full matrix validation still required).
 - [x] Test runtime shutdown/lifetime races; broader mount/unmount race coverage remains open.
 - [ ] Test concurrent snapshots with active writers once snapshots exist.
