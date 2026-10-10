@@ -220,8 +220,10 @@ int main(void)
     assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
     assert(errors==0U);
 
-    /* Hold a real file read inside the block-device callback while unmount
-     * closes runtime admission. The teardown must wait for the active pin. */
+    for(unsigned teardown_cycle=0U;teardown_cycle<100U;teardown_cycle++){
+    /* Repeat the deterministic read/unmount race 100 times. Every cycle
+     * proves admission closure, waits for the pinned read, remounts, and runs
+     * FSCK before the next cycle begins. */
     gated_read_context_t gated={.device=&device,.superblock=&mount.superblock,
                                 .inode=final_inode,.bytes_read=0U,
                                 .result=OPENFS_FILE_INVALID_ARGUMENT};
@@ -284,12 +286,14 @@ int main(void)
     assert(unmount_ctx.result==OPENFS_MOUNT_OK);
     assert(atomic_load_explicit(&unmount_ctx.done,memory_order_acquire)!=0);
 
-    /* A clean remount after the contested teardown verifies on-disk integrity. */
+    /* A clean remount after each contested teardown verifies on-disk integrity. */
     assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
     errors=UINT64_MAX;
     assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
     assert(errors==0U);
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
+    }
+
     free(disk.bytes);
     return 0;
 }
