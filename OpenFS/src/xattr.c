@@ -3,6 +3,7 @@
 #include "openfs/bitmap.h"
 #include "openfs/crc32c.h"
 #include "openfs/runtime.h"
+#include "openfs/transaction.h"
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -78,6 +79,132 @@ static void unlock_inode(const openfs_superblock_t*s){
     openfs_runtime_leave(s->runtime);
 }
 
+typedef struct {
+    uint64_t inode;
+    const char *name;
+    const void *value;
+    size_t value_len;
+    uint32_t flags;
+} xattr_mutation_args_t;
+
+typedef openfs_xattr_result_t (*xattr_mutation_work_fn)(
+    openfs_block_device_t *,const openfs_superblock_t *,void *);
+
+static openfs_xattr_result_t xattr_transaction_error(openfs_transaction_result_t r)
+{
+    if(r==OPENFS_TRANSACTION_OK)return OPENFS_XATTR_OK;
+    if(r==OPENFS_TRANSACTION_FULL)return OPENFS_XATTR_NO_SPACE;
+    if(r==OPENFS_TRANSACTION_CORRUPT)return OPENFS_XATTR_CORRUPT;
+    if(r==OPENFS_TRANSACTION_INVALID_ARGUMENT)return OPENFS_XATTR_INVALID_ARGUMENT;
+    return OPENFS_XATTR_IO_ERROR;
+}
+
+static openfs_xattr_result_t xattr_mutation_transaction(
+    openfs_block_device_t *d,const openfs_superblock_t *s,
+    xattr_mutation_work_fn work,void *context)
+{
+    if(!openfs_block_device_is_valid(d)||s==NULL||s->runtime==NULL||work==NULL)
+        return OPENFS_XATTR_INVALID_ARGUMENT;
+    openfs_runtime_t *runtime=s->runtime;
+    if(runtime->device!=d||runtime->journal==NULL)
+        return OPENFS_XATTR_IO_ERROR;
+
+    openfs_xattr_result_t result=OPENFS_XATTR_IO_ERROR;
+    int inode_locked=0;
+    int allocation_locked=0;
+    int transaction_locked=0;
+    int transaction_started=0;
+    openfs_transaction_t transaction={0};
+
+    if(lock_inode(s)!=OPENFS_XATTR_OK)
+        return OPENFS_XATTR_IO_ERROR;
+    inode_locked=1;
+    if(openfs_mutex_lock(&runtime->allocation_lock,OPENFS_LOCK_RANK_ALLOCATION)!=OPENFS_LOCK_OK)
+        goto done;
+    allocation_locked=1;
+    if(openfs_mutex_lock(&runtime->transaction_lock,OPENFS_LOCK_RANK_TRANSACTION)!=OPENFS_LOCK_OK)
+        goto done;
+    transaction_locked=1;
+
+    openfs_transaction_result_t tr=openfs_transaction_begin(&transaction,d,runtime->journal);
+    if(tr!=OPENFS_TRANSACTION_OK){
+        result=xattr_transaction_error(tr);
+        goto done;
+    }
+    transaction_started=1;
+    openfs_block_device_t *td=openfs_transaction_device(&transaction);
+    if(td==NULL){
+        result=OPENFS_XATTR_INVALID_ARGUMENT;
+        goto abort_transaction;
+    }
+
+    /*
+     * The work routine is deliberately called with a superblock copy that has
+     * no runtime pointer. This prevents public xattr code from re-locking the
+     * inode while transaction_lock is held; all device writes still go through
+     * the transaction proxy and remain journaled.
+     */
+    openfs_superblock_t transaction_superblock=*s;
+    transaction_superblock.runtime=NULL;
+    result=work(td,&transaction_superblock,context);
+    if(result!=OPENFS_XATTR_OK)
+        goto abort_transaction;
+
+    tr=openfs_transaction_commit(&transaction);
+    transaction_started=transaction.active;
+    if(tr==OPENFS_TRANSACTION_OK){
+        transaction_started=0;
+        result=OPENFS_XATTR_OK;
+        goto done;
+    }
+
+    result=xattr_transaction_error(tr);
+    if(transaction.active){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
+        transaction_started=transaction.active;
+        if(ar==OPENFS_TRANSACTION_CORRUPT && !transaction.recovery_required)
+            result=OPENFS_XATTR_CORRUPT;
+        else if(ar!=OPENFS_TRANSACTION_OK && !transaction.recovery_required)
+            result=OPENFS_XATTR_IO_ERROR;
+    }
+    goto done;
+
+abort_transaction:
+    if(transaction_started&&transaction.active){
+        openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
+        transaction_started=transaction.active;
+        if(ar==OPENFS_TRANSACTION_CORRUPT)
+            result=OPENFS_XATTR_CORRUPT;
+        else if(ar!=OPENFS_TRANSACTION_OK)
+            result=OPENFS_XATTR_IO_ERROR;
+    }
+
+done:
+    if(transaction_started&&transaction.active)
+        (void)openfs_transaction_abort(&transaction);
+    if(transaction_locked)
+        (void)openfs_mutex_unlock(&runtime->transaction_lock);
+    if(allocation_locked)
+        (void)openfs_mutex_unlock(&runtime->allocation_lock);
+    if(inode_locked)
+        unlock_inode(s);
+    return result;
+}
+
+static openfs_xattr_result_t xattr_set_transaction_work(
+    openfs_block_device_t *d,const openfs_superblock_t *s,void *context)
+{
+    const xattr_mutation_args_t *args=(const xattr_mutation_args_t *)context;
+    return openfs_xattr_set(d,s,args->inode,args->name,args->value,args->value_len,args->flags);
+}
+
+static openfs_xattr_result_t xattr_remove_transaction_work(
+    openfs_block_device_t *d,const openfs_superblock_t *s,void *context)
+{
+    const xattr_mutation_args_t *args=(const xattr_mutation_args_t *)context;
+    return openfs_xattr_remove(d,s,args->inode,args->name);
+}
+
 openfs_xattr_result_t openfs_xattr_validate_inode(const openfs_block_device_t*d,const openfs_superblock_t*s,const openfs_inode_t*in){if(!openfs_block_device_is_valid(d)||s==NULL||in==NULL)return OPENFS_XATTR_INVALID_ARGUMENT;uint64_t xb=openfs_inode_get_xattr_block(in);if(xb==0U)return OPENFS_XATTR_OK;if(!valid_xblock(d,s,xb))return OPENFS_XATTR_CORRUPT;uint8_t*b=malloc(d->block_size);if(b==NULL)return OPENFS_XATTR_IO_ERROR;if(d->read(d->context,xb,1U,b)!=OPENFS_IO_OK){free(b);return OPENFS_XATTR_IO_ERROR;}openfs_xattr_result_t r=decode_block(b,d->block_size,in->generation);free(b);return r;}
 
 openfs_xattr_result_t openfs_xattr_get(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t ino,const char*n,void*out,size_t cap,size_t*got){
@@ -88,6 +215,14 @@ openfs_xattr_result_t openfs_xattr_get(openfs_block_device_t*d,const openfs_supe
 }
 openfs_xattr_result_t openfs_xattr_set(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t ino,const char*n,const void*v,size_t len,uint32_t flags){
     openfs_xattr_result_t nr=validate_name(n);if(nr!=OPENFS_XATTR_OK||v==NULL&&len!=0U||len>X_VALUE_MAX)return nr!=OPENFS_XATTR_OK?nr:OPENFS_XATTR_INVALID_ARGUMENT;
+    if(s!=NULL&&s->runtime!=NULL){
+        if(openfs_transaction_from_device(d)!=NULL){
+            openfs_superblock_t transaction_superblock=*s;transaction_superblock.runtime=NULL;
+            return openfs_xattr_set(d,&transaction_superblock,ino,n,v,len,flags);
+        }
+        xattr_mutation_args_t args={ino,n,v,len,flags};
+        return xattr_mutation_transaction(d,s,xattr_set_transaction_work,&args);
+    }
     if(lock_inode(s)!=OPENFS_XATTR_OK)return OPENFS_XATTR_IO_ERROR;openfs_inode_t in;openfs_xattr_result_t r=load_inode(d,s,ino,&in);if(r!=OPENFS_XATTR_OK){unlock_inode(s);return r;}uint64_t xb=openfs_inode_get_xattr_block(&in);uint8_t*b=malloc(d->block_size);if(b==NULL){unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}
     int exists=0;if(xb!=0U){if(!valid_xblock(d,s,xb)){free(b);unlock_inode(s);return OPENFS_XATTR_CORRUPT;}if(d->read(d->context,xb,1U,b)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}r=decode_block(b,d->block_size,in.generation);if(r!=OPENFS_XATTR_OK){free(b);unlock_inode(s);return r;}exists=find_record(b,d->block_size,n,NULL,NULL,NULL);}
     if((flags&OPENFS_XATTR_CREATE)!=0U&&exists){free(b);unlock_inode(s);return OPENFS_XATTR_EXISTS;}if((flags&OPENFS_XATTR_REPLACE)!=0U&&!exists){free(b);unlock_inode(s);return OPENFS_XATTR_NOT_FOUND;}
@@ -98,7 +233,16 @@ openfs_xattr_result_t openfs_xattr_set(openfs_block_device_t*d,const openfs_supe
     free(b);unlock_inode(s);return OPENFS_XATTR_OK;
 }
 openfs_xattr_result_t openfs_xattr_remove(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t ino,const char*n){
-    openfs_xattr_result_t nr=validate_name(n);if(nr!=OPENFS_XATTR_OK)return nr;if(lock_inode(s)!=OPENFS_XATTR_OK)return OPENFS_XATTR_IO_ERROR;openfs_inode_t in;openfs_xattr_result_t r=load_inode(d,s,ino,&in);if(r!=OPENFS_XATTR_OK){unlock_inode(s);return r;}uint64_t xb=openfs_inode_get_xattr_block(&in);if(xb==0U){unlock_inode(s);return OPENFS_XATTR_NOT_FOUND;}if(!valid_xblock(d,s,xb)){unlock_inode(s);return OPENFS_XATTR_CORRUPT;}uint8_t*b=malloc(d->block_size);if(b==NULL){unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}if(d->read(d->context,xb,1U,b)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}r=decode_block(b,d->block_size,in.generation);if(r!=OPENFS_XATTR_OK){free(b);unlock_inode(s);return r;}if(!find_record(b,d->block_size,n,NULL,NULL,NULL)){free(b);unlock_inode(s);return OPENFS_XATTR_NOT_FOUND;}r=build_block(b,d->block_size,in.generation,NULL,NULL,0U,n,1);if(r!=OPENFS_XATTR_OK){free(b);unlock_inode(s);return r;}uint32_t count=g32(b+24U);if(count!=0U){if(d->write(d->context,xb,1U,b)!=OPENFS_IO_OK||d->flush(d->context)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}free(b);unlock_inode(s);return OPENFS_XATTR_OK;}
+    openfs_xattr_result_t nr=validate_name(n);if(nr!=OPENFS_XATTR_OK)return nr;
+    if(s!=NULL&&s->runtime!=NULL){
+        if(openfs_transaction_from_device(d)!=NULL){
+            openfs_superblock_t transaction_superblock=*s;transaction_superblock.runtime=NULL;
+            return openfs_xattr_remove(d,&transaction_superblock,ino,n);
+        }
+        xattr_mutation_args_t args={ino,n,NULL,0U,0U};
+        return xattr_mutation_transaction(d,s,xattr_remove_transaction_work,&args);
+    }
+    if(lock_inode(s)!=OPENFS_XATTR_OK)return OPENFS_XATTR_IO_ERROR;openfs_inode_t in;openfs_xattr_result_t r=load_inode(d,s,ino,&in);if(r!=OPENFS_XATTR_OK){unlock_inode(s);return r;}uint64_t xb=openfs_inode_get_xattr_block(&in);if(xb==0U){unlock_inode(s);return OPENFS_XATTR_NOT_FOUND;}if(!valid_xblock(d,s,xb)){unlock_inode(s);return OPENFS_XATTR_CORRUPT;}uint8_t*b=malloc(d->block_size);if(b==NULL){unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}if(d->read(d->context,xb,1U,b)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}r=decode_block(b,d->block_size,in.generation);if(r!=OPENFS_XATTR_OK){free(b);unlock_inode(s);return r;}if(!find_record(b,d->block_size,n,NULL,NULL,NULL)){free(b);unlock_inode(s);return OPENFS_XATTR_NOT_FOUND;}r=build_block(b,d->block_size,in.generation,NULL,NULL,0U,n,1);if(r!=OPENFS_XATTR_OK){free(b);unlock_inode(s);return r;}uint32_t count=g32(b+24U);if(count!=0U){if(d->write(d->context,xb,1U,b)!=OPENFS_IO_OK||d->flush(d->context)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}free(b);unlock_inode(s);return OPENFS_XATTR_OK;}
     openfs_inode_set_xattr_block(&in,0U);if(openfs_inode_write(d,s->inode_table_start,(s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE,&in)!=OPENFS_INODE_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}if(d->flush(d->context)!=OPENFS_IO_OK){free(b);unlock_inode(s);return OPENFS_XATTR_IO_ERROR;}r=openfs_free_block(d,s,xb);free(b);unlock_inode(s);return r==OPENFS_ALLOC_OK?OPENFS_XATTR_OK:OPENFS_XATTR_CORRUPT;
 }
 openfs_xattr_result_t openfs_xattr_list(openfs_block_device_t*d,const openfs_superblock_t*s,uint64_t ino,char*out,size_t cap,size_t*used){

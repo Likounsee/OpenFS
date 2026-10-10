@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: journal xattr block and inode-pointer mutations together
+
+- **AUDIT FINDING** — mounted \`openfs_xattr_set()\` could allocate a block and write the xattr payload before updating the inode's xattr-block pointer; \`openfs_xattr_remove()\` could clear that pointer before freeing the block. Those independently persisted writes could leave an allocated unreachable block or a stale pointer after a crash.
+- **FIX** — for a mounted runtime, xattr set/remove now acquire inode → allocation → transaction locks and execute their existing logic through a single journal transaction proxy. Recursive calls on the proxy use a runtime-free superblock copy to avoid re-entering lower-ranked locks; the unmounted direct-device compatibility path remains unchanged.
+- **REGRESSION** — \`OpenFS/tests/test_xattr.c\` injects a home-write failure immediately after durable COMMIT for both the first xattr set and removal of the last xattr. After unmount/remount, the xattr value/pointer, bitmap and refcount must match the committed transaction and FSCK must be clean.
+- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI.
+
+---
+
 # 2026-10-10 — P0: cover orphan data extents during post-COMMIT recovery
 
 - **REGRESSION EXPANSION** — `OpenFS/tests/test_orphan.c` now gives the orphan both a real data extent and an xattr block. After injecting the first home-write failure following durable COMMIT, a second mount must release the inode bit, data-block bit/refcount, and xattr-block bit/refcount; FSCK must still report zero errors.
