@@ -16,8 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
-    # Exercise the repository's Linux x64 self-hosted runner.
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     env:
       CC: ${{ matrix.compiler }}
     steps:
@@ -45,7 +44,8 @@ jobs:
           ctest --test-dir build-${{ matrix.compiler }}-release --output-on-failure --timeout 180
 
   windows:
-    runs-on: windows-latest
+    # Use the repository's Windows x64 self-hosted runner.
+    runs-on: [self-hosted, Windows, X64]
     steps:
       - uses: actions/checkout@v4
       - name: Configure
