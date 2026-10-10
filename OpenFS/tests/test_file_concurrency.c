@@ -18,6 +18,7 @@
 #include "openfs/file.h"
 #include "openfs/fsck.h"
 #include "openfs/allocator.h"
+#include "openfs/cow.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <process.h>
@@ -113,6 +114,14 @@ typedef struct {
 typedef struct {
     openfs_block_device_t *device;
     openfs_superblock_t *superblock;
+    uint64_t block;
+    uint16_t refcount;
+    openfs_cow_result_t result;
+} gated_refcount_context_t;
+
+typedef struct {
+    openfs_block_device_t *device;
+    openfs_superblock_t *superblock;
     const char *old_path;
     const char *new_path;
     openfs_path_result_t result;
@@ -154,6 +163,21 @@ static void *gated_file_writer(void *arg)
 #endif
 }
 
+
+#if defined(_WIN32)
+static unsigned __stdcall gated_refcount_reader(void *arg)
+#else
+static void *gated_refcount_reader(void *arg)
+#endif
+{
+    gated_refcount_context_t *ctx=(gated_refcount_context_t *)arg;
+    ctx->result=openfs_cow_refcount_get(ctx->device,ctx->superblock,ctx->block,&ctx->refcount);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
 
 #if defined(_WIN32)
 static unsigned __stdcall gated_block_allocator(void *arg)
@@ -585,6 +609,66 @@ int main(void)
         assert(alloc_ctx.block!=0U);
         assert(alloc_unmount.result==OPENFS_MOUNT_OK);
         assert(atomic_load_explicit(&alloc_unmount.done,memory_order_acquire)!=0);
+        assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
+
+        /* The newly allocated data block has a live CoW refcount entry.
+         * Gate the refcount read itself and race it against unmount too. */
+        gated_refcount_context_t refs_ctx={&device,&mount.superblock,alloc_ctx.block,0U,OPENFS_COW_IO_ERROR};
+        atomic_store_explicit(&disk.gate_entered,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_release,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_enabled,1,memory_order_release);
+#if defined(_WIN32)
+        uintptr_t refs_thread_value=_beginthreadex(NULL,0U,gated_refcount_reader,&refs_ctx,0U,NULL);
+        assert(refs_thread_value!=0U);
+        HANDLE refs_thread=(HANDLE)refs_thread_value;
+#else
+        pthread_t refs_thread;
+        assert(pthread_create(&refs_thread,NULL,gated_refcount_reader,&refs_ctx)==0);
+#endif
+        for(unsigned spin=0U;spin<10000000U &&
+            atomic_load_explicit(&disk.gate_entered,memory_order_acquire)==0;spin++){
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(atomic_load_explicit(&disk.gate_entered,memory_order_acquire)!=0);
+        unmount_context_t refs_unmount={&mount,0,OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+        uintptr_t refs_unmount_value=_beginthreadex(NULL,0U,unmount_worker,&refs_unmount,0U,NULL);
+        assert(refs_unmount_value!=0U);
+        HANDLE refs_unmount_thread=(HANDLE)refs_unmount_value;
+#else
+        pthread_t refs_unmount_thread;
+        assert(pthread_create(&refs_unmount_thread,NULL,unmount_worker,&refs_unmount)==0);
+#endif
+        int refs_admission_accepted=1;
+        for(unsigned spin=0U;spin<10000000U && refs_admission_accepted!=0;spin++){
+            refs_admission_accepted=openfs_runtime_enter(&mount.runtime);
+            if(refs_admission_accepted!=0)openfs_runtime_leave(&mount.runtime);
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(refs_admission_accepted==0);
+        assert(atomic_load_explicit(&refs_unmount.done,memory_order_acquire)==0);
+        atomic_store_explicit(&disk.gate_release,1,memory_order_release);
+#if defined(_WIN32)
+        assert(WaitForSingleObject(refs_thread,60000U)==WAIT_OBJECT_0);
+        assert(WaitForSingleObject(refs_unmount_thread,60000U)==WAIT_OBJECT_0);
+        CloseHandle(refs_thread);
+        CloseHandle(refs_unmount_thread);
+#else
+        assert(pthread_join(refs_thread,NULL)==0);
+        assert(pthread_join(refs_unmount_thread,NULL)==0);
+#endif
+        atomic_store_explicit(&disk.gate_enabled,0,memory_order_release);
+        assert(refs_ctx.result==OPENFS_COW_OK && refs_ctx.refcount==1U);
+        assert(refs_unmount.result==OPENFS_MOUNT_OK);
+        assert(atomic_load_explicit(&refs_unmount.done,memory_order_acquire)!=0);
         assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
         assert(openfs_free_block(&device,&mount.superblock,alloc_ctx.block)==OPENFS_ALLOC_OK);
         errors=UINT64_MAX;
