@@ -16,7 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
-    runs-on: ubuntu-latest
+    # Exercise the repository's Linux x64 self-hosted runner.
+    runs-on: [self-hosted, Linux, X64]
     env:
       CC: ${{ matrix.compiler }}
     steps:
