@@ -24,4 +24,37 @@ int main(void){reject_mismatched_runtime_device();disk_t d={0};d.bs=4096U;d.bc=2
     assert(openfs_cow_refcount_get(&dev,&m.superblock,e.physical_start,&refs)==OPENFS_COW_OK&&refs==2U);
     assert(openfs_bitmap_set(&dev,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,e.physical_start,1)==OPENFS_BITMAP_OK);
     assert(openfs_cow_refcount_set(&dev,&m.superblock,e.physical_start,1U)==OPENFS_COW_OK);
+    /* An allocated block with no inode-derived owner is equally unsafe to repair
+     * automatically: preserve it and require explicit orphan recovery. */
+    uint64_t orphan_block = 0U;
+    int orphan_found = 0;
+    for (uint64_t candidate = m.superblock.data_start;
+         candidate < m.superblock.data_start + m.superblock.data_blocks;
+         candidate++) {
+        int candidate_used = 0;
+        if (candidate == m.superblock.metadata_root_block) continue;
+        assert(openfs_bitmap_test(&dev, m.superblock.block_bitmap_start,
+                                  m.superblock.block_bitmap_blocks,
+                                  candidate, &candidate_used) == OPENFS_BITMAP_OK);
+        if (!candidate_used) {
+            orphan_block = candidate;
+            orphan_found = 1;
+            break;
+        }
+    }
+    assert(orphan_found);
+    assert(openfs_bitmap_set(&dev, m.superblock.block_bitmap_start,
+                             m.superblock.block_bitmap_blocks,
+                             orphan_block, 1) == OPENFS_BITMAP_OK);
+    assert(openfs_cow_refcount_set(&dev, &m.superblock, orphan_block, 1U) == OPENFS_COW_OK);
+    errors = 0U;
+    assert(openfs_fsck_repair_cow_refcounts(&dev, &m.superblock, &errors) == OPENFS_FSCK_CORRUPT);
+    assert(openfs_cow_refcount_get(&dev, &m.superblock, orphan_block, &refs) == OPENFS_COW_OK && refs == 1U);
+    assert(openfs_bitmap_test(&dev, m.superblock.block_bitmap_start,
+                              m.superblock.block_bitmap_blocks,
+                              orphan_block, &set) == OPENFS_BITMAP_OK && set);
+    assert(openfs_cow_refcount_set(&dev, &m.superblock, orphan_block, 0U) == OPENFS_COW_OK);
+    assert(openfs_bitmap_set(&dev, m.superblock.block_bitmap_start,
+                             m.superblock.block_bitmap_blocks,
+                             orphan_block, 0) == OPENFS_BITMAP_OK);
     openfs_extent_t saved=e;openfs_extent_t invalid=e;invalid.physical_start=m.superblock.data_start+m.superblock.data_blocks+10U;assert(openfs_inode_set_extent(&in,0U,&invalid)==OPENFS_EXTENT_OK);assert(openfs_inode_write(&dev,m.superblock.inode_table_start,ino,&in)==OPENFS_INODE_OK);errors=0;assert(openfs_fsck_repair_cow_refcounts(&dev,&m.superblock,&errors)==OPENFS_FSCK_CORRUPT);assert(openfs_inode_read(&dev,m.superblock.inode_table_start,ino,ic,&in)==OPENFS_INODE_OK);assert(openfs_inode_set_extent(&in,0U,&saved)==OPENFS_EXTENT_OK);assert(openfs_inode_write(&dev,m.superblock.inode_table_start,ino,&in)==OPENFS_INODE_OK);assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.b);return 0;}
