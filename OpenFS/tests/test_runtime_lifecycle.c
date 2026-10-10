@@ -114,8 +114,14 @@ int main(void)
         openfs_runtime_destroy(&runtime);
         return 1;
     }
-    if (!openfs_runtime_enter(&runtime) ||
-        openfs_mutex_lock(&external_high_rank, OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
+    if (openfs_mutex_lock(&external_high_rank, OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
+        (void)openfs_mutex_destroy(&external_high_rank);
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+    /* Admission and final leave must both work while this high-ranked lock is held. */
+    if (!openfs_runtime_enter(&runtime)) {
+        (void)openfs_mutex_unlock(&external_high_rank);
         (void)openfs_mutex_destroy(&external_high_rank);
         openfs_runtime_destroy(&runtime);
         return 1;
@@ -124,7 +130,7 @@ int main(void)
     if (openfs_mutex_unlock(&external_high_rank) != OPENFS_LOCK_OK ||
         openfs_mutex_destroy(&external_high_rank) != OPENFS_LOCK_OK ||
         !openfs_runtime_shutdown_if_unused(&runtime)) {
-        fprintf(stderr, "runtime leave leaked an active pin under a higher-ranked lock\\n");
+        fprintf(stderr, "runtime leave leaked an active pin under a higher-ranked lock\n");
         return 1;
     }
     if (!openfs_runtime_init(&runtime)) return 1;
@@ -178,7 +184,7 @@ int main(void)
 #endif
     }
     if (atomic_load_explicit(&worker_entered, memory_order_acquire) == 0) {
-        fprintf(stderr, "runtime worker failed to enter before timeout\\n");
+        fprintf(stderr, "runtime worker failed to enter before timeout\n");
         atomic_store_explicit(&release_worker, 1, memory_order_release);
         join_thread(worker);
         openfs_runtime_destroy(&runtime);
