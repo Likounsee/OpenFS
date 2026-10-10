@@ -351,7 +351,7 @@ int main(void)
 #endif
     }
     assert(atomic_load_explicit(&disk.gate_entered,memory_order_acquire)!=0);
-    unmount_context_t write_unmount={&mount,0,OPENFS_MOUNT_ERROR};
+    unmount_context_t write_unmount={&mount,0,OPENFS_MOUNT_IO_ERROR};
 #if defined(_WIN32)
     uintptr_t write_unmount_thread=_beginthreadex(NULL,0U,unmount_worker,&write_unmount,0U,NULL);
     assert(write_unmount_thread!=0U);
