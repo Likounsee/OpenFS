@@ -72,6 +72,9 @@ int main(void)
         assert(openfs_cow_refcount_set(&dev,&mount.superblock,tx_block,2U)==OPENFS_COW_OK);
         assert(openfs_bitmap_set(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,0)==OPENFS_BITMAP_OK);
         assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+        uint16_t stale_refs=0U;
+        assert(openfs_cow_refcount_inc_tx(&tx,&mount.superblock,tx_block,&stale_refs)==OPENFS_COW_CORRUPT);
+        assert(openfs_cow_refcount_dec_tx(&tx,&mount.superblock,tx_block,&stale_refs)==OPENFS_COW_CORRUPT);
         assert(openfs_free_block_tx(&tx,&mount.superblock,tx_block)==OPENFS_ALLOC_CORRUPT);
         assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
         uint16_t refs=0U;

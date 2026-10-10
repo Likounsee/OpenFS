@@ -3,6 +3,7 @@
 #include <string.h>
 #include "openfs/runtime.h"
 #include "openfs/allocator.h"
+#include "openfs/bitmap.h"
 #include "openfs/extent.h"
 #include "openfs/inode_alloc.h"
 #include "openfs/time.h"
@@ -87,11 +88,60 @@ static openfs_cow_result_t refcount_set_locked(openfs_block_device_t *d,const op
     free(original);free(buf);return r;
 }
 
+static openfs_cow_result_t require_allocated_block(
+    const openfs_block_device_t *d,
+    const openfs_superblock_t *sb,
+    uint64_t block)
+{
+    int allocated = 0;
+    openfs_bitmap_result_t result = openfs_bitmap_test(
+        d, sb->block_bitmap_start, sb->block_bitmap_blocks, block, &allocated);
+    if (result != OPENFS_BITMAP_OK)
+        return result == OPENFS_BITMAP_IO_ERROR
+            ? OPENFS_COW_IO_ERROR : OPENFS_COW_CORRUPT;
+    return allocated ? OPENFS_COW_OK : OPENFS_COW_CORRUPT;
+}
+
 static openfs_cow_result_t tx_device(openfs_transaction_t *t,openfs_block_device_t **out){if(t==NULL||!t->active||out==NULL)return OPENFS_COW_INVALID_ARGUMENT;*out=openfs_transaction_device(t);return *out==NULL?OPENFS_COW_INVALID_ARGUMENT:OPENFS_COW_OK;}
 openfs_cow_result_t openfs_cow_refcount_get_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){if(out==NULL)return OPENFS_COW_INVALID_ARGUMENT;openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;return refcount_get_locked(d,sb,block,out);}
 openfs_cow_result_t openfs_cow_refcount_set_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t value){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;return refcount_set_locked(d,sb,block,value);}
-openfs_cow_result_t openfs_cow_refcount_inc_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;uint16_t current=0U;r=refcount_get_locked(d,sb,block,&current);if(r!=OPENFS_COW_OK)return r;if(current==0U)return OPENFS_COW_CORRUPT;if(current==OPENFS_COW_MAX_REFCOUNT)return OPENFS_COW_OVERFLOW;uint16_t next=(uint16_t)(current+1U);r=refcount_set_locked(d,sb,block,next);if(out!=NULL&&r==OPENFS_COW_OK)*out=next;return r;}
-openfs_cow_result_t openfs_cow_refcount_dec_tx(openfs_transaction_t*t,const openfs_superblock_t*sb,uint64_t block,uint16_t*out){openfs_block_device_t*d=NULL;openfs_cow_result_t r=tx_device(t,&d);if(r!=OPENFS_COW_OK)return r;uint16_t current=0U;r=refcount_get_locked(d,sb,block,&current);if(r!=OPENFS_COW_OK)return r;if(current==0U)return OPENFS_COW_CORRUPT;uint16_t next=(uint16_t)(current-1U);r=refcount_set_locked(d,sb,block,next);if(out!=NULL&&r==OPENFS_COW_OK)*out=next;return r;}
+openfs_cow_result_t openfs_cow_refcount_inc_tx(
+    openfs_transaction_t *t, const openfs_superblock_t *sb,
+    uint64_t block, uint16_t *out)
+{
+    openfs_block_device_t *d = NULL;
+    openfs_cow_result_t r = tx_device(t, &d);
+    if (r != OPENFS_COW_OK) return r;
+    uint16_t current = 0U;
+    r = refcount_get_locked(d, sb, block, &current);
+    if (r != OPENFS_COW_OK) return r;
+    if (current == 0U) return OPENFS_COW_CORRUPT;
+    r = require_allocated_block(d, sb, block);
+    if (r != OPENFS_COW_OK) return r;
+    if (current == OPENFS_COW_MAX_REFCOUNT) return OPENFS_COW_OVERFLOW;
+    uint16_t next = (uint16_t)(current + 1U);
+    r = refcount_set_locked(d, sb, block, next);
+    if (out != NULL && r == OPENFS_COW_OK) *out = next;
+    return r;
+}
+openfs_cow_result_t openfs_cow_refcount_dec_tx(
+    openfs_transaction_t *t, const openfs_superblock_t *sb,
+    uint64_t block, uint16_t *out)
+{
+    openfs_block_device_t *d = NULL;
+    openfs_cow_result_t r = tx_device(t, &d);
+    if (r != OPENFS_COW_OK) return r;
+    uint16_t current = 0U;
+    r = refcount_get_locked(d, sb, block, &current);
+    if (r != OPENFS_COW_OK) return r;
+    if (current == 0U) return OPENFS_COW_CORRUPT;
+    r = require_allocated_block(d, sb, block);
+    if (r != OPENFS_COW_OK) return r;
+    uint16_t next = (uint16_t)(current - 1U);
+    r = refcount_set_locked(d, sb, block, next);
+    if (out != NULL && r == OPENFS_COW_OK) *out = next;
+    return r;
+}
 
 openfs_cow_result_t openfs_cow_refcount_get(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t *out)
 {
@@ -108,37 +158,53 @@ openfs_cow_result_t openfs_cow_refcount_set(openfs_block_device_t *d,const openf
     unlock_cow(sb);return r;
 }
 
-openfs_cow_result_t openfs_cow_refcount_inc(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t *out)
+openfs_cow_result_t openfs_cow_refcount_inc(
+    openfs_block_device_t *d, const openfs_superblock_t *sb,
+    uint64_t block, uint16_t *out)
 {
-    openfs_cow_result_t lr=lock_cow(sb);if(lr!=OPENFS_COW_OK)return lr;
-    uint16_t current=0U;
-    openfs_cow_result_t r=refcount_get_locked(d,sb,block,&current);
-    if(r==OPENFS_COW_OK){
-        if(current==0U)r=OPENFS_COW_CORRUPT;
-        else if(current==OPENFS_COW_MAX_REFCOUNT)r=OPENFS_COW_OVERFLOW;
-        else{
-            uint16_t next=(uint16_t)(current+1U);
-            r=refcount_set_locked(d,sb,block,next);
-            if(out!=NULL&&r==OPENFS_COW_OK)*out=next;
+    openfs_cow_result_t lr = lock_cow(sb);
+    if (lr != OPENFS_COW_OK) return lr;
+    uint16_t current = 0U;
+    openfs_cow_result_t r = refcount_get_locked(d, sb, block, &current);
+    if (r == OPENFS_COW_OK) {
+        if (current == 0U) r = OPENFS_COW_CORRUPT;
+        else {
+            r = require_allocated_block(d, sb, block);
+            if (r == OPENFS_COW_OK) {
+                if (current == OPENFS_COW_MAX_REFCOUNT) r = OPENFS_COW_OVERFLOW;
+                else {
+                    uint16_t next = (uint16_t)(current + 1U);
+                    r = refcount_set_locked(d, sb, block, next);
+                    if (out != NULL && r == OPENFS_COW_OK) *out = next;
+                }
+            }
         }
     }
-    unlock_cow(sb);return r;
+    unlock_cow(sb);
+    return r;
 }
 
-openfs_cow_result_t openfs_cow_refcount_dec(openfs_block_device_t *d,const openfs_superblock_t *sb,uint64_t block,uint16_t *out)
+openfs_cow_result_t openfs_cow_refcount_dec(
+    openfs_block_device_t *d, const openfs_superblock_t *sb,
+    uint64_t block, uint16_t *out)
 {
-    openfs_cow_result_t lr=lock_cow(sb);if(lr!=OPENFS_COW_OK)return lr;
-    uint16_t current=0U;
-    openfs_cow_result_t r=refcount_get_locked(d,sb,block,&current);
-    if(r==OPENFS_COW_OK){
-        if(current==0U)r=OPENFS_COW_CORRUPT;
-        else{
-            uint16_t next=(uint16_t)(current-1U);
-            r=refcount_set_locked(d,sb,block,next);
-            if(out!=NULL&&r==OPENFS_COW_OK)*out=next;
+    openfs_cow_result_t lr = lock_cow(sb);
+    if (lr != OPENFS_COW_OK) return lr;
+    uint16_t current = 0U;
+    openfs_cow_result_t r = refcount_get_locked(d, sb, block, &current);
+    if (r == OPENFS_COW_OK) {
+        if (current == 0U) r = OPENFS_COW_CORRUPT;
+        else {
+            r = require_allocated_block(d, sb, block);
+            if (r == OPENFS_COW_OK) {
+                uint16_t next = (uint16_t)(current - 1U);
+                r = refcount_set_locked(d, sb, block, next);
+                if (out != NULL && r == OPENFS_COW_OK) *out = next;
+            }
         }
     }
-    unlock_cow(sb);return r;
+    unlock_cow(sb);
+    return r;
 }
 
 static openfs_cow_result_t cow_lock_inode(const openfs_superblock_t *sb)
