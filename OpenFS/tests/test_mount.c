@@ -643,6 +643,38 @@ static void replay_retry_after_applied_write_reports_error(void)
     free(d.bytes);
 }
 
+static void replay_retry_after_validation_flush_failure(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4FU,0x56U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;assert(openfs_read_superblock(&v,&sb)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;assert(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_OK);
+    uint64_t target=sb.data_start+24U,tx=0U;
+    uint8_t payload[4096U];for(size_t i=0U;i<sizeof(payload);i++)payload[i]=(uint8_t)(i*17U+11U);
+    assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&j,&v,tx,target,payload)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+    memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);
+
+    /* Fail the validation-only replay flush: no home-block write may occur. */
+    d.fail_flush_at=d.flushes+1U;
+    openfs_mount_t failed={0};
+    assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
+    assert(d.flushes==d.fail_flush_at);
+    uint8_t zero[4096U]={0};
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),zero,sizeof(zero))==0);
+
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
 static void replay_retry_after_replay_flush_failure(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
@@ -863,7 +895,7 @@ static void malformed_later_replay_payload_does_not_publish_earlier_blocks(void)
 
 int main(void){
     malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
-    replay_retry_after_applied_write_reports_error();replay_retry_after_replay_flush_failure();
+    replay_retry_after_applied_write_reports_error();replay_retry_after_validation_flush_failure();replay_retry_after_replay_flush_failure();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  concurrent_handle_close_unmount_regression();
