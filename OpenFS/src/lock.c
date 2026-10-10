@@ -113,7 +113,7 @@ openfs_lock_result_t openfs_rwlock_read_lock(openfs_rwlock_t*l,openfs_lock_rank_
 openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
-    int recursive=(rank_is_top(l)&&rwlock_writer_is_top(l));
+    int recursive=(rank_is_top(l)&&rwlock_writer_is_top(l)&&rank_top_matches(l,rank));
     if(rwlock_writer_contains(l)&&!recursive)return OPENFS_LOCK_DEADLOCK;
 #else
     int recursive=0;
@@ -149,7 +149,7 @@ openfs_lock_result_t openfs_rwlock_try_read_lock(openfs_rwlock_t*l,openfs_lock_r
 openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_rank_t rank){
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
-    int recursive=(rank_is_top(l)&&rwlock_writer_is_top(l));
+    int recursive=(rank_is_top(l)&&rwlock_writer_is_top(l)&&rank_top_matches(l,rank));
     if(rwlock_writer_contains(l)&&!recursive)return OPENFS_LOCK_DEADLOCK;
 #else
     int recursive=0;
