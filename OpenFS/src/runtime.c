@@ -49,7 +49,7 @@ static runtime_registry_entry_t *runtime_registry;
 static int runtime_lifecycle_lock(void)
 {
     if(!runtime_lifecycle_ensure())return 0;
-    return openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK;
+    return openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_OK;
 }
 
 static void runtime_lifecycle_unlock(void)
@@ -91,7 +91,7 @@ int openfs_runtime_enter(openfs_runtime_t *r)
     }
     if(tls_runtime!=NULL)return 0;
     if(!runtime_lifecycle_ensure())return 0;
-    if(openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    if(openfs_mutex_lock(&runtime_lifecycle_guard,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK)return 0;
     if(!runtime_registry_contains(r)){
         (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
         return 0;
