@@ -32,6 +32,7 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 ## 2. P0 — Fiabilité, correction et récupération
 
 ### P0-001 — Audit de verrous et cycle de vie
+- **Correctif ajouté (commit `41acf4c17c962fb60257579700f49e207279bc51`) :** le chemin Windows du rwlock suit désormais les acquisitions writer récursives avec une pile TLS au lieu de lire `writer`/`write_depth` avant l’acquisition du SRWLOCK. Le test existant couvre le writer récursif et `try_write_lock` récursif sous Windows ; exécution non vérifiée ici.
 - **Priorité :** critique. **Statut :** En cours — couverture lifecycle renforcée, audit global non terminé.
 - **Problème :** runtime admission, locks par domaine et handles existent, mais toutes les interleavings et voies de sortie ne sont pas prouvées ; une inversion de verrou de rename a déjà existé.
 - **Fichiers :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, `tests/test_runtime_lifecycle.c`, tests concurrency/lifecycle.
