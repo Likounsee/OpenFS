@@ -666,6 +666,16 @@ static void checkpoint_double_flush_failure_requires_recovery(void)
     assert(memcmp(before,d.bytes+(size_t)(sb.journal_start*d.block_size),journal_bytes)==0);
     assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
 
+    /* Once I/O recovers, the committed transaction must remain replayable. */
+    d.fail_flush_at=0U;
+    d.fail_flush_at2=0U;
+    openfs_mount_t recovered;
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+
     free(before);free(d.bytes);
 }
 
