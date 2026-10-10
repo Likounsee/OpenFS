@@ -96,6 +96,7 @@ int main(void)
     test_thread_t worker;
     test_thread_t shutdown;
     int admission_closed = 0;
+    int concurrent_shutdown_rejected = 0;
 
     atomic_init(&worker_entered, 0);
     atomic_init(&release_worker, 0);
@@ -168,11 +169,20 @@ int main(void)
 #endif
     }
 
+    /*
+     * Once admission is closed, a second shutdown must be rejected rather
+     * than racing the first shutdown's drain/destruction path.
+     */
+    if (admission_closed) {
+        concurrent_shutdown_rejected =
+            openfs_runtime_shutdown_if_unused(&runtime) == 0;
+    }
+
     atomic_store_explicit(&release_worker, 1, memory_order_release);
     join_thread(worker);
     join_thread(shutdown);
 
-    if (!admission_closed ||
+    if (!admission_closed || !concurrent_shutdown_rejected ||
         atomic_load_explicit(&shutdown_done, memory_order_acquire) != 1 ||
         atomic_load_explicit(&shutdown_result, memory_order_acquire) != 1) {
         fprintf(stderr, "runtime shutdown did not close admission and drain active users\n");
