@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 #include "openfs/mount.h"
 #include "openfs/crc32c.h"
 #include "openfs/fsck.h"
@@ -80,6 +81,112 @@ static void unmount_open_handle_regression(void)
     assert(openfs_fd_close(h)==OPENFS_FD_CLOSED);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
     free(d.bytes);
+}
+
+
+typedef struct {
+    openfs_file_handle_t *handle;
+    atomic_int *start;
+    openfs_fd_result_t result;
+} close_race_context_t;
+
+typedef struct {
+    openfs_mount_t *mount;
+    atomic_int *start;
+    openfs_mount_result_t result;
+} unmount_race_context_t;
+
+#if defined(_WIN32)
+static unsigned __stdcall close_race_worker(void *arg)
+#else
+static void *close_race_worker(void *arg)
+#endif
+{
+    close_race_context_t *ctx=(close_race_context_t *)arg;
+    while(atomic_load_explicit(ctx->start,memory_order_acquire)==0) {
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+    ctx->result=openfs_fd_close(ctx->handle);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall unmount_race_worker(void *arg)
+#else
+static void *unmount_race_worker(void *arg)
+#endif
+{
+    unmount_race_context_t *ctx=(unmount_race_context_t *)arg;
+    while(atomic_load_explicit(ctx->start,memory_order_acquire)==0) {
+#if defined(_WIN32)
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+    ctx->result=openfs_unmount(ctx->mount);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+/* Race final handle release against unmount. Either unmount observes the
+ * live handle and asks the caller to retry, or it observes the completed
+ * release and succeeds. Both outcomes must avoid use-after-free/double-close. */
+static void concurrent_handle_close_unmount_regression(void)
+{
+    for(unsigned iteration=0U;iteration<32U;iteration++) {
+        disk_t d={.block_size=4096U,.block_count=128U};
+        d.bytes=calloc((size_t)d.block_count,d.block_size);
+        assert(d.bytes!=NULL);
+        openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+        uint8_t uuid[16]={0xB1U,(uint8_t)iteration};
+        assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+        openfs_mount_t m;
+        assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
+        openfs_file_handle_t *handle=NULL;
+        assert(openfs_fd_open(&v,&m.superblock,"/close-race",
+            OPENFS_FD_CREAT|OPENFS_FD_RDWR,OPENFS_INODE_MODE_REGULAR|0644U,
+            &handle)==OPENFS_FD_OK);
+
+        atomic_int start;
+        atomic_init(&start,0);
+        close_race_context_t close_ctx={handle,&start,OPENFS_FD_INVALID_ARGUMENT};
+        unmount_race_context_t unmount_ctx={&m,&start,OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+        uintptr_t close_id=_beginthreadex(NULL,0U,close_race_worker,&close_ctx,0U,NULL);
+        uintptr_t unmount_id=_beginthreadex(NULL,0U,unmount_race_worker,&unmount_ctx,0U,NULL);
+        assert(close_id!=0U&&unmount_id!=0U);
+        HANDLE close_thread=(HANDLE)close_id, unmount_thread=(HANDLE)unmount_id;
+        atomic_store_explicit(&start,1,memory_order_release);
+        assert(WaitForSingleObject(close_thread,60000U)==WAIT_OBJECT_0);
+        assert(WaitForSingleObject(unmount_thread,60000U)==WAIT_OBJECT_0);
+        CloseHandle(close_thread);CloseHandle(unmount_thread);
+#else
+        pthread_t close_thread,unmount_thread;
+        assert(pthread_create(&close_thread,NULL,close_race_worker,&close_ctx)==0);
+        assert(pthread_create(&unmount_thread,NULL,unmount_race_worker,&unmount_ctx)==0);
+        atomic_store_explicit(&start,1,memory_order_release);
+        assert(pthread_join(close_thread,NULL)==0);
+        assert(pthread_join(unmount_thread,NULL)==0);
+#endif
+        assert(close_ctx.result==OPENFS_FD_OK);
+        assert(unmount_ctx.result==OPENFS_MOUNT_OK ||
+               unmount_ctx.result==OPENFS_MOUNT_IO_ERROR);
+        if(unmount_ctx.result==OPENFS_MOUNT_IO_ERROR)
+            assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+        free(d.bytes);
+    }
 }
 
 static void runtime_shutdown_handle_admission_regression(void)
@@ -699,6 +806,8 @@ int main(void){
     malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
+ concurrent_handle_close_unmount_regression();
+ runtime_admission_unmount_barrier_regression();
  runtime_shutdown_handle_admission_regression();
  concurrent_runtime_destroy_regression();
  concurrent_cow_refcount_update_regression();
