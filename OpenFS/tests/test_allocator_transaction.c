@@ -9,6 +9,12 @@
 #include "openfs/bitmap.h"
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
+#if defined(_WIN32)
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
+#endif
 
 typedef struct {
     uint8_t *bytes;
@@ -36,6 +42,35 @@ static openfs_io_result_t wr(void *ctx,uint64_t first,uint32_t count,const void 
 }
 
 static openfs_io_result_t fl(void *ctx){(void)ctx;return OPENFS_IO_OK;}
+
+
+#define ALLOC_RACE_THREADS 4U
+#define ALLOC_RACE_PER_THREAD 4U
+
+typedef struct {
+    openfs_block_device_t *device;
+    openfs_superblock_t *superblock;
+    openfs_alloc_result_t results[ALLOC_RACE_PER_THREAD];
+    uint64_t blocks[ALLOC_RACE_PER_THREAD];
+} allocation_race_context_t;
+
+#if defined(_WIN32)
+static unsigned __stdcall allocation_race_worker(void *arg)
+#else
+static void *allocation_race_worker(void *arg)
+#endif
+{
+    allocation_race_context_t *ctx=(allocation_race_context_t *)arg;
+    for(unsigned i=0U;i<ALLOC_RACE_PER_THREAD;i++) {
+        ctx->blocks[i]=UINT64_MAX;
+        ctx->results[i]=openfs_alloc_block(ctx->device,ctx->superblock,&ctx->blocks[i]);
+    }
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
 
 int main(void)
 {
@@ -88,6 +123,48 @@ int main(void)
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
     if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t refs=99U;assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==0U);}
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
+
+    /* Contend the runtime allocation + transaction locks from real threads.
+     * Every successful reservation must be unique and safely releasable. */
+    allocation_race_context_t allocation_contexts[ALLOC_RACE_THREADS];
+#if defined(_WIN32)
+    HANDLE allocation_threads[ALLOC_RACE_THREADS];
+    for(unsigned i=0U;i<ALLOC_RACE_THREADS;i++) {
+        memset(&allocation_contexts[i],0,sizeof(allocation_contexts[i]));
+        allocation_contexts[i].device=&dev;
+        allocation_contexts[i].superblock=&mount.superblock;
+        uintptr_t thread=_beginthreadex(NULL,0U,allocation_race_worker,&allocation_contexts[i],0U,NULL);
+        assert(thread!=0U);
+        allocation_threads[i]=(HANDLE)thread;
+    }
+    assert(WaitForMultipleObjects(ALLOC_RACE_THREADS,allocation_threads,TRUE,60000U)==WAIT_OBJECT_0);
+    for(unsigned i=0U;i<ALLOC_RACE_THREADS;i++)CloseHandle(allocation_threads[i]);
+#else
+    pthread_t allocation_threads[ALLOC_RACE_THREADS];
+    for(unsigned i=0U;i<ALLOC_RACE_THREADS;i++) {
+        memset(&allocation_contexts[i],0,sizeof(allocation_contexts[i]));
+        allocation_contexts[i].device=&dev;
+        allocation_contexts[i].superblock=&mount.superblock;
+        assert(pthread_create(&allocation_threads[i],NULL,allocation_race_worker,&allocation_contexts[i])==0);
+    }
+    for(unsigned i=0U;i<ALLOC_RACE_THREADS;i++)assert(pthread_join(allocation_threads[i],NULL)==0);
+#endif
+    for(unsigned t=0U;t<ALLOC_RACE_THREADS;t++) {
+        for(unsigned i=0U;i<ALLOC_RACE_PER_THREAD;i++) {
+            assert(allocation_contexts[t].results[i]==OPENFS_ALLOC_OK);
+            assert(allocation_contexts[t].blocks[i]>=mount.superblock.data_start);
+            assert(allocation_contexts[t].blocks[i]<mount.superblock.data_start+mount.superblock.data_blocks);
+            for(unsigned pt=0U;pt<=t;pt++) {
+                unsigned limit=pt==t?i:ALLOC_RACE_PER_THREAD;
+                for(unsigned pi=0U;pi<limit;pi++)
+                    assert(allocation_contexts[t].blocks[i]!=allocation_contexts[pt].blocks[pi]);
+            }
+        }
+    }
+    for(unsigned t=0U;t<ALLOC_RACE_THREADS;t++)
+        for(unsigned i=0U;i<ALLOC_RACE_PER_THREAD;i++)
+            assert(openfs_free_block(&dev,&mount.superblock,allocation_contexts[t].blocks[i])==OPENFS_ALLOC_OK);
+
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
     return 0;
