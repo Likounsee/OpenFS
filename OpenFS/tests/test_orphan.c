@@ -12,6 +12,8 @@
 #include "openfs/mount.h"
 #include "openfs/orphan.h"
 #include "openfs/xattr.h"
+#include "openfs/file.h"
+#include "openfs/extent.h"
 #include "openfs/cow.h"
 #include "openfs/path.h"
 
@@ -70,12 +72,19 @@ static void test_mount_recovery(openfs_block_device_t *dev,openfs_superblock_t *
 {
     uint64_t ino=0U;
     assert(openfs_path_create(dev,sb,"/crash-orphan",OPENFS_INODE_MODE_REGULAR|0644U,&ino)==OPENFS_PATH_OK);
+    openfs_inode_t target;
+    assert(openfs_inode_read(dev,sb->inode_table_start,ino,inode_count(sb),&target)==OPENFS_INODE_OK);
+    assert(openfs_file_write(dev,sb,&target,0U,"orphan-data",11U)==OPENFS_FILE_OK);
     assert(openfs_xattr_set(dev,sb,ino,"user.recovery","orphan-value",12U,OPENFS_XATTR_CREATE)==OPENFS_XATTR_OK);
-    openfs_inode_t parent,target;
+    openfs_inode_t parent;
     assert(openfs_inode_read(dev,sb->inode_table_start,sb->root_inode,inode_count(sb),&parent)==OPENFS_INODE_OK);
     assert(openfs_inode_read(dev,sb->inode_table_start,ino,inode_count(sb),&target)==OPENFS_INODE_OK);
     uint64_t xattr_block=openfs_inode_get_xattr_block(&target);
     assert(xattr_block!=0U);
+    openfs_extent_t data_extent;
+    assert(openfs_inode_get_extent(&target,0U,&data_extent)==OPENFS_EXTENT_OK);
+    uint64_t data_block=data_extent.physical_start;
+    assert(data_block!=0U);
     assert(openfs_dir_remove(dev,sb,&parent,"crash-orphan")==OPENFS_DIR_OK);
     target.link_count=0U;
     target.flags|=OPENFS_INODE_FLAG_ORPHAN;
@@ -96,8 +105,11 @@ static void test_mount_recovery(openfs_block_device_t *dev,openfs_superblock_t *
     assert(openfs_mount(&m,dev)==OPENFS_MOUNT_OK);
     int used=1;
     assert(openfs_bitmap_test(dev,m.superblock.inode_bitmap_start,m.superblock.inode_bitmap_blocks,ino-1U,&used)==OPENFS_BITMAP_OK&&used==0);
+    assert(openfs_bitmap_test(dev,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,data_block,&used)==OPENFS_BITMAP_OK&&used==0);
     assert(openfs_bitmap_test(dev,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,xattr_block,&used)==OPENFS_BITMAP_OK&&used==0);
     uint16_t refs=1U;
+    assert(openfs_cow_refcount_get(dev,&m.superblock,data_block,&refs)==OPENFS_COW_OK&&refs==0U);
+    refs=1U;
     assert(openfs_cow_refcount_get(dev,&m.superblock,xattr_block,&refs)==OPENFS_COW_OK&&refs==0U);
     uint64_t errors=0U;
     assert(openfs_fsck(dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);

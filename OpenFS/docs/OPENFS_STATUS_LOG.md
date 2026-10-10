@@ -1,9 +1,15 @@
+# 2026-10-10 — P0: cover orphan data extents during post-COMMIT recovery
+
+- **REGRESSION EXPANSION** — `OpenFS/tests/test_orphan.c` now gives the orphan both a real data extent and an xattr block. After injecting the first home-write failure following durable COMMIT, a second mount must release the inode bit, data-block bit/refcount, and xattr-block bit/refcount; FSCK must still report zero errors.
+- **Validation** — pending a fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI run for this stronger regression.
+
+---
 # 2026-10-10 — P0: make orphan reclamation journal-atomic
 
 - **AUDIT FINDING** — \`openfs_orphan_reclaim()\` previously truncated an orphan's file data, wrote the inode as FREE, and only then freed the inode bitmap bit in separate operations. A crash between these writes could leave an allocated inode bitmap bit pointing at a FREE inode, which orphan recovery then skipped. It also discarded the inode's xattr-block pointer without freeing that data block.
 - **FIX** — mounted-runtime reclamation now holds the inode/allocation/transaction locks and stages file truncation, xattr-block release, FREE-inode generation advance, and inode-bitmap release in one journal transaction. The unmounted compatibility path also explicitly releases the xattr block and rejects attempts to reclaim the root inode.
 - **REGRESSION** — \`OpenFS/tests/test_orphan.c\` creates an orphan with an xattr block, injects a home-block write error immediately after its durable COMMIT, asserts the first mount fails, then remounts and checks the inode and xattr block are both freed and FSCK is clean.
-- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+- **Validation** — [CI run 38062468322](https://github.com/Likounsee/OpenFS/actions/runs/38062468322) passed GCC/Clang Debug and Release, both ASan/UBSan jobs, and Windows Debug/Release for commit `5850ff5`.
 
 ---
 
