@@ -10,11 +10,11 @@ OpenFS is **not release-ready yet**. Development is intentionally incremental: a
 
 ---
 
-## P0 reliability status — 2026-10-09
+## P0 reliability status — 2026-10-10
 
-**Estimated progress: approximately 55% of the P0 work completed.** This is a rough engineering estimate based on the remaining roadmap items and the fixes/tests recorded in the development log; it is not a test pass rate, a formal completion metric, or a release-readiness claim.
+**Estimated progress: approximately 55% of the P0 work completed.** This is a rough engineering estimate based on the remaining roadmap items and the fixes/tests recorded in the development log; it is not a test pass rate, a formal completion metric, or a release-readiness claim. Treat this current section as the present estimate; higher percentages in older log entries are historical checkpoints from narrower scopes and do not override this status.
 
-Recent work has focused on runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, and cancellation of blocked file-lock waiters during runtime shutdown. Regression tests have been added for several of these paths, including shutdown while a conflicting lock request is blocked.
+Recent work has hardened runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, CoW free validation, and FSCK refcount-repair ownership preflight. Regression coverage now includes shutdown while a conflicting lock request is blocked, refusal to free a CoW block whose bitmap says it is already free, and refusal to repair refcounts when bitmap allocation disagrees with inode-derived ownership.
 
 ### P0 work still blocking completion
 

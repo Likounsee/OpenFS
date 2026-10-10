@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: non-transactional CoW free and FSCK ownership regression coverage
+
+- **TEST** — `OpenFS/tests/test_allocator.c`: cover the legacy/non-transactional CoW free path with a deliberately inconsistent free bitmap bit and stale nonzero refcount. Free must report `OPENFS_ALLOC_CORRUPT`, preserve the refcount, and leave the bitmap untouched until the fixture is restored.
+- **TEST** — `OpenFS/tests/test_fsck_refcount_repair.c` now covers the opposite FSCK ownership mismatch as well: an allocated block with no inode-derived owner must be rejected without clearing its allocation bit or refcount.
+- **FIX** — `c0e104f` checks the allocation bitmap before decrementing/freeing a CoW block; `e5be958` preflights bitmap/ownership consistency before FSCK refcount repair.
+- **Validation baseline** — CI run [38054012903](https://github.com/Likounsee/OpenFS/actions/runs/38054012903) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for commit `4a77dbe`. The additional legacy-path regression in the current commit requires its own CI run before it is considered validated.
+
+---
+
 # 2026-10-09 — Correct file-lock test portability include
 
 - **TEST FIX** — `OpenFS/tests/test_file_lock.c`: corrected the include separator between `stdatomic.h` and `time.h`, retaining the POSIX feature-test macro needed to declare `nanosleep`.
