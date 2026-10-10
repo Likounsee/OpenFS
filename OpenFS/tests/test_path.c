@@ -138,8 +138,10 @@ static void rename_over_open_destination_preserves_open_handle(void)
     TEST_ASSERT(openfs_fd_open(&dev,&m.superblock,"/replace-destination",
         OPENFS_FD_RDONLY,0U,&held)==OPENFS_FD_OK);
     TEST_ASSERT(openfs_fd_inode_number(held)==destination_ino);
-    TEST_ASSERT(openfs_path_rename(&dev,&m.superblock,"/replace-source",
-        "/replace-destination")==OPENFS_PATH_OK);
+    openfs_path_result_t rename_result=openfs_path_rename(&dev,&m.superblock,
+        "/replace-source","/replace-destination");
+    if(rename_result!=OPENFS_PATH_OK)fprintf(stderr,"rename-over-open result=%d\\n",(int)rename_result);
+    TEST_ASSERT(rename_result==OPENFS_PATH_OK);
 
     uint64_t resolved=0U;
     TEST_ASSERT(openfs_path_lookup(&dev,&m.superblock,"/replace-source",&resolved)==OPENFS_PATH_NOT_FOUND);
