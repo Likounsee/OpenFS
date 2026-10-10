@@ -42,6 +42,7 @@ static int rank_valid(openfs_lock_rank_t rank){switch(rank){case OPENFS_LOCK_RAN
 static openfs_lock_result_t rank_enter(const void *object,openfs_lock_rank_t rank){if(object==NULL||!rank_valid(rank))return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&rank<lock_stack[lock_depth-1U].rank)return OPENFS_LOCK_DEADLOCK;if(lock_depth>=OPENFS_LOCK_STACK_MAX)return OPENFS_LOCK_DEADLOCK;lock_stack[lock_depth].object=object;lock_stack[lock_depth].rank=rank;++lock_depth;return OPENFS_LOCK_OK;}
 static void rank_cancel(void){if(lock_depth!=0U)--lock_depth;}
 static int rank_is_top(const void *object){return lock_depth!=0U&&lock_stack[lock_depth-1U].object==object;}
+static int rank_top_matches(const void *object,openfs_lock_rank_t rank){return rank_is_top(object)&&lock_stack[lock_depth-1U].rank==rank;}
 static int rank_contains(const void *object){for(unsigned i=0U;i<lock_depth;i++)if(lock_stack[i].object==object)return 1;return 0;}
 static openfs_lock_result_t rank_leave(const void *object){if(!rank_is_top(object))return OPENFS_LOCK_DEADLOCK;--lock_depth;return OPENFS_LOCK_OK;}
 openfs_lock_result_t openfs_mutex_init(openfs_mutex_t*m){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;memset(m,0,sizeof(*m));
@@ -58,7 +59,7 @@ if(mi(m)->depth!=0U)return OPENFS_LOCK_ERROR;DeleteCriticalSection(&mi(m)->nativ
 if(mi(m)->owned||mi(m)->depth!=0U)return OPENFS_LOCK_ERROR;return pthread_mutex_destroy(&mi(m)->native)==0?OPENFS_LOCK_OK:OPENFS_LOCK_ERROR;
 #endif
 }
-openfs_lock_result_t openfs_mutex_lock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;if(rank_contains(m)&&!rank_is_top(m)){if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_DEADLOCK;}openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
+openfs_lock_result_t openfs_mutex_lock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;if((rank_contains(m)&&!rank_is_top(m))||(rank_is_top(m)&&!rank_top_matches(m,rank))){if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_DEADLOCK;}openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
 #if defined(_WIN32)
 EnterCriticalSection(&mi(m)->native);mi(m)->owner=lock_thread_id();mi(m)->depth++;return OPENFS_LOCK_OK;
 #else
