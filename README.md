@@ -115,11 +115,11 @@ These are the highest priority. Advanced features must not be built on top of un
 - [ ] Verify lock ordering and recursive call paths.
 - [ ] Detect and eliminate lock-order inversions.
 - [ ] Close multi-step namespace TOCTOU windows.
-- [ ] Stress concurrent create/remove/rename.
-- [ ] Stress concurrent read/write/truncate.
-- [ ] Stress concurrent hard-link/symlink operations.
-- [ ] Stress concurrent CoW/refcount operations.
-- [ ] Test unmount/lifetime races.
+- [x] Stress concurrent create/remove/rename (regression coverage exists; full matrix validation still required).
+- [x] Stress concurrent read/write/truncate (regression coverage exists; full matrix validation still required).
+- [x] Stress concurrent hard-link operations; symlink concurrency still needs explicit coverage.
+- [x] Stress concurrent CoW/refcount operations (regression coverage exists; full matrix validation still required).
+- [x] Test runtime shutdown/lifetime races; broader mount/unmount race coverage remains open.
 - [ ] Test concurrent snapshots with active writers once snapshots exist.
 
 The existing locking layer is deliberately conservative. Finer-grained locking may be introduced later, but correctness comes first.
@@ -129,10 +129,10 @@ The existing locking layer is deliberately conservative. Finer-grained locking m
 - [ ] Audit every BEGIN/DATA/COMMIT/checkpoint transition.
 - [ ] Test partial journal writes.
 - [ ] Test partial flushes.
-- [ ] Test corrupted journal records.
+- [x] Test corrupted journal records, including orphan DATA and mismatched COMMIT ownership.
 - [ ] Test interrupted checkpointing.
 - [ ] Test abandoned transactions.
-- [ ] Test true transaction interleaving/corruption.
+- [ ] Complete true transaction-interleaving/corruption coverage beyond current BEGIN/DATA/COMMIT ownership checks.
 - [ ] Preserve a sticky recovery-required state when appropriate.
 - [ ] Verify rollback state after rollback failure.
 - [ ] Verify remount/replay after every injected failure.
@@ -144,8 +144,8 @@ Required ordering:
 
 ### 3. FSCK and repair
 
-- [ ] Separate detection from repair.
-- [ ] Add safe read-only check mode.
+- [ ] Separate detection from repair and document/verify the boundary across all FSCK paths.
+- [x] Provide read-only consistency checking/scrub paths; confirm the full FSCK read-only contract and regression matrix.
 - [ ] Add controlled repair mode.
 - [ ] Validate inode bitmap tails.
 - [ ] Validate block bitmap tails.
@@ -168,8 +168,8 @@ Required ordering:
 - [ ] Define checksum coverage for all persistent metadata.
 - [ ] Add/extend data-integrity checks where appropriate.
 - [ ] Detect silent corruption during reads.
-- [ ] Add scrub support.
-- [ ] Report corrupted objects precisely.
+- [x] Add read-only scrub support (`openfs_scrub_ex`) with block-level issue reporting and continued scanning after localized I/O failures.
+- [x] Report block-level scrub issues; precise higher-level object attribution remains open.
 - [ ] Repair corrupted structures where a safe source exists.
 - [ ] Test corruption at every persistent layer.
 - [ ] Test corruption combined with crash recovery.
