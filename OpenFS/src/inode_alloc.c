@@ -220,12 +220,11 @@ openfs_inode_alloc_result_t openfs_inode_alloc(openfs_block_device_t*d,const ope
     }
     tr=openfs_transaction_commit(&tx);
     if(tr!=OPENFS_TRANSACTION_OK){
-        r=(tx.recovery_required||tr==OPENFS_TRANSACTION_CORRUPT)
-            ?OPENFS_INODE_ALLOC_CORRUPT:map_transaction_result(tr);
+        r=map_transaction_result(tr);
         if(tx.active){
             openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
-            if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_CORRUPT;
-            else if(ar!=OPENFS_TRANSACTION_OK)r=OPENFS_INODE_ALLOC_IO_ERROR;
+            if(ar==OPENFS_TRANSACTION_CORRUPT&&!tx.recovery_required)r=OPENFS_INODE_ALLOC_CORRUPT;
+            else if(ar!=OPENFS_TRANSACTION_OK&&ar!=OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_IO_ERROR;
         }
     }
     (void)openfs_mutex_unlock(&sb->runtime->transaction_lock);(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
@@ -250,12 +249,11 @@ openfs_inode_alloc_result_t openfs_inode_free(openfs_block_device_t*d,const open
     }
     tr=openfs_transaction_commit(&tx);
     if(tr!=OPENFS_TRANSACTION_OK){
-        r=(tx.recovery_required||tr==OPENFS_TRANSACTION_CORRUPT)
-            ?OPENFS_INODE_ALLOC_CORRUPT:map_transaction_result(tr);
+        r=map_transaction_result(tr);
         if(tx.active){
             openfs_transaction_result_t ar=openfs_transaction_abort(&tx);
-            if(ar==OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_CORRUPT;
-            else if(ar!=OPENFS_TRANSACTION_OK)r=OPENFS_INODE_ALLOC_IO_ERROR;
+            if(ar==OPENFS_TRANSACTION_CORRUPT&&!tx.recovery_required)r=OPENFS_INODE_ALLOC_CORRUPT;
+            else if(ar!=OPENFS_TRANSACTION_OK&&ar!=OPENFS_TRANSACTION_CORRUPT)r=OPENFS_INODE_ALLOC_IO_ERROR;
         }
     }
     (void)openfs_mutex_unlock(&sb->runtime->transaction_lock);(void)openfs_mutex_unlock(&sb->runtime->allocation_lock);openfs_runtime_leave(sb->runtime);return r;
