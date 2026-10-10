@@ -67,6 +67,19 @@ int main(void)
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);
     if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){uint16_t refs=0U;assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==1U);}
     assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==1);
+    if((mount.superblock.feature_flags&OPENFS_FEATURE_COW)!=0U){
+        /* A free bitmap bit must never let a stale shared refcount be silently decremented. */
+        assert(openfs_cow_refcount_set(&dev,&mount.superblock,tx_block,2U)==OPENFS_COW_OK);
+        assert(openfs_bitmap_set(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,0)==OPENFS_BITMAP_OK);
+        assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
+        assert(openfs_free_block_tx(&tx,&mount.superblock,tx_block)==OPENFS_ALLOC_CORRUPT);
+        assert(openfs_transaction_abort(&tx)==OPENFS_TRANSACTION_OK);
+        uint16_t refs=0U;
+        assert(openfs_cow_refcount_get(&dev,&mount.superblock,tx_block,&refs)==OPENFS_COW_OK&&refs==2U);
+        assert(openfs_bitmap_test(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,&tx_used)==OPENFS_BITMAP_OK&&tx_used==0);
+        assert(openfs_bitmap_set(&dev,mount.superblock.block_bitmap_start,mount.superblock.block_bitmap_blocks,tx_block,1)==OPENFS_BITMAP_OK);
+        assert(openfs_cow_refcount_set(&dev,&mount.superblock,tx_block,1U)==OPENFS_COW_OK);
+    }
     assert(openfs_transaction_begin(&tx,&dev,&tx_journal)==OPENFS_TRANSACTION_OK);
     assert(openfs_free_block_tx(&tx,&mount.superblock,tx_block)==OPENFS_ALLOC_OK);
     assert(openfs_transaction_commit(&tx)==OPENFS_TRANSACTION_OK);

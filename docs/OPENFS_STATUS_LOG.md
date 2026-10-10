@@ -974,3 +974,10 @@ The blocking infinite loop has a concrete correction. P0 remains open pending fr
 - `OpenFS/tests/test_data_checksum.c` now stages a second data-block mutation and its CRC32C update in one WAL transaction, aborts it, then reads the block through the public file API and verifies every byte remains at the previously committed value. This directly checks that aborted transactional data and checksum changes are not published or mismatched.
 - The existing committed-update, read-time corruption detection, and scrub corruption checks remain unchanged.
 - Validation is pending the fresh GCC, Clang + ASan/UBSan, Release, and Windows CI run for this exact branch head; P0 remains open until that run completes green.
+
+
+# 2026-10-10 — P0 CoW free validates bitmap/refcount agreement
+
+- `OpenFS/src/allocator.c` now checks that a CoW block is marked allocated before decrementing or clearing its reference count in both transactional and legacy free paths. A free bitmap bit paired with a nonzero CoW count is reported as corruption; the transactional path also marks the transaction failed so callers cannot commit a partial free.
+- `OpenFS/tests/test_allocator_transaction.c` injects this inconsistent on-disk state and verifies the free is rejected, abort preserves the stale count, and the normal free path still works after restoring the fixture.
+- Validation is pending CI on the exact branch head; P0 remains open until the run completes green.

@@ -111,6 +111,10 @@ static openfs_alloc_result_t alloc_block_unlocked(openfs_block_device_t*d,const 
 static openfs_alloc_result_t free_block_unlocked(openfs_block_device_t*d,const openfs_superblock_t*sb,uint64_t block)
 {
     if((sb->feature_flags&OPENFS_FEATURE_COW)==0U)return set_block(d,sb,block,0);
+    int used=0;
+    openfs_bitmap_result_t bitmap_result=openfs_bitmap_test(d,sb->block_bitmap_start,sb->block_bitmap_blocks,block,&used);
+    if(bitmap_result!=OPENFS_BITMAP_OK)return bitmap_result==OPENFS_BITMAP_IO_ERROR?OPENFS_ALLOC_IO_ERROR:OPENFS_ALLOC_CORRUPT;
+    if(!used)return OPENFS_ALLOC_CORRUPT;
     uint16_t refs=0U;
     openfs_cow_result_t cr=openfs_cow_refcount_get(d,sb,block,&refs);
     if(cr!=OPENFS_COW_OK)return cr==OPENFS_COW_UNSUPPORTED?set_block(d,sb,block,0):OPENFS_ALLOC_CORRUPT;
@@ -172,6 +176,15 @@ openfs_alloc_result_t openfs_free_block_tx(openfs_transaction_t *t,
         if (result != OPENFS_ALLOC_OK)
             t->failed = 1;
         return result;
+    }
+
+    int used = 0;
+    openfs_bitmap_result_t bitmap_result = openfs_bitmap_test(
+        td, sb->block_bitmap_start, sb->block_bitmap_blocks, block, &used);
+    if (bitmap_result != OPENFS_BITMAP_OK || !used) {
+        t->failed = 1;
+        return bitmap_result == OPENFS_BITMAP_IO_ERROR
+            ? OPENFS_ALLOC_IO_ERROR : OPENFS_ALLOC_CORRUPT;
     }
 
     uint16_t refs = 0U;
