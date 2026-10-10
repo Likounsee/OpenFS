@@ -118,7 +118,7 @@ static void replay_read_failure_does_not_partially_apply(void){
     assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
     uint32_t hits=0U;
     d.read_count=0U;
-    /* Fail late in the one-time snapshot read, after committed DATA was read. */
+    /* Fail in the second scan after the DATA callback would previously have run. */
     d.fail_read_at=s.journal_blocks+4U;
     assert(openfs_journal_replay(&v,&s,cb,&hits)==OPENFS_JOURNAL_IO_ERROR);
     assert(hits==0U);

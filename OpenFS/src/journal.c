@@ -442,7 +442,7 @@ openfs_journal_result_t openfs_journal_mark_recovery_required(openfs_journal_t*j
 }
 openfs_journal_result_t openfs_journal_recover(openfs_journal_t*j,const openfs_block_device_t*d,const openfs_superblock_t*s,openfs_journal_replay_fn cb,void*ctx)
 {
-    if(j==NULL||!openfs_block_device_is_valid(d)||s==NULL||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
+    if(j==NULL||!range(d,s)||cb==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;
     if(j->journal_start!=s->journal_start||j->journal_blocks!=s->journal_blocks||j->block_size!=d->block_size||s->block_size!=d->block_size)return OPENFS_JOURNAL_INVALID_ARGUMENT;
 
     /*

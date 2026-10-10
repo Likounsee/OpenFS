@@ -1,3 +1,11 @@
+# 2026-10-10 — P0: validate recovery arguments before setting the recovery gate
+
+- **AUDIT FINDING** — `openfs_journal_recover()` set `recovery_required` before `openfs_journal_replay()` validated the journal range. An out-of-range device could make replay return `OPENFS_JOURNAL_INVALID_ARGUMENT` while leaving the journal object gated.
+- **FIX** — validate the complete device/superblock journal range up front, before modifying recovery state.
+- **REGRESSION** — the journal test shrinks the advertised device length so its journal range no longer fits, then checks that recovery rejects it without callbacks and without setting the gate; after restoring the device, a transaction must still succeed.
+- **Validation** — pending fresh GCC, Clang/sanitizer, Release and Windows Debug/Release CI for this commit.
+
+---
 # 2026-10-10 — P0: reject undersized journal blocks before CRC access
 
 - **AUDIT FINDING** — \`range()\` accepted any nonzero device block size. A block smaller than \`OPENFS_JOURNAL_HEADER_SIZE\` that begins with the journal magic could reach \`crc_valid()\`, which reads and writes the checksum at offset 28 beyond the allocated block.
