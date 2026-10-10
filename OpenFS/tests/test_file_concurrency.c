@@ -102,6 +102,14 @@ typedef struct {
     openfs_file_result_t result;
 } gated_write_context_t;
 
+typedef struct {
+    openfs_block_device_t *device;
+    openfs_superblock_t *superblock;
+    const char *old_path;
+    const char *new_path;
+    openfs_path_result_t result;
+} gated_rename_context_t;
+
 
 #if defined(_WIN32)
 static unsigned __stdcall gated_file_reader(void *arg)
@@ -131,6 +139,23 @@ static void *gated_file_writer(void *arg)
     memset(block,0xD7,sizeof(block));
     ctx->result=openfs_file_write(ctx->device,ctx->superblock,&ctx->inode,
                                   0U,block,sizeof(block));
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+
+#if defined(_WIN32)
+static unsigned __stdcall gated_path_renamer(void *arg)
+#else
+static void *gated_path_renamer(void *arg)
+#endif
+{
+    gated_rename_context_t *ctx=(gated_rename_context_t *)arg;
+    ctx->result=openfs_path_rename(ctx->device,ctx->superblock,
+                                   ctx->old_path,ctx->new_path);
 #if defined(_WIN32)
     return 0U;
 #else
@@ -393,6 +418,86 @@ int main(void)
     assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
     assert(errors==0U);
 
+    }
+
+
+    /* A rename holds a runtime pin across transactional metadata I/O. Force
+     * it into the block-device callback, close admission via unmount, and
+     * verify teardown waits for publication before remount/FSCK. */
+    for(unsigned rename_cycle=0U;rename_cycle<32U;rename_cycle++){
+        char old_path[64];
+        char new_path[64];
+        (void)snprintf(old_path,sizeof(old_path),"/rename-live-%u",rename_cycle);
+        (void)snprintf(new_path,sizeof(new_path),"/rename-done-%u",rename_cycle);
+        uint64_t rename_inode=0U;
+        assert(openfs_path_create(&device,&mount.superblock,old_path,
+                                  OPENFS_INODE_MODE_REGULAR|0644U,
+                                  &rename_inode)==OPENFS_PATH_OK);
+        gated_rename_context_t rename_ctx={&device,&mount.superblock,
+                                            old_path,new_path,OPENFS_PATH_IO_ERROR};
+        atomic_store_explicit(&disk.gate_entered,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_release,0,memory_order_release);
+        atomic_store_explicit(&disk.gate_enabled,1,memory_order_release);
+#if defined(_WIN32)
+        uintptr_t rename_thread_value=_beginthreadex(NULL,0U,gated_path_renamer,&rename_ctx,0U,NULL);
+        assert(rename_thread_value!=0U);
+        HANDLE rename_thread=(HANDLE)rename_thread_value;
+#else
+        pthread_t rename_thread;
+        assert(pthread_create(&rename_thread,NULL,gated_path_renamer,&rename_ctx)==0);
+#endif
+        for(unsigned spin=0U;spin<10000000U &&
+            atomic_load_explicit(&disk.gate_entered,memory_order_acquire)==0;spin++){
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(atomic_load_explicit(&disk.gate_entered,memory_order_acquire)!=0);
+        unmount_context_t rename_unmount={&mount,0,OPENFS_MOUNT_IO_ERROR};
+#if defined(_WIN32)
+        uintptr_t rename_unmount_value=_beginthreadex(NULL,0U,unmount_worker,&rename_unmount,0U,NULL);
+        assert(rename_unmount_value!=0U);
+        HANDLE rename_unmount_thread=(HANDLE)rename_unmount_value;
+#else
+        pthread_t rename_unmount_thread;
+        assert(pthread_create(&rename_unmount_thread,NULL,unmount_worker,&rename_unmount)==0);
+#endif
+        int rename_admission_accepted=1;
+        for(unsigned spin=0U;spin<10000000U && rename_admission_accepted!=0;spin++){
+            rename_admission_accepted=openfs_runtime_enter(&mount.runtime);
+            if(rename_admission_accepted!=0)openfs_runtime_leave(&mount.runtime);
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+        assert(rename_admission_accepted==0);
+        assert(atomic_load_explicit(&rename_unmount.done,memory_order_acquire)==0);
+        atomic_store_explicit(&disk.gate_release,1,memory_order_release);
+#if defined(_WIN32)
+        assert(WaitForSingleObject(rename_thread,60000U)==WAIT_OBJECT_0);
+        assert(WaitForSingleObject(rename_unmount_thread,60000U)==WAIT_OBJECT_0);
+        CloseHandle(rename_thread);
+        CloseHandle(rename_unmount_thread);
+#else
+        assert(pthread_join(rename_thread,NULL)==0);
+        assert(pthread_join(rename_unmount_thread,NULL)==0);
+#endif
+        atomic_store_explicit(&disk.gate_enabled,0,memory_order_release);
+        assert(rename_ctx.result==OPENFS_PATH_OK);
+        assert(rename_unmount.result==OPENFS_MOUNT_OK);
+        assert(atomic_load_explicit(&rename_unmount.done,memory_order_acquire)!=0);
+        assert(openfs_mount(&mount,&device)==OPENFS_MOUNT_OK);
+        uint64_t observed_inode=0U;
+        assert(openfs_path_lookup(&device,&mount.superblock,old_path,&observed_inode)==OPENFS_PATH_NOT_FOUND);
+        assert(openfs_path_lookup(&device,&mount.superblock,new_path,&observed_inode)==OPENFS_PATH_OK);
+        assert(observed_inode==rename_inode);
+        errors=UINT64_MAX;
+        assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
+        assert(errors==0U);
     }
 
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
