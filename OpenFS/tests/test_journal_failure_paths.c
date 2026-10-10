@@ -463,6 +463,48 @@ static openfs_journal_result_t replay_committed_payload(void *ctx,uint64_t tx,co
     return OPENFS_JOURNAL_OK;
 }
 
+static void test_partial_commit_write_restores_slot_and_can_retry(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x68U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "retryable", 9U) == OPENFS_JOURNAL_OK);
+
+    uint64_t slot = s.journal_start + j.next_record;
+    uint8_t *before = malloc(d.block_size);
+    uint8_t *after = malloc(d.block_size);
+    assert(before != NULL && after != NULL);
+    assert(v.read(v.context, slot, 1U, before) == OPENFS_IO_OK);
+    uint64_t sequence_before = j.sequence;
+    uint64_t records_before = j.next_record;
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 29U;
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(v.read(v.context, slot, 1U, after) == OPENFS_IO_OK);
+    assert(memcmp(before, after, d.block_size) == 0);
+    assert(j.sequence == sequence_before && j.next_record == records_before);
+    assert(j.active_transaction_id == tx && j.recovery_required == 0U);
+
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+    assert(j.active_transaction_id == 0U && j.commit_record_written != 0U);
+    assert(j.next_record == records_before + 1U);
+    assert(openfs_journal_recover(&j, &v, &s, replay_noop, NULL) == OPENFS_JOURNAL_OK);
+    free(after);
+    free(before);
+    free(d.data);
+}
+
 static void test_commit_flush_failure_requires_recovery(void)
 {
     disk_t d = {0};
@@ -940,6 +982,7 @@ int main(void)
     test_failed_transaction_can_be_retired_before_recovery();
     test_recovery_refuses_live_transaction_before_replay();
     test_recovery_holds_runtime_admission_until_replay_finishes();
+    test_partial_commit_write_restores_slot_and_can_retry();
     test_commit_flush_failure_requires_recovery();
     test_reopen_uncommitted_wal_requires_replay();
     test_begin_restore_failure_requires_recovery();
