@@ -34,6 +34,7 @@ static _Thread_local unsigned lock_depth;
 static _Thread_local const void *rwlock_writer_stack[OPENFS_LOCK_STACK_MAX];
 static _Thread_local unsigned rwlock_writer_depth;
 static int rwlock_writer_is_top(const void *object){return rwlock_writer_depth!=0U&&rwlock_writer_stack[rwlock_writer_depth-1U]==object;}
+static int rwlock_writer_contains(const void *object){for(unsigned i=0U;i<rwlock_writer_depth;i++)if(rwlock_writer_stack[i]==object)return 1;return 0;}
 static int rwlock_writer_push(const void *object){if(rwlock_writer_depth>=OPENFS_LOCK_STACK_MAX)return 0;rwlock_writer_stack[rwlock_writer_depth++]=object;return 1;}
 static int rwlock_writer_pop(const void *object){if(!rwlock_writer_is_top(object))return 0;rwlock_writer_stack[--rwlock_writer_depth]=NULL;return 1;}
 #endif
@@ -107,6 +108,7 @@ openfs_lock_result_t openfs_rwlock_write_lock(openfs_rwlock_t*l,openfs_lock_rank
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
     int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&rwlock_writer_is_top(l));
+    if(rwlock_writer_contains(l)&&!recursive)return OPENFS_LOCK_DEADLOCK;
 #else
     int recursive=0;
 #endif
@@ -142,6 +144,7 @@ openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_
     if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;
 #if defined(_WIN32)
     int recursive=(lock_depth!=0U&&lock_stack[lock_depth-1U].object==l&&rwlock_writer_is_top(l));
+    if(rwlock_writer_contains(l)&&!recursive)return OPENFS_LOCK_DEADLOCK;
 #else
     int recursive=0;
 #endif
@@ -165,8 +168,8 @@ openfs_lock_result_t openfs_rwlock_try_write_lock(openfs_rwlock_t*l,openfs_lock_
 openfs_lock_result_t openfs_rwlock_unlock(openfs_rwlock_t*l){if(l==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;if(!rank_is_top(l))return OPENFS_LOCK_DEADLOCK;
 #if defined(_WIN32)
 if(rwlock_writer_is_top(l)){
-    if(!rwlock_writer_pop(l))return OPENFS_LOCK_ERROR;
     if(ri(l)->write_depth==0U)return OPENFS_LOCK_ERROR;
+    if(!rwlock_writer_pop(l))return OPENFS_LOCK_ERROR;
     ri(l)->write_depth--;
     if(ri(l)->write_depth==0U){ri(l)->writer=0;ReleaseSRWLockExclusive(&ri(l)->native);}
 }else ReleaseSRWLockShared(&ri(l)->native);
