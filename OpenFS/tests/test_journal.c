@@ -109,7 +109,7 @@ static void replay_rejects_undersized_blocks_before_crc(void){
 }
 
 static void recover_invalid_range_does_not_stick_gate(void){
-    D d={0};d.bs=4096U;v.block_count=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);
+    D d={0};d.bs=4096U;d.bc=256U;d.b=calloc((size_t)d.bs,d.bc);assert(d.b);
     openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};
     uint8_t uuid[16]={38U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
     openfs_superblock_t s;assert(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);
@@ -118,7 +118,7 @@ static void recover_invalid_range_does_not_stick_gate(void){
     v.block_count=s.journal_start+s.journal_blocks-1U;
     assert(openfs_journal_recover(&j,&v,&s,cb,&hits)==OPENFS_JOURNAL_INVALID_ARGUMENT);
     assert(j.recovery_required==0U&&hits==0U);
-    d.bc=256U;
+    v.block_count=256U;
     uint64_t tx=0U;
     assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
     assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
