@@ -199,13 +199,13 @@ int main(void)
             return 1;
         }
         if (!openfs_runtime_enter(&runtime)) {
-            fprintf(stderr, "runtime admission failed at cycle %u\\n", cycle);
+            fprintf(stderr, "runtime admission failed at cycle %u\n", cycle);
             openfs_runtime_destroy(&runtime);
             return 1;
         }
         openfs_runtime_leave(&runtime);
         if (!openfs_runtime_shutdown_if_unused(&runtime)) {
-            fprintf(stderr, "runtime shutdown failed at cycle %u\\n", cycle);
+            fprintf(stderr, "runtime shutdown failed at cycle %u\n", cycle);
             return 1;
         }
     }
