@@ -32,12 +32,12 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 ## 2. P0 — Fiabilité, correction et récupération
 
 ### P0-001 — Audit de verrous et cycle de vie
-- **Priorité :** critique. **Statut :** À auditer.
+- **Priorité :** critique. **Statut :** En cours — couverture lifecycle renforcée, audit global non terminé.
 - **Problème :** runtime admission, locks par domaine et handles existent, mais toutes les interleavings et voies de sortie ne sont pas prouvées ; une inversion de verrou de rename a déjà existé.
-- **Fichiers :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, tests concurrency/lifecycle.
+- **Fichiers :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, `tests/test_runtime_lifecycle.c`, tests concurrency/lifecycle.
 - **Attendu / changements :** cartographier chaque état partagé et chaque acquisition imbriquée ; documenter ordre global ; corriger seulement les violations démontrées ; garantir qu’un runtime/handle ne peut être détruit pendant une opération référencée.
-- **Tests :** barrières déterministes shutdown/unmount contre read/write/rename/close ; contentions allocation/refcount ; TSAN quand disponible.
-- **Acceptation mesurable :** 100 répétitions des scénarios de stress ciblés sans deadlock/corruption ; zéro race TSAN sur la suite compatible ; FSCK propre après chaque run.
+- **Tests :** ajout d’un cas qui vérifie qu’un handle ouvert fait échouer `shutdown_if_unused` sans laisser l’admission fermée, puis vérifie le comptage/libération du handle. Restent à couvrir les barrières déterministes shutdown/unmount contre read/write/rename/close, les contentions allocation/refcount et TSAN quand disponible.
+- **Acceptation mesurable :** 100 répétitions des scénarios de stress ciblés sans deadlock/corruption ; zéro race TSAN sur la suite compatible ; FSCK propre après chaque run. Le nouveau test source n’a pas encore été exécuté dans cet environnement.
 - **Dépendances :** aucune ; bloque la sortie P0.
 
 ### P0-002 — WAL, transactions et doubles défaillances
