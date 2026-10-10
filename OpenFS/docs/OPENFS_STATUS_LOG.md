@@ -3,7 +3,7 @@
 - **AUDIT FINDING** — mounted `openfs_path_create_as()` and `openfs_path_mkdir_as()` committed inode allocation and the parent directory entry first, then wrote `uid/gid` separately. A crash after the first COMMIT could expose a named inode with default ownership.
 - **FIX** — route mounted credential-aware create/mkdir through the existing multi-object journal transaction. Validate parent access through the transaction view, stage the inode and directory entry, and stage the requested `uid/gid` into the newly created inode before COMMIT. Explicit transaction-proxy and unmounted compatibility paths retain their caller-owned behavior.
 - **REGRESSION** — `OpenFS/tests/test_path.c` injects a home-block write failure immediately after COMMIT for both `create_as` and `mkdir_as`, remounts, and verifies the recovered inode retains the requested UID/GID and FSCK remains clean.
-- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+- **Validation** — [CI run 38065877532](https://github.com/Likounsee/OpenFS/actions/runs/38065877532) passed GCC Debug/build/tests, GCC ASan/UBSan, GCC Release build/tests, Clang Debug/build/tests, Clang ASan/UBSan, Clang Release build/tests, and Windows Debug/Release for commit `61daf49`.
 
 ---
 
@@ -12,7 +12,7 @@
 - **AUDIT FINDING** — direct mounted \`openfs_path_create()\` allocated an inode and set its bitmap state before adding the parent directory entry. A failure/crash between those steps could leave an allocated but unreachable inode. \`mkdir\` delegates to the same create path.
 - **FIX** — mounted direct \`create\` and \`mkdir\` now use a single journal transaction with directory → inode → allocation → transaction lock ordering. The inode allocation and parent-directory slot are staged through the transaction device; the output inode number is published only after successful COMMIT. Explicit transaction-proxy and unmounted compatibility callers still use the unlocked path inside their caller's transaction or direct device.
 - **REGRESSION** — \`OpenFS/tests/test_path.c\` injects a home-block write failure immediately after COMMIT for both direct create and direct mkdir. Remount must recover the file/directory and allow a child create; FSCK must remain clean.
-- **Validation** — [CI run 38065377510](https://github.com/Likounsee/OpenFS/actions/runs/38065377510) passed the complete GCC/Clang (including ASan/UBSan and Release) and Windows Debug/Release matrix for commit `bed08b9`. This commit builds on that green baseline; its new UID/GID crash-recovery tests require a fresh full CI run.
+- **Validation** — [CI run 38065377510](https://github.com/Likounsee/OpenFS/actions/runs/38065377510) passed the complete GCC/Clang (including ASan/UBSan and Release) and Windows Debug/Release matrix for commit `bed08b9`.
 
 ---
 
