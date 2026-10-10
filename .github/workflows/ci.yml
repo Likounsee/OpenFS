@@ -77,3 +77,17 @@ jobs:
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Test Release
         run: ctest --test-dir build-windows-release -C Release --output-on-failure --timeout 180
+
+  thread-sanitizer:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      TSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure ThreadSanitizer
+        run: cmake -S OpenFS -B build-tsan -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+      - name: Build ThreadSanitizer tests
+        run: cmake --build build-tsan --parallel
+      - name: Test lock and lifecycle concurrency under ThreadSanitizer
+        run: ctest --test-dir build-tsan --output-on-failure --timeout 180 -R "openfs-(runtime-lifecycle|lock|file-lock|link-concurrency|namespace-concurrency|file-concurrency)$"
