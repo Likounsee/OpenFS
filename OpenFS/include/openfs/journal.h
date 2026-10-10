@@ -16,8 +16,9 @@ typedef struct { uint64_t transaction_id; uint64_t sequence; uint64_t active_tra
  * Replay callbacks must be idempotent. If a callback fails after earlier
  * callbacks succeeded, or the final device flush fails, recovery can invoke
  * those callbacks again on retry. The journal guarantees retry gating, not
- * exactly-once callback side effects. All journal reads are completed before
- * the first callback, so a read failure does not publish a partial replay.
+ * exactly-once callback side effects. The journal is read once into a snapshot
+ * and fully validated before the first callback, so read failures and changes
+ * between device reads cannot publish an unvalidated payload.
  */
 typedef openfs_journal_result_t (*openfs_journal_replay_fn)(void *,uint64_t,const uint8_t *,uint32_t);
 openfs_journal_result_t openfs_journal_open(openfs_journal_t *,const openfs_block_device_t *,const openfs_superblock_t *);

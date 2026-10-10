@@ -1,3 +1,13 @@
+# 2026-10-10 — P0: replay from one validated WAL snapshot
+
+- **AUDIT FINDING** — the previous staging fix prevented callbacks after a later read error, but still validated records from a first read and then re-read them to stage payloads. A device whose returned contents changed between reads could supply a different, CRC-valid DATA payload after transaction structure had already been validated.
+- **FIX** — \`OpenFS/src/journal.c\`: read all journal blocks once into a size-checked in-memory snapshot. Validate transaction sequencing, record CRCs, and ownership from that snapshot, then replay committed DATA directly from the same bytes. There are no journal block reads after validation and before callback publication.
+- **REGRESSION** — \`OpenFS/tests/test_journal.c\` makes the mock device return a changed payload with a recomputed valid CRC on the second read of the DATA slot. Replay must still deliver the original payload read and validated in the snapshot. The read-failure test now injects a late failure in the single snapshot-read pass and verifies that no callback runs.
+- **Memory note** — recovery now requires one allocation sized to the complete journal with multiplication-overflow checks; allocation failure returns an I/O error before callbacks. This is an intentional trade-off for consistent replay input.
+- **Validation** — pending the fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+
+---
+
 # 2026-10-10 — P0: stage WAL replay before callback publication
 
 - **AUDIT FINDING** — `OpenFS/src/journal.c`: replay's second scan used to invoke callbacks inline. A device read failure later in that scan could return `OPENFS_JOURNAL_IO_ERROR` after earlier callbacks had already applied committed DATA records.
