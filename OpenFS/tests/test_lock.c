@@ -182,20 +182,20 @@ int main(void)
 #endif
     assert(openfs_rwlock_destroy(&lock)==OPENFS_LOCK_OK);
 
-#if defined(_WIN32)
-    /* Re-entering a writer lock beneath another held lock must fail rather
-       than trying to reacquire the non-recursive SRWLOCK and hanging. */
-    openfs_rwlock_t low_rank, high_rank;
+    /* Re-entering a rwlock beneath another held lock must fail on every
+       platform instead of depending on native recursive-lock behavior. */
+    openfs_rwlock_t low_rank;
+    openfs_mutex_t high_rank;
     assert(openfs_rwlock_init(&low_rank)==OPENFS_LOCK_OK);
-    assert(openfs_rwlock_init(&high_rank)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_init(&high_rank)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_write_lock(&low_rank,OPENFS_LOCK_RANK_DIRECTORY)==OPENFS_LOCK_OK);
-    assert(openfs_rwlock_write_lock(&high_rank,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&high_rank,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_try_write_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
-    assert(openfs_rwlock_unlock(&high_rank)==OPENFS_LOCK_OK);
+    assert(openfs_rwlock_try_read_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_mutex_unlock(&high_rank)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_unlock(&low_rank)==OPENFS_LOCK_OK);
-    assert(openfs_rwlock_destroy(&high_rank)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&high_rank)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_destroy(&low_rank)==OPENFS_LOCK_OK);
-#endif
 
     /* Contended writer acquisitions must serialize updates on every platform. */
     assert(openfs_rwlock_init(&lock)==OPENFS_LOCK_OK);
