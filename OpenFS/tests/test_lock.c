@@ -192,6 +192,8 @@ int main(void)
     assert(openfs_mutex_lock(&high_rank,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_try_write_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
     assert(openfs_rwlock_try_read_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_rwlock_write_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
+    assert(openfs_rwlock_read_lock(&low_rank,OPENFS_LOCK_RANK_REGISTRY)==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_unlock(&high_rank)==OPENFS_LOCK_OK);
     assert(openfs_rwlock_unlock(&low_rank)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&high_rank)==OPENFS_LOCK_OK);
