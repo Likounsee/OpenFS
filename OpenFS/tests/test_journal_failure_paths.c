@@ -143,6 +143,44 @@ static void test_begin_failure_restores_sequence(void)
 }
 
 
+static void test_begin_partial_write_restores_journal_slot(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x64U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    uint8_t *slot_before = malloc(d.block_size);
+    assert(slot_before != NULL);
+    uint64_t slot = s.journal_start;
+    assert(v.read(v.context, slot, 1U, slot_before) == OPENFS_IO_OK);
+    uint64_t tx = 0U;
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 113U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+    uint8_t *slot_after = malloc(d.block_size);
+    assert(slot_after != NULL);
+    assert(v.read(v.context, slot, 1U, slot_after) == OPENFS_IO_OK);
+    assert(memcmp(slot_before, slot_after, d.block_size) == 0);
+    assert(j.sequence == 0U && j.transaction_id == 0U);
+    assert(j.next_record == 0U && j.active_transaction_id == 0U);
+    assert(j.recovery_required == 0U);
+
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(tx == 1U && j.sequence == 1U);
+    free(slot_after);
+    free(slot_before);
+    free(d.data);
+}
+
 static void test_block_write_partial_failure_is_abortable(void)
 {
     disk_t d = {0};
@@ -790,6 +828,7 @@ int main(void)
 {
     test_data_failure_restores_sequence();
     test_begin_failure_restores_sequence();
+    test_begin_partial_write_restores_journal_slot();
     test_block_write_failure_keeps_partial_transaction_abortable();
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
