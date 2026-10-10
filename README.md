@@ -24,7 +24,7 @@ Recent work has hardened runtime admission and shutdown, file-lock handle lifeti
 - **Integrity:** extend persistent data-integrity coverage, corruption reporting, and scrub/repair capabilities.
 - **Validation:** compile and run the regression suite on supported GCC/Clang and Windows/MSVC configurations, then verify sanitizer and CI results for the current branch head.
 
-**Validation caveat:** the latest file-lock shutdown regression and its portability correction have been committed, but their compilation and execution have not yet been confirmed. Missing CI status/workflow results must not be interpreted as a passing build. OpenFS remains not release-ready until the outstanding P0 issues are fixed and the relevant test matrix passes.
+**Validation:** the file-lock shutdown regression, portability correction, CoW-free consistency checks, and FSCK ownership-preflight tests have now passed the observed GCC, Clang (including sanitizers and Release), and Windows Debug/Release matrix in [CI run 38054328404](https://github.com/Likounsee/OpenFS/actions/runs/38054328404). This validates that code head, not the entire P0 roadmap. OpenFS remains not release-ready until the outstanding recovery/ownership, concurrency, FSCK, and integrity gaps are closed and revalidated.
 
 ---
 

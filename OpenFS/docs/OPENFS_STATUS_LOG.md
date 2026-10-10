@@ -3,7 +3,7 @@
 - **TEST** — `OpenFS/tests/test_allocator.c`: cover the legacy/non-transactional CoW free path with a deliberately inconsistent free bitmap bit and stale nonzero refcount. Free must report `OPENFS_ALLOC_CORRUPT`, preserve the refcount, and leave the bitmap untouched until the fixture is restored.
 - **TEST** — `OpenFS/tests/test_fsck_refcount_repair.c` now covers the opposite FSCK ownership mismatch as well: an allocated block with no inode-derived owner must be rejected without clearing its allocation bit or refcount.
 - **FIX** — `c0e104f` checks the allocation bitmap before decrementing/freeing a CoW block; `e5be958` preflights bitmap/ownership consistency before FSCK refcount repair.
-- **Validation baseline** — CI run [38054012903](https://github.com/Likounsee/OpenFS/actions/runs/38054012903) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for commit `4a77dbe`. The additional legacy-path regression in the current commit requires its own CI run before it is considered validated.
+- **Validation** — CI run [38054328404](https://github.com/Likounsee/OpenFS/actions/runs/38054328404) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for code head `1f3c71af`. Both the transactional and legacy CoW-free corruption regressions passed in the normal test matrix.
 
 ---
 
