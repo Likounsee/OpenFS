@@ -1,9 +1,8 @@
-# 2026-10-10 — P0: retire a transaction when COMMIT write fails before publication
+# 2026-10-10 — P0 audit correction: failed pre-COMMIT remains explicitly abortable
 
-- **AUDIT FINDING** — if writing the WAL COMMIT block failed but restoring the previous journal slot succeeded, \`openfs_transaction_commit()\` returned I/O error after clearing its pending payloads while leaving the transaction active and \`active_transaction_id\` set. A caller that correctly stopped using the failed transaction could permanently block new transactions and recovery.
-- **FIX** — when the journal reports an I/O error and confirms no COMMIT record was written, retire the failed transaction, checkpoint away its uncommitted WAL records, and mark recovery required if that cleanup cannot be completed. Do not publish any pending home blocks.
-- **REGRESSION** — \`OpenFS/tests/test_journal_failure_paths.c\` fails exactly the COMMIT write while allowing slot restoration, verifies the home block remains unchanged, verifies transaction/journal state is no longer stranded, then commits a fresh transaction.
-- **Validation** — pending fresh GCC, Clang/ASan/UBSan, Release, and Windows Debug/Release CI.
+- **AUDIT RESULT** — a COMMIT write that fails before publication, with the original journal slot restored, intentionally leaves the transaction active so its owner can call \`openfs_transaction_abort()\`. \`OpenFS/tests/test_path.c\` asserts this state and then verifies abort restores the journal and preserves the pre-rename namespace.
+- **DISPOSITION** — the trial automatic-retirement change in commit \`2e84b49\` conflicted with this transaction API contract and is reverted. No claim is made that a caller may discard a live transaction object without aborting it. The existing failure-path coverage continues to require an explicit abort and checks the next filesystem state.
+- **VALIDATION** — the trial commit's CI run \`38070933297\` failed in \`openfs-path-test\` precisely because the established active/abortable transaction contract changed. Rerun the full matrix after the revert; do not weaken the existing assertions.
 
 ---
 
