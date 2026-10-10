@@ -3,8 +3,7 @@
 - **Date de l’audit :** 2026-10-10
 - **Branche cible exclusive :** `OpenFS` (aucune modification de `main`, aucune nouvelle branche)
 - **Commit de référence :** `43263f22703e508b3ed9940c0b1c3c310b73a2b6`
-- **CI :** statut inconnu pour ce SHA : les outils de statut et de runs consultés n’ont retourné aucun résultat exploitable.
-- **Exécution :** aucun build ni test n’a été lancé pendant cet audit. Les tests mentionnés ci-dessous sont présents dans les sources/CMake, mais leur réussite sur ce SHA n’est pas affirmée.
+- **CI vérifiée :** le run GitHub Actions `38078250358` sur le SHA `54b88cdc0516a65dc99e97c483fcac8402824780` est terminé avec succès : GCC, Clang et Windows, Debug/Release, tests, ASan/UBSan sur Linux. Les commits correctifs plus récents (`007786e` et `290bfb0`) ont leurs propres runs en attente/en file au moment de cette mise à jour ; ils ne sont pas déclarés validés avant leur conclusion.
 
 Cette roadmap est fondée sur l’inspection du code à la référence ci-dessus. README et journaux de progression ne sont pas utilisés comme preuve d’implémentation. Les fonctions ou champs seuls ne prouvent pas une fonctionnalité de bout en bout.
 
@@ -32,13 +31,13 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 ## 2. P0 — Fiabilité, correction et récupération
 
 ### P0-001 — Audit de verrous et cycle de vie
-- **Correctif ajouté (commit `41acf4c17c962fb60257579700f49e207279bc51`) :** le chemin Windows du rwlock suit désormais les acquisitions writer récursives avec une pile TLS au lieu de lire `writer`/`write_depth` avant l’acquisition du SRWLOCK. Les tests source couvrent le writer récursif et `try_write_lock` récursif sous Windows, et ajoutent huit threads concurrents incrémentant un compteur protégé par rwlock (80 000 acquisitions attendues). Ces tests n’ont pas été exécutés ici.
+- **Correctif ajouté (commit `41acf4c17c962fb60257579700f49e207279bc51`) :** le chemin Windows du rwlock suit désormais les acquisitions writer récursives avec une pile TLS au lieu de lire `writer`/`write_depth` avant l’acquisition du SRWLOCK. Les tests source couvrent le writer récursif et `try_write_lock` récursif sous Windows, huit threads concurrents incrémentant un compteur protégé par rwlock (80 000 acquisitions attendues), ainsi qu’une réentrée de try-write sur un rwlock déjà détenu sous un autre verrou. La matrice complète du run `38078250358` a réussi sur le code précédant ce dernier test de réentrée ; les commits `007786e` et `290bfb0` sont en cours de validation CI.
 - **Priorité :** critique. **Statut :** En cours — couverture lifecycle renforcée, audit global non terminé.
 - **Problème :** runtime admission, locks par domaine et handles existent, mais toutes les interleavings et voies de sortie ne sont pas prouvées ; une inversion de verrou de rename a déjà existé.
 - **Fichiers :** `src/runtime.c`, `src/lock.c`, `src/path.c`, `src/dir.c`, `src/inode.c`, `src/allocator.c`, `src/cow.c`, `src/journal.c`, `src/fd.c`, `src/file_lock.c`, `tests/test_runtime_lifecycle.c`, tests concurrency/lifecycle.
 - **Attendu / changements :** cartographier chaque état partagé et chaque acquisition imbriquée ; documenter ordre global ; corriger seulement les violations démontrées ; garantir qu’un runtime/handle ne peut être détruit pendant une opération référencée.
 - **Tests :** ajout de cas source qui vérifient qu’un handle ouvert fait échouer `shutdown_if_unused` sans laisser l’admission fermée, vérifient le comptage/libération du handle, et rejettent une seconde tentative de shutdown pendant que la première draine les utilisateurs actifs. Le test source couvre aussi 64 cycles successifs init/enter/leave/shutdown pour exercer insertion/retrait du registre runtime ; les diagnostics de ces cycles utilisent désormais des retours à la ligne C normaux. Restent à couvrir les barrières déterministes shutdown/unmount contre read/write/rename/close, les contentions allocation/refcount et TSAN quand disponible.
-- **Acceptation mesurable :** 100 répétitions des scénarios de stress ciblés sans deadlock/corruption ; zéro race TSAN sur la suite compatible ; FSCK propre après chaque run. Le nouveau test source n’a pas encore été exécuté dans cet environnement.
+- **Acceptation mesurable :** 100 répétitions des scénarios de stress ciblés sans deadlock/corruption ; zéro race TSAN sur la suite compatible ; FSCK propre après chaque run. La version initiale du test de contention a réussi dans le run `38078250358` (GCC/Clang Linux Debug et Release, ASan/UBSan, Windows Debug et Release). Le test supplémentaire de réentrée imbriquée attend la conclusion des runs déclenchés par les commits `007786e` et `290bfb0`.
 - **Dépendances :** aucune ; bloque la sortie P0.
 
 ### P0-002 — WAL, transactions et doubles défaillances
@@ -88,7 +87,7 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 
 ### P0-007 — Validation CI au SHA exact
 - **Priorité :** élevée. **Statut :** À faire.
-- **Problème :** le workflow décrit GCC/Clang, ASan/UBSan, Release et Windows Debug/Release ; les outils n’ont fourni aucun statut exploitable pour le commit de référence.
+- **État de validation :** le run `38078250358` a réussi sur le SHA `54b88cdc0516a65dc99e97c483fcac8402824780` pour GCC/Clang, Debug/Release, ASan/UBSan et Windows Debug/Release. La validation doit être répétée sur le HEAD courant, qui contient un correctif additionnel de verrouillage et son test.
 - **Fichiers :** `OpenFS/CMakeLists.txt`, `.github/workflows/ci.yml`, tests du moteur.
 - **Attendu / changements :** exécuter la matrice sur le HEAD ; conserver assertions Release et avertissements ; traiter les échecs sans supprimer/neutraliser les tests.
 - **Tests :** GCC Debug/Release, Clang Debug/Release, ASan/UBSan, Windows Debug/Release.
@@ -262,7 +261,7 @@ Le format disque OpenFS est propriétaire et distinct du format NTFS : cette com
 - **Code récupéré et inspecté :** transactions, journal, runtime, fichiers, namespace, allocation, allocation inode, FSCK/réparation, scrub, CoW/metadata-CoW/root, orphelins, liens, ACL, xattrs, fd, file locks, adaptateur Windows.
 - **Build/CMake/CI inspectés :** `OpenFS/CMakeLists.txt`, `.github/workflows/ci.yml`, `adapters/CMakeLists.txt`.
 - **Tests source inspectés :** WAL/transactions, crash-cut, namespace-crash, double-failure, FSCK/repair, scrub/checksum, handles/orphelins/liens et tests de concurrence déclarés par CMake.
-- **Build/test lancé ici :** aucun.
-- **CI du commit de référence :** inconnue ; aucun statut/run exploitable renvoyé par les outils consultés.
+- **Build/test local lancé par cet assistant :** aucun ; la validation de compilation et des tests est réalisée via GitHub Actions.
+- **CI confirmée :** run `38078250358` réussi sur `54b88cdc0516a65dc99e97c483fcac8402824780` (GCC, Clang, Linux Debug/Release, ASan/UBSan, Windows Debug/Release). Les runs du HEAD plus récent restent à vérifier.
 - **Historique :** 69 commits recensés ; patches de code pertinents inspectés par groupes, mais pas revue ligne par ligne exhaustive de tous les diffs.
 - **Branche de ce document :** `OpenFS` uniquement ; aucune modification de `main` et aucune nouvelle branche.
