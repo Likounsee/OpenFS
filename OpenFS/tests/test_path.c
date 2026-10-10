@@ -121,6 +121,7 @@ static void direct_rename_and_rename_as_post_commit_recovery(void)
     uint64_t src_dir=0U,dst_dir=0U,file_ino=0U;
     TEST_ASSERT(openfs_path_mkdir(&dev,&m.superblock,"/rename-src",&src_dir)==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_path_mkdir(&dev,&m.superblock,"/rename-dst",&dst_dir)==OPENFS_PATH_OK);
+    TEST_ASSERT(openfs_path_chmod(&dev,&m.superblock,"/rename-src",0777U)==OPENFS_PATH_OK);
     TEST_ASSERT(openfs_path_create(&dev,&m.superblock,"/rename-src/item",
         OPENFS_INODE_MODE_REGULAR|0644U,&file_ino)==OPENFS_PATH_OK);
 

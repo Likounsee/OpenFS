@@ -3,7 +3,7 @@
 - **AUDIT FINDING** — mounted \`openfs_path_rename()\` and \`openfs_path_rename_as()\` previously modified source/destination directory blocks and possibly the replacement inode/data through the non-transactional rollback path. A crash after one home write could publish only one side of a cross-directory rename.
 - **FIX** — mounted direct rename now acquires directory → inode → allocation → transaction locks and stages the rename through one WAL transaction. The runtime-free superblock copy and transaction proxy keep directory changes, moved-directory parent metadata, and replacement cleanup in a single commit. Credential-aware rename uses the same transaction boundary after access/sticky-bit checks.
 - **REGRESSION** — \`OpenFS/tests/test_path.c\` injects a home-block write failure immediately after COMMIT for both direct rename and credential-aware rename. After remount, the source is absent, destination is present with the same inode, and FSCK reports zero errors.
-- **Validation** — pending fresh GCC, Clang/ASan/UBSan, Release, and Windows Debug/Release CI for this commit.
+- **Validation** — first CI run `38068074457` passed builds but exposed a test-fixture permissions issue before reaching `rename_as`: the source directory was not writable by test UID 1000. The fixture now explicitly makes that directory writable before creating the owned entry; the post-COMMIT failure/recovery and FSCK assertions remain unchanged. Fresh full CI is pending.
 
 ---
 
