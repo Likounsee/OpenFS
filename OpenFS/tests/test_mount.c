@@ -466,7 +466,8 @@ static void cow_clone_reference_integrity_regression(void)
     free(d.bytes);
 }
 
-static void cow_clone_rollback_failure_is_corruption_regression(void){
+static void cow_clone_replay_retry_after_double_home_failure_regression(void)
+{
     disk_t d={.block_size=4096U,.block_count=256U};d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
     openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};uint8_t uuid[16]={0x4BU};
     assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);openfs_mount_t m;assert(openfs_mount(&m,&v)==OPENFS_MOUNT_OK);
@@ -477,14 +478,35 @@ static void cow_clone_rollback_failure_is_corruption_regression(void){
     assert(openfs_inode_read(&v,m.superblock.inode_table_start,ino,ic,&source)==OPENFS_INODE_OK);
     openfs_extent_t ex;assert(openfs_inode_get_extent(&source,0U,&ex)==OPENFS_EXTENT_OK);
     uint16_t before=0U;assert(openfs_cow_refcount_get(&v,&m.superblock,ex.physical_start,&before)==OPENFS_COW_OK&&before==1U);
-    d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;
+
+    /* First the home refcount block is torn after COMMIT; the next replay attempt also fails. */
+    d.partial_block=m.superblock.refcount_start;d.partial_bytes=1U;d.partial_enabled=1;d.partial_once=1;d.partial_change=0;
     d.fail_write_block=m.superblock.refcount_start;d.fail_write_count=1U;
-    uint64_t clone=0U;openfs_path_result_t result=openfs_path_clone(&v,&m.superblock,"/cow-source-rollback","/cow-rollback-failed",&clone);
-    assert(result==OPENFS_PATH_CORRUPT);
-    d.partial_enabled=0;d.fail_write_count=0U;uint64_t errors=0U;
-    assert(openfs_path_lookup(&v,&m.superblock,"/cow-rollback-failed",&clone)==OPENFS_PATH_NOT_FOUND);
-    assert(openfs_fsck(&v,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
-    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);free(d.bytes);
+    uint64_t clone=0U;
+    assert(openfs_path_clone(&v,&m.superblock,"/cow-source-rollback","/cow-rollback-failed",&clone)==OPENFS_PATH_IO_ERROR);
+    d.partial_enabled=0;
+    assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+
+    openfs_mount_t failed_replay={0};
+    assert(openfs_mount(&failed_replay,&v)==OPENFS_MOUNT_IO_ERROR);
+    assert(d.fail_write_count==0U);
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+
+    uint64_t recovered_source=0U,recovered_clone=0U;
+    assert(openfs_path_lookup(&v,&recovered.superblock,"/cow-source-rollback",&recovered_source)==OPENFS_PATH_OK&&recovered_source==ino);
+    assert(openfs_path_lookup(&v,&recovered.superblock,"/cow-rollback-failed",&recovered_clone)==OPENFS_PATH_OK&&recovered_clone!=recovered_source);
+    uint16_t after=0U;
+    assert(openfs_cow_refcount_get(&v,&recovered.superblock,ex.physical_start,&after)==OPENFS_COW_OK&&after==2U);
+    openfs_inode_t clone_inode;
+    assert(openfs_inode_read(&v,recovered.superblock.inode_table_start,recovered_clone,ic,&clone_inode)==OPENFS_INODE_OK);
+    uint8_t clone_payload[4096U];size_t got=0U;
+    assert(openfs_file_read(&v,&recovered.superblock,&clone_inode,0U,clone_payload,sizeof(clone_payload),&got)==OPENFS_FILE_OK);
+    assert(got==sizeof(payload)&&memcmp(clone_payload,payload,sizeof(payload))==0);
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(d.bytes);
 }
 
 static void replay_failure_is_retryable_and_idempotent(void){
@@ -683,7 +705,7 @@ int main(void){
  cow_clone_reference_integrity_regression();
  allocator_cow_refcount_failure_rollback_regression();
  cow_clone_partial_refcount_commit_recovery_regression();
- cow_clone_rollback_failure_is_corruption_regression();
+ cow_clone_replay_retry_after_double_home_failure_regression();
  cow_clone_extent_tree_regression();
  stale_runtime_admission_is_rejected();
  stale_superblock_is_rejected_after_unmount();
