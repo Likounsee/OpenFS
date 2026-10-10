@@ -291,9 +291,10 @@ int main(void)
     errors=UINT64_MAX;
     assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
     assert(errors==0U);
-    assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
+
     }
 
+    assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
     return 0;
 }
