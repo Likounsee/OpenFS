@@ -137,12 +137,27 @@ int main(void)
         openfs_runtime_destroy(&runtime);
         return 1;
     }
-    while (atomic_load_explicit(&worker_entered, memory_order_acquire) == 0) {
+    /*
+     * Keep a broken worker startup from hanging CI indefinitely. The worker
+     * is expected to publish entry promptly; if it does not, release/join it
+     * before returning so test failures do not leave a live thread behind.
+     */
+    unsigned startup_spins = 0U;
+    while (atomic_load_explicit(&worker_entered, memory_order_acquire) == 0 &&
+           startup_spins < 10000000U) {
+        ++startup_spins;
 #if defined(_WIN32)
         Sleep(0);
 #else
         sched_yield();
 #endif
+    }
+    if (atomic_load_explicit(&worker_entered, memory_order_acquire) == 0) {
+        fprintf(stderr, "runtime worker failed to enter before timeout\\n");
+        atomic_store_explicit(&release_worker, 1, memory_order_release);
+        join_thread(worker);
+        openfs_runtime_destroy(&runtime);
+        return 1;
     }
 
     if (!start_thread(&shutdown, shutdown_worker)) {
