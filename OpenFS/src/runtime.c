@@ -124,10 +124,19 @@ void openfs_runtime_leave(openfs_runtime_t *r)
     if(r==NULL||tls_runtime!=r||tls_runtime_depth==0U)return;
     --tls_runtime_depth;
     if(tls_runtime_depth!=0U)return;
-    tls_runtime=NULL;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK)return;
+    /*
+     * Do not discard the TLS pin until active_users has been decremented.
+     * Lock acquisition can fail (for example, when the caller's rank stack is
+     * full); preserving the pin lets the caller release other locks and retry
+     * leave instead of silently leaking an active user and blocking shutdown.
+     */
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK){
+        tls_runtime_depth=1U;
+        return;
+    }
     if(r->active_users!=0U)--r->active_users;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
+    tls_runtime=NULL;
 }
 
 static void bind_mutex(openfs_mutex_t *m,openfs_runtime_t *r){m->storage[15]=(uintptr_t)r;}
