@@ -35,7 +35,8 @@ static int calculate_layout(uint64_t total,uint32_t bs,uint64_t*bb,uint64_t*ib,u
 
     /* Reserve enough journal slots for multi-block atomic mutations: a 4 KiB target block consumes two OJBD records. */
     uint64_t journal=total/8U;
-    if(journal<12U)journal=12U;
+    /* A 4 KiB home block requires two OJBD records; leave room for atomic inode+directory updates. */
+    if(journal<24U)journal=24U;
     {
         const uint64_t max_journal_blocks=(UINT64_C(256)*1024U*1024U)/bs;
         if(max_journal_blocks>=8U&&journal>max_journal_blocks)journal=max_journal_blocks;
