@@ -1,9 +1,9 @@
 # 2026-10-10 — P0: make mounted CoW clone one journal transaction
 
-- **AUDIT FINDING** — the public mounted \`openfs_path_clone()\` previously ran CoW inode allocation/refcount changes first and inserted the parent directory entry afterward as separate updates. A crash after an intermediate COMMIT could leave a leaked clone inode/refcounts without a visible name. Existing namespace crash coverage used \`openfs_path_clone_tx()\`, so it did not exercise this direct mounted API.
+- **AUDIT FINDING** — the public mounted `openfs_path_clone()` previously ran CoW inode allocation/refcount changes first and inserted the parent directory entry afterward as separate updates. A crash after an intermediate COMMIT could leave a leaked clone inode/refcounts without a visible name. Existing namespace crash coverage used `openfs_path_clone_tx()`, so it did not exercise this direct mounted API.
 - **FIX** — the direct mounted clone wrapper now takes directory → inode → allocation → transaction locks, runs clone allocation, CoW refcounts/extent metadata, and directory insertion on the transaction proxy, and only returns the new inode after COMMIT succeeds. Transaction-proxy callers continue within their existing transaction; unmounted direct-device behavior remains compatible.
-- **REGRESSION** — \`OpenFS/tests/test_path.c\` injects a home-block write failure immediately after durable COMMIT through the direct mounted API. After remount, both source and clone must exist, clone contents must match, and FSCK must report zero errors.
-- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI.
+- **REGRESSION** — `OpenFS/tests/test_path.c` injects a home-block write failure immediately after durable COMMIT through the direct mounted API. After remount, both source and clone must exist, clone contents must match, and FSCK must report zero errors.
+- **Validation** — CI run `38064190077` showed the existing `cow_clone_partial_refcount_rollback_regression` expected an immediate rollback after a partial home write, but the write now fails after the new transaction's durable COMMIT. The regression now remounts and asserts that WAL replay restores the committed clone, refcount `2`, matching file data, and clean FSCK; fresh full CI is required.
 
 ---
 
