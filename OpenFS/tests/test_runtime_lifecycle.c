@@ -195,7 +195,7 @@ int main(void)
      */
     for (unsigned cycle = 0U; cycle < 64U; ++cycle) {
         if (!openfs_runtime_init(&runtime)) {
-            fprintf(stderr, "runtime reinitialization failed at cycle %u\\n", cycle);
+            fprintf(stderr, "runtime reinitialization failed at cycle %u\n", cycle);
             return 1;
         }
         if (!openfs_runtime_enter(&runtime)) {
