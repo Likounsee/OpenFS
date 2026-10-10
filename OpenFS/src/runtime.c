@@ -96,7 +96,7 @@ int openfs_runtime_enter(openfs_runtime_t *r)
         (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
         return 0;
     }
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK){
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK){
         (void)openfs_mutex_unlock(&runtime_lifecycle_guard);
         return 0;
     }
@@ -113,7 +113,7 @@ int openfs_runtime_is_accepting(openfs_runtime_t *r)
     if(r==NULL)return 0;
     /* Callers that may race teardown must already hold an active runtime pin;
      * that pin keeps lifecycle_lock alive until this probe returns. */
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return 0;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK)return 0;
     int accepting=r->initialized&&r->accepting&&!r->destroying;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
     return accepting;
@@ -125,7 +125,7 @@ void openfs_runtime_leave(openfs_runtime_t *r)
     --tls_runtime_depth;
     if(tls_runtime_depth!=0U)return;
     tls_runtime=NULL;
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK)return;
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK)return;
     if(r->active_users!=0U)--r->active_users;
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
 }
@@ -285,7 +285,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
         runtime_lifecycle_unlock();
         return 0;
     }
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK){
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK){
         runtime_lifecycle_unlock();
         return 0;
     }
@@ -299,7 +299,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
     (void)openfs_mutex_unlock(&r->lifecycle_lock);
 
     for(;;){
-        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK){
+        if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK){
             runtime_lifecycle_unlock();
             return 0;
         }
@@ -336,7 +336,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
             handles+=e->references;
         }
         if(handles!=0U){
-            if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)==OPENFS_LOCK_OK){
+            if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_OK){
                 r->destroying=0;
                 r->accepting=1;
                 (void)openfs_mutex_unlock(&r->lifecycle_lock);
@@ -346,7 +346,7 @@ static int runtime_shutdown_internal(openfs_runtime_t*r,int require_unused)
         }
     }
 
-    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_HANDLE)!=OPENFS_LOCK_OK){
+    if(openfs_mutex_lock(&r->lifecycle_lock,OPENFS_LOCK_RANK_CHECKSUM)!=OPENFS_LOCK_OK){
         runtime_lifecycle_unlock();
         return 0;
     }
