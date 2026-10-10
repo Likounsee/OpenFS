@@ -181,6 +181,45 @@ static void test_begin_partial_write_restores_journal_slot(void)
     free(d.data);
 }
 
+static void test_data_partial_write_restores_journal_slot(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x65U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+
+    uint8_t *slot_before = malloc(d.block_size);
+    uint8_t *slot_after = malloc(d.block_size);
+    assert(slot_before != NULL && slot_after != NULL);
+    uint64_t slot = s.journal_start + j.next_record;
+    assert(v.read(v.context, slot, 1U, slot_before) == OPENFS_IO_OK);
+    uint64_t sequence_before = j.sequence;
+    uint64_t record_before = j.next_record;
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 127U;
+    assert(openfs_journal_write(&j, &v, tx, "partial-data", 12U) == OPENFS_JOURNAL_IO_ERROR);
+    assert(v.read(v.context, slot, 1U, slot_after) == OPENFS_IO_OK);
+    assert(memcmp(slot_before, slot_after, d.block_size) == 0);
+    assert(j.sequence == sequence_before && j.next_record == record_before);
+    assert(j.active_transaction_id == tx && j.recovery_required == 0U);
+
+    assert(openfs_journal_write(&j, &v, tx, "partial-data", 12U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+    free(slot_after);
+    free(slot_before);
+    free(d.data);
+}
+
 static void test_block_write_partial_failure_is_abortable(void)
 {
     disk_t d = {0};
@@ -829,6 +868,7 @@ int main(void)
     test_data_failure_restores_sequence();
     test_begin_failure_restores_sequence();
     test_begin_partial_write_restores_journal_slot();
+    test_data_partial_write_restores_journal_slot();
     test_block_write_failure_keeps_partial_transaction_abortable();
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
