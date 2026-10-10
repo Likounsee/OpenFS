@@ -24,6 +24,12 @@ typedef struct {
     openfs_rwlock_t *lock;
     uint64_t *counter;
 } rw_worker_context_t;
+typedef struct {
+    openfs_mutex_t *contended;
+    openfs_mutex_t *lower_rank;
+    openfs_lock_result_t try_result;
+    openfs_lock_result_t lower_lock_result;
+} trylock_context_t;
 
 #if defined(_WIN32)
 static unsigned __stdcall worker(void *arg)
@@ -52,6 +58,24 @@ static void *wrong_unlock_worker(void *arg)
 {
     wrong_unlock_context_t *ctx=(wrong_unlock_context_t *)arg;
     ctx->result=openfs_mutex_unlock(ctx->mutex);
+#if defined(_WIN32)
+    return 0U;
+#else
+    return NULL;
+#endif
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall failed_trylock_worker(void *arg)
+#else
+static void *failed_trylock_worker(void *arg)
+#endif
+{
+    trylock_context_t *ctx=(trylock_context_t *)arg;
+    ctx->try_result=openfs_mutex_trylock(ctx->contended,OPENFS_LOCK_RANK_INODE);
+    ctx->lower_lock_result=openfs_mutex_lock(ctx->lower_rank,OPENFS_LOCK_RANK_DIRECTORY);
+    if(ctx->lower_lock_result==OPENFS_LOCK_OK)
+        (void)openfs_mutex_unlock(ctx->lower_rank);
 #if defined(_WIN32)
     return 0U;
 #else
@@ -99,6 +123,29 @@ int main(void)
     assert(wrong_unlock.result==OPENFS_LOCK_DEADLOCK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+
+    /*
+     * A failed try-lock must roll back its thread-local rank entry. Otherwise
+     * a later, lower-ranked acquisition on the same thread is falsely rejected.
+     */
+    openfs_mutex_t lower_after_try;
+    assert(openfs_mutex_init(&lower_after_try)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_INODE)==OPENFS_LOCK_OK);
+    trylock_context_t try_ctx={&mutex,&lower_after_try,OPENFS_LOCK_OK,OPENFS_LOCK_ERROR};
+#if defined(_WIN32)
+    uintptr_t try_handle=_beginthreadex(NULL,0U,failed_trylock_worker,&try_ctx,0U,NULL);
+    assert(try_handle!=0U);
+    assert(WaitForSingleObject((HANDLE)try_handle,60000U)==WAIT_OBJECT_0);
+    CloseHandle((HANDLE)try_handle);
+#else
+    pthread_t try_thread;
+    assert(pthread_create(&try_thread,NULL,failed_trylock_worker,&try_ctx)==0);
+    assert(pthread_join(try_thread,NULL)==0);
+#endif
+    assert(try_ctx.try_result==OPENFS_LOCK_ERROR);
+    assert(try_ctx.lower_lock_result==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&lower_after_try)==OPENFS_LOCK_OK);
 
     /* Lock ordering must reject a lower-ranked lock while a higher-ranked
        lock is held, preventing the most common lock-order deadlock. */
