@@ -701,7 +701,8 @@ static openfs_path_result_t map_path_transaction_result(openfs_transaction_resul
 
 static openfs_path_result_t path_create_mounted_transaction(
     openfs_block_device_t*d,const openfs_superblock_t*s,
-    const char*p,uint32_t mode,uint64_t*out)
+    const char*p,uint32_t mode,uint32_t uid,uint32_t gid,
+    int set_owner,uint64_t*out)
 {
     if(!openfs_block_device_is_valid(d)||s==NULL||s->runtime==NULL||p==NULL||out==NULL)
         return OPENFS_PATH_INVALID_ARGUMENT;
@@ -748,10 +749,44 @@ static openfs_path_result_t path_create_mounted_transaction(
      */
     openfs_superblock_t transaction_superblock=*s;
     transaction_superblock.runtime=NULL;
+
+    /*
+     * Credential-aware create validates the parent before making changes,
+     * and publishes the requested owner in the same WAL transaction as the
+     * inode allocation and directory entry. This avoids an observable window
+     * where a newly named file has its default uid/gid after COMMIT.
+     */
+    if(set_owner){
+        uint64_t parent=0U;
+        result=parent_access(td,&transaction_superblock,p,uid,gid,&parent);
+        if(result!=OPENFS_PATH_OK)
+            goto abort_transaction;
+    }
+
     uint64_t created_inode=0U;
     result=path_create_unlocked(td,&transaction_superblock,p,mode,&created_inode);
     if(result!=OPENFS_PATH_OK)
         goto abort_transaction;
+
+    if(set_owner){
+        uint64_t count=0U;
+        result=inode_count(&transaction_superblock,&count);
+        if(result!=OPENFS_PATH_OK)
+            goto abort_transaction;
+        openfs_inode_t created;
+        result=read_inode(td,&transaction_superblock,created_inode,&created);
+        if(result!=OPENFS_PATH_OK)
+            goto abort_transaction;
+        created.uid=uid;
+        created.gid=gid;
+        openfs_inode_result_t inode_result=openfs_inode_write(
+            td,transaction_superblock.inode_table_start,count,&created);
+        if(inode_result!=OPENFS_INODE_OK){
+            result=inode_result==OPENFS_INODE_IO_ERROR
+                ? OPENFS_PATH_IO_ERROR : OPENFS_PATH_CORRUPT;
+            goto abort_transaction;
+        }
+    }
 
     tr=openfs_transaction_commit(&transaction);
     if(tr==OPENFS_TRANSACTION_OK){
@@ -811,7 +846,7 @@ openfs_path_result_t openfs_path_create(openfs_block_device_t*d,const openfs_sup
         return result;
     }
     if(s->runtime==NULL)return path_create_unlocked(d,s,p,mode,out);
-    return path_create_mounted_transaction(d,s,p,mode,out);
+    return path_create_mounted_transaction(d,s,p,mode,0U,0U,0,out);
 }
 openfs_path_result_t openfs_path_mkdir(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint64_t*out)
 {
@@ -824,15 +859,46 @@ openfs_path_result_t openfs_path_mkdir(openfs_block_device_t*d,const openfs_supe
         return result;
     }
     if(s->runtime==NULL)return path_mkdir_unlocked(d,s,p,out);
-    return path_create_mounted_transaction(d,s,p,OPENFS_INODE_MODE_DIRECTORY,out);
+    return path_create_mounted_transaction(d,s,p,OPENFS_INODE_MODE_DIRECTORY,0U,0U,0,out);
 }
 openfs_path_result_t openfs_path_unlink(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p){PATH_LOCKED_CALL(s,path_unlink_unlocked(d,s,p));}
 openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b){PATH_LOCKED_CALL(s,path_rename_unlocked(d,s,a,b));}
 openfs_path_result_t openfs_path_chmod(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode){PATH_LOCKED_CALL(s,path_chmod_unlocked(d,s,p,mode));}
 openfs_path_result_t openfs_path_set_times(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint64_t a,uint64_t m){PATH_LOCKED_CALL(s,path_set_times_unlocked(d,s,p,a,m));}
 openfs_path_result_t openfs_path_check_access(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint8_t req){PATH_LOCKED_CALL(s,path_check_access_unlocked(d,s,p,uid,gid,req));}
-openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out){PATH_LOCKED_CALL(s,path_create_as_unlocked(d,s,p,mode,uid,gid,out));}
-openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out){PATH_LOCKED_CALL(s,path_mkdir_as_unlocked(d,s,p,uid,gid,out));}
+openfs_path_result_t openfs_path_create_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid,uint64_t*out)
+{
+    if(s==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
+    openfs_transaction_t *owner=openfs_transaction_from_device(d);
+    if(owner!=NULL){
+        openfs_superblock_t transaction_superblock=*s;
+        transaction_superblock.runtime=NULL;
+        openfs_path_result_t result=path_create_as_unlocked(
+            d,&transaction_superblock,p,mode,uid,gid,out);
+        if(result!=OPENFS_PATH_OK)owner->failed=1;
+        return result;
+    }
+    if(s->runtime==NULL)
+        return path_create_as_unlocked(d,s,p,mode,uid,gid,out);
+    return path_create_mounted_transaction(d,s,p,mode,uid,gid,1,out);
+}
+openfs_path_result_t openfs_path_mkdir_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid,uint64_t*out)
+{
+    if(s==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
+    openfs_transaction_t *owner=openfs_transaction_from_device(d);
+    if(owner!=NULL){
+        openfs_superblock_t transaction_superblock=*s;
+        transaction_superblock.runtime=NULL;
+        openfs_path_result_t result=path_mkdir_as_unlocked(
+            d,&transaction_superblock,p,uid,gid,out);
+        if(result!=OPENFS_PATH_OK)owner->failed=1;
+        return result;
+    }
+    if(s->runtime==NULL)
+        return path_mkdir_as_unlocked(d,s,p,uid,gid,out);
+    return path_create_mounted_transaction(
+        d,s,p,OPENFS_INODE_MODE_DIRECTORY,uid,gid,1,out);
+}
 openfs_path_result_t openfs_path_unlink_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_unlink_as_unlocked(d,s,p,uid,gid));}
 openfs_path_result_t openfs_path_rename_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_rename_as_unlocked(d,s,a,b,uid,gid));}
 openfs_path_result_t openfs_path_chmod_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_chmod_as_unlocked(d,s,p,mode,uid,gid));}

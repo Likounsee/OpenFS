@@ -111,6 +111,60 @@ static void rename_missing_same_path_regression(void){
  free(d.b);
 }
 
+
+static void direct_create_as_mkdir_as_post_commit_recovery(void)
+{
+    D d={0};d.bs=4096U;d.bc=512U;d.b=calloc((size_t)d.bs,(size_t)d.bc);TEST_ASSERT(d.b!=NULL);
+    openfs_block_device_t dev={&d,d.bs,d.bc,r,w,f};
+    uint8_t uuid[16]={0xC3U,0xA9U};TEST_ASSERT(openfs_format(&dev,uuid)==OPENFS_FORMAT_OK);
+    openfs_mount_t m={0};TEST_ASSERT(openfs_mount(&m,&dev)==OPENFS_MOUNT_OK);
+
+    uint64_t owned_dir=0U;
+    TEST_ASSERT(openfs_path_create(&dev,&m.superblock,"/owned",
+        OPENFS_INODE_MODE_DIRECTORY|0777U,&owned_dir)==OPENFS_PATH_OK);
+    d.journal_start=m.superblock.journal_start;
+    d.journal_blocks=m.superblock.journal_blocks;
+    d.fail_home_after_commit=1;d.commit_seen=0;
+    uint64_t file_ino=0U;
+    TEST_ASSERT(openfs_path_create_as(&dev,&m.superblock,"/owned/file-as",
+        OPENFS_INODE_MODE_REGULAR|0644U,1000U,1001U,&file_ino)==OPENFS_PATH_IO_ERROR);
+    TEST_ASSERT(d.commit_seen==1&&d.fail_home_after_commit==0);
+    TEST_ASSERT(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    TEST_ASSERT(openfs_mount(&m,&dev)==OPENFS_MOUNT_OK);
+
+    uint64_t recovered_file=0U;
+    TEST_ASSERT(openfs_path_lookup(&dev,&m.superblock,"/owned/file-as",&recovered_file)==OPENFS_PATH_OK);
+    uint64_t inode_count=(m.superblock.inode_table_blocks*(uint64_t)m.superblock.block_size)/OPENFS_INODE_SIZE;
+    openfs_inode_t file_inode;
+    TEST_ASSERT(openfs_inode_read(&dev,m.superblock.inode_table_start,recovered_file,inode_count,&file_inode)==OPENFS_INODE_OK);
+    TEST_ASSERT((file_inode.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_REGULAR);
+    TEST_ASSERT(file_inode.uid==1000U&&file_inode.gid==1001U);
+    uint64_t errors=0U;
+    TEST_ASSERT(openfs_fsck(&dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+
+    d.fail_home_after_commit=1;d.commit_seen=0;
+    uint64_t dir_ino=0U;
+    TEST_ASSERT(openfs_path_mkdir_as(&dev,&m.superblock,"/owned/dir-as",
+        1000U,1001U,&dir_ino)==OPENFS_PATH_IO_ERROR);
+    TEST_ASSERT(d.commit_seen==1&&d.fail_home_after_commit==0);
+    TEST_ASSERT(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    TEST_ASSERT(openfs_mount(&m,&dev)==OPENFS_MOUNT_OK);
+
+    uint64_t recovered_dir=0U;
+    TEST_ASSERT(openfs_path_lookup(&dev,&m.superblock,"/owned/dir-as",&recovered_dir)==OPENFS_PATH_OK);
+    openfs_inode_t dir_inode;
+    TEST_ASSERT(openfs_inode_read(&dev,m.superblock.inode_table_start,recovered_dir,inode_count,&dir_inode)==OPENFS_INODE_OK);
+    TEST_ASSERT((dir_inode.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY);
+    TEST_ASSERT(dir_inode.uid==1000U&&dir_inode.gid==1001U);
+    uint64_t child=0U;
+    TEST_ASSERT(openfs_path_create(&dev,&m.superblock,"/owned/dir-as/child",
+        OPENFS_INODE_MODE_REGULAR,&child)==OPENFS_PATH_OK);
+    errors=0U;
+    TEST_ASSERT(openfs_fsck(&dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    TEST_ASSERT(openfs_unmount(&m)==OPENFS_MOUNT_OK);
+    free(d.b);
+}
+
 static void direct_clone_post_commit_recovery(void)
 {
     D clone_disk={0};
@@ -213,7 +267,7 @@ static void direct_create_mkdir_post_commit_recovery(void)
     free(d.b);
 }
 
-int main(void){direct_create_mkdir_post_commit_recovery();direct_clone_post_commit_recovery();unallocated_root_inode_regression();rename_missing_same_path_regression();trailing_slash_regressions();create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=1024U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;TEST_ASSERT(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);TEST_ASSERT(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);TEST_ASSERT(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
+int main(void){direct_create_as_mkdir_as_post_commit_recovery();direct_create_mkdir_post_commit_recovery();direct_clone_post_commit_recovery();unallocated_root_inode_regression();rename_missing_same_path_regression();trailing_slash_regressions();create_as_growth_rollback();long_unlink_path();D d={0};d.bs=4096U;d.bc=1024U;d.b=calloc((size_t)d.bs,d.bc);TEST_ASSERT(d.b);openfs_block_device_t v={&d,d.bs,d.bc,r,w,f};uint8_t u[16]={0};TEST_ASSERT(openfs_format(&v,u)==OPENFS_FORMAT_OK);openfs_superblock_t s;TEST_ASSERT(openfs_read_superblock(&v,&s)==OPENFS_FORMAT_OK);uint64_t n=0,m=0,x=0,q=0;TEST_ASSERT(openfs_path_create(&v,&s,"/home",OPENFS_INODE_MODE_DIRECTORY|0755U,&n)==OPENFS_PATH_OK);TEST_ASSERT(openfs_path_create(&v,&s,"/home/invalid-mode",0x10000U,&x)==OPENFS_PATH_INVALID_ARGUMENT);for(unsigned i=0U;i<14U;i++){char filler[32];(void)snprintf(filler,sizeof(filler),"/home/f%u",i);uint64_t filler_ino=0U;TEST_ASSERT(openfs_path_create(&v,&s,filler,OPENFS_INODE_MODE_REGULAR,&filler_ino)==OPENFS_PATH_OK);openfs_inode_t filler_inode;TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,filler_ino,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&filler_inode)==OPENFS_INODE_OK);TEST_ASSERT(openfs_file_truncate(&v,&s,&filler_inode,s.block_size)==OPENFS_FILE_OK);}{
     openfs_inode_t home_inode;
     TEST_ASSERT(openfs_inode_read(&v,s.inode_table_start,n,(s.inode_table_blocks*s.block_size)/OPENFS_INODE_SIZE,&home_inode)==OPENFS_INODE_OK);
     uint64_t home_block=0U;TEST_ASSERT(openfs_file_map_block_device(&v,&s,&home_inode,0U,&home_block)==OPENFS_FILE_OK);
