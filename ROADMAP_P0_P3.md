@@ -39,7 +39,10 @@ Les 69 entrées récentes ont été recensées. Les diffs de commits liés au co
 - **Limite résiduelle explicitée :** les tests déterministes et TSAN ne constituent pas une preuve formelle de toutes les interleavings possibles ni un model checking exhaustif de chaque API. Cette limite générale ne bloque pas la clôture du périmètre mesurable P0-001 ci-dessus ; toute nouvelle voie de concurrence découverte doit recevoir son test et son correctif dédiés.
 - **Dépendances :** aucune.
 ### P0-002 — WAL, transactions et doubles défaillances
-- **Priorité :** critique. **Statut :** À auditer.
+- **Priorité :** critique. **Statut :** En cours — **10 %** (estimation de progression vers les critères d’acceptation, pas pourcentage de code existant).
+- **Travail effectué dans cette passe :** première revue de `src/transaction.c`, `src/journal.c`, `tests/test_transaction.c`, `tests/test_journal_failure_paths.c` et `tests/test_journal_replay_idempotent.c`. Ajout d’un test de réessai après qu’un callback de replay a appliqué ses données puis renvoyé une erreur : le second replay doit terminer sans modifier le résultat final. Le test attend encore la CI du commit qui l’introduit.
+- **Restant avant clôture :** cartographier les transitions avant/après COMMIT, les erreurs de write/flush/checkpoint et les restaurations ; examiner chaque callback de publication utilisé par le replay ; élargir la matrice de coupures/doubles pannes ; exécuter la matrice CI sur le SHA exact et corriger tout défaut observé.
+- **Important :** un test de callback générique prouve seulement le comportement du moteur de replay face à ce scénario ; il ne prouve pas à lui seul l’idempotence de chaque callback réel ni la garantie complète ancien-état/nouvel-état.
 - **Problème :** le code implémente COMMIT → home writes → flush → checkpoint, mais la garantie globale dépend des écritures partielles, flush, callbacks idempotents et wrappers appelants.
 - **Fichiers :** `src/transaction.c`, `src/journal.c`, `src/path.c`, `src/allocator.c`, `src/inode_alloc.c`, `src/cow.c`, `src/xattr.c`, `src/orphan.c` et tests transaction/journal/crash.
 - **Attendu / changements :** spécifier chaque état pré/post-COMMIT ; injecter panne sur chaque write/flush/checkpoint ; conserver les erreurs d’origine ; retirer les IDs actifs sans annuler un COMMIT durable.
