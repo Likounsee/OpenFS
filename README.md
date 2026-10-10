@@ -10,23 +10,6 @@ OpenFS is **not release-ready yet**. Development is intentionally incremental: a
 
 ---
 
-## P0 reliability status — 2026-10-10
-
-**Estimated progress: approximately 55% of the P0 work completed.** This is a rough engineering estimate based on the remaining roadmap items and the fixes/tests recorded in the development log; it is not a test pass rate, a formal completion metric, or a release-readiness claim. Treat this current section as the present estimate; higher percentages in older log entries are historical checkpoints from narrower scopes and do not override this status.
-
-Recent work has hardened runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, CoW allocation/refcount consistency, and FSCK refcount-repair ownership preflight. The journal/recovery path now validates the journal range before enabling the recovery gate, rejects undersized blocks before reading the CRC field, validates transaction ownership and sequence progression, stages and validates replay data before invoking publication callbacks, and detects payload changes between reads even when the changed payload is accompanied by a valid CRC. Regression coverage includes invalid-range recovery-gate reset, malformed journal records and transaction ownership, replay validation before callbacks, and changing-block detection. Transaction wrapper fixes also retire still-active in-memory transactions after commit errors while preserving the original API error mapping when abort only retires a recovery-required transaction; the on-disk WAL remains gated for recovery rather than being rolled back. Allocator and inode-allocation wrappers have corresponding error-mapping fixes. These changes are implemented, but their current full CI matrix must be verified before claiming fresh validation.
-
-### P0 work still blocking completion
-
-- **Concurrency:** finish the audit of shared mutable state, lock ordering, handle/mount lifetimes, and races across namespace, file I/O, CoW/refcounts, and unmount.
-- **WAL and crash recovery:** close remaining post-COMMIT recovery/ownership gaps, including the case where replay restores an allocation/refcount but the resulting block has no durable namespace owner.
-- **FSCK and repair:** complete safe repair architecture and expand ownership, journal, link-count, and corruption fixtures without weakening consistency checks.
-- **Integrity:** extend persistent data-integrity coverage, corruption reporting, and scrub/repair capabilities.
-- **Validation:** compile and run the regression suite on supported GCC/Clang and Windows/MSVC configurations, then verify sanitizer and CI results for the current branch head.
-
-**Validation:** the historical GCC, Clang (including sanitizers and Release), and Windows Debug/Release results recorded in [CI run 38057081587](https://github.com/Likounsee/OpenFS/actions/runs/38057081587) apply to the code tested by that run, not automatically to the current branch head. Recent transaction error-mapping fixes record follow-up failures in runs [38071416121](https://github.com/Likounsee/OpenFS/actions/runs/38071416121) and [38071515782](https://github.com/Likounsee/OpenFS/actions/runs/38071515782); a fresh full-matrix result for the latest fixes has not yet been confirmed here. Do not treat historical green CI as validation of newer commits. OpenFS remains not release-ready until the outstanding recovery/ownership, concurrency, FSCK, and integrity gaps are closed and revalidated.
-
----
 
 ## Project status
 
