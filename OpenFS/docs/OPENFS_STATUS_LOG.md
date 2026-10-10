@@ -1,3 +1,11 @@
+# 2026-10-10 — P0: recovery gate and FSCK preflight failure coverage
+
+- **TEST** — `OpenFS/tests/test_journal_failure_paths.c`: while journal replay is active, a callback attempts to begin another transaction. The recovery gate rejects the attempt without creating an active transaction; after successful recovery and checkpoint, a new transaction can begin, commit, and checkpoint.
+- **TEST** — `OpenFS/tests/test_fsck_refcount_repair.c`: an injected I/O failure reading the block allocation bitmap during ownership preflight returns `OPENFS_FSCK_IO_ERROR` and leaves the pre-existing refcount unchanged.
+- **Validation** — [CI run 38055976724](https://github.com/Likounsee/OpenFS/actions/runs/38055976724) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for commit `6b6db5c`. The post-recovery transaction test added in the current commit still requires its own full CI run.
+
+---
+
 # 2026-10-10 — P0: non-transactional CoW free and FSCK ownership regression coverage
 
 - **TEST** — `OpenFS/tests/test_allocator.c`: cover the legacy/non-transactional CoW free path with a deliberately inconsistent free bitmap bit and stale nonzero refcount. Free must report `OPENFS_ALLOC_CORRUPT`, preserve the refcount, and leave the bitmap untouched until the fixture is restored.

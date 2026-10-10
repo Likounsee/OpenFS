@@ -14,7 +14,7 @@ OpenFS is **not release-ready yet**. Development is intentionally incremental: a
 
 **Estimated progress: approximately 55% of the P0 work completed.** This is a rough engineering estimate based on the remaining roadmap items and the fixes/tests recorded in the development log; it is not a test pass rate, a formal completion metric, or a release-readiness claim. Treat this current section as the present estimate; higher percentages in older log entries are historical checkpoints from narrower scopes and do not override this status.
 
-Recent work has hardened runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, CoW free validation, and FSCK refcount-repair ownership preflight. Regression coverage now includes shutdown while a conflicting lock request is blocked, refusal to free a CoW block whose bitmap says it is already free, and refusal to repair refcounts when bitmap allocation disagrees with inode-derived ownership.
+Recent work has hardened runtime admission and shutdown, file-lock handle lifetime, blocking lock handoff, CoW free validation, and FSCK refcount-repair ownership preflight. Regression coverage now includes shutdown while a conflicting lock request is blocked, refusal to free a CoW block whose bitmap says it is already free, FSCK rejection of bitmap/ownership mismatches and bitmap-read failures, and journal recovery rejecting transaction starts during replay while permitting them again after successful recovery.
 
 ### P0 work still blocking completion
 
@@ -24,7 +24,7 @@ Recent work has hardened runtime admission and shutdown, file-lock handle lifeti
 - **Integrity:** extend persistent data-integrity coverage, corruption reporting, and scrub/repair capabilities.
 - **Validation:** compile and run the regression suite on supported GCC/Clang and Windows/MSVC configurations, then verify sanitizer and CI results for the current branch head.
 
-**Validation:** the file-lock shutdown regression, portability correction, CoW-free consistency checks, and FSCK ownership-preflight tests have now passed the observed GCC, Clang (including sanitizers and Release), and Windows Debug/Release matrix in [CI run 38054328404](https://github.com/Likounsee/OpenFS/actions/runs/38054328404). This validates that code head, not the entire P0 roadmap. OpenFS remains not release-ready until the outstanding recovery/ownership, concurrency, FSCK, and integrity gaps are closed and revalidated.
+**Validation:** the file-lock shutdown regression, CoW-free consistency checks, FSCK ownership-preflight tests, and journal recovery-gate tests have passed the observed GCC, Clang (including sanitizers and Release), and Windows Debug/Release matrix in [CI run 38055976724](https://github.com/Likounsee/OpenFS/actions/runs/38055976724). This validates that code head, not the entire P0 roadmap. OpenFS remains not release-ready until the outstanding recovery/ownership, concurrency, FSCK, and integrity gaps are closed and revalidated.
 
 ---
 

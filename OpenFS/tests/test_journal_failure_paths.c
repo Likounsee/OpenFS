@@ -564,6 +564,12 @@ static void test_recovery_holds_runtime_admission_until_replay_finishes(void)
     assert(reopened.active_transaction_id == 0U);
     assert(reopened.recovery_required == 0U);
     assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
+    /* A successful recovery must release the gate for later transactions. */
+    uint64_t post_recovery_tx = 0U;
+    assert(openfs_journal_begin(&reopened, &v, &post_recovery_tx) == OPENFS_JOURNAL_OK);
+    assert(post_recovery_tx == 2U);
+    assert(openfs_journal_commit(&reopened, &v, post_recovery_tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
     assert(openfs_runtime_shutdown_if_unused(&runtime));
     free(d.data);
 }
