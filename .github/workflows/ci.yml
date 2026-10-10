@@ -90,4 +90,4 @@ jobs:
       - name: Build ThreadSanitizer tests
         run: cmake --build build-tsan --parallel
       - name: Test runtime, filesystem entry points, and concurrency under ThreadSanitizer
-        run: ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 180 -R "openfs-(runtime-lifecycle|lock|file-lock|fd|path|dir|mount|link-concurrency|namespace-concurrency|file-concurrency)$"
+        run: ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 180 -R "openfs-(runtime-lifecycle|lock|file-lock|fd|path|dir|mount|link-concurrency|namespace-concurrency|file-concurrency|allocator|allocator-transaction|inode-alloc-transaction|metadata-cow)$"
