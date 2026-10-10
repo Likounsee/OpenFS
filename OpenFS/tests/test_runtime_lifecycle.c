@@ -188,6 +188,28 @@ int main(void)
         fprintf(stderr, "runtime shutdown did not close admission and drain active users\n");
         return 1;
     }
+    /*
+     * Repeated init/enter/shutdown cycles exercise registry insertion/removal
+     * and ensure a stale registry entry cannot make a later runtime appear
+     * initialized. Keep this bounded for normal CI runs.
+     */
+    for (unsigned cycle = 0U; cycle < 64U; ++cycle) {
+        if (!openfs_runtime_init(&runtime)) {
+            fprintf(stderr, "runtime reinitialization failed at cycle %u\\n", cycle);
+            return 1;
+        }
+        if (!openfs_runtime_enter(&runtime)) {
+            fprintf(stderr, "runtime admission failed at cycle %u\\n", cycle);
+            openfs_runtime_destroy(&runtime);
+            return 1;
+        }
+        openfs_runtime_leave(&runtime);
+        if (!openfs_runtime_shutdown_if_unused(&runtime)) {
+            fprintf(stderr, "runtime shutdown failed at cycle %u\\n", cycle);
+            return 1;
+        }
+    }
+
     puts("runtime lifecycle quiescence test passed");
     return 0;
 }
