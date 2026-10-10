@@ -11,11 +11,34 @@
 #include "openfs/inode.h"
 #include "openfs/mount.h"
 #include "openfs/orphan.h"
+#include "openfs/xattr.h"
+#include "openfs/cow.h"
 #include "openfs/path.h"
 
-typedef struct { uint8_t *b; uint32_t bs; uint64_t n; } disk_t;
+typedef struct {
+    uint8_t *b;
+    uint32_t bs;
+    uint64_t n;
+    uint64_t journal_start;
+    uint64_t journal_blocks;
+    int fail_home_after_commit;
+    int commit_seen;
+} disk_t;
 static openfs_io_result_t rd(void*c,uint64_t f,uint32_t n,void*out){disk_t*d=(disk_t*)c;if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(out,d->b+(size_t)(f*d->bs),(size_t)n*d->bs);return OPENFS_IO_OK;}
-static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*in){disk_t*d=(disk_t*)c;if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;memcpy(d->b+(size_t)(f*d->bs),in,(size_t)n*d->bs);return OPENFS_IO_OK;}
+static openfs_io_result_t wr(void*c,uint64_t f,uint32_t n,const void*in){
+    disk_t*d=(disk_t*)c;
+    if(f>=d->n||(uint64_t)n>d->n-f)return OPENFS_IO_OUT_OF_RANGE;
+    int in_journal=f>=d->journal_start&&f<d->journal_start+d->journal_blocks;
+    const uint8_t*raw=(const uint8_t*)in;
+    if(d->fail_home_after_commit&&d->commit_seen&&!in_journal){
+        d->fail_home_after_commit=0;
+        return OPENFS_IO_IO_ERROR;
+    }
+    memcpy(d->b+(size_t)(f*d->bs),in,(size_t)n*d->bs);
+    if(d->fail_home_after_commit&&in_journal&&n==1U&&memcmp(raw,OPENFS_JOURNAL_MAGIC,5U)==0&&raw[5U]==OPENFS_JOURNAL_COMMIT)
+        d->commit_seen=1;
+    return OPENFS_IO_OK;
+}
 static openfs_io_result_t fl(void*c){(void)c;return OPENFS_IO_OK;}
 
 static uint64_t inode_count(const openfs_superblock_t*s){return (s->inode_table_blocks*(uint64_t)s->block_size)/OPENFS_INODE_SIZE;}
@@ -47,18 +70,35 @@ static void test_mount_recovery(openfs_block_device_t *dev,openfs_superblock_t *
 {
     uint64_t ino=0U;
     assert(openfs_path_create(dev,sb,"/crash-orphan",OPENFS_INODE_MODE_REGULAR|0644U,&ino)==OPENFS_PATH_OK);
+    assert(openfs_xattr_set(dev,sb,ino,"user.recovery","orphan-value",12U,OPENFS_XATTR_CREATE)==OPENFS_XATTR_OK);
     openfs_inode_t parent,target;
     assert(openfs_inode_read(dev,sb->inode_table_start,sb->root_inode,inode_count(sb),&parent)==OPENFS_INODE_OK);
     assert(openfs_inode_read(dev,sb->inode_table_start,ino,inode_count(sb),&target)==OPENFS_INODE_OK);
+    uint64_t xattr_block=openfs_inode_get_xattr_block(&target);
+    assert(xattr_block!=0U);
     assert(openfs_dir_remove(dev,sb,&parent,"crash-orphan")==OPENFS_DIR_OK);
     target.link_count=0U;
     target.flags|=OPENFS_INODE_FLAG_ORPHAN;
     assert(openfs_inode_write(dev,sb->inode_table_start,inode_count(sb),&target)==OPENFS_INODE_OK);
     assert(dev->flush(dev->context)==OPENFS_IO_OK);
+
+    disk_t *disk=(disk_t*)dev->context;
+    disk->journal_start=sb->journal_start;
+    disk->journal_blocks=sb->journal_blocks;
+    disk->fail_home_after_commit=1;
+    disk->commit_seen=0;
+    openfs_mount_t failed_mount;
+    assert(openfs_mount(&failed_mount,dev)==OPENFS_MOUNT_IO_ERROR);
+    assert(disk->commit_seen==1&&disk->fail_home_after_commit==0);
+
+    /* The committed orphan-retirement transaction must be replayable in full. */
     openfs_mount_t m;
     assert(openfs_mount(&m,dev)==OPENFS_MOUNT_OK);
     int used=1;
     assert(openfs_bitmap_test(dev,m.superblock.inode_bitmap_start,m.superblock.inode_bitmap_blocks,ino-1U,&used)==OPENFS_BITMAP_OK&&used==0);
+    assert(openfs_bitmap_test(dev,m.superblock.block_bitmap_start,m.superblock.block_bitmap_blocks,xattr_block,&used)==OPENFS_BITMAP_OK&&used==0);
+    uint16_t refs=1U;
+    assert(openfs_cow_refcount_get(dev,&m.superblock,xattr_block,&refs)==OPENFS_COW_OK&&refs==0U);
     uint64_t errors=0U;
     assert(openfs_fsck(dev,&m.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
     assert(openfs_unmount(&m)==OPENFS_MOUNT_OK);

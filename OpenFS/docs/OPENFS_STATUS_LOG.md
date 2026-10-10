@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: make orphan reclamation journal-atomic
+
+- **AUDIT FINDING** — \`openfs_orphan_reclaim()\` previously truncated an orphan's file data, wrote the inode as FREE, and only then freed the inode bitmap bit in separate operations. A crash between these writes could leave an allocated inode bitmap bit pointing at a FREE inode, which orphan recovery then skipped. It also discarded the inode's xattr-block pointer without freeing that data block.
+- **FIX** — mounted-runtime reclamation now holds the inode/allocation/transaction locks and stages file truncation, xattr-block release, FREE-inode generation advance, and inode-bitmap release in one journal transaction. The unmounted compatibility path also explicitly releases the xattr block and rejects attempts to reclaim the root inode.
+- **REGRESSION** — \`OpenFS/tests/test_orphan.c\` creates an orphan with an xattr block, injects a home-block write error immediately after its durable COMMIT, asserts the first mount fails, then remounts and checks the inode and xattr block are both freed and FSCK is clean.
+- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+
+---
+
 # 2026-10-10 — P0: validate recovery arguments before setting the recovery gate
 
 - **AUDIT FINDING** — `openfs_journal_recover()` set `recovery_required` before `openfs_journal_replay()` validated the journal range. An out-of-range device could make replay return `OPENFS_JOURNAL_INVALID_ARGUMENT` while leaving the journal object gated.
