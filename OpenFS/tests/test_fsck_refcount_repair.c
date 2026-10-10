@@ -50,9 +50,10 @@ int main(void){reject_mismatched_runtime_device();disk_t d={0};d.bs=4096U;d.bc=2
     errors = 0U;
     assert(openfs_fsck_repair_cow_refcounts(&dev, &m.superblock, &errors) == OPENFS_FSCK_CORRUPT);
     assert(openfs_cow_refcount_get(&dev, &m.superblock, orphan_block, &refs) == OPENFS_COW_OK && refs == 1U);
+    int orphan_used = 0;
     assert(openfs_bitmap_test(&dev, m.superblock.block_bitmap_start,
                               m.superblock.block_bitmap_blocks,
-                              orphan_block, &set) == OPENFS_BITMAP_OK && set);
+                              orphan_block, &orphan_used) == OPENFS_BITMAP_OK && orphan_used);
     assert(openfs_cow_refcount_set(&dev, &m.superblock, orphan_block, 0U) == OPENFS_COW_OK);
     assert(openfs_bitmap_set(&dev, m.superblock.block_bitmap_start,
                              m.superblock.block_bitmap_blocks,
