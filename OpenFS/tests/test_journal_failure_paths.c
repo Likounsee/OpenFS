@@ -526,8 +526,8 @@ static openfs_journal_result_t replay_attempt_runtime_shutdown(void *ctx, uint64
     (void)tx; (void)data; (void)len;
     state->replay_calls++;
     state->shutdown_result = openfs_runtime_shutdown_if_unused(state->runtime);
-    uint64_t tx = 0U;
-    state->begin_result = openfs_journal_begin(state->journal, state->device, &tx);
+    uint64_t attempted_tx = 0U;
+    state->begin_result = openfs_journal_begin(state->journal, state->device, &attempted_tx);
     return OPENFS_JOURNAL_OK;
 }
 
