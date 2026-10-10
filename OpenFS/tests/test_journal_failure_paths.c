@@ -212,6 +212,37 @@ static void test_partial_begin_and_failed_rollback_poison_journal(void)
     free(d.data);
 }
 
+static void test_partial_data_and_failed_rollback_poison_journal(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x67U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+
+    d.partial_next_write = 1;
+    d.partial_write_bytes = 131U;
+    d.fail_write_after = 1;
+    assert(openfs_journal_write(&j, &v, tx, "partial-data", 12U) ==
+           OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(j.active_transaction_id == tx);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    free(d.data);
+}
+
 static void test_data_partial_write_restores_journal_slot(void)
 {
     disk_t d = {0};
@@ -901,6 +932,7 @@ int main(void)
     test_begin_partial_write_restores_journal_slot();
     test_partial_begin_and_failed_rollback_poison_journal();
     test_data_partial_write_restores_journal_slot();
+    test_partial_data_and_failed_rollback_poison_journal();
     test_block_write_failure_keeps_partial_transaction_abortable();
     test_block_write_partial_failure_is_abortable();
     test_replay_rejects_interleaved_transactions();
