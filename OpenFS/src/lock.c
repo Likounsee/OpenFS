@@ -57,14 +57,14 @@ if(mi(m)->depth!=0U)return OPENFS_LOCK_ERROR;DeleteCriticalSection(&mi(m)->nativ
 if(mi(m)->owned||mi(m)->depth!=0U)return OPENFS_LOCK_ERROR;return pthread_mutex_destroy(&mi(m)->native)==0?OPENFS_LOCK_OK:OPENFS_LOCK_ERROR;
 #endif
 }
-openfs_lock_result_t openfs_mutex_lock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
+openfs_lock_result_t openfs_mutex_lock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;if(rank_contains(m)&&!rank_is_top(m)){if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_DEADLOCK;}openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
 #if defined(_WIN32)
 EnterCriticalSection(&mi(m)->native);mi(m)->owner=lock_thread_id();mi(m)->depth++;return OPENFS_LOCK_OK;
 #else
 if(pthread_mutex_lock(&mi(m)->native)!=0){rank_cancel();if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_ERROR;}mi(m)->owner=pthread_self();mi(m)->owned=1;mi(m)->depth++;return OPENFS_LOCK_OK;
 #endif
 }
-openfs_lock_result_t openfs_mutex_trylock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
+openfs_lock_result_t openfs_mutex_trylock(openfs_mutex_t*m,openfs_lock_rank_t rank){if(m==NULL)return OPENFS_LOCK_INVALID_ARGUMENT;struct openfs_runtime *rt=mutex_runtime(m);if(rt!=NULL&&!openfs_runtime_enter(rt))return OPENFS_LOCK_ERROR;if(rank_contains(m)&&!rank_is_top(m)){if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_DEADLOCK;}openfs_lock_result_t r=rank_enter(m,rank);if(r!=OPENFS_LOCK_OK){if(rt!=NULL)openfs_runtime_leave(rt);return r;}
 #if defined(_WIN32)
 if(!TryEnterCriticalSection(&mi(m)->native)){rank_cancel();if(rt!=NULL)openfs_runtime_leave(rt);return OPENFS_LOCK_ERROR;}mi(m)->owner=lock_thread_id();mi(m)->depth++;return OPENFS_LOCK_OK;
 #else
