@@ -60,6 +60,16 @@ static openfs_io_result_t write_blocks(void *ctx,uint64_t first,uint32_t count,c
 {
     disk_t *d=(disk_t *)ctx;
     if(count==0U||first>=d->block_count||(uint64_t)count>d->block_count-first)return OPENFS_IO_OUT_OF_RANGE;
+    if(atomic_load_explicit(&d->gate_enabled,memory_order_acquire)!=0 &&
+       atomic_exchange_explicit(&d->gate_entered,1,memory_order_acq_rel)==0){
+        while(atomic_load_explicit(&d->gate_release,memory_order_acquire)==0){
+#if defined(_WIN32)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+    }
     memcpy(d->bytes+(size_t)(first*d->block_size),buffer,(size_t)((uint64_t)count*d->block_size));
     return OPENFS_IO_OK;
 }
