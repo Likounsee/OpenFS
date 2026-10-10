@@ -863,7 +863,7 @@ static void malformed_later_replay_payload_does_not_publish_earlier_blocks(void)
 
 int main(void){
     malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
-    replay_retry_after_applied_write_reports_error();
+    replay_retry_after_applied_write_reports_error();replay_retry_after_replay_flush_failure();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  concurrent_handle_close_unmount_regression();
