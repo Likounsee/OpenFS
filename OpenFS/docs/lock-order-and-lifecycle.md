@@ -51,11 +51,19 @@ locks in the same domain; callers must still avoid opposite-order acquisition.
 The CI matrix on the branch runs GCC and Clang Debug/Release, ASan/UBSan on
 Linux, Windows Debug/Release, and a focused ThreadSanitizer suite. Lifecycle
 tests cover repeated runtime registration/removal and concurrent shutdown.
-The file-concurrency test repeats a gated in-flight read versus unmount 100
-times, checks admission closure and teardown blocking, then remounts and runs
-FSCK after every cycle.
+The deterministic concurrency suite covers a gated in-flight read versus
+unmount (100 cycles), write versus unmount (32 cycles), rename versus unmount
+(32 cycles), close versus unmount (32 cycles), block allocation versus unmount
+(32 cycles), and CoW refcount reads versus unmount (32 cycles). The gated
+scenarios check that admission closes and teardown waits for the active
+operation, then remount and run FSCK with zero reported errors. Runtime
+lifecycle tests also cover concurrent shutdown/admission and repeated
+registration/removal.
 
-Remaining P0-001 review work must not be inferred complete from these tests:
-the full matrix of shutdown/unmount against write, rename, close, and
-allocation/refcount contention still needs deterministic coverage. Keep this
-limitation explicit until those scenarios are added and pass CI.
+The complete CI run for source SHA
+`0d3a5d0872ea8555109250f6fcdc8af6b22098b1` passed GCC, Clang, Windows, and
+ThreadSanitizer: [run 38093073548](https://github.com/Likounsee/OpenFS/actions/runs/38093073548).
+This closes the measurable P0-001 acceptance scope for the covered paths.
+It is not a formal proof or exhaustive model checking of every possible
+interleaving or every public API; newly discovered concurrent paths must be
+added to the deterministic suite and reviewed separately.
