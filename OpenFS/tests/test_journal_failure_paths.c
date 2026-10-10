@@ -610,6 +610,50 @@ static void test_replay_rejects_interleaved_transactions(void)
 }
 
 
+static void test_commit_write_failure_retires_uncommitted_transaction(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x75U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    openfs_transaction_t tx;
+    assert(openfs_transaction_begin(&tx, &v, &j) == OPENFS_TRANSACTION_OK);
+    openfs_block_device_t *td = openfs_transaction_device(&tx);
+    assert(td != NULL);
+    const uint64_t home = s.data_start + 17U;
+    uint8_t block[4096];
+    memset(block, 0xC3U, sizeof(block));
+    assert(td->write(td->context, home, 1U, block) == OPENFS_IO_OK);
+
+    /*
+     * Fail the COMMIT record write, then let the compensating slot restoration
+     * succeed. Since COMMIT was never published, the home block must stay old
+     * and the failed transaction must not keep the journal active.
+     */
+    d.fail_write_count = 1;
+    assert(openfs_transaction_commit(&tx) == OPENFS_TRANSACTION_IO_ERROR);
+    assert(tx.active == 0);
+    assert(j.active_transaction_id == 0U);
+    assert(j.recovery_required == 0U);
+    assert(j.next_record == 0U);
+    assert(d.data[(size_t)(home * d.block_size)] == 0U);
+
+    openfs_transaction_t next;
+    assert(openfs_transaction_begin(&next, &v, &j) == OPENFS_TRANSACTION_OK);
+    assert(openfs_transaction_commit(&next) == OPENFS_TRANSACTION_OK);
+    assert(d.data[(size_t)(home * d.block_size)] == 0U);
+    free(d.data);
+}
+
 static void test_partial_commit_write_and_failed_restore_stay_gated(void)
 {
     disk_t d = {0};
@@ -802,6 +846,7 @@ int main(void)
     test_begin_restore_failure_requires_recovery();
     test_data_restore_failure_requires_recovery();
     test_replay_flush_failure_keeps_recovery_gated();
+    test_commit_write_failure_retires_uncommitted_transaction();
     test_partial_commit_write_and_failed_restore_stay_gated();
     test_corrupt_wal_recovery_stays_gated();
     test_checkpoint_write_failure_restores_entire_wal();

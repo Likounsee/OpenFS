@@ -71,5 +71,99 @@ openfs_transaction_result_t openfs_transaction_begin(openfs_transaction_t*t,open
 }
 openfs_transaction_t*openfs_transaction_from_device(const openfs_block_device_t*d){if(d==NULL||d->context==NULL||d->read!=tx_read||d->write!=tx_write||d->flush!=tx_flush)return NULL;openfs_transaction_t*t=(openfs_transaction_t*)d->context;if(t->magic!=OPENFS_TRANSACTION_MAGIC||!t->active||&t->device!=d)return NULL;return t;}
 openfs_block_device_t*openfs_transaction_device(openfs_transaction_t*t){return t!=NULL&&t->active&&t->device.block_size!=0U?&t->device:NULL;}
-openfs_transaction_result_t openfs_transaction_commit(openfs_transaction_t*t){if(t==NULL||!t->active||t->journal==NULL||t->base==NULL)return OPENFS_TRANSACTION_INVALID_ARGUMENT;if(t->failed||t->commit_started)return OPENFS_TRANSACTION_IO_ERROR;t->commit_started=1;int commit_record_written=0;openfs_journal_result_t jr=openfs_journal_commit_transaction(t->journal,t->base,t->txid,&commit_record_written);if(jr!=OPENFS_JOURNAL_OK){t->failed=1;if(jr==OPENFS_JOURNAL_FULL){if(!retire_failed_transaction(t))return OPENFS_TRANSACTION_IO_ERROR;t->commit_started=0;openfs_journal_result_t cr=openfs_journal_checkpoint(t->journal,t->base);clear(t);t->active=0;if(cr==OPENFS_JOURNAL_CORRUPT)return OPENFS_TRANSACTION_CORRUPT;return cr==OPENFS_JOURNAL_OK?OPENFS_TRANSACTION_FULL:OPENFS_TRANSACTION_IO_ERROR;}if(jr==OPENFS_JOURNAL_CORRUPT){t->failed=1;t->recovery_required=1;t->commit_started=1;clear(t);return OPENFS_TRANSACTION_CORRUPT;}if(commit_record_written){t->committed=1;t->recovery_required=1;}t->commit_started=1;clear(t);return OPENFS_TRANSACTION_IO_ERROR;}t->committed=1;for(uint64_t i=0U;i<t->pending_count;i++){if(t->base->write(t->base->context,t->pending[i].block,1U,t->pending[i].data)!=OPENFS_IO_OK){t->failed=1;t->recovery_required=1;(void)openfs_journal_mark_recovery_required(t->journal);clear(t);return OPENFS_TRANSACTION_IO_ERROR;}}if(t->base->flush(t->base->context)!=OPENFS_IO_OK){t->failed=1;t->recovery_required=1;(void)openfs_journal_mark_recovery_required(t->journal);clear(t);return OPENFS_TRANSACTION_IO_ERROR;}openfs_journal_result_t checkpoint_result=openfs_journal_checkpoint_transaction(t->journal,t->base);if(checkpoint_result!=OPENFS_JOURNAL_OK){t->failed=1;t->recovery_required=1;(void)openfs_journal_mark_recovery_required(t->journal);clear(t);return checkpoint_result==OPENFS_JOURNAL_CORRUPT?OPENFS_TRANSACTION_CORRUPT:OPENFS_TRANSACTION_IO_ERROR;}clear(t);t->active=0;return OPENFS_TRANSACTION_OK;}
+openfs_transaction_result_t openfs_transaction_commit(openfs_transaction_t *t)
+{
+    if (t == NULL || !t->active || t->journal == NULL || t->base == NULL)
+        return OPENFS_TRANSACTION_INVALID_ARGUMENT;
+    if (t->failed || t->commit_started)
+        return OPENFS_TRANSACTION_IO_ERROR;
+
+    t->commit_started = 1;
+    int commit_record_written = 0;
+    openfs_journal_result_t jr = openfs_journal_commit_transaction(
+        t->journal, t->base, t->txid, &commit_record_written);
+    if (jr != OPENFS_JOURNAL_OK) {
+        t->failed = 1;
+        if (jr == OPENFS_JOURNAL_FULL) {
+            if (!retire_failed_transaction(t))
+                return OPENFS_TRANSACTION_IO_ERROR;
+            t->commit_started = 0;
+            openfs_journal_result_t cr = openfs_journal_checkpoint(t->journal, t->base);
+            clear(t);
+            t->active = 0;
+            if (cr == OPENFS_JOURNAL_CORRUPT)
+                return OPENFS_TRANSACTION_CORRUPT;
+            return cr == OPENFS_JOURNAL_OK
+                ? OPENFS_TRANSACTION_FULL : OPENFS_TRANSACTION_IO_ERROR;
+        }
+        if (jr == OPENFS_JOURNAL_CORRUPT) {
+            t->failed = 1;
+            t->recovery_required = 1;
+            clear(t);
+            return OPENFS_TRANSACTION_CORRUPT;
+        }
+
+        if (jr == OPENFS_JOURNAL_IO_ERROR && commit_record_written == 0) {
+            /*
+             * No durable COMMIT exists: the journal helper restored the
+             * attempted COMMIT slot, so staged home blocks must not publish.
+             * Retire the in-memory transaction and discard its uncommitted
+             * WAL records. Otherwise a failed commit can strand the journal
+             * behind active_transaction_id even though this call has ended.
+             */
+            if (!retire_failed_transaction(t))
+                return OPENFS_TRANSACTION_IO_ERROR;
+            openfs_journal_result_t cr =
+                openfs_journal_checkpoint(t->journal, t->base);
+            clear(t);
+            t->active = 0;
+            if (cr != OPENFS_JOURNAL_OK) {
+                (void)openfs_journal_mark_recovery_required(t->journal);
+                return cr == OPENFS_JOURNAL_CORRUPT
+                    ? OPENFS_TRANSACTION_CORRUPT : OPENFS_TRANSACTION_IO_ERROR;
+            }
+            return OPENFS_TRANSACTION_IO_ERROR;
+        }
+
+        if (commit_record_written) {
+            t->committed = 1;
+            t->recovery_required = 1;
+        }
+        clear(t);
+        return OPENFS_TRANSACTION_IO_ERROR;
+    }
+
+    t->committed = 1;
+    for (uint64_t i = 0U; i < t->pending_count; i++) {
+        if (t->base->write(t->base->context, t->pending[i].block, 1U,
+                           t->pending[i].data) != OPENFS_IO_OK) {
+            t->failed = 1;
+            t->recovery_required = 1;
+            (void)openfs_journal_mark_recovery_required(t->journal);
+            clear(t);
+            return OPENFS_TRANSACTION_IO_ERROR;
+        }
+    }
+    if (t->base->flush(t->base->context) != OPENFS_IO_OK) {
+        t->failed = 1;
+        t->recovery_required = 1;
+        (void)openfs_journal_mark_recovery_required(t->journal);
+        clear(t);
+        return OPENFS_TRANSACTION_IO_ERROR;
+    }
+
+    openfs_journal_result_t checkpoint_result =
+        openfs_journal_checkpoint_transaction(t->journal, t->base);
+    if (checkpoint_result != OPENFS_JOURNAL_OK) {
+        t->failed = 1;
+        t->recovery_required = 1;
+        (void)openfs_journal_mark_recovery_required(t->journal);
+        clear(t);
+        return checkpoint_result == OPENFS_JOURNAL_CORRUPT
+            ? OPENFS_TRANSACTION_CORRUPT : OPENFS_TRANSACTION_IO_ERROR;
+    }
+    clear(t);
+    t->active = 0;
+    return OPENFS_TRANSACTION_OK;
+}
 openfs_transaction_result_t openfs_transaction_abort(openfs_transaction_t*t){if(t==NULL||!t->active||t->journal==NULL||t->base==NULL)return OPENFS_TRANSACTION_INVALID_ARGUMENT;if(t->recovery_required){if(!retire_failed_transaction(t))return OPENFS_TRANSACTION_IO_ERROR;clear(t);t->active=0;return OPENFS_TRANSACTION_CORRUPT;}if(t->committed){clear(t);t->active=0;return OPENFS_TRANSACTION_OK;}if(!retire_failed_transaction(t))return OPENFS_TRANSACTION_IO_ERROR;openfs_journal_result_t jr=openfs_journal_checkpoint(t->journal,t->base);clear(t);t->active=0;if(jr==OPENFS_JOURNAL_CORRUPT)return OPENFS_TRANSACTION_CORRUPT;return jr==OPENFS_JOURNAL_OK?OPENFS_TRANSACTION_OK:OPENFS_TRANSACTION_IO_ERROR;}

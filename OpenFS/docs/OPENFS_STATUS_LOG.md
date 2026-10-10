@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: retire a transaction when COMMIT write fails before publication
+
+- **AUDIT FINDING** — if writing the WAL COMMIT block failed but restoring the previous journal slot succeeded, \`openfs_transaction_commit()\` returned I/O error after clearing its pending payloads while leaving the transaction active and \`active_transaction_id\` set. A caller that correctly stopped using the failed transaction could permanently block new transactions and recovery.
+- **FIX** — when the journal reports an I/O error and confirms no COMMIT record was written, retire the failed transaction, checkpoint away its uncommitted WAL records, and mark recovery required if that cleanup cannot be completed. Do not publish any pending home blocks.
+- **REGRESSION** — \`OpenFS/tests/test_journal_failure_paths.c\` fails exactly the COMMIT write while allowing slot restoration, verifies the home block remains unchanged, verifies transaction/journal state is no longer stranded, then commits a fresh transaction.
+- **Validation** — pending fresh GCC, Clang/ASan/UBSan, Release, and Windows Debug/Release CI.
+
+---
+
 # 2026-10-10 — P0: preserve open destination handles during atomic rename
 
 - AUDIT FINDING — replacing a destination with its last namespace link while a file handle remained open truncated/freed the destination inode. Mounted rename also needs the original runtime/device identity to count handles while its mutations use a transaction proxy.
