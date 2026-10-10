@@ -1,3 +1,9 @@
+# 2026-10-10 — P0: WAL transaction-state regression coverage
+
+- Revalidated CI run 38002855104 as green on GCC, Clang (including sanitizers), and Windows Debug/Release.
+- Added focused corruption cases ensuring both journal open and replay reject DATA after a transaction's COMMIT and reject non-monotonic BEGIN transaction IDs.
+- These tests protect the WAL's transaction-state invariants against future parser/recovery regressions; validation of the new commit is pending CI.
+
 # 2026-10-08 — P0 checkpoint: transaction ordering verified in CI
 
 - Run `37838299193` completed green for the current corrected head: GCC, Clang, GCC/Clang sanitizer stages, and Windows all passed.

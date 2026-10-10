@@ -42,6 +42,26 @@ static void journal_corruption_matrix(void){
     raw[4095U]^=0x01U;
     assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
     assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
+    /* A committed transaction cannot accept more DATA records. */
+    memset(d.b+(size_t)(s.journal_start*d.bs),0,3U*d.bs);
+    write_raw(raw,OPENFS_JOURNAL_BEGIN,12U,1U,0U,1);
+    assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
+    write_raw(raw,OPENFS_JOURNAL_COMMIT,12U,2U,0U,1);
+    assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
+    write_raw(raw,OPENFS_JOURNAL_DATA,12U,3U,0U,1);
+    assert(v.write(v.context,s.journal_start+2U,1U,raw)==OPENFS_IO_OK);
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
+    assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
+
+    /* BEGIN transaction IDs must increase strictly, even after a crash. */
+    memset(d.b+(size_t)(s.journal_start*d.bs),0,2U*d.bs);
+    write_raw(raw,OPENFS_JOURNAL_BEGIN,12U,1U,0U,1);
+    assert(v.write(v.context,s.journal_start,1U,raw)==OPENFS_IO_OK);
+    write_raw(raw,OPENFS_JOURNAL_BEGIN,11U,2U,0U,1);
+    assert(v.write(v.context,s.journal_start+1U,1U,raw)==OPENFS_IO_OK);
+    assert(openfs_journal_open(&j,&v,&s)==OPENFS_JOURNAL_CORRUPT);
+    assert(openfs_journal_replay(&v,&s,cb,NULL)==OPENFS_JOURNAL_CORRUPT);
+
     free(d.b);
 }
 
