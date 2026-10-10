@@ -51,11 +51,29 @@ jobs:
         run: cmake -S OpenFS -B build-windows -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
       - name: Build
         run: cmake --build build-windows --config Debug --parallel
+      - name: Test preflight (Debug)
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "build-windows/Debug/openfs-path-test.exe" -PassThru
+          if (-not $process.WaitForExit(45000)) {
+            $process.Kill()
+            throw "openfs-path-test exceeded the 45-second preflight timeout (Debug)."
+          }
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Test
         run: ctest --test-dir build-windows -C Debug --output-on-failure --timeout 180
       - name: Configure Release
         run: cmake -S OpenFS -B build-windows-release -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build Release
         run: cmake --build build-windows-release --config Release --parallel
+      - name: Test preflight (Release)
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "build-windows-release/Release/openfs-path-test.exe" -PassThru
+          if (-not $process.WaitForExit(45000)) {
+            $process.Kill()
+            throw "openfs-path-test exceeded the 45-second preflight timeout (Release)."
+          }
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Test Release
         run: ctest --test-dir build-windows-release -C Release --output-on-failure --timeout 180
