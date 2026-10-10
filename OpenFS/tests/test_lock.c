@@ -325,13 +325,15 @@ int main(void)
      * allows lifecycle admission/leave to work beneath a caller's checksum
      * lock without treating two unrelated locks as the same rank.
      */
-    openfs_mutex_t lifecycle_rank;
+    openfs_mutex_t checksum_rank, lifecycle_rank;
+    assert(openfs_mutex_init(&checksum_rank)==OPENFS_LOCK_OK);
     assert(openfs_mutex_init(&lifecycle_rank)==OPENFS_LOCK_OK);
-    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&checksum_rank,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_OK);
     assert(openfs_mutex_lock(&lifecycle_rank,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK);
     assert(openfs_mutex_unlock(&lifecycle_rank)==OPENFS_LOCK_OK);
-    assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&checksum_rank)==OPENFS_LOCK_OK);
     assert(openfs_mutex_destroy(&lifecycle_rank)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&checksum_rank)==OPENFS_LOCK_OK);
     puts("openfs lock tests passed");
     return 0;
 }
