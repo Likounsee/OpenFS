@@ -119,14 +119,22 @@ int main(void)
         openfs_runtime_destroy(&runtime);
         return 1;
     }
-    /* Admission and final leave must both work while this high-ranked lock is held. */
-    if (!openfs_runtime_enter(&runtime)) {
-        (void)openfs_mutex_unlock(&external_high_rank);
-        (void)openfs_mutex_destroy(&external_high_rank);
-        openfs_runtime_destroy(&runtime);
-        return 1;
+    /*
+     * Repeat admission and final leave while an unrelated maximum-ranked
+     * lock is held. This catches rank-stack residue that a single iteration
+     * can miss and ensures every leave drains its active-user pin.
+     */
+    for (unsigned high_rank_cycle = 0U; high_rank_cycle < 100U; ++high_rank_cycle) {
+        if (!openfs_runtime_enter(&runtime)) {
+            fprintf(stderr, "runtime admission failed under high-ranked lock at cycle %u\n",
+                    high_rank_cycle);
+            (void)openfs_mutex_unlock(&external_high_rank);
+            (void)openfs_mutex_destroy(&external_high_rank);
+            openfs_runtime_destroy(&runtime);
+            return 1;
+        }
+        openfs_runtime_leave(&runtime);
     }
-    openfs_runtime_leave(&runtime);
     if (openfs_mutex_unlock(&external_high_rank) != OPENFS_LOCK_OK ||
         openfs_mutex_destroy(&external_high_rank) != OPENFS_LOCK_OK ||
         !openfs_runtime_shutdown_if_unused(&runtime)) {
