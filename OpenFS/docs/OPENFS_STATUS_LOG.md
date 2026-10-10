@@ -1,3 +1,10 @@
+# 2026-10-10 — P0: replay retry idempotency regression
+
+- **TEST** — `OpenFS/tests/test_journal_failure_paths.c`: the replay callback now models an idempotent effect by overwriting a fixed payload. When the final replay flush fails, recovery remains gated; on retry, the callback runs again and the resulting effect remains exactly the committed payload rather than accumulating a duplicate effect.
+- **Validation baseline** — [CI run 38056265145](https://github.com/Likounsee/OpenFS/actions/runs/38056265145) passed GCC, Clang (including sanitizers and Release), and Windows Debug/Release for commit `bff7766`. The added replay-effect assertions require a new full CI run before validation is complete.
+
+---
+
 # 2026-10-10 — P0: recovery gate and FSCK preflight failure coverage
 
 - **TEST** — `OpenFS/tests/test_journal_failure_paths.c`: while journal replay is active, a callback attempts to begin another transaction. The recovery gate rejects the attempt without creating an active transaction; after successful recovery and checkpoint, a new transaction can begin, commit, and checkpoint.

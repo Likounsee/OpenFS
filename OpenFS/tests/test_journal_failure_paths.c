@@ -198,7 +198,7 @@ static void test_block_write_failure_keeps_partial_transaction_abortable(void)
 
 
 
-typedef struct { unsigned hits; } replay_flush_state_t;
+typedef struct { unsigned hits; uint8_t effect[7]; } replay_flush_state_t;
 
 static openfs_journal_result_t replay_count_effect(void *ctx, uint64_t tx,
                                                     const uint8_t *data, uint32_t len)
@@ -209,6 +209,8 @@ static openfs_journal_result_t replay_count_effect(void *ctx, uint64_t tx,
         return OPENFS_JOURNAL_CORRUPT;
     }
     state->hits++;
+    /* Model an idempotent replay effect: overwrite the same logical value. */
+    memcpy(state->effect, data, len);
     return OPENFS_JOURNAL_OK;
 }
 
@@ -241,6 +243,7 @@ static void test_replay_flush_failure_keeps_recovery_gated(void)
     assert(openfs_journal_recover(&j, &v, &sb, replay_count_effect, &state) ==
            OPENFS_JOURNAL_IO_ERROR);
     assert(state.hits == 1U);
+    assert(memcmp(state.effect, "payload", 7U) == 0);
     assert(j.recovery_required == 1U);
     uint64_t blocked_tx = 0U;
     assert(openfs_journal_begin(&j, &v, &blocked_tx) == OPENFS_JOURNAL_IO_ERROR);
@@ -249,6 +252,7 @@ static void test_replay_flush_failure_keeps_recovery_gated(void)
     assert(openfs_journal_recover(&j, &v, &sb, replay_count_effect, &state) ==
            OPENFS_JOURNAL_OK);
     assert(state.hits == 2U);
+    assert(memcmp(state.effect, "payload", 7U) == 0);
     assert(j.recovery_required == 0U);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
     free(d.data);
