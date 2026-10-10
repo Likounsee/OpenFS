@@ -3,7 +3,7 @@
 - AUDIT FINDING — replacing a destination with its last namespace link while a file handle remained open truncated/freed the destination inode. Mounted rename also needs the original runtime/device identity to count handles while its mutations use a transaction proxy.
 - FIX — the rename core now receives the base device/runtime separately from the transaction view. If the destination still has an open handle and link count one, replacement persists the orphan flag and keeps inode/data/refcounts until the last handle closes.
 - REGRESSION — OpenFS/tests/test_path.c opens the destination, writes distinct payloads to source and destination, replaces the destination with rename, verifies the old open handle still reads old contents, closes it, then verifies the destination reads the source data and FSCK remains clean.
-- VALIDATION — [CI run 38069243634](https://github.com/Likounsee/OpenFS/actions/runs/38069243634) showed the preflight returned `OPENFS_PATH_IO_ERROR`: `path_lookup_follow_unlocked()` re-entered public lookup with the mounted runtime while the INODE lock was already held, violating DIRECTORY/INODE lock order. The probe now uses a runtime-free superblock view during its lookup and the temporary debug prints have been removed. Fresh full CI is required.
+- VALIDATION — [CI run 38069344551](https://github.com/Likounsee/OpenFS/actions/runs/38069344551) passed GCC and Clang (including ASan/UBSan and Release) and Windows Debug/Release for commit `75cd96b`. This validates the runtime-free superblock probe, the open-destination rename regression, and the full test matrix.
 
 ---
 
