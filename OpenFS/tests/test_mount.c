@@ -643,6 +643,37 @@ static void replay_retry_after_applied_write_reports_error(void)
     free(d.bytes);
 }
 
+static void checkpoint_flush_failure_restores_journal(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4FU,0x57U};assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;assert(openfs_read_superblock(&v,&sb)==OPENFS_FORMAT_OK);
+    openfs_journal_t j;assert(openfs_journal_open(&j,&v,&sb)==OPENFS_JOURNAL_OK);
+    uint64_t target=sb.data_start+25U,tx=0U;
+    uint8_t payload[4096U];for(size_t i=0U;i<sizeof(payload);i++)payload[i]=(uint8_t)(i*13U+3U);
+    assert(openfs_journal_begin(&j,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&j,&v,tx,target,payload)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j,&v,tx)==OPENFS_JOURNAL_OK);
+
+    size_t journal_bytes=(size_t)(sb.journal_blocks*(uint64_t)d.block_size);
+    uint8_t *before=malloc(journal_bytes);assert(before);
+    memcpy(before,d.bytes+(size_t)(sb.journal_start*d.block_size),journal_bytes);
+    d.fail_flush_at=d.flushes+1U;
+    assert(openfs_journal_checkpoint(&j,&v)==OPENFS_JOURNAL_IO_ERROR);
+    assert(memcmp(before,d.bytes+(size_t)(sb.journal_start*d.block_size),journal_bytes)==0);
+
+    d.fail_flush_at=0U;
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(before);free(d.bytes);
+}
+
 static void replay_retry_after_validation_flush_failure(void)
 {
     disk_t d={.block_size=4096U,.block_count=256U};
@@ -895,7 +926,7 @@ static void malformed_later_replay_payload_does_not_publish_earlier_blocks(void)
 
 int main(void){
     malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
-    replay_retry_after_applied_write_reports_error();replay_retry_after_validation_flush_failure();replay_retry_after_replay_flush_failure();
+    replay_retry_after_applied_write_reports_error();checkpoint_flush_failure_restores_journal();replay_retry_after_validation_flush_failure();replay_retry_after_replay_flush_failure();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  concurrent_handle_close_unmount_regression();
