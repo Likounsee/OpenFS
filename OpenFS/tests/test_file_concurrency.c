@@ -330,6 +330,9 @@ int main(void)
 
     }
 
+    /* Repeat the in-flight write/unmount barrier to exercise scheduling
+     * variations; every iteration remounts and validates disk integrity. */
+    for(unsigned write_cycle=0U;write_cycle<32U;write_cycle++){
     /* Also hold an in-flight write inside a block-device callback while
      * unmount closes admission. Teardown must wait for the writer's pin. */
     atomic_store_explicit(&disk.gate_entered,0,memory_order_release);
@@ -389,6 +392,8 @@ int main(void)
     errors=UINT64_MAX;
     assert(openfs_fsck(&device,&mount.superblock,&errors)==OPENFS_FSCK_OK);
     assert(errors==0U);
+
+    }
 
     assert(openfs_unmount(&mount)==OPENFS_MOUNT_OK);
     free(disk.bytes);
