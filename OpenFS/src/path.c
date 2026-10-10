@@ -390,7 +390,7 @@ static int path_directory_empty(openfs_block_device_t *d,const openfs_superblock
     return 1;
 }
 
-static openfs_path_result_t path_rename_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp){
+static openfs_path_result_t path_rename_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*oldp,const char*newp,const openfs_block_device_t*handle_device,openfs_runtime_t*handle_runtime){
 openfs_path_result_t old_trailing=require_trailing_directory(d,s,oldp);if(old_trailing!=OPENFS_PATH_OK)return old_trailing;
 if(path_has_trailing_slash(newp)){size_t nl=strlen(newp);while(nl>1U&&newp[nl-1U]=='/')--nl;char normalized[OPENFS_PATH_MAX];if(nl>=sizeof(normalized))return OPENFS_PATH_NAME_TOO_LONG;memcpy(normalized,newp,nl);normalized[nl]='\0';uint64_t nino=0U;openfs_path_result_t nr=openfs_path_lookup_follow(d,s,normalized,&nino);if(nr==OPENFS_PATH_NOT_FOUND)return OPENFS_PATH_NOT_DIRECTORY;if(nr!=OPENFS_PATH_OK)return nr;openfs_inode_t ni;if(read_inode(d,s,nino,&ni)!=OPENFS_PATH_OK)return OPENFS_PATH_CORRUPT;if((ni.mode&OPENFS_INODE_TYPE_MASK)!=OPENFS_INODE_MODE_DIRECTORY)return OPENFS_PATH_NOT_DIRECTORY;}
 char op[OPENFS_PATH_MAX],on[OPENFS_DIR_NAME_MAX+1U],np[OPENFS_PATH_MAX],nn[OPENFS_DIR_NAME_MAX+1U];
@@ -409,6 +409,14 @@ if(destination_exists&&source_entry.inode_number==dest_entry.inode_number&&sourc
 openfs_inode_t source;openfs_path_result_t sr=read_inode(d,s,source_entry.inode_number,&source);if(sr!=OPENFS_PATH_OK)return sr;
 openfs_inode_t destination;memset(&destination,0,sizeof(destination));
 if(destination_exists){openfs_path_result_t tr=read_inode(d,s,dest_entry.inode_number,&destination);if(tr!=OPENFS_PATH_OK)return tr;if(destination.generation!=dest_entry.generation)return OPENFS_PATH_CORRUPT;}
+if(destination_exists&&destination.link_count==0U)return OPENFS_PATH_CORRUPT;
+uint64_t destination_open_handles=0U;
+if(destination_exists&&destination.link_count==1U&&handle_runtime!=NULL){
+    if(handle_device==NULL)return OPENFS_PATH_INVALID_ARGUMENT;
+    destination_open_handles=openfs_runtime_handle_count(
+        handle_runtime,handle_device,dest_entry.inode_number,destination.generation);
+    if(destination_open_handles==UINT64_MAX)return OPENFS_PATH_IO_ERROR;
+}
 int source_is_dir=(source.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY;
 if(destination_exists){
     int dest_is_dir=(destination.mode&OPENFS_INODE_TYPE_MASK)==OPENFS_INODE_MODE_DIRECTORY;
@@ -467,11 +475,19 @@ if(ok&&source_is_dir){
     if(ir!=OPENFS_INODE_OK)ok=0;
 }
 if(ok&&destination_exists){
-    if(destination.link_count==0U){ok=0;}
-    else if(destination.link_count>1U){
+    if(destination.link_count>1U){
         destination.link_count--;
         openfs_inode_result_t ir=openfs_inode_write(d,s->inode_table_start,count,&destination);
         if(ir!=OPENFS_INODE_OK)ok=0;
+    }else if(destination_open_handles!=0U){
+        /*
+         * Rename replacement removes the last namespace link, not the open
+         * handle's ownership. Retain the inode/data as an orphan until the
+         * last handle closes, just as unlink does.
+         */
+        destination.link_count=0U;
+        destination.flags|=OPENFS_INODE_FLAG_ORPHAN;
+        if(openfs_inode_write(d,s->inode_table_start,count,&destination)!=OPENFS_INODE_OK)ok=0;
     }else{
         openfs_file_result_t tr=openfs_file_truncate(d,s,&destination,0U);
         if(tr!=OPENFS_FILE_OK)ok=0;
@@ -651,7 +667,7 @@ static openfs_path_result_t path_unlink_as_unlocked(openfs_block_device_t*d,cons
     r=sticky_allowed(&parent_i,&target_i,uid);if(r!=OPENFS_PATH_OK)return r;
     return openfs_path_unlink(d,s,p);
 }
-static openfs_path_result_t path_rename_as_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid)
+static openfs_path_result_t path_rename_as_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*a,const char*b,uint32_t uid,uint32_t gid,const openfs_block_device_t*handle_device,openfs_runtime_t*handle_runtime)
 {
     uint64_t oldparent=0U,newparent=0U;openfs_path_result_t r=parent_access(d,s,a,uid,gid,&oldparent);if(r!=OPENFS_PATH_OK)return r;
     r=parent_access(d,s,b,uid,gid,&newparent);if(r!=OPENFS_PATH_OK)return r;
@@ -663,7 +679,7 @@ static openfs_path_result_t path_rename_as_unlocked(openfs_block_device_t*d,cons
         openfs_inode_t new_parent_i,dst_i;openfs_path_result_t new_parent_result=read_inode(d,s,newparent,&new_parent_i);if(new_parent_result!=OPENFS_PATH_OK)return new_parent_result;openfs_path_result_t dst_result=read_inode(d,s,dst_ino,&dst_i);if(dst_result!=OPENFS_PATH_OK)return dst_result;
         r=sticky_allowed(&new_parent_i,&dst_i,uid);if(r!=OPENFS_PATH_OK)return r;
     }
-    return openfs_path_rename(d,s,a,b);
+    return path_rename_unlocked(d,s,a,b,handle_device,handle_runtime);
 }
 
 static openfs_path_result_t path_chmod_as_unlocked(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t permissions,uint32_t uid,uint32_t gid)
@@ -889,10 +905,10 @@ static openfs_path_result_t path_rename_mounted_transaction(
     transaction_superblock.runtime=NULL;
     if(check_credentials){
         result=path_rename_as_unlocked(td,&transaction_superblock,
-                                       old_path,new_path,uid,gid);
+                                       old_path,new_path,uid,gid,d,runtime);
     }else{
         result=path_rename_unlocked(td,&transaction_superblock,
-                                    old_path,new_path);
+                                    old_path,new_path,d,runtime);
     }
     if(result!=OPENFS_PATH_OK)
         goto abort_transaction;
@@ -978,11 +994,12 @@ openfs_path_result_t openfs_path_rename(openfs_block_device_t*d,const openfs_sup
         openfs_superblock_t transaction_superblock=*s;
         transaction_superblock.runtime=NULL;
         openfs_path_result_t result=path_rename_unlocked(
-            d,&transaction_superblock,a,b);
+            d,&transaction_superblock,a,b,owner->base,
+            owner->journal!=NULL?owner->journal->runtime:NULL);
         if(result!=OPENFS_PATH_OK)owner->failed=1;
         return result;
     }
-    if(s->runtime==NULL)return path_rename_unlocked(d,s,a,b);
+    if(s->runtime==NULL)return path_rename_unlocked(d,s,a,b,d,s->runtime);
     return path_rename_mounted_transaction(d,s,a,b,0U,0U,0);
 }
 openfs_path_result_t openfs_path_chmod(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode){PATH_LOCKED_CALL(s,path_chmod_unlocked(d,s,p,mode));}
@@ -1030,11 +1047,12 @@ openfs_path_result_t openfs_path_rename_as(openfs_block_device_t*d,const openfs_
         openfs_superblock_t transaction_superblock=*s;
         transaction_superblock.runtime=NULL;
         openfs_path_result_t result=path_rename_as_unlocked(
-            d,&transaction_superblock,a,b,uid,gid);
+            d,&transaction_superblock,a,b,uid,gid,owner->base,
+            owner->journal!=NULL?owner->journal->runtime:NULL);
         if(result!=OPENFS_PATH_OK)owner->failed=1;
         return result;
     }
-    if(s->runtime==NULL)return path_rename_as_unlocked(d,s,a,b,uid,gid);
+    if(s->runtime==NULL)return path_rename_as_unlocked(d,s,a,b,uid,gid,d,s->runtime);
     return path_rename_mounted_transaction(d,s,a,b,uid,gid,1);
 }
 openfs_path_result_t openfs_path_chmod_as(openfs_block_device_t*d,const openfs_superblock_t*s,const char*p,uint32_t mode,uint32_t uid,uint32_t gid){PATH_LOCKED_CALL(s,path_chmod_as_unlocked(d,s,p,mode,uid,gid));}

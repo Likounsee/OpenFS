@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: preserve open destination handles during atomic rename
+
+- AUDIT FINDING — replacing a destination with its last namespace link while a file handle remained open truncated/freed the destination inode. Mounted rename also needs the original runtime/device identity to count handles while its mutations use a transaction proxy.
+- FIX — the rename core now receives the base device/runtime separately from the transaction view. If the destination still has an open handle and link count one, replacement persists the orphan flag and keeps inode/data/refcounts until the last handle closes.
+- REGRESSION — OpenFS/tests/test_path.c opens the destination, writes distinct payloads to source and destination, replaces the destination with rename, verifies the old open handle still reads old contents, closes it, then verifies the destination reads the source data and FSCK remains clean.
+- VALIDATION — pending full CI for this follow-up. Mounted rename COMMIT-failure recovery is covered by the preceding branch commit 2d44e72.
+
+---
+
 # 2026-10-10 — P0: make mounted rename crash-atomic
 
 - **AUDIT FINDING** — mounted \`openfs_path_rename()\` and \`openfs_path_rename_as()\` previously modified source/destination directory blocks and possibly the replacement inode/data through the non-transactional rollback path. A crash after one home write could publish only one side of a cross-directory rename.
