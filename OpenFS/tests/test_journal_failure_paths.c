@@ -198,7 +198,7 @@ static void test_partial_begin_and_failed_rollback_poison_journal(void)
 
     /* The first write is partial; the following rollback write also fails. */
     d.partial_next_write = 1;
-    d.partial_write_bytes = 97U;
+    d.partial_write_bytes = 17U;
     d.fail_write_after = 1;
     uint64_t tx = 0U;
     assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_CORRUPT);
@@ -230,7 +230,7 @@ static void test_partial_data_and_failed_rollback_poison_journal(void)
     assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
 
     d.partial_next_write = 1;
-    d.partial_write_bytes = 131U;
+    d.partial_write_bytes = 33U;
     d.fail_write_after = 1;
     assert(openfs_journal_write(&j, &v, tx, "partial-data", 12U) ==
            OPENFS_JOURNAL_CORRUPT);
