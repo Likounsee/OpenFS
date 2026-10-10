@@ -320,6 +320,18 @@ int main(void)
 #endif
     assert(rw_counter==80000U);
     assert(openfs_rwlock_destroy(&lock)==OPENFS_LOCK_OK);
+    /*
+     * Runtime lifecycle locks sit above every filesystem lock rank. This
+     * allows lifecycle admission/leave to work beneath a caller's checksum
+     * lock without treating two unrelated locks as the same rank.
+     */
+    openfs_mutex_t lifecycle_rank;
+    assert(openfs_mutex_init(&lifecycle_rank)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&mutex,OPENFS_LOCK_RANK_CHECKSUM)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_lock(&lifecycle_rank,OPENFS_LOCK_RANK_LIFECYCLE)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&lifecycle_rank)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_unlock(&mutex)==OPENFS_LOCK_OK);
+    assert(openfs_mutex_destroy(&lifecycle_rank)==OPENFS_LOCK_OK);
     puts("openfs lock tests passed");
     return 0;
 }

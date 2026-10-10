@@ -38,7 +38,7 @@ static int rwlock_writer_contains(const void *object){for(unsigned i=0U;i<rwlock
 static int rwlock_writer_push(const void *object){if(rwlock_writer_depth>=OPENFS_LOCK_STACK_MAX)return 0;rwlock_writer_stack[rwlock_writer_depth++]=object;return 1;}
 static int rwlock_writer_pop(const void *object){if(!rwlock_writer_is_top(object))return 0;rwlock_writer_stack[--rwlock_writer_depth]=NULL;return 1;}
 #endif
-static int rank_valid(openfs_lock_rank_t rank){switch(rank){case OPENFS_LOCK_RANK_MOUNT:case OPENFS_LOCK_RANK_DIRECTORY:case OPENFS_LOCK_RANK_HANDLE:case OPENFS_LOCK_RANK_INODE:case OPENFS_LOCK_RANK_REGISTRY:case OPENFS_LOCK_RANK_ALLOCATION:case OPENFS_LOCK_RANK_TRANSACTION:case OPENFS_LOCK_RANK_JOURNAL:case OPENFS_LOCK_RANK_CHECKSUM:return 1;default:return 0;}}
+static int rank_valid(openfs_lock_rank_t rank){switch(rank){case OPENFS_LOCK_RANK_MOUNT:case OPENFS_LOCK_RANK_DIRECTORY:case OPENFS_LOCK_RANK_HANDLE:case OPENFS_LOCK_RANK_INODE:case OPENFS_LOCK_RANK_REGISTRY:case OPENFS_LOCK_RANK_ALLOCATION:case OPENFS_LOCK_RANK_TRANSACTION:case OPENFS_LOCK_RANK_JOURNAL:case OPENFS_LOCK_RANK_CHECKSUM:case OPENFS_LOCK_RANK_LIFECYCLE:return 1;default:return 0;}}
 static openfs_lock_result_t rank_enter(const void *object,openfs_lock_rank_t rank){if(object==NULL||!rank_valid(rank))return OPENFS_LOCK_INVALID_ARGUMENT;if(lock_depth!=0U&&rank<lock_stack[lock_depth-1U].rank)return OPENFS_LOCK_DEADLOCK;if(lock_depth>=OPENFS_LOCK_STACK_MAX)return OPENFS_LOCK_DEADLOCK;lock_stack[lock_depth].object=object;lock_stack[lock_depth].rank=rank;++lock_depth;return OPENFS_LOCK_OK;}
 static void rank_cancel(void){if(lock_depth!=0U)--lock_depth;}
 static int rank_is_top(const void *object){return lock_depth!=0U&&lock_stack[lock_depth-1U].object==object;}
