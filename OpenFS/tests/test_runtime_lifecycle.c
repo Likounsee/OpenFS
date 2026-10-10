@@ -105,6 +105,31 @@ int main(void)
     if (!openfs_runtime_init(&runtime)) return 1;
 
     /*
+     * Leaving the final runtime pin while holding an unrelated high-ranked
+     * lock must still decrement active_users. Otherwise shutdown can wait
+     * forever after the TLS pin has already been cleared.
+     */
+    openfs_mutex_t external_high_rank;
+    if (openfs_mutex_init(&external_high_rank) != OPENFS_LOCK_OK) {
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+    if (!openfs_runtime_enter(&runtime) ||
+        openfs_mutex_lock(&external_high_rank, OPENFS_LOCK_RANK_CHECKSUM) != OPENFS_LOCK_OK) {
+        (void)openfs_mutex_destroy(&external_high_rank);
+        openfs_runtime_destroy(&runtime);
+        return 1;
+    }
+    openfs_runtime_leave(&runtime);
+    if (openfs_mutex_unlock(&external_high_rank) != OPENFS_LOCK_OK ||
+        openfs_mutex_destroy(&external_high_rank) != OPENFS_LOCK_OK ||
+        !openfs_runtime_shutdown_if_unused(&runtime)) {
+        fprintf(stderr, "runtime leave leaked an active pin under a higher-ranked lock\\n");
+        return 1;
+    }
+    if (!openfs_runtime_init(&runtime)) return 1;
+
+    /*
      * An open handle must prevent unused-shutdown from destroying the
      * runtime. A rejected shutdown must also restore admission so the caller
      * can release the handle and continue using the runtime.
