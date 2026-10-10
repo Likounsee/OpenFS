@@ -4,6 +4,7 @@
 - FIX — preserve the transaction API contract and make each wrapper retire any still-active transaction on commit error. For recovery-required transactions, abort only retires the in-memory active ID; the on-disk WAL remains gated for recovery and is not rolled back.
 - REGRESSION — test_path.c injects a COMMIT-record write failure and a failure of the compensating restore through mounted openfs_path_rename(). It verifies that the wrapper retires active_transaction_id, recovery can run, the pre-rename namespace remains intact, and FSCK is clean.
 - VALIDATION — pending fresh GCC, Clang/ASan/UBSan, Release, and Windows Debug/Release CI.
+- **CI follow-up** — run 38071416121 caught an error-code regression: retiring a transaction after a durable COMMIT with a home-block write failure must not overwrite the original `OPENFS_PATH_IO_ERROR` with `OPENFS_PATH_CORRUPT`. The wrapper now preserves the original result when abort only retires a recovery-required transaction; pre-COMMIT corruption still reports corrupt. Re-run the full matrix.
 
 ---
 

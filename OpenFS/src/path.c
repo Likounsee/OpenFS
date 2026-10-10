@@ -855,9 +855,9 @@ static openfs_path_result_t path_create_mounted_transaction(
     if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
-        if(ar==OPENFS_TRANSACTION_CORRUPT)
+        if(ar==OPENFS_TRANSACTION_CORRUPT&&!transaction.recovery_required)
             result=OPENFS_PATH_CORRUPT;
-        else if(ar!=OPENFS_TRANSACTION_OK)
+        else if(ar!=OPENFS_TRANSACTION_OK&&ar!=OPENFS_TRANSACTION_CORRUPT)
             result=OPENFS_PATH_IO_ERROR;
     }else{
         transaction_started=0;
@@ -992,9 +992,9 @@ static openfs_path_result_t path_rename_mounted_transaction(
     if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
-        if(ar==OPENFS_TRANSACTION_CORRUPT)
+        if(ar==OPENFS_TRANSACTION_CORRUPT&&!transaction.recovery_required)
             result=OPENFS_PATH_CORRUPT;
-        else if(ar!=OPENFS_TRANSACTION_OK)
+        else if(ar!=OPENFS_TRANSACTION_OK&&ar!=OPENFS_TRANSACTION_CORRUPT)
             result=OPENFS_PATH_IO_ERROR;
     }else{
         transaction_started=0;
@@ -1228,9 +1228,9 @@ static openfs_path_result_t path_clone_mounted_transaction(
     if(transaction.active){
         openfs_transaction_result_t ar=openfs_transaction_abort(&transaction);
         transaction_started=transaction.active;
-        if(ar==OPENFS_TRANSACTION_CORRUPT)
+        if(ar==OPENFS_TRANSACTION_CORRUPT&&!transaction.recovery_required)
             result=OPENFS_PATH_CORRUPT;
-        else if(ar!=OPENFS_TRANSACTION_OK)
+        else if(ar!=OPENFS_TRANSACTION_OK&&ar!=OPENFS_TRANSACTION_CORRUPT)
             result=OPENFS_PATH_IO_ERROR;
     }else{
         transaction_started=0;
