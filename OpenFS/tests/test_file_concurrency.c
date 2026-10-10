@@ -255,15 +255,19 @@ int main(void)
     pthread_t unmount_thread;
     assert(pthread_create(&unmount_thread,NULL,unmount_worker,&unmount_ctx)==0);
 #endif
-    for(unsigned spin=0U;spin<10000000U &&
-        openfs_runtime_is_accepting(&mount.runtime);spin++){
+    int stale_admission_accepted=1;
+    for(unsigned spin=0U;spin<10000000U && stale_admission_accepted!=0;spin++){
+        /* enter() checks the runtime registry before touching its lifecycle
+         * mutex, so this remains safe even if unmount wins the race. */
+        stale_admission_accepted=openfs_runtime_enter(&mount.runtime);
+        if(stale_admission_accepted!=0)openfs_runtime_leave(&mount.runtime);
 #if defined(_WIN32)
         Sleep(0);
 #else
         sched_yield();
 #endif
     }
-    assert(!openfs_runtime_is_accepting(&mount.runtime));
+    assert(stale_admission_accepted==0);
     assert(atomic_load_explicit(&unmount_ctx.done,memory_order_acquire)==0);
     atomic_store_explicit(&disk.gate_release,1,memory_order_release);
 #if defined(_WIN32)
