@@ -63,337 +63,85 @@ The existing core already provides a substantial filesystem foundation:
 
 | Area | Status |
 |---|---|
-| On-disk format | Implemented / hardened |
-| Allocation / bitmaps | Implemented / hardened |
-| Inodes | Implemented / hardened |
-| Extents / extent tree | Implemented / hardened |
-| Directories / namespace | Implemented / hardened |
-| Hard links / symlinks | Implemented |
-| ACL / permissions / xattrs | Implemented |
-| File handles | Implemented |
-| WAL / transactions / replay | Implemented / actively hardened |
-| CoW / refcounting | Implemented / actively hardened |
-| Generic metadata-CoW block primitive | **Implemented as stage-1 groundwork; metadata roots not yet migrated** |
-| Orphans | Implemented |
-| FSCK consistency checking | Implemented / actively hardened |
-| Sparse files | **Implemented, final hardening ongoing** |
-| SEEK_DATA / SEEK_HOLE | **Implemented, regression-tested** |
-| Snapshots | Planned |
-| Named streams / ADS | Planned |
-| Change journal | Planned |
-| Quotas | Planned |
-| Compression | Planned |
-| Encryption / key management | Planned |
-| Reparse-like objects | Planned |
-| Data checksums / scrub | Partial; read-only scrub can report block-level read/checksum issues via `openfs_scrub_ex` |
-| Controlled FSCK repair | Partial / planned expansion |
-| Cache / read-ahead / writeback | Planned |
-| mmap / direct I/O | Planned |
-| Linux VFS integration | Planned |
-| Windows/WinFSP integration | Planned |
-| Notifications | Planned |
-| Persistent file IDs | Planned |
-| Benchmarks / performance tuning | Planned |
+| On-disk format, superblocks and metadata checksums | Implemented; further compatibility and failure validation remains |
+| Allocation / bitmaps / inode allocation | Implemented; cross-structure ownership audit remains |
+| Inodes / extents / directories / namespace | Implemented; full crash/concurrency matrix not yet verified |
+| Hard links / symlinks / orphan handling | Implemented in the engine; end-to-end failure matrix remains |
+| ACL / permissions / xattrs | Engine APIs implemented; native Windows security mapping not established |
+| File handles / descriptors / range locks | Implemented; complete Windows sharing/delete semantics not established |
+| WAL / transactions / replay / checkpoint | Implemented and actively hardened; full required failure matrix and CI are unverified |
+| CoW / refcounting | Implemented and actively hardened |
+| Generic metadata-CoW primitive | Stage-1 groundwork only; metadata roots are not generally migrated |
+| FSCK consistency checking | Implemented; full invariant coverage not established |
+| FSCK repair | Partial; exposed repair scope is limited |
+| Data checksums / read-only scrub | Partial; scrub reports issues but does not repair corrupted file contents |
+| Sparse files / SEEK_DATA / SEEK_HOLE | Engine support implemented; dedicated edge-case, crash and adapter coverage remains |
+| Snapshots | Planned; existing metadata-CoW groundwork is not a complete snapshot feature |
+| Named streams / NTFS ADS | Not implemented end to end |
+| Change journal / quotas / compression / encryption / reparse points | Planned; no complete implementation confirmed |
+| Windows / WinFsp adapter | Partial and read-only in the audited source; read-write operations remain incomplete |
+| Linux VFS/kernel integration | Planned; userspace adapter support is distinct from native kernel integration |
+| Benchmarks / performance tuning | No reproducible NTFS comparison verified |
 
 ---
 
-# Roadmap
+# Roadmap and verified progress
+
+This roadmap separates **code that exists** from **work that is verified complete**. Statuses below reflect source inspection, not a claim that tests passed. The detailed task list and file-level audit are maintained in [ROADMAP_P0_P3.md](ROADMAP_P0_P3.md).
 
 ## P0 — Reliability, correctness and recovery
 
-These are the highest priority. Advanced features must not be built on top of unsafe core semantics.
+**Overall status: IN PROGRESS — not complete.** The core has a WAL, transaction/replay logic, runtime locking, CoW/refcounts, FSCK diagnostics and read-only scrub. The remaining work is to prove their combined behavior under concurrency, corruption and failures.
 
-### 1. Concurrency audit
+| ID | Workstream | Current evidence | Remaining exit criteria | Status |
+|---|---|---|---|---|
+| P0-001 | Locking and lifecycle | Runtime admission, lock layer, handles and concurrency tests exist; a past rename lock-order inversion was fixed. | Audit all lock paths and interleavings; deterministic shutdown/unmount races; run race detection where available. | In progress |
+| P0-002 | WAL, transactions and recovery | WAL commit/replay, sequence and transaction ownership checks, and failure-path tests exist. | Exercise partial writes/flushes/checkpoints and double failures; prove replay idempotence and old-or-new state at every cut point. | In progress |
+| P0-003 | Block ownership and refcounts | Allocation bitmaps, inode allocation, extents and CoW/refcount machinery exist. | Prove cross-structure ownership invariants and detect leaks, double references and free-but-referenced blocks. | Not complete |
+| P0-004 | FSCK and conservative repair | Consistency diagnostics exist; exposed repairs cover selected bitmap-tail and CoW-refcount cases. | Establish read-only boundaries, preflight and idempotence; broaden corruption fixtures without destructive ambiguous repairs. | Partial |
+| P0-005 | Checksums and scrub | Optional data checksums and a read-only scrub path report block-level issues. | Complete persistent-layer coverage, corruption-plus-crash tests and reliable issue attribution; do not imply scrub repairs damaged data. | In progress |
+| P0-006 | Bounds and malformed input | Geometry/bounds checks and boundary tests exist. | Audit arithmetic/conversions and fuzz disk parsers with sanitizer-backed, persistent regression seeds. | Not complete |
+| P0-007 | CI on exact revision | GCC/Clang, sanitizer, Release and Windows jobs are defined in the workflow. | Obtain successful results for every required job on the exact final commit. The audit found no usable CI status. | Unverified |
+| P0-008 | End-to-end crash cuts | Journal, namespace, crash-cut and double-failure test sources exist. | Inject failures around every relevant write/flush for multi-structure mutations; remount, replay and run FSCK after each cut. | Not complete |
 
-- [ ] Audit every shared mutable structure.
-- [ ] Verify mount lifetime locking.
-- [ ] Verify inode locking.
-- [ ] Verify directory locking.
-- [ ] Verify allocation/bitmap locking.
-- [ ] Verify journal locking.
-- [ ] Verify CoW/refcount locking.
-- [ ] Verify lock ordering and recursive call paths.
-- [ ] Detect and eliminate lock-order inversions.
-- [ ] Close multi-step namespace TOCTOU windows.
-- [x] Stress concurrent create/remove/rename (regression coverage exists; full matrix validation still required).
-- [x] Stress concurrent read/write/truncate (regression coverage exists; full matrix validation still required).
-- [x] Stress concurrent hard-link and symlink creation (full matrix validation still required).
-- [x] Stress concurrent CoW/refcount operations (regression coverage exists; full matrix validation still required).
-- [x] Test runtime shutdown/lifetime races; broader mount/unmount race coverage remains open.
-- [ ] Test concurrent snapshots with active writers once snapshots exist.
+**P0 completion rule:** do not mark P0 complete until the required failure/concurrency matrix has actually run, recovery and FSCK results are reviewed, and the required CI jobs are green on the exact commit.
 
-The existing locking layer is deliberately conservative. Finer-grained locking may be introduced later, but correctness comes first.
+## P1 — Core semantics and usable OS integration
 
-### 2. WAL, transaction and crash recovery
+**Overall status: NOT COMPLETE.** The engine exposes several core APIs, but the Windows adapter inspected in the source is read-only and does not provide a complete read-write filesystem interface.
 
-- [ ] Audit every BEGIN/DATA/COMMIT/checkpoint transition.
-- [ ] Test partial journal writes.
-- [ ] Test partial flushes.
-- [x] Test corrupted journal records, including orphan DATA and mismatched COMMIT ownership.
-- [ ] Test interrupted checkpointing.
-- [ ] Test abandoned transactions.
-- [ ] Complete true transaction-interleaving/corruption coverage beyond current BEGIN/DATA/COMMIT ownership checks.
-- [ ] Preserve a sticky recovery-required state when appropriate.
-- [ ] Verify rollback state after rollback failure.
-- [ ] Verify remount/replay after every injected failure.
-- [ ] Ensure a durable COMMIT remains recoverable even when later final writes fail.
+| ID | Workstream | Current evidence | Remaining exit criteria | Status |
+|---|---|---|---|---|
+| P1-001 | Windows read-write adapter | The current WinFsp/FUSE compatibility adapter reports read-only behavior; writes return `-EROFS`, and mutation/durability callbacks are missing or incomplete. | Implement and test create/open/read/write/truncate/rename/unlink/readdir/stat/flush/fsync/release, error mapping and real Windows handle behavior. | Not implemented end to end |
+| P1-002 | Handles, sharing and delete semantics | File descriptors/handles, reference counting and range-lock APIs exist. | Specify and test sharing modes, open-handle rename/unlink, deferred deletion, duplication/close races and inode reuse. | In progress / unverified |
+| P1-003 | Windows permissions and ACLs | Engine ACL and access-check functionality exists. | Define and test SID/security-descriptor conversion, inheritance and fail-closed authorization in the adapter. | Not implemented end to end |
+| P1-004 | Durability API and format compatibility | Transactional APIs, direct file operations and a versioned on-disk format exist. | Document and test flush/commit guarantees, feature flags, unknown-feature rejection and supported-version/upgrade policy. | In progress |
 
-Required ordering:
+## P2 — Snapshots and advanced filesystem capabilities
 
-**BEGIN/DATA → durable COMMIT → final writes → flush → checkpoint**
+**Overall status: MOSTLY PLANNED.** A metadata-CoW primitive and snapshot-related root field are groundwork only; they do not constitute a complete snapshot implementation.
 
-### 3. FSCK and repair
+| ID | Workstream | Current evidence | Remaining exit criteria | Status |
+|---|---|---|---|---|
+| P2-001 | Persistent snapshots | Metadata-CoW/catalogue groundwork exists; no complete public snapshot API/catalogue was found in the audited source. | Persistent IDs, atomic create/delete, immutable read-only views, correct refcounts, recovery and FSCK support. | Not implemented end to end |
+| P2-002 | Named streams / NTFS ADS | Extended attributes exist, but they do not establish Alternate Data Stream semantics. | Define persistent stream storage and Windows mapping; test independent stream lifecycle, security, recovery and FSCK. | Not implemented |
+| P2-003 | Quotas, compression, encryption and reparse points | No complete end-to-end implementation was confirmed for these feature families. | Evaluate separately; specify on-disk/security semantics before implementation and include crash recovery, integrity and FSCK coverage. | Planned |
+| P2-004 | Persistent change journal | No durable USN-like change-journal API was confirmed. | Transactionally publish ordered change IDs/records; define retention, reset/overflow and recovery semantics. | Not implemented |
 
-- [ ] Separate detection from repair and document/verify the boundary across all FSCK paths.
-- [x] Provide read-only consistency checking/scrub paths; confirm the full FSCK read-only contract and regression matrix.
-- [ ] Add controlled repair mode.
-- [ ] Validate inode bitmap tails.
-- [ ] Validate block bitmap tails.
-- [ ] Validate inode ownership.
-- [ ] Validate extent ownership.
-- [ ] Validate CoW/refcount ownership exactly.
-- [ ] Validate directory reachability.
-- [ ] Validate link counts.
-- [ ] Validate generations.
-- [ ] Validate orphan state.
-- [ ] Validate journal state.
-- [ ] Validate snapshots once implemented.
-- [ ] Validate streams once implemented.
-- [ ] Validate quotas once implemented.
-- [ ] Ensure repair never silently destroys recoverable data.
-- [ ] Add corruption fixtures and repair regression tests.
+## P3 — Performance, maturity and longer-term integration
 
-### 4. Integrity and corruption detection
+**Overall status: PLANNED.** Performance and platform maturity work should follow demonstrated P0 correctness and the required P1 semantics.
 
-- [ ] Define checksum coverage for all persistent metadata.
-- [ ] Add/extend data-integrity checks where appropriate.
-- [ ] Detect silent corruption during reads.
-- [x] Add read-only scrub support (`openfs_scrub_ex`) with block-level issue reporting and continued scanning after localized I/O failures.
-- [x] Report block-level scrub issues; precise higher-level object attribution remains open.
-- [ ] Repair corrupted structures where a safe source exists.
-- [ ] Test corruption at every persistent layer.
-- [ ] Test corruption combined with crash recovery.
+| ID | Workstream | Remaining exit criteria | Status |
+|---|---|---|---|
+| P3-001 | Reproducible benchmarks | Publish repeatable workloads and raw results for sequential/random I/O, small files, large directories, concurrency, transactions, CoW and FSCK; compare only under documented conditions. | Not started / unverified |
+| P3-002 | Profile-guided optimization | Establish a baseline, optimize measured bottlenecks one at a time, then rerun correctness and performance suites. | Planned |
+| P3-003 | Continuous fuzzing, upgrades and releases | Maintain parser fuzz corpora/seeds; test every supported format version and document backup, upgrade, rollback and reproducible release steps. | Planned |
+| P3-004 | Native Linux integration decision | Explicitly decide and document userspace/FUSE versus kernel/VFS integration scope; validate the supported adapter operations. | Decision pending |
 
----
+## Verification note
 
-# P1 — Core filesystem features
-
-## 5. Snapshots
-
-Implement snapshots using the existing CoW/refcount foundation.
-
-- [ ] Persistent snapshot metadata.
-- [x] Stage-1 generic metadata-CoW block header/refcount/copy-before-write primitive (not sufficient for snapshots by itself).
-- [ ] Atomic snapshot creation.
-- [ ] Read-only snapshot view.
-- [ ] Persistent snapshot IDs.
-- [ ] Snapshot listing.
-- [ ] Snapshot deletion.
-- [ ] Snapshot lifetime/refcount accounting.
-- [ ] CoW interaction.
-- [ ] Snapshot rollback.
-- [ ] Crash recovery.
-- [ ] FSCK support.
-- [ ] Snapshot + write interaction tests.
-- [ ] Snapshot + CoW interaction tests.
-- [ ] Snapshot + truncate tests.
-- [ ] Snapshot + rename/link tests.
-- [ ] Snapshot + crash tests.
-- [ ] Snapshot + corruption tests.
-
-## 6. Sparse files
-
-- [x] Hole-aware writes.
-- [x] Sparse truncate extension.
-- [x] Sparse truncate shrink.
-- [x] Reclaim only mapped blocks.
-- [x] Preserve holes when converting extent representations.
-- [x] Sparse extent-tree handling.
-- [x] `SEEK_DATA`.
-- [x] `SEEK_HOLE`.
-- [x] Synchronize sparse seeking with runtime inode locking.
-- [x] Handle adjacent logical extents correctly even when their physical blocks are non-contiguous.
-- [x] FSCK coverage for sparse layouts.
-- [ ] Crash/fault-injection coverage for every sparse write/truncate path.
-- [ ] Full handle/descriptor integration.
-- [ ] Linux/Windows adapter exposure where supported.
-- [ ] Interaction tests with CoW and snapshots.
-
-## 7. Named streams / Alternate Data Streams
-
-- [ ] Define persistent stream metadata.
-- [ ] Main/default stream semantics.
-- [ ] Named stream create/open/read/write/truncate.
-- [ ] Stream delete/rename.
-- [ ] Independent stream sizes and allocation.
-- [ ] Stream permissions/security semantics.
-- [ ] Stream transactions.
-- [ ] Stream crash recovery.
-- [ ] Stream FSCK.
-- [ ] Stream + CoW.
-- [ ] Stream + snapshots.
-- [ ] Windows ADS mapping.
-
-## 8. Change journal
-
-This is deliberately separate from the recovery WAL.
-
-- [ ] Persistent change records.
-- [ ] Monotonic journal/change IDs.
-- [ ] Create/delete records.
-- [ ] Rename records.
-- [ ] Write/size/metadata change records.
-- [ ] Link/unlink records.
-- [ ] Transactional publication.
-- [ ] Recovery semantics.
-- [ ] Incremental reader API.
-- [ ] Rotation/pruning.
-- [ ] FSCK validation.
-- [ ] Crash tests.
-- [ ] Windows/OS notification integration.
-
-## 9. Quotas
-
-- [ ] Per-user quota.
-- [ ] Per-group quota.
-- [ ] Optional project quota.
-- [ ] Block limits.
-- [ ] Inode/file-count limits.
-- [ ] Soft limits.
-- [ ] Hard limits.
-- [ ] Persistent quota metadata.
-- [ ] Transactional accounting.
-- [ ] Correct rollback on failed allocation.
-- [ ] FSCK accounting verification.
-- [ ] Crash/recovery tests.
-
----
-
-# P2 — Advanced filesystem capabilities
-
-## 10. Compression
-
-- [ ] Define compression format.
-- [ ] Define compressed extent representation.
-- [ ] Read/write path.
-- [ ] Partial block updates.
-- [ ] CoW interaction.
-- [ ] Snapshot interaction.
-- [ ] Checksums.
-- [ ] FSCK.
-- [ ] Crash recovery.
-- [ ] Benchmark real workloads.
-
-## 11. Encryption
-
-First establish architecture before implementation.
-
-- [ ] File/directory encryption model.
-- [ ] Key management architecture.
-- [ ] Key rotation.
-- [ ] Authentication/integrity.
-- [ ] Encrypted data vs metadata boundaries.
-- [ ] Crash recovery.
-- [ ] Snapshot semantics.
-- [ ] CoW semantics.
-- [ ] FSCK semantics.
-- [ ] Never store plaintext encryption keys on disk.
-
-## 12. Reparse-like objects / Windows semantics
-
-- [ ] Reparse-point representation.
-- [ ] Junction-like behavior.
-- [ ] Stable object semantics.
-- [ ] Security integration.
-- [ ] FSCK support.
-- [ ] Crash tests.
-- [ ] Windows mapping.
-
-## 13. Notifications
-
-- [ ] Namespace change notifications.
-- [ ] Create/delete/rename.
-- [ ] Write/metadata changes.
-- [ ] Directory watching.
-- [ ] Transaction ordering.
-- [ ] Change-journal integration.
-- [ ] Linux integration.
-- [ ] Windows integration.
-
----
-
-# P3 — OS integration, I/O and performance
-
-## 14. Persistent file IDs
-
-- [ ] Stable file IDs.
-- [ ] Generation/reuse semantics.
-- [ ] Rename stability.
-- [ ] Hard-link stability.
-- [ ] Unlink semantics.
-- [ ] Reboot stability.
-- [ ] Snapshot semantics.
-- [ ] FSCK validation.
-
-## 15. Cache and I/O
-
-- [ ] Page/file cache.
-- [ ] Read-ahead.
-- [ ] Write-back.
-- [ ] Dirty-state tracking.
-- [ ] Ordering/barriers.
-- [ ] `fsync`.
-- [ ] `fdatasync`.
-- [ ] Direct I/O where appropriate.
-- [ ] mmap.
-- [ ] Power-loss simulation.
-- [ ] Cache/recovery interaction tests.
-
-## 16. Linux integration
-
-- [ ] VFS layer.
-- [ ] Mount/unmount.
-- [ ] inode/file operations.
-- [ ] page cache integration.
-- [ ] mmap.
-- [ ] ACL/xattr mapping.
-- [ ] POSIX locking semantics.
-- [ ] notifications.
-- [ ] credentials/process integration.
-- [ ] sparse seeking.
-- [ ] stable error mapping.
-
-## 17. Windows integration
-
-- [ ] WinFSP/native integration architecture.
-- [ ] ADS.
-- [ ] Windows ACL/security descriptor mapping.
-- [ ] reparse points.
-- [ ] file locking.
-- [ ] notifications.
-- [ ] persistent file IDs.
-- [ ] timestamps/metadata semantics.
-- [ ] durability semantics.
-- [ ] stable Windows error mapping.
-
-The Windows/native driver is intentionally **not the immediate priority**. It must sit on stable handle, VFS, locking, cache and error semantics.
-
-## 18. Benchmarks and optimization
-
-- [ ] Sequential read/write.
-- [ ] Random read/write.
-- [ ] Small-file workloads.
-- [ ] Large-file workloads.
-- [ ] Large directories.
-- [ ] Rename/unlink.
-- [ ] Hard links.
-- [ ] fsync.
-- [ ] Transactions.
-- [ ] CoW.
-- [ ] Snapshots.
-- [ ] FSCK.
-- [ ] Compare against appropriate reference filesystems.
-- [ ] Optimize only from measurements.
+The source audit used commit `43263f22703e508b3ed9940c0b1c3c310b73a2b6` as its reference. **No build or tests were run during that audit, and the CI status for that revision could not be confirmed.** Test files existing in the repository are not evidence that those tests passed. See [the detailed P0–P3 audit](ROADMAP_P0_P3.md) for per-task files, tests, dependencies and measurable acceptance criteria.
 
 ---
 
