@@ -1,3 +1,12 @@
+# 2026-10-10 — P0: make mounted create and mkdir one journal transaction
+
+- **AUDIT FINDING** — direct mounted \`openfs_path_create()\` allocated an inode and set its bitmap state before adding the parent directory entry. A failure/crash between those steps could leave an allocated but unreachable inode. \`mkdir\` delegates to the same create path.
+- **FIX** — mounted direct \`create\` and \`mkdir\` now use a single journal transaction with directory → inode → allocation → transaction lock ordering. The inode allocation and parent-directory slot are staged through the transaction device; the output inode number is published only after successful COMMIT. Explicit transaction-proxy and unmounted compatibility callers still use the unlocked path inside their caller's transaction or direct device.
+- **REGRESSION** — \`OpenFS/tests/test_path.c\` injects a home-block write failure immediately after COMMIT for both direct create and direct mkdir. Remount must recover the file/directory and allow a child create; FSCK must remain clean.
+- **Validation** — pending fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
+
+---
+
 # 2026-10-10 — P0: make mounted CoW clone one journal transaction
 
 - **AUDIT FINDING** — the public mounted `openfs_path_clone()` previously ran CoW inode allocation/refcount changes first and inserted the parent directory entry afterward as separate updates. A crash after an intermediate COMMIT could leave a leaked clone inode/refcounts without a visible name. Existing namespace crash coverage used `openfs_path_clone_tx()`, so it did not exercise this direct mounted API.
