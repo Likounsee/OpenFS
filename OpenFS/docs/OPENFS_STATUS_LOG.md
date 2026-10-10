@@ -1,9 +1,9 @@
-# 2026-10-10 — P0: replay from one validated WAL snapshot
+# 2026-10-10 — P0: validate and stage WAL replay with bounded memory
 
-- **AUDIT FINDING** — the previous staging fix prevented callbacks after a later read error, but still validated records from a first read and then re-read them to stage payloads. A device whose returned contents changed between reads could supply a different, CRC-valid DATA payload after transaction structure had already been validated.
-- **FIX** — \`OpenFS/src/journal.c\`: read all journal blocks once into a size-checked in-memory snapshot. Validate transaction sequencing, record CRCs, and ownership from that snapshot, then replay committed DATA directly from the same bytes. There are no journal block reads after validation and before callback publication.
-- **REGRESSION** — \`OpenFS/tests/test_journal.c\` makes the mock device return a changed payload with a recomputed valid CRC on the second read of the DATA slot. Replay must still deliver the original payload read and validated in the snapshot. The read-failure test now injects a late failure in the single snapshot-read pass and verifies that no callback runs.
-- **Memory note** — recovery now requires one allocation sized to the complete journal with multiplication-overflow checks; allocation failure returns an I/O error before callbacks. This is an intentional trade-off for consistent replay input.
+- **AUDIT FINDING** — replay's second scan could return a different, CRC-valid DATA payload than the one seen during the transaction-structure validation scan.
+- **FIX** — \`OpenFS/src/journal.c\`: the first scan stores a whole-block CRC32C fingerprint for every journal slot. The second scan compares each returned block with its first-pass fingerprint, validates the record again, and stages committed DATA payloads. Read errors or changed block contents return before any callback runs.
+- **MEMORY** — retain bounded per-slot fingerprints and stage only committed DATA payloads, rather than allocating a buffer the size of the entire journal (which can be up to 256 MiB). Size and growth overflow are checked; allocation failure occurs before callbacks.
+- **REGRESSION** — \`OpenFS/tests/test_journal.c\` makes the mock device change a DATA payload during the second read and recompute that record's CRC. Replay must reject the changed block with no callback; a stable retry then applies the original payload once. The late-read failure test still injects an error after the DATA block would previously have been applied, and verifies zero callbacks.
 - **Validation** — pending the fresh GCC, Clang/sanitizer, Release, and Windows Debug/Release CI for this commit.
 
 ---

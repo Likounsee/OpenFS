@@ -106,7 +106,7 @@ static void replay_read_failure_does_not_partially_apply(void){
     uint32_t hits=0U;
     d.read_count=0U;
     /* Fail late in the one-time snapshot read, after committed DATA was read. */
-    d.fail_read_at=s.journal_blocks;
+    d.fail_read_at=s.journal_blocks+4U;
     assert(openfs_journal_replay(&v,&s,cb,&hits)==OPENFS_JOURNAL_IO_ERROR);
     assert(hits==0U);
     d.fail_read_at=0U;d.read_count=0U;
@@ -131,12 +131,17 @@ static void replay_uses_the_payload_that_was_validated(void){
     replay_capture_t state={0};
     d.read_count=0U;
     /*
-     * A two-pass implementation sees this on the second read of the DATA
-     * slot; the device returns a different but correctly checksummed payload.
+     * The second read of the DATA slot returns a changed payload with a
+     * recomputed valid record CRC. The first-pass fingerprint must catch it
+     * before any callback; retrying without the transient read mutation works.
      */
     d.mutate_payload=1;
     d.mutate_block=s.journal_start+1U;
     d.mutate_read_at=s.journal_blocks+2U;
+    assert(openfs_journal_replay(&v,&s,capture_replay_payload,&state)==OPENFS_JOURNAL_CORRUPT);
+    assert(state.hits==0U);
+    d.mutate_payload=0;
+    d.read_count=0U;
     assert(openfs_journal_replay(&v,&s,capture_replay_payload,&state)==OPENFS_JOURNAL_OK);
     assert(state.hits==1U);
     assert(memcmp(state.payload,"abc",3U)==0);

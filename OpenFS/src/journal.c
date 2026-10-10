@@ -116,20 +116,29 @@ openfs_journal_result_t openfs_journal_replay(
     openfs_journal_replay_fn cb,
     void *ctx)
 {
+    typedef struct {
+        uint64_t tx;
+        uint32_t len;
+        size_t offset;
+    } replay_item_t;
+
     if (!range(d, s) || cb == NULL) return OPENFS_JOURNAL_INVALID_ARGUMENT;
     if (s->journal_blocks > SIZE_MAX / sizeof(uint64_t) ||
+        s->journal_blocks > SIZE_MAX / sizeof(replay_item_t) ||
         s->journal_blocks > SIZE_MAX) {
         return OPENFS_JOURNAL_CORRUPT;
     }
-    if (s->journal_blocks > SIZE_MAX / (size_t)d->block_size) {
-        return OPENFS_JOURNAL_IO_ERROR;
-    }
 
-    size_t record_bytes = (size_t)s->journal_blocks * (size_t)d->block_size;
-    uint8_t *records = malloc(record_bytes);
+    openfs_journal_result_t result = OPENFS_JOURNAL_OK;
+    uint8_t *b = malloc(d->block_size);
     uint64_t *txids = NULL;
     uint8_t *states = NULL;
-    openfs_journal_result_t result = OPENFS_JOURNAL_OK;
+    uint32_t *fingerprints = NULL;
+    replay_item_t *items = NULL;
+    uint8_t *payloads = NULL;
+    size_t item_count = 0U;
+    size_t payload_size = 0U;
+    size_t payload_capacity = 0U;
     uint64_t tx_count = 0U;
     uint64_t last_sequence = 0U;
     uint64_t last_tx = 0U;
@@ -137,26 +146,28 @@ openfs_journal_result_t openfs_journal_replay(
     int have_sequence = 0;
     int journal_gap = 0;
 
-    if (records == NULL) return OPENFS_JOURNAL_IO_ERROR;
+    if (b == NULL) return OPENFS_JOURNAL_IO_ERROR;
     txids = calloc((size_t)s->journal_blocks, sizeof(*txids));
     states = calloc((size_t)s->journal_blocks, sizeof(*states));
-    if (txids == NULL || states == NULL) {
+    fingerprints = calloc((size_t)s->journal_blocks, sizeof(*fingerprints));
+    items = calloc((size_t)s->journal_blocks, sizeof(*items));
+    if (txids == NULL || states == NULL || fingerprints == NULL || items == NULL) {
         result = OPENFS_JOURNAL_IO_ERROR;
         goto cleanup;
     }
 
     /*
-     * Read the journal exactly once. All validation and replay selection below
-     * use this immutable snapshot, avoiding a validation/re-read race where a
-     * second device read could return a different but CRC-valid DATA payload.
-     * No callbacks run until every block has been read and validated.
+     * Pass one validates the complete journal and stores a fingerprint for
+     * each slot. The second pass must return the same block content before
+     * any callback can run; this prevents a CRC-valid but changed payload
+     * from bypassing first-pass transaction validation.
      */
     for (uint64_t n = 0U; n < s->journal_blocks; n++) {
-        uint8_t *b = records + (size_t)n * (size_t)d->block_size;
         if (d->read(d->context, s->journal_start + n, 1U, b) != OPENFS_IO_OK) {
             result = OPENFS_JOURNAL_IO_ERROR;
             goto cleanup;
         }
+        fingerprints[n] = openfs_crc32c(b, d->block_size);
         if (memcmp(b, OPENFS_JOURNAL_MAGIC, 5U) != 0) {
             int nonzero = 0;
             for (uint32_t z = 0U; z < d->block_size; z++) {
@@ -237,18 +248,44 @@ openfs_journal_result_t openfs_journal_replay(
     }
 
     /*
-     * The snapshot is complete and the whole WAL is valid. Replay committed
-     * DATA records from those exact bytes; no further block-device reads can
-     * fail or substitute a different payload after validation.
+     * Re-read and stage all committed DATA, but compare each slot with the
+     * first-pass whole-block CRC32C fingerprint. Any read error or changed
+     * record fails before publication. This avoids requiring a contiguous
+     * allocation as large as the entire journal during recovery.
      */
     for (uint64_t n = 0U; n < s->journal_blocks; n++) {
-        const uint8_t *b = records + (size_t)n * (size_t)d->block_size;
-        if (memcmp(b, OPENFS_JOURNAL_MAGIC, 5U) != 0) continue;
-        if (b[5U] != OPENFS_JOURNAL_DATA) continue;
+        if (d->read(d->context, s->journal_start + n, 1U, b) != OPENFS_IO_OK) {
+            result = OPENFS_JOURNAL_IO_ERROR;
+            goto cleanup;
+        }
+        if (fingerprints[n] != openfs_crc32c(b, d->block_size)) {
+            result = OPENFS_JOURNAL_CORRUPT;
+            goto cleanup;
+        }
+        if (memcmp(b, OPENFS_JOURNAL_MAGIC, 5U) != 0) {
+            int nonzero = 0;
+            for (uint32_t z = 0U; z < d->block_size; z++) {
+                if (b[z] != 0U) { nonzero = 1; break; }
+            }
+            if (nonzero) {
+                result = OPENFS_JOURNAL_CORRUPT;
+                goto cleanup;
+            }
+            continue;
+        }
+        if (!crc_valid(b, d->block_size)) {
+            result = OPENFS_JOURNAL_CORRUPT;
+            goto cleanup;
+        }
 
         uint32_t len = g32(b + 24U);
-        if (len == 0U) continue;
         uint64_t tx = g64(b + 8U);
+        if (len > d->block_size - OPENFS_JOURNAL_HEADER_SIZE) {
+            result = OPENFS_JOURNAL_CORRUPT;
+            goto cleanup;
+        }
+        if (b[5U] != OPENFS_JOURNAL_DATA || len == 0U) continue;
+
         uint64_t idx = 0U;
         while (idx < tx_count && txids[idx] != tx) idx++;
         if (idx >= tx_count) {
@@ -257,17 +294,53 @@ openfs_journal_result_t openfs_journal_replay(
         }
         if (states[idx] != 2U) continue;
 
-        result = cb(ctx, tx, b + OPENFS_JOURNAL_HEADER_SIZE, len);
-        if (result != OPENFS_JOURNAL_OK) goto cleanup;
+        if ((size_t)len > SIZE_MAX - payload_size) {
+            result = OPENFS_JOURNAL_IO_ERROR;
+            goto cleanup;
+        }
+        size_t needed = payload_size + (size_t)len;
+        if (needed > payload_capacity) {
+            size_t new_capacity = payload_capacity == 0U ? needed : payload_capacity;
+            while (new_capacity < needed) {
+                if (new_capacity > SIZE_MAX / 2U) {
+                    new_capacity = needed;
+                    break;
+                }
+                new_capacity *= 2U;
+            }
+            uint8_t *grown = realloc(payloads, new_capacity);
+            if (grown == NULL) {
+                result = OPENFS_JOURNAL_IO_ERROR;
+                goto cleanup;
+            }
+            payloads = grown;
+            payload_capacity = new_capacity;
+        }
+        memcpy(payloads + payload_size,
+               b + OPENFS_JOURNAL_HEADER_SIZE, (size_t)len);
+        items[item_count].tx = tx;
+        items[item_count].len = len;
+        items[item_count].offset = payload_size;
+        item_count++;
+        payload_size = needed;
     }
 
+    /* No callback can run until every replay input has been staged. */
+    for (size_t i = 0U; i < item_count; i++) {
+        result = cb(ctx, items[i].tx,
+                    payloads + items[i].offset, items[i].len);
+        if (result != OPENFS_JOURNAL_OK) goto cleanup;
+    }
     if (d->flush(d->context) != OPENFS_IO_OK)
         result = OPENFS_JOURNAL_IO_ERROR;
 
 cleanup:
+    free(payloads);
+    free(items);
+    free(fingerprints);
     free(txids);
     free(states);
-    free(records);
+    free(b);
     return result;
 }
 static openfs_journal_result_t journal_write_block_unlocked(openfs_journal_t*j,openfs_block_device_t*d,uint64_t tx,uint64_t target,const void*data){if(j==NULL||!openfs_block_device_is_valid(d)||data==NULL)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->recovery_required!=0U||j->publication_in_progress!=0U)return OPENFS_JOURNAL_IO_ERROR;if(j->block_size!=d->block_size||j->journal_blocks==0U||j->active_transaction_id==0U||tx!=j->active_transaction_id)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(d->block_size<=OPENFS_JOURNAL_HEADER_SIZE+OPENFS_JOURNAL_BLOCK_DATA_HEADER)return OPENFS_JOURNAL_INVALID_ARGUMENT;uint64_t capacity=(uint64_t)d->block_size-OPENFS_JOURNAL_HEADER_SIZE-OPENFS_JOURNAL_BLOCK_DATA_HEADER;uint64_t records=((uint64_t)d->block_size+capacity-1U)/capacity;if(j->next_record>j->journal_blocks||records>j->journal_blocks-j->next_record)return OPENFS_JOURNAL_FULL;if(target>=d->block_count||target==0U||target==d->block_count-1U)return OPENFS_JOURNAL_INVALID_ARGUMENT;if(j->journal_start<d->block_count&&target>=j->journal_start&&target-j->journal_start<j->journal_blocks)return OPENFS_JOURNAL_INVALID_ARGUMENT;uint64_t offset=0U;const uint8_t*src=(const uint8_t*)data;while(offset<(uint64_t)d->block_size){uint64_t remain=(uint64_t)d->block_size-offset;uint32_t chunk=(uint32_t)(remain<capacity?remain:capacity);uint32_t payload_len=OPENFS_JOURNAL_BLOCK_DATA_HEADER+chunk;uint8_t*p=malloc(payload_len);if(p==NULL)return OPENFS_JOURNAL_IO_ERROR;memset(p,0,payload_len);memcpy(p,"OJBD1",5U);p64(p+8U,target);p32(p+16U,(uint32_t)offset);p32(p+20U,chunk);memcpy(p+OPENFS_JOURNAL_BLOCK_DATA_HEADER,src+(size_t)offset,chunk);openfs_journal_result_t r=journal_write_unlocked(j,d,tx,p,payload_len);free(p);if(r!=OPENFS_JOURNAL_OK)return r;offset+=chunk;}return OPENFS_JOURNAL_OK;}
