@@ -51,6 +51,10 @@ jobs:
         shell: cmd
     steps:
       - uses: actions/checkout@v4
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "3.31.6"
       - name: Configure
         run: cmake -S OpenFS -B build-windows -DOPENFS_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
       - name: Build
