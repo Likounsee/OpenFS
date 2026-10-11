@@ -110,10 +110,28 @@ pub struct ImageDevice {
 }
 
 impl ImageDevice {
-    /// Create or truncate an image file to exactly block_size * block_count bytes.
-    ///
-    /// This operation is destructive when the path already exists.
+    /// Create a new image file without overwriting an existing path.
     pub fn create(path: impl AsRef<Path>, block_size: u32, block_count: u64) -> Result<Self> {
+        Self::create_internal(path, block_size, block_count, false)
+    }
+
+    /// Explicitly create or truncate an image file.
+    ///
+    /// This operation destroys the previous contents if the path already exists.
+    pub fn create_truncate(
+        path: impl AsRef<Path>,
+        block_size: u32,
+        block_count: u64,
+    ) -> Result<Self> {
+        Self::create_internal(path, block_size, block_count, true)
+    }
+
+    fn create_internal(
+        path: impl AsRef<Path>,
+        block_size: u32,
+        block_count: u64,
+        truncate: bool,
+    ) -> Result<Self> {
         validate_block_size(block_size)?;
         if block_count == 0 {
             return Err(Error::InvalidInput("image must contain at least one block"));
@@ -121,12 +139,14 @@ impl ImageDevice {
         let length = u64::from(block_size)
             .checked_mul(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+        if truncate {
+            options.create(true).truncate(true);
+        } else {
+            options.create_new(true);
+        }
+        let file = options.open(path)?;
         file.set_len(length)?;
         file.sync_all()?;
         Ok(Self {
@@ -255,6 +275,32 @@ mod tests {
         reopened.read_blocks(2, &mut actual).unwrap();
         assert_eq!(actual, vec![0xA5; 8192]);
         assert_eq!(reopened.block_count(), 4);
+    }
+
+    #[test]
+    fn create_does_not_overwrite_existing_images_without_explicit_opt_in() {
+        let image = TempImage::new();
+        {
+            let mut device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+            device.write_blocks(0, &vec![0xD4; 4096]).unwrap();
+            device.flush().unwrap();
+        }
+
+        assert!(matches!(
+            ImageDevice::create(&image.0, 4096, 2),
+            Err(Error::Io(_))
+        ));
+        {
+            let mut device = ImageDevice::open(&image.0, 4096).unwrap();
+            let mut data = vec![0; 4096];
+            device.read_blocks(0, &mut data).unwrap();
+            assert_eq!(data, vec![0xD4; 4096]);
+        }
+
+        let mut truncated = ImageDevice::create_truncate(&image.0, 4096, 2).unwrap();
+        let mut data = vec![0xFF; 4096];
+        truncated.read_blocks(0, &mut data).unwrap();
+        assert_eq!(data, vec![0; 4096]);
     }
 
     #[test]
