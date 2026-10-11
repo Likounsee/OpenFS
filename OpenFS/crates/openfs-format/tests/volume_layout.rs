@@ -34,7 +34,8 @@ fn layout_reserves_mirrors_bitmap_and_data() {
 
 #[test]
 fn formats_reopens_and_checks_mirrored_superblocks_and_bitmap() {
-    let image = TempImage::new(); let uuid = *b"openfs-volume-01";
+    let image = TempImage::new();
+    let uuid = *b"openfs-volume-01";
     {
         let mut device = ImageDevice::create(&image.0, 4096, 128).unwrap();
         let formatted = format_volume(&mut device, uuid, 0).unwrap();

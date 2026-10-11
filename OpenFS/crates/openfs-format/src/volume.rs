@@ -137,11 +137,16 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<Volume> {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
     if primary.block_size != device.block_size() || primary.total_blocks != device.block_count() {
-        return Err(Error::Corrupt("superblock geometry does not match device geometry"));
+        return Err(Error::Corrupt(
+            "superblock geometry does not match device geometry",
+        ));
     }
     let layout = VolumeLayout::calculate(primary.block_size, primary.total_blocks)?;
     validate_reserved_bitmap_bits(device, &layout)?;
-    Ok(Volume { superblock: primary, layout })
+    Ok(Volume {
+        superblock: primary,
+        layout,
+    })
 }
 
 fn write_superblock_block<D: BlockDevice>(
@@ -151,7 +156,9 @@ fn write_superblock_block<D: BlockDevice>(
 ) -> Result<()> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if block_size < SUPERBLOCK_SIZE {
-        return Err(Error::InvalidInput("device block is smaller than superblock"));
+        return Err(Error::InvalidInput(
+            "device block is smaller than superblock",
+        ));
     }
     let mut buffer = vec![0_u8; block_size];
     buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
@@ -175,8 +182,12 @@ fn read_superblock_block<D: BlockDevice>(device: &mut D, block: u64) -> Result<S
 
 fn set_bitmap_bit(bitmap: &mut [u8], first_bit: u64, bit: u64) {
     let capacity = (bitmap.len() as u64) * 8;
-    let Some(end) = first_bit.checked_add(capacity) else { return; };
-    if bit < first_bit || bit >= end { return; }
+    let Some(end) = first_bit.checked_add(capacity) else {
+        return;
+    };
+    if bit < first_bit || bit >= end {
+        return;
+    }
     let local = bit - first_bit;
     let byte = (local / 8) as usize;
     bitmap[byte] |= 1_u8 << (local % 8);
@@ -215,7 +226,9 @@ fn validate_reserved_bitmap_bits<D: BlockDevice>(
             let local = bit - first_bit;
             let byte = (local / 8) as usize;
             if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                return Err(Error::Corrupt("bitmap padding bits must be marked allocated"));
+                return Err(Error::Corrupt(
+                    "bitmap padding bits must be marked allocated",
+                ));
             }
         }
     }
