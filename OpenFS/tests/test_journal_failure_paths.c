@@ -14,6 +14,7 @@ typedef struct {
     uint32_t block_size;
     uint64_t block_count;
     int fail_next_read;
+    int fail_read_after;
     int fail_next_write;
     int fail_write_count;
     int fail_write_after;
@@ -33,6 +34,10 @@ static openfs_io_result_t read_blocks(void *ctx, uint64_t first, uint32_t count,
     if (d->fail_next_read) {
         d->fail_next_read = 0;
         return OPENFS_IO_IO_ERROR;
+    }
+    if (d->fail_read_after > 0) {
+        d->fail_read_after--;
+        if (d->fail_read_after == 0) return OPENFS_IO_IO_ERROR;
     }
     memcpy(out, d->data + (size_t)(first * d->block_size),
            (size_t)((uint64_t)count * d->block_size));
@@ -1242,19 +1247,25 @@ static void test_open_read_failure_preserves_existing_journal_state(void)
     assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
     openfs_superblock_t s;
     assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t writer;
+    assert(openfs_journal_open(&writer, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&writer, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&writer, &v, tx, "atomic-open", 11U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&writer, &v, tx) == OPENFS_JOURNAL_OK);
 
-    /* open() builds a candidate and must not clobber a live caller state on I/O failure. */
+    /* Fail after BEGIN and DATA were parsed: partial scan must not clobber caller state. */
     openfs_journal_t existing;
     memset(&existing, 0xA5, sizeof(existing));
     openfs_journal_t before = existing;
-    d.fail_next_read = 1;
+    d.fail_read_after = 2;
     assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_IO_ERROR);
     assert(memcmp(&existing, &before, sizeof(existing)) == 0);
 
-    /* A transient failure is retryable and initializes the journal normally. */
+    /* A transient mid-scan failure is retryable and initializes from the full WAL. */
     assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_OK);
-    assert(existing.next_record == 0U);
-    assert(existing.recovery_required == 0U);
+    assert(existing.next_record == 3U);
+    assert(existing.recovery_required != 0U);
     free(d.data);
 }
 
