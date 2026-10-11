@@ -77,7 +77,11 @@ pub struct Volume {
 /// This overwrites blocks in the supplied device. It writes the backup superblock and
 /// bitmap first, flushes, then writes the primary superblock last. This ordering helps
 /// reject many incomplete formats, but is not an atomic transaction or crash guarantee.
-pub fn format_volume<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features: u64) -> Result<Volume> {
+pub fn format_volume<D: BlockDevice>(
+    device: &mut D,
+    uuid: [u8; 16],
+    features: u64,
+) -> Result<Volume> {
     let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
     let superblock = Superblock {
         block_size: layout.block_size,
@@ -105,7 +109,9 @@ pub fn format_volume<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features: u
         let bitmap_capacity = first_bit
             .checked_add(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        for bit in layout.total_blocks.max(first_bit)..bitmap_capacity { set_bitmap_bit(&mut bitmap, first_bit, bit); }
+        for bit in layout.total_blocks.max(first_bit)..bitmap_capacity {
+            set_bitmap_bit(&mut bitmap, first_bit, bit);
+        }
         device.write_blocks(layout.bitmap_start + bitmap_index, &bitmap)?;
     }
     device.flush()?;
@@ -138,7 +144,11 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<Volume> {
     Ok(Volume { superblock: primary, layout })
 }
 
-fn write_superblock_block<D: BlockDevice>(device: &mut D, block: u64, encoded: &[u8; SUPERBLOCK_SIZE]) -> Result<()> {
+fn write_superblock_block<D: BlockDevice>(
+    device: &mut D,
+    block: u64,
+    encoded: &[u8; SUPERBLOCK_SIZE],
+) -> Result<()> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if block_size < SUPERBLOCK_SIZE {
         return Err(Error::InvalidInput("device block is smaller than superblock"));
@@ -150,7 +160,9 @@ fn write_superblock_block<D: BlockDevice>(device: &mut D, block: u64, encoded: &
 
 fn read_superblock_block<D: BlockDevice>(device: &mut D, block: u64) -> Result<Superblock> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    if block_size < SUPERBLOCK_SIZE { return Err(Error::InvalidInput("device block is smaller than superblock")); }
+    if block_size < SUPERBLOCK_SIZE {
+        return Err(Error::InvalidInput("device block is smaller than superblock"));
+    }
     let mut buffer = vec![0_u8; block_size];
     device.read_blocks(block, &mut buffer)?;
     if buffer[SUPERBLOCK_SIZE..].iter().any(|byte| *byte != 0) {
@@ -170,12 +182,17 @@ fn set_bitmap_bit(bitmap: &mut [u8], first_bit: u64, bit: u64) {
     bitmap[byte] |= 1_u8 << (local % 8);
 }
 
-fn validate_reserved_bitmap_bits<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Result<()> {
+fn validate_reserved_bitmap_bits<D: BlockDevice>(
+    device: &mut D,
+    layout: &VolumeLayout,
+) -> Result<()> {
     let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
     for bitmap_index in 0..layout.bitmap_blocks {
-        let first_bit = bitmap_index.checked_mul(bits_per_bitmap_block).ok_or(Error::ArithmeticOverflow)?;
+        let first_bit = bitmap_index
+            .checked_mul(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let end_bit = first_bit
             .checked_add(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;

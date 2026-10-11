@@ -74,6 +74,7 @@ fn rejects_disagreeing_backup_and_corrupt_reserved_bitmap_bits() {
 
 #[test]
 fn rejects_unformatted_images() {
-    let image = TempImage::new(); let mut device = ImageDevice::create(&image.0, 4096, 128).unwrap();
+    let image = TempImage::new();
+    let mut device = ImageDevice::create(&image.0, 4096, 128).unwrap();
     assert!(matches!(open_volume(&mut device), Err(Error::Corrupt(_))));
 }
