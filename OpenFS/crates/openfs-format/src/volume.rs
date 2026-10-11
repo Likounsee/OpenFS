@@ -63,8 +63,6 @@ impl VolumeLayout {
     pub fn data_blocks(&self) -> u64 {
         self.backup_superblock - self.data_start
     }
-
-
 }
 
 /// A validated, read-only view of the initial on-disk volume format.
@@ -82,8 +80,8 @@ impl Volume {
     /// the volume before retrying such an operation.
     pub fn allocate_block<D: BlockDevice>(&self, device: &mut D) -> Result<u64> {
         self.validate_device_geometry(device)?;
-        let block_size = usize::try_from(self.layout.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
         let mut bitmap = vec![0_u8; block_size];
 
@@ -111,7 +109,9 @@ impl Volume {
     pub fn free_block<D: BlockDevice>(&self, device: &mut D, block: u64) -> Result<()> {
         self.validate_device_geometry(device)?;
         if block < self.layout.data_start || block >= self.layout.backup_superblock {
-            return Err(Error::InvalidInput("cannot free a reserved or out-of-range block"));
+            return Err(Error::InvalidInput(
+                "cannot free a reserved or out-of-range block",
+            ));
         }
         let block_size = usize::try_from(self.layout.block_size)
             .map_err(|_| Error::ArithmeticOverflow)?;
@@ -134,7 +134,9 @@ impl Volume {
         if device.block_size() != self.layout.block_size
             || device.block_count() != self.layout.total_blocks
         {
-            return Err(Error::InvalidInput("device geometry does not match opened volume"));
+            return Err(Error::InvalidInput(
+                "device geometry does not match opened volume",
+            ));
         }
         Ok(())
     }

@@ -80,7 +80,6 @@ fn rejects_unformatted_images() {
     assert!(matches!(open_volume(&mut device), Err(Error::Corrupt(_))));
 }
 
-
 #[test]
 fn allocator_first_fit_release_and_reopen_persistence() {
     let image = TempImage::new();
@@ -107,16 +106,28 @@ fn allocator_rejects_reserved_double_free_and_exhaustion() {
     format_volume(&mut device, *b"openfs-volume-01", 0).unwrap();
     let volume = open_volume(&mut device).unwrap();
 
-    assert!(matches!(volume.free_block(&mut device, 0), Err(Error::InvalidInput(_))));
-    assert!(matches!(volume.free_block(&mut device, 2), Err(Error::InvalidInput(_))));
+    assert!(matches!(
+        volume.free_block(&mut device, 0),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(
+        volume.free_block(&mut device, 2),
+        Err(Error::InvalidInput(_))
+    ));
     let mut allocated = Vec::new();
     while let Ok(block) = volume.allocate_block(&mut device) {
         allocated.push(block);
     }
     assert_eq!(allocated, vec![2, 3, 4, 5, 6]);
-    assert!(matches!(volume.allocate_block(&mut device), Err(Error::InvalidInput(_))));
+    assert!(matches!(
+        volume.allocate_block(&mut device),
+        Err(Error::InvalidInput(_))
+    ));
     assert!(matches!(volume.free_block(&mut device, 3), Ok(())));
-    assert!(matches!(volume.free_block(&mut device, 3), Err(Error::InvalidInput(_))));
+    assert!(matches!(
+        volume.free_block(&mut device, 3),
+        Err(Error::InvalidInput(_))
+    ));
 }
 
 #[test]
@@ -126,9 +137,15 @@ fn allocator_handles_multiple_bitmap_blocks_and_rejects_wrong_device() {
     format_volume(&mut device, *b"openfs-volume-01", 0).unwrap();
     let volume = open_volume(&mut device).unwrap();
     assert_eq!(volume.layout.bitmap_blocks, 2);
-    assert_eq!(volume.allocate_block(&mut device).unwrap(), volume.layout.data_start);
+    assert_eq!(
+        volume.allocate_block(&mut device).unwrap(),
+        volume.layout.data_start
+    );
 
     let other_image = TempImage::new();
     let mut other = ImageDevice::create(&other_image.0, 4096, 64).unwrap();
-    assert!(matches!(volume.allocate_block(&mut other), Err(Error::InvalidInput(_))));
+    assert!(matches!(
+        volume.allocate_block(&mut other),
+        Err(Error::InvalidInput(_))
+    ));
 }
