@@ -45,3 +45,16 @@ Observed components include:
 4. Specify transaction durability states; then implement journal/recovery with fault injection and crash-cut tests.
 5. Add allocation and namespace operations only with end-to-end reopen tests.
 6. Add OS adapters and performance optimization only after core semantics are stable and measurable.
+
+## Additional source and test evidence
+
+A second pass inspected the allocator, directory implementation, block-device interface, journal failure tests, replay-idempotence tests and CMake build file.
+
+- `OpenFS/src/allocator.c` checks data-region addition for overflow, verifies the data and bitmap regions against device capacity, and rejects allocation-state inconsistencies. **Migration:** retain these invariants, centralize range helpers, and make all mutations transaction-scoped.
+- `OpenFS/src/dir.c` uses a directory record magic and bounds name scanning by the configured maximum name length. **Migration:** retain bounded names and explicit validation, then specify encoding, Unicode/case policy and checksums as part of the new format.
+- `OpenFS/include/openfs/block_device.h` defines block size/count plus read/write/flush callbacks and distinct I/O result categories. **Migration:** retain the small device contract, but use Rust result types and explicitly define whether operations can be concurrent.
+- `OpenFS/tests/test_journal_failure_paths.c` has independent fault controls for reads, writes, flushes and partial writes, including failure-after counters. `test_journal_replay_idempotent.c` covers replay idempotence and injected read/flush behavior. **Migration:** port the scenarios rather than the C test harness; the new Rust wrapper currently injects only operation-boundary errors and does not yet simulate torn writes.
+- `OpenFS/CMakeLists.txt` declares C11, builds a static library from the core modules and enables tests by default. **Migration:** preserve warnings and test coverage, but use workspace-scoped Cargo commands and avoid bringing CMake into the Rust engine.
+- The audited tree contained 151 entries and no path named for benchmarks, performance harnesses or fuzz targets. **Observed limitation:** this tree inspection found no dedicated benchmark or fuzz directory; it does not prove that no ad-hoc measurements were ever run outside the repository.
+
+This remains a source audit, not a claim that the legacy branch was freshly built or that its tests passed during this task.
