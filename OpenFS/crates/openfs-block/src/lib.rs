@@ -55,7 +55,11 @@ impl ImageDevice {
             .open(path)?;
         file.set_len(length)?;
         file.sync_all()?;
-        Ok(Self { file, block_size, block_count })
+        Ok(Self {
+            file,
+            block_size,
+            block_count,
+        })
     }
 
     /// Open an existing image, rejecting lengths that do not contain whole blocks.
@@ -64,10 +68,16 @@ impl ImageDevice {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         let length = file.metadata()?.len();
         if length == 0 || length % u64::from(block_size) != 0 {
-            return Err(Error::InvalidInput("image length must be a non-zero multiple of block size"));
+            return Err(Error::InvalidInput(
+                "image length must be a non-zero multiple of block size",
+            ));
         }
         let block_count = length / u64::from(block_size);
-        Ok(Self { file, block_size, block_count })
+        Ok(Self {
+            file,
+            block_size,
+            block_count,
+        })
     }
 
     fn byte_offset(&self, first_block: u64) -> Result<u64> {
@@ -79,7 +89,9 @@ impl ImageDevice {
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<u64> {
         let block_size = self.block_size as usize;
         if length == 0 || length % block_size != 0 {
-            return Err(Error::InvalidInput("buffer length must be a non-zero multiple of block size"));
+            return Err(Error::InvalidInput(
+                "buffer length must be a non-zero multiple of block size",
+            ));
         }
         let count = u64::try_from(length / block_size).map_err(|_| Error::ArithmeticOverflow)?;
         check_block_range(first_block, count, self.block_count)?;
@@ -98,14 +110,16 @@ impl BlockDevice for ImageDevice {
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
         self.validate_buffer(first_block, output.len())?;
-        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file
+            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
         self.file.read_exact(output)?;
         Ok(())
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
         self.validate_buffer(first_block, input.len())?;
-        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file
+            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
         self.file.write_all(input)?;
         Ok(())
     }
@@ -120,7 +134,9 @@ fn validate_block_size(block_size: u32) -> Result<()> {
     if !(MIN_BLOCK_SIZE..=MAX_BLOCK_SIZE).contains(&block_size)
         || !block_size.is_power_of_two()
     {
-        return Err(Error::InvalidInput("block size must be a power of two from 512 through 65536"));
+        return Err(Error::InvalidInput(
+            "block size must be a power of two from 512 through 65536",
+        ));
     }
     Ok(())
 }
@@ -140,10 +156,8 @@ mod tests {
     impl TempImage {
         fn new() -> Self {
             let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "openfs-image-{}-{id}.img",
-                std::process::id()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("openfs-image-{}-{id}.img", std::process::id()));
             let _ = fs::remove_file(&path);
             Self(path)
         }

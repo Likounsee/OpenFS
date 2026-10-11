@@ -30,7 +30,11 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(reason) => write!(f, "invalid input: {reason}"),
-            Self::OutOfBounds { first_block, block_count, device_blocks } => write!(
+            Self::OutOfBounds {
+                first_block,
+                block_count,
+                device_blocks,
+            } => write!(
                 f,
                 "block range {first_block}..+{block_count} exceeds device capacity {device_blocks}"
             ),

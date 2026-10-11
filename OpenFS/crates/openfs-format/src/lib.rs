@@ -65,16 +65,25 @@ impl Superblock {
         validate_fields(block_size, total_blocks)?;
         let mut uuid = [0_u8; 16];
         uuid.copy_from_slice(&bytes[32..48]);
-        Ok(Self { block_size, total_blocks, features: get_u64(bytes, 24), uuid })
+        Ok(Self {
+            block_size,
+            total_blocks,
+            features: get_u64(bytes, 24),
+            uuid,
+        })
     }
 }
 
 fn validate_fields(block_size: u32, total_blocks: u64) -> Result<()> {
     if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
-        return Err(Error::InvalidInput("filesystem block size must be a power of two from 4096 through 65536"));
+        return Err(Error::InvalidInput(
+            "filesystem block size must be a power of two from 4096 through 65536",
+        ));
     }
     if total_blocks < 2 {
-        return Err(Error::InvalidInput("volume must contain at least two blocks"));
+        return Err(Error::InvalidInput(
+            "volume must contain at least two blocks",
+        ));
     }
     Ok(())
 }
@@ -92,12 +101,23 @@ fn get_u16(bytes: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
 }
 fn get_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]])
+    u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
 }
 fn get_u64(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes([
-        bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3],
-        bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7],
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+        bytes[offset + 4],
+        bytes[offset + 5],
+        bytes[offset + 6],
+        bytes[offset + 7],
     ])
 }
 
@@ -138,7 +158,10 @@ mod tests {
 
     #[test]
     fn rejects_wrong_size_bad_magic_and_checksum_corruption() {
-        assert!(matches!(Superblock::decode(&[0; 16]), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            Superblock::decode(&[0; 16]),
+            Err(Error::InvalidInput(_))
+        ));
         let mut bytes = sample().encode().unwrap();
         bytes[0] ^= 1;
         assert!(matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))));
@@ -153,7 +176,10 @@ mod tests {
         bytes[8..10].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         let checksum = super::crc32c(&bytes[..4088]);
         bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
-        assert!(matches!(Superblock::decode(&bytes), Err(Error::UnsupportedVersion(_))));
+        assert!(matches!(
+            Superblock::decode(&bytes),
+            Err(Error::UnsupportedVersion(_))
+        ));
         let mut bytes = sample().encode().unwrap();
         bytes[100] = 9;
         let checksum = super::crc32c(&bytes[..4088]);
@@ -173,6 +199,9 @@ mod tests {
         let mut extra = bytes.to_vec();
         extra.push(0);
         assert_eq!(extra.len(), SUPERBLOCK_SIZE + 1);
-        assert!(matches!(Superblock::decode(&extra), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            Superblock::decode(&extra),
+            Err(Error::InvalidInput(_))
+        ));
     }
 }
