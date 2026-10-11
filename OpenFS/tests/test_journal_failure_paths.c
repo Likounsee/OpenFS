@@ -17,6 +17,7 @@ typedef struct {
     int fail_write_count;
     int fail_write_after;
     int fail_next_flush;
+    int fail_flush_count;
     int partial_next_write;
     size_t partial_write_bytes;
 } disk_t;
@@ -70,6 +71,10 @@ static openfs_io_result_t flush_blocks(void *ctx)
     disk_t *d = ctx;
     if (d->fail_next_flush) {
         d->fail_next_flush = 0;
+        return OPENFS_IO_IO_ERROR;
+    }
+    if (d->fail_flush_count > 0) {
+        d->fail_flush_count--;
         return OPENFS_IO_IO_ERROR;
     }
     return OPENFS_IO_OK;
@@ -1031,6 +1036,54 @@ static void test_checkpoint_write_failure_restores_entire_wal(void)
     free(d.data);
 }
 
+
+static void test_checkpoint_rollback_flush_failure_requires_remount_recovery(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x75U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "flush rollback", 14U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    uint64_t records_before = j.next_record;
+    /* Fail both the checkpoint flush and the flush after restoring the WAL. */
+    d.fail_next_flush = 1;
+    d.fail_flush_count = 1;
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_CORRUPT);
+    assert(j.recovery_required != 0U);
+    assert(j.next_record == records_before);
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+
+    /*
+     * The memory-backed device retains the restored bytes even when flush
+     * fails. A fresh journal instance must validate the WAL before replaying
+     * it, then clear recovery only after replay and a successful checkpoint.
+     */
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == records_before);
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_recover(&reopened, &v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_OK);
+    assert(replay_calls == 1U);
+    assert(reopened.recovery_required == 0U);
+    assert(openfs_journal_checkpoint(&reopened, &v) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == 0U);
+    free(d.data);
+}
+
 static void test_checkpoint_rollback_failure_poison_journal(void)
 {
     disk_t d = {0};
@@ -1104,6 +1157,7 @@ int main(void)
     test_partial_commit_write_and_failed_restore_stay_gated();
     test_corrupt_wal_recovery_stays_gated();
     test_checkpoint_write_failure_restores_entire_wal();
+    test_checkpoint_rollback_flush_failure_requires_remount_recovery();
     test_checkpoint_rollback_failure_poison_journal();
     return 0;
 }
