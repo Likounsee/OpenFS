@@ -1,8 +1,8 @@
-//! Shared, platform-neutral types and validation helpers for OpenFS.
+//! Shared, platform-neutral types and validation helpers for `OpenFS`.
 
 use std::fmt;
 
-/// Error categories shared by the early OpenFS crates.
+/// Error categories shared by the early `OpenFS` crates.
 #[derive(Debug)]
 pub enum Error {
     /// A caller supplied an invalid parameter or buffer.
@@ -23,7 +23,7 @@ pub enum Error {
     Io(std::io::Error),
 }
 
-/// Result alias used throughout OpenFS crates.
+/// Result alias used throughout `OpenFS` crates.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {
@@ -63,7 +63,11 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// Validate a non-empty range without adding first_block + block_count.
+/// Validate a non-empty range without adding `first_block` + `block_count`.
+///
+/// # Errors
+/// Returns [`Error::InvalidInput`] when the count is zero, or [`Error::OutOfBounds`]
+/// when the non-empty range is outside the device capacity.
 pub fn check_block_range(first_block: u64, block_count: u64, device_blocks: u64) -> Result<()> {
     if block_count == 0 {
         return Err(Error::InvalidInput("block count must be non-zero"));
