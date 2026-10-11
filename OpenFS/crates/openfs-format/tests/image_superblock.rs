@@ -11,10 +11,8 @@ struct TempImage(PathBuf);
 impl TempImage {
     fn new() -> Self {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "openfs-superblock-{}-{id}.img",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("openfs-superblock-{}-{id}.img", std::process::id()));
         let _ = fs::remove_file(&path);
         Self(path)
     }
