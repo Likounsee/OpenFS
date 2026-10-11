@@ -235,4 +235,18 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
     }
+
+    #[test]
+    fn open_propagates_missing_file_errors_and_rejects_empty_images() {
+        let image = TempImage::new();
+        assert!(matches!(
+            ImageDevice::open(&image.0, 4096),
+            Err(Error::Io(_))
+        ));
+        fs::write(&image.0, b"").unwrap();
+        assert!(matches!(
+            ImageDevice::open(&image.0, 4096),
+            Err(Error::InvalidInput(_))
+        ));
+    }
 }
