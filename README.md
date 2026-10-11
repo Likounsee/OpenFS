@@ -40,7 +40,7 @@ The initial Rust workspace contains:
 - shared error and checked block-range primitives;
 - a file-backed block-image device with explicit block bounds, exact-length I/O, and a flush operation based on File::sync_all;
 - an explicitly encoded 4096-byte superblock draft with little-endian fields, version checks, reserved-byte validation, and CRC32C;
-- unit tests for normal I/O, invalid ranges and buffers, persistence across reopen, and malformed superblocks;
+- unit tests for normal I/O, invalid ranges and buffers, persistence across reopen, malformed superblocks, and deterministic read/write/flush failure injection;
 - a root-level CI workflow for formatting, workspace tests, and Clippy.
 
 These primitives do **not** yet implement file allocation, directories, file operations, mounting, journaling, recovery, or repair. Their actual CI status is visible in [GitHub Actions](https://github.com/Likounsee/OpenFS/actions).

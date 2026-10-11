@@ -23,7 +23,8 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 - [x] Initial explicit superblock encoder/decoder and malformed-input tests.
 - [ ] CI passed on a commit containing all of the above.
 - [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy.
-- [ ] More injected I/O failure cases and end-to-end volume tests.
+- [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
+- [ ] Partial/torn-write injection and end-to-end volume tests.
 - [ ] Complete audit of the legacy repository and its design decisions.
 
 Phase percentages must be updated after CI evidence and code reviews; the presence of a checklist item is not itself proof of runtime success.

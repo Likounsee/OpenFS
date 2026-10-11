@@ -27,3 +27,7 @@ The image backend uses fixed-size blocks and rejects invalid block sizes, empty/
 ## Future layers
 
 The planned direction is format -> block I/O -> metadata/allocation -> transactions and recovery -> filesystem namespace -> tools -> OS adapters. Platform adapters must not leak OS-specific assumptions into the portable format or core.
+
+## Deterministic failure injection
+
+The block crate exposes a one-shot FaultInjectingDevice wrapper in unit-test builds or when the test-support feature is enabled. It fails the next selected read, write, or flush operation before delegating to the image device, then automatically permits the next attempt. This verifies error propagation and retry behavior at the operation boundary; it does not simulate short writes, torn blocks, process crashes, or persistence reordering. Those require additional backend-level tests before transaction recovery can be designed and accepted.
