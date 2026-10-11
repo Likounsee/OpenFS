@@ -13,8 +13,12 @@ pub const BITMAP_START_BLOCK: u64 = 1;
 /// Derived v1 volume layout. The last block stores the backup superblock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VolumeLayout {
-    pub total_blocks: u64, pub block_size: u32, pub bitmap_start: u64,
-    pub bitmap_blocks: u64, pub data_start: u64, pub backup_superblock: u64,
+    pub total_blocks: u64,
+    pub block_size: u32,
+    pub bitmap_start: u64,
+    pub bitmap_blocks: u64,
+    pub data_start: u64,
+    pub backup_superblock: u64,
 }
 
 impl VolumeLayout {
@@ -23,21 +27,50 @@ impl VolumeLayout {
         if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
             return Err(Error::InvalidInput("unsupported filesystem block size"));
         }
-        if total_blocks < 4 { return Err(Error::InvalidInput("volume is too small for v1 reserved regions")); }
-        u64::from(block_size).checked_mul(total_blocks).ok_or(Error::ArithmeticOverflow)?;
-        let bits_per_bitmap_block = u64::from(block_size).checked_mul(8).ok_or(Error::ArithmeticOverflow)?;
-        let bitmap_blocks = total_blocks.checked_add(bits_per_bitmap_block - 1).ok_or(Error::ArithmeticOverflow)? / bits_per_bitmap_block;
-        let data_start = BITMAP_START_BLOCK.checked_add(bitmap_blocks).ok_or(Error::ArithmeticOverflow)?;
+        if total_blocks < 4 {
+            return Err(Error::InvalidInput(
+                "volume is too small for v1 reserved regions",
+            ));
+        }
+        u64::from(block_size)
+            .checked_mul(total_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(block_size)
+            .checked_mul(8)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_blocks = total_blocks
+            .checked_add(bits_per_bitmap_block - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / bits_per_bitmap_block;
+        let data_start = BITMAP_START_BLOCK
+            .checked_add(bitmap_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
         let backup_superblock = total_blocks - 1;
-        if data_start >= backup_superblock { return Err(Error::InvalidInput("volume has no data region after reserved blocks")); }
-        Ok(Self { total_blocks, block_size, bitmap_start: BITMAP_START_BLOCK, bitmap_blocks, data_start, backup_superblock })
+        if data_start >= backup_superblock {
+            return Err(Error::InvalidInput(
+                "volume has no data region after reserved blocks",
+            ));
+        }
+        Ok(Self {
+            total_blocks,
+            block_size,
+            bitmap_start: BITMAP_START_BLOCK,
+            bitmap_blocks,
+            data_start,
+            backup_superblock,
+        })
     }
-    pub fn data_blocks(&self) -> u64 { self.backup_superblock - self.data_start }
+    pub fn data_blocks(&self) -> u64 {
+        self.backup_superblock - self.data_start
+    }
 }
 
 /// A validated, read-only view of the initial on-disk volume format.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Volume { pub superblock: Superblock, pub layout: VolumeLayout }
+pub struct Volume {
+    pub superblock: Superblock,
+    pub layout: VolumeLayout,
+}
 
 /// Format an existing block device with mirrored superblocks and an initialized bitmap.
 ///
@@ -46,20 +79,32 @@ pub struct Volume { pub superblock: Superblock, pub layout: VolumeLayout }
 /// reject many incomplete formats, but is not an atomic transaction or crash guarantee.
 pub fn format_volume<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features: u64) -> Result<Volume> {
     let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
-    let superblock = Superblock { block_size: layout.block_size, total_blocks: layout.total_blocks, features, uuid };
+    let superblock = Superblock {
+        block_size: layout.block_size,
+        total_blocks: layout.total_blocks,
+        features,
+        uuid,
+    };
     let encoded = superblock.encode()?;
-    let bytes_per_bitmap_block = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let bytes_per_bitmap_block =
+        usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
     // Write backup first; the primary is published only after the bitmap is persisted.
     write_superblock_block(device, layout.backup_superblock, &encoded)?;
     for bitmap_index in 0..layout.bitmap_blocks {
-        let first_bit = bitmap_index.checked_mul(bits_per_bitmap_block).ok_or(Error::ArithmeticOverflow)?;
+        let first_bit = bitmap_index
+            .checked_mul(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; bytes_per_bitmap_block];
         set_bitmap_bit(&mut bitmap, first_bit, 0);
-        for reserved in layout.bitmap_start..bitmap_end { set_bitmap_bit(&mut bitmap, first_bit, reserved); }
+        for reserved in layout.bitmap_start..bitmap_end {
+            set_bitmap_bit(&mut bitmap, first_bit, reserved);
+        }
         set_bitmap_bit(&mut bitmap, first_bit, layout.backup_superblock);
-        let bitmap_capacity = first_bit.checked_add(bits_per_bitmap_block).ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_capacity = first_bit
+            .checked_add(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         for bit in layout.total_blocks.max(first_bit)..bitmap_capacity { set_bitmap_bit(&mut bitmap, first_bit, bit); }
         device.write_blocks(layout.bitmap_start + bitmap_index, &bitmap)?;
     }
@@ -71,11 +116,20 @@ pub fn format_volume<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features: u
 
 /// Open and validate an existing volume without modifying it.
 pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<Volume> {
-    if device.block_size() < SUPERBLOCK_SIZE as u32 { return Err(Error::InvalidInput("device block is smaller than the superblock record")); }
-    let last = device.block_count().checked_sub(1).ok_or(Error::InvalidInput("empty device"))?;
+    if device.block_size() < SUPERBLOCK_SIZE as u32 {
+        return Err(Error::InvalidInput(
+            "device block is smaller than the superblock record",
+        ));
+    }
+    let last = device
+        .block_count()
+        .checked_sub(1)
+        .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock_block(device, 0)?;
     let backup = read_superblock_block(device, last)?;
-    if primary != backup { return Err(Error::Corrupt("primary and backup superblocks disagree")); }
+    if primary != backup {
+        return Err(Error::Corrupt("primary and backup superblocks disagree"));
+    }
     if primary.block_size != device.block_size() || primary.total_blocks != device.block_count() {
         return Err(Error::Corrupt("superblock geometry does not match device geometry"));
     }
@@ -86,8 +140,11 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<Volume> {
 
 fn write_superblock_block<D: BlockDevice>(device: &mut D, block: u64, encoded: &[u8; SUPERBLOCK_SIZE]) -> Result<()> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    if block_size < SUPERBLOCK_SIZE { return Err(Error::InvalidInput("device block is smaller than superblock")); }
-    let mut buffer = vec![0_u8; block_size]; buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
+    if block_size < SUPERBLOCK_SIZE {
+        return Err(Error::InvalidInput("device block is smaller than superblock"));
+    }
+    let mut buffer = vec![0_u8; block_size];
+    buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
     device.write_blocks(block, &buffer)
 }
 
@@ -96,7 +153,11 @@ fn read_superblock_block<D: BlockDevice>(device: &mut D, block: u64) -> Result<S
     if block_size < SUPERBLOCK_SIZE { return Err(Error::InvalidInput("device block is smaller than superblock")); }
     let mut buffer = vec![0_u8; block_size];
     device.read_blocks(block, &mut buffer)?;
-    if buffer[SUPERBLOCK_SIZE..].iter().any(|byte| *byte != 0) { return Err(Error::Corrupt("nonzero bytes after superblock record in reserved block")); }
+    if buffer[SUPERBLOCK_SIZE..].iter().any(|byte| *byte != 0) {
+        return Err(Error::Corrupt(
+            "nonzero bytes after superblock record in reserved block",
+        ));
+    }
     Superblock::decode(&buffer[..SUPERBLOCK_SIZE])
 }
 
@@ -115,19 +176,30 @@ fn validate_reserved_bitmap_bits<D: BlockDevice>(device: &mut D, layout: &Volume
     let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
     for bitmap_index in 0..layout.bitmap_blocks {
         let first_bit = bitmap_index.checked_mul(bits_per_bitmap_block).ok_or(Error::ArithmeticOverflow)?;
-        let end_bit = first_bit.checked_add(bits_per_bitmap_block).ok_or(Error::ArithmeticOverflow)?;
+        let end_bit = first_bit
+            .checked_add(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; block_size];
         device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-        for reserved in core::iter::once(0).chain(layout.bitmap_start..bitmap_end).chain(core::iter::once(layout.backup_superblock)) {
+        for reserved in core::iter::once(0)
+            .chain(layout.bitmap_start..bitmap_end)
+            .chain(core::iter::once(layout.backup_superblock))
+        {
             if reserved >= first_bit && reserved < end_bit {
-                let local = reserved - first_bit; let byte = (local / 8) as usize;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 { return Err(Error::Corrupt("bitmap marks a reserved block as free")); }
+                let local = reserved - first_bit;
+                let byte = (local / 8) as usize;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    return Err(Error::Corrupt("bitmap marks a reserved block as free"));
+                }
             }
         }
         let valid_end = layout.total_blocks.min(end_bit);
         for bit in valid_end..end_bit {
-            let local = bit - first_bit; let byte = (local / 8) as usize;
-            if bitmap[byte] & (1_u8 << (local % 8)) == 0 { return Err(Error::Corrupt("bitmap padding bits must be marked allocated")); }
+            let local = bit - first_bit;
+            let byte = (local / 8) as usize;
+            if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                return Err(Error::Corrupt("bitmap padding bits must be marked allocated"));
+            }
         }
     }
     Ok(())
