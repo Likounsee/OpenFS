@@ -272,6 +272,13 @@ static void test_partial_data_rollback_flush_failure_poison_journal(void)
     assert(openfs_journal_write(&j, &v, tx, "retry", 5U) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
 
+    /* The failed flush must not leave the partial DATA record in the WAL. */
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.recovery_required != 0U);
+    assert(reopened.commit_record_written == 0U);
+    assert(reopened.next_record == 1U); /* Only the durable BEGIN remains. */
+
     free(d.data);
 }
 
@@ -597,6 +604,13 @@ static void test_partial_commit_rollback_flush_failure_poison_journal(void)
     assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_write(&j, &v, tx, "blocked", 7U) == OPENFS_JOURNAL_IO_ERROR);
     assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+
+    /* Remount sees a valid uncommitted transaction, never a partial COMMIT. */
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.recovery_required != 0U);
+    assert(reopened.commit_record_written == 0U);
+    assert(reopened.next_record == 2U); /* BEGIN + DATA, no COMMIT. */
 
     free(d.data);
 }
