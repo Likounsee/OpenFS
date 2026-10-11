@@ -1266,6 +1266,19 @@ static void test_open_read_failure_preserves_existing_journal_state(void)
     assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_OK);
     assert(existing.next_record == 3U);
     assert(existing.recovery_required != 0U);
+
+    /* A structurally corrupt WAL must also leave the caller's prior state untouched. */
+    uint8_t *slot = d.data + (size_t)(s.journal_start * (uint64_t)s.block_size);
+    uint8_t saved[4096U];
+    assert(s.block_size == sizeof(saved));
+    memcpy(saved, slot, sizeof(saved));
+    memset(slot, 0, sizeof(saved));
+    slot[0] = 0xA5U; /* Non-zero data without a valid journal header. */
+    before = existing;
+    assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    assert(memcmp(&existing, &before, sizeof(existing)) == 0);
+    memcpy(slot, saved, sizeof(saved));
+
     free(d.data);
 }
 
