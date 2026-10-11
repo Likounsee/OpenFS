@@ -257,10 +257,13 @@ mod tests {
             let mut bytes = sample().encode().unwrap();
             bytes[offset] ^= 0x40;
             assert!(
-                matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))
-                    | Err(Error::UnsupportedVersion(_))
-                    | Err(Error::InvalidInput(_))
-                    | Err(Error::ArithmeticOverflow)),
+                matches!(
+                    Superblock::decode(&bytes),
+                    Err(Error::Corrupt(_))
+                        | Err(Error::UnsupportedVersion(_))
+                        | Err(Error::InvalidInput(_))
+                        | Err(Error::ArithmeticOverflow)
+                ),
                 "mutation at byte {offset} was not rejected"
             );
         }
