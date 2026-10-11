@@ -168,7 +168,9 @@ fn write_superblock_block<D: BlockDevice>(
 fn read_superblock_block<D: BlockDevice>(device: &mut D, block: u64) -> Result<Superblock> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if block_size < SUPERBLOCK_SIZE {
-        return Err(Error::InvalidInput("device block is smaller than superblock"));
+        return Err(Error::InvalidInput(
+            "device block is smaller than superblock",
+        ));
     }
     let mut buffer = vec![0_u8; block_size];
     device.read_blocks(block, &mut buffer)?;
