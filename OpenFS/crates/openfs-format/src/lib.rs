@@ -204,6 +204,8 @@ mod tests {
         assert!(matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))));
         let mut bytes = sample().encode().unwrap();
         bytes[4095] = 1;
+        let checksum = super::crc32c(&bytes[..4088]);
+        bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))));
     }
 
@@ -288,7 +290,9 @@ mod tests {
     }
 }
 
+mod directory_entry;
 mod metadata;
 mod volume;
+pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
