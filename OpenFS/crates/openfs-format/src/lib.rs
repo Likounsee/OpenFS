@@ -156,6 +156,14 @@ mod tests {
         let expected = sample();
         let bytes = expected.encode().unwrap();
         assert_eq!(&bytes[0..8], b"OPENFS\0\0");
+        assert_eq!(&bytes[8..10], &[1, 0]);
+        assert_eq!(&bytes[10..12], &[48, 0]);
+        assert_eq!(&bytes[12..16], &[0, 16, 0, 0]);
+        assert_eq!(&bytes[16..24], &1024_u64.to_le_bytes());
+        assert_eq!(&bytes[24..32], &3_u64.to_le_bytes());
+        assert_eq!(&bytes[32..48], b"openfs-test-uuid");
+        assert!(bytes[48..4088].iter().all(|byte| *byte == 0));
+        assert!(bytes[4092..].iter().all(|byte| *byte == 0));
         assert_eq!(Superblock::decode(&bytes).unwrap(), expected);
     }
 
@@ -184,6 +192,12 @@ mod tests {
             Err(Error::UnsupportedVersion(_))
         ));
         let mut bytes = sample().encode().unwrap();
+        bytes[10..12].copy_from_slice(&49_u16.to_le_bytes());
+        let checksum = super::crc32c(&bytes[..4088]);
+        bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))));
+
+        let mut bytes = sample().encode().unwrap();
         bytes[100] = 9;
         let checksum = super::crc32c(&bytes[..4088]);
         bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
@@ -209,6 +223,9 @@ mod tests {
     fn rejects_invalid_parameters_and_trailing_bytes() {
         let mut value = sample();
         value.block_size = 1000;
+        assert!(matches!(value.encode(), Err(Error::InvalidInput(_))));
+        let mut value = sample();
+        value.total_blocks = 1;
         assert!(matches!(value.encode(), Err(Error::InvalidInput(_))));
         let bytes = sample().encode().unwrap();
         let mut extra = bytes.to_vec();
