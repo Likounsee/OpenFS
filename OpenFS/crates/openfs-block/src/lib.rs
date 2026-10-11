@@ -106,8 +106,8 @@ impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
         if let Some(FaultAction::TornWrite { prefix_bytes }) = self.next_failure {
             self.next_failure = None;
-            let block_size = usize::try_from(self.inner.block_size())
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let block_size =
+                usize::try_from(self.inner.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
             if block_size == 0
                 || input.is_empty()
                 || input.len() % block_size != 0
@@ -353,10 +353,7 @@ mod tests {
         device.flush().unwrap();
 
         device.tear_next_write_after(257);
-        assert!(matches!(
-            device.write_blocks(0, &new),
-            Err(Error::Io(_))
-        ));
+        assert!(matches!(device.write_blocks(0, &new), Err(Error::Io(_))));
         let mut actual = vec![0; 4096];
         device.read_blocks(0, &mut actual).unwrap();
         assert_eq!(&actual[..257], &new[..257]);
