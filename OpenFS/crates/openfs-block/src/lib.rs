@@ -131,9 +131,7 @@ impl BlockDevice for ImageDevice {
 }
 
 fn validate_block_size(block_size: u32) -> Result<()> {
-    if !(MIN_BLOCK_SIZE..=MAX_BLOCK_SIZE).contains(&block_size)
-        || !block_size.is_power_of_two()
-    {
+    if !(MIN_BLOCK_SIZE..=MAX_BLOCK_SIZE).contains(&block_size) || !block_size.is_power_of_two() {
         return Err(Error::InvalidInput(
             "block size must be a power of two from 512 through 65536",
         ));
