@@ -63,11 +63,17 @@ impl MetadataRecord {
         if self.parent_id == self.id.0 {
             return Err(Error::InvalidInput("an object cannot be its own parent"));
         }
-        if self.kind == ObjectKind::Directory && (self.size != 0 || self.extent_root_block.is_some()) {
-            return Err(Error::InvalidInput("directory records cannot own file extents"));
+        if self.kind == ObjectKind::Directory
+            && (self.size != 0 || self.extent_root_block.is_some())
+        {
+            return Err(Error::InvalidInput(
+                "directory records cannot own file extents",
+            ));
         }
         if self.extent_root_block.is_some() && self.size == 0 {
-            return Err(Error::InvalidInput("empty objects cannot have an extent root"));
+            return Err(Error::InvalidInput(
+                "empty objects cannot have an extent root",
+            ));
         }
         let mut bytes = [0_u8; METADATA_RECORD_SIZE];
         bytes[0..8].copy_from_slice(MAGIC);
@@ -77,7 +83,12 @@ impl MetadataRecord {
         bytes[12..28].copy_from_slice(&self.id.0.to_le_bytes());
         bytes[28..44].copy_from_slice(&self.parent_id.to_le_bytes());
         bytes[44..52].copy_from_slice(&self.size.to_le_bytes());
-        bytes[52..60].copy_from_slice(&self.extent_root_block.unwrap_or(NO_EXTENT_ROOT).to_le_bytes());
+        bytes[52..60].copy_from_slice(
+            &self
+                .extent_root_block
+                .unwrap_or(NO_EXTENT_ROOT)
+                .to_le_bytes(),
+        );
         bytes[60..64].copy_from_slice(&self.generation.to_le_bytes());
         let checksum = crc32c(&bytes[..CHECKSUM_OFFSET]);
         bytes[CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
@@ -98,18 +109,38 @@ impl MetadataRecord {
         if bytes[64..76].iter().any(|byte| *byte != 0) {
             return Err(Error::Corrupt("metadata reserved bytes must be zero"));
         }
-        let stored = u32::from_le_bytes(bytes[CHECKSUM_OFFSET..].try_into().map_err(|_| Error::Corrupt("invalid metadata checksum"))?);
+        let stored = u32::from_le_bytes(
+            bytes[CHECKSUM_OFFSET..]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid metadata checksum"))?,
+        );
         if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
             return Err(Error::Corrupt("metadata CRC32C mismatch"));
         }
-        let id = ObjectId::new(u128::from_le_bytes(bytes[12..28].try_into().map_err(|_| Error::Corrupt("invalid object ID"))?))?;
-        let parent_id = u128::from_le_bytes(bytes[28..44].try_into().map_err(|_| Error::Corrupt("invalid parent ID"))?);
+        let id = ObjectId::new(u128::from_le_bytes(
+            bytes[12..28]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid object ID"))?,
+        ))?;
+        let parent_id = u128::from_le_bytes(
+            bytes[28..44]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid parent ID"))?,
+        );
         if parent_id == id.0 {
             return Err(Error::Corrupt("metadata object is its own parent"));
         }
         let kind = ObjectKind::try_from(bytes[10])?;
-        let size = u64::from_le_bytes(bytes[44..52].try_into().map_err(|_| Error::Corrupt("invalid object size"))?);
-        let extent = u64::from_le_bytes(bytes[52..60].try_into().map_err(|_| Error::Corrupt("invalid extent root"))?);
+        let size = u64::from_le_bytes(
+            bytes[44..52]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid object size"))?,
+        );
+        let extent = u64::from_le_bytes(
+            bytes[52..60]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid extent root"))?,
+        );
         let record = Self {
             id,
             parent_id,
@@ -117,9 +148,15 @@ impl MetadataRecord {
             flags: bytes[11],
             size,
             extent_root_block: (extent != NO_EXTENT_ROOT).then_some(extent),
-            generation: u32::from_le_bytes(bytes[60..64].try_into().map_err(|_| Error::Corrupt("invalid generation"))?),
+            generation: u32::from_le_bytes(
+                bytes[60..64]
+                    .try_into()
+                    .map_err(|_| Error::Corrupt("invalid generation"))?,
+            ),
         };
-        if record.kind == ObjectKind::Directory && (record.size != 0 || record.extent_root_block.is_some()) {
+        if record.kind == ObjectKind::Directory
+            && (record.size != 0 || record.extent_root_block.is_some())
+        {
             return Err(Error::Corrupt("directory record owns file extents"));
         }
         if record.extent_root_block.is_some() && record.size == 0 {
@@ -136,8 +173,13 @@ mod tests {
 
     fn file() -> MetadataRecord {
         MetadataRecord {
-            id: ObjectId(42), parent_id: 1, kind: ObjectKind::File, flags: 0,
-            size: 4096, extent_root_block: Some(17), generation: 3,
+            id: ObjectId(42),
+            parent_id: 1,
+            kind: ObjectKind::File,
+            flags: 0,
+            size: 4096,
+            extent_root_block: Some(17),
+            generation: 3,
         }
     }
 
@@ -154,15 +196,24 @@ mod tests {
     fn rejects_bad_checksum_reserved_bytes_and_unknown_kind() {
         let mut bytes = file().encode().unwrap();
         bytes[11] ^= 1;
-        assert!(matches!(MetadataRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            MetadataRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
         let mut bytes = file().encode().unwrap();
         bytes[64] = 1;
-        assert!(matches!(MetadataRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            MetadataRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
         let mut bytes = file().encode().unwrap();
         bytes[10] = 99;
         let crc = crate::crc32c(&bytes[..76]);
         bytes[76..80].copy_from_slice(&crc.to_le_bytes());
-        assert!(matches!(MetadataRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            MetadataRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
