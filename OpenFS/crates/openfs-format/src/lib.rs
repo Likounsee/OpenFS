@@ -125,7 +125,7 @@ fn get_u64(bytes: &[u8], offset: usize) -> u64 {
 }
 
 /// Reflected Castagnoli CRC-32C, implemented without a third-party dependency.
-fn crc32c(bytes: &[u8]) -> u32 {
+pub(crate) fn crc32c(bytes: &[u8]) -> u32 {
     let mut crc = !0_u32;
     for byte in bytes {
         crc ^= u32::from(*byte);
@@ -288,5 +288,7 @@ mod tests {
     }
 }
 
+mod metadata;
 mod volume;
+pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
