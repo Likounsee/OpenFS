@@ -7,7 +7,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | Phase | Progress | Basis for current estimate |
 | --- | ---: | --- |
 | P0 | 70% | Workspace, CI, bounded image I/O, shared errors, superblock parser, mirrored volume formatter, bitmap initialization and end-to-end image reopen/corruption tests exist; independent format review and crash/recovery validation remain. |
-| P1 | 15% | Experimental volume layout/formatter, mirrored superblocks, reserved-block bitmap initialization, open-time validation, and persisted first-fit allocate/free bitmap operations with tests exist; metadata namespace and file/directory operations remain. |
+| P1 | 15% | Experimental volume layout/formatter, mirrored superblocks, reserved-block bitmap initialization, open-time validation, and first-fit allocation/free operations are implemented in code; CI validation is pending. Metadata namespace and file/directory operations remain. |
 | P2 | 0% | No Rust journal or crash-recovery implementation. |
 | P3 | 0% | No volume checker, repair tool or fuzz target. |
 | P4 | 0% | No filesystem benchmarks or comparative measurements. |
