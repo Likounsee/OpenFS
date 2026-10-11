@@ -15,7 +15,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | P6 | 0% | No Windows mount adapter. |
 | P7 | 0% | No stable-release hardening or compatibility gates. |
 
-The global estimate is **9%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 15%, and the remaining phases at 0%, the weighted estimate is 10%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
+The global estimate is **11%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 15%, and the remaining phases at 0%, the weighted estimate is 10%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
 
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |
