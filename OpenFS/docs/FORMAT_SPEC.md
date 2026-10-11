@@ -23,4 +23,6 @@ CRC32C uses the reflected Castagnoli polynomial and covers bytes 0 through 4087.
 
 ## Validation
 
+The parser treats all bytes as untrusted, verifies the checksum before interpreting fields, and independently validates decoded block size and volume length even if a modified record has a recomputed checksum. Tests include the standard CRC32C check value, each defined field, reserved regions, unsupported versions, and arithmetic overflow. A passing parser test does not establish crash consistency or a complete volume layout.
+
 Decode requires exactly 4096 bytes, valid magic, supported version, expected header size, matching CRC32C, zero reserved bytes, and valid field bounds. Before a stable format release, add golden byte fixtures and define mirrored superblocks, complete volume layout, feature compatibility, and migration rules.

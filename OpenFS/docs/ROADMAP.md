@@ -6,7 +6,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 
 | Phase | Progress | Basis for current estimate |
 | --- | ---: | --- |
-| P0 | 60% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, tests and first legacy audit exist; torn-write simulation, independent format review and broader end-to-end validation remain. |
+| P0 | 65% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, expanded adversarial field tests and first legacy audit exist; independent format review and broader end-to-end validation remain. |
 | P1 | 0% | No formatter, allocator, metadata namespace or file/directory operations. |
 | P2 | 0% | No Rust journal or crash-recovery implementation. |
 | P3 | 0% | No volume checker, repair tool or fuzz target. |
@@ -37,7 +37,7 @@ The global estimate is **6%**, using explicit phase weights of P0 10%, P1 20%, P
 - [x] Image-file backend with explicit bounds and host flush contract.
 - [x] Initial explicit superblock encoder/decoder and malformed-input tests.
 - [x] CI passed for the workspace code on Linux and Windows (commit 0a00995f1f57b6e1bfc44986e8dfcd0dd3520cfd; [workflow run](https://github.com/Likounsee/OpenFS/actions/runs/38172350309)).
-- [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy.
+- [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy. Expanded tests now verify malformed field values even when CRC32C is recomputed.
 - [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
 - [x] Mixed-state torn-write simulation and verification of persisted prefix/suffix contents.
 - [ ] End-to-end volume tests and recovery validation.

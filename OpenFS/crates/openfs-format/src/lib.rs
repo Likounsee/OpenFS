@@ -220,6 +220,53 @@ mod tests {
     }
 
     #[test]
+    fn decoder_rejects_invalid_fields_even_with_a_valid_checksum() {
+        fn refresh_checksum(bytes: &mut [u8; SUPERBLOCK_SIZE]) {
+            let checksum = super::crc32c(&bytes[..4088]);
+            bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+        }
+
+        let mut invalid_block_size = sample().encode().unwrap();
+        invalid_block_size[12..16].copy_from_slice(&2048_u32.to_le_bytes());
+        refresh_checksum(&mut invalid_block_size);
+        assert!(matches!(
+            Superblock::decode(&invalid_block_size),
+            Err(Error::InvalidInput(_))
+        ));
+
+        let mut too_small = sample().encode().unwrap();
+        too_small[16..24].copy_from_slice(&1_u64.to_le_bytes());
+        refresh_checksum(&mut too_small);
+        assert!(matches!(
+            Superblock::decode(&too_small),
+            Err(Error::InvalidInput(_))
+        ));
+
+        let mut overflowing = sample().encode().unwrap();
+        overflowing[16..24].copy_from_slice(&u64::MAX.to_le_bytes());
+        refresh_checksum(&mut overflowing);
+        assert!(matches!(
+            Superblock::decode(&overflowing),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
+    fn detects_corruption_in_every_defined_field() {
+        for offset in [8_usize, 10, 12, 16, 24, 32] {
+            let mut bytes = sample().encode().unwrap();
+            bytes[offset] ^= 0x40;
+            assert!(
+                matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))
+                    | Err(Error::UnsupportedVersion(_))
+                    | Err(Error::InvalidInput(_))
+                    | Err(Error::ArithmeticOverflow)),
+                "mutation at byte {offset} was not rejected"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_invalid_parameters_and_trailing_bytes() {
         let mut value = sample();
         value.block_size = 1000;
