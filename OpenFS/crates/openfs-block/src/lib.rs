@@ -334,6 +334,9 @@ mod tests {
         let expected = vec![0x6B; 4096];
 
         device.fail_next(IoOperation::Write);
+        let mut untouched = vec![0; 4096];
+        device.read_blocks(0, &mut untouched).unwrap();
+        assert_eq!(untouched, vec![0; 4096]);
         assert!(matches!(
             device.write_blocks(0, &expected),
             Err(Error::Io(_))
