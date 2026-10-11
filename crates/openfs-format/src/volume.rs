@@ -64,6 +64,17 @@ impl VolumeLayout {
         self.backup_superblock - self.data_start
     }
 
+
+}
+
+/// A validated, read-only view of the initial on-disk volume format.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Volume {
+    pub superblock: Superblock,
+    pub layout: VolumeLayout,
+}
+
+impl Volume {
     /// Allocate the first free data block and persist its bitmap bit.
     ///
     /// The caller must serialize allocator operations. Without the journal, an I/O
@@ -127,13 +138,6 @@ impl VolumeLayout {
         }
         Ok(())
     }
-}
-
-/// A validated, read-only view of the initial on-disk volume format.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Volume {
-    pub superblock: Superblock,
-    pub layout: VolumeLayout,
 }
 
 /// Format an existing block device with mirrored superblocks and an initialized bitmap.
