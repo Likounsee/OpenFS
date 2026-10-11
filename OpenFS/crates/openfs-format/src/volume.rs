@@ -113,8 +113,8 @@ impl Volume {
                 "cannot free a reserved or out-of-range block",
             ));
         }
-        let block_size = usize::try_from(self.layout.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
         let bitmap_index = block / bits_per_bitmap_block;
         let local = block % bits_per_bitmap_block;
