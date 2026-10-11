@@ -172,14 +172,14 @@ mod tests {
         let image = TempImage::new();
         {
             let mut device = ImageDevice::create(&image.0, 4096, 4).unwrap();
-            let data = vec![0xA5; 4096];
+            let data = vec![0xA5; 8192];
             device.write_blocks(2, &data).unwrap();
             device.flush().unwrap();
         }
         let mut reopened = ImageDevice::open(&image.0, 4096).unwrap();
-        let mut actual = vec![0; 4096];
+        let mut actual = vec![0; 8192];
         reopened.read_blocks(2, &mut actual).unwrap();
-        assert_eq!(actual, vec![0xA5; 4096]);
+        assert_eq!(actual, vec![0xA5; 8192]);
         assert_eq!(reopened.block_count(), 4);
     }
 
@@ -194,6 +194,10 @@ mod tests {
             ImageDevice::create(&image.0, 4096, 0),
             Err(Error::InvalidInput(_))
         ));
+        assert!(matches!(
+            ImageDevice::create(&image.0, 65_536, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
     }
 
     #[test]
@@ -202,6 +206,10 @@ mod tests {
         let mut device = ImageDevice::create(&image.0, 4096, 2).unwrap();
         assert!(matches!(
             device.read_blocks(2, &mut vec![0; 4096]),
+            Err(Error::OutOfBounds { .. })
+        ));
+        assert!(matches!(
+            device.write_blocks(1, &vec![1; 8192]),
             Err(Error::OutOfBounds { .. })
         ));
         assert!(matches!(
