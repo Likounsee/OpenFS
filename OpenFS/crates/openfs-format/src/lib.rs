@@ -288,6 +288,5 @@ mod tests {
     }
 }
 
-
 mod volume;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
