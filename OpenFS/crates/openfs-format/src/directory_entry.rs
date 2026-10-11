@@ -197,6 +197,9 @@ mod tests {
         bytes[44] = 0xff;
         let crc = crate::crc32c(&bytes[..124]);
         bytes[124..128].copy_from_slice(&crc.to_le_bytes());
-        assert!(matches!(DirectoryEntry::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            DirectoryEntry::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
     }
 }
