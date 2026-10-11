@@ -87,7 +87,7 @@ impl ImageDevice {
     }
 
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<u64> {
-        let block_size = self.block_size as usize;
+        let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         if length == 0 || length % block_size != 0 {
             return Err(Error::InvalidInput(
                 "buffer length must be a non-zero multiple of block size",
