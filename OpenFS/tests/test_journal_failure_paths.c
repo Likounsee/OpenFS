@@ -1258,7 +1258,7 @@ static void test_open_read_failure_preserves_existing_journal_state(void)
     openfs_journal_t existing;
     memset(&existing, 0xA5, sizeof(existing));
     openfs_journal_t before = existing;
-    d.fail_read_after = 2;
+    d.fail_read_after = 3;
     assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_IO_ERROR);
     assert(memcmp(&existing, &before, sizeof(existing)) == 0);
 
