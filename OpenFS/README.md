@@ -5,7 +5,7 @@ This directory is the Rust project root. The root-level repository README remain
 ## Current workspace
 
 - openfs-core: shared errors and checked block-range validation.
-- openfs-block: file-backed image device; bounded block reads/writes, explicit sync, safe create-by-default behavior with a separately named destructive truncate API, and a test-support feature for one-shot read/write/flush failure injection (not torn writes).
+- openfs-block: file-backed image device; bounded block reads/writes, explicit sync, safe create-by-default behavior with a separately named destructive truncate API, and a test-support feature for one-shot read/write/flush failure injection and a mixed-state torn-write model (not a simulation of physical-device firmware).
 - openfs-format: initial 4096-byte, little-endian superblock encoding/decoding draft with CRC32C.
 
 The format and public APIs are early drafts and may change before the first stable format release. No file/directory namespace, allocator, transaction journal, recovery engine, mount adapter, or repair utility exists yet.

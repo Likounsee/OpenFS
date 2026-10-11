@@ -33,15 +33,23 @@ pub enum IoOperation {
     Flush,
 }
 
-/// A one-shot operation-boundary fault injector for filesystem tests.
+/// A one-shot fault injector for filesystem tests.
 ///
-/// This wrapper fails the next selected operation before delegating it to the
-/// underlying device. It simulates reported I/O errors, not torn or partially
-/// persisted writes. Enable the test-support feature to use it outside unit tests.
+/// It can return operation-boundary I/O errors or model a torn write by persisting
+/// a prefix of new bytes while retaining the old suffix. The torn-write mode writes
+/// complete blocks containing that mixed state, then reports an I/O error. It does
+/// not emulate physical-device firmware or ordering barriers.
 #[cfg(any(test, feature = "test-support"))]
 pub struct FaultInjectingDevice<D> {
     inner: D,
-    next_failure: Option<IoOperation>,
+    next_failure: Option<FaultAction>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FaultAction {
+    Fail(IoOperation),
+    TornWrite { prefix_bytes: usize },
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -54,7 +62,15 @@ impl<D> FaultInjectingDevice<D> {
     }
 
     pub fn fail_next(&mut self, operation: IoOperation) {
-        self.next_failure = Some(operation);
+        self.next_failure = Some(FaultAction::Fail(operation));
+    }
+
+    /// Make the next write persist only this prefix of the new bytes, then fail.
+    ///
+    /// The prefix must be shorter than the supplied write buffer. The unmodified
+    /// suffix is read from the device first, making the mixed block state repeatable.
+    pub fn tear_next_write_after(&mut self, prefix_bytes: usize) {
+        self.next_failure = Some(FaultAction::TornWrite { prefix_bytes });
     }
 
     pub fn into_inner(self) -> D {
@@ -62,7 +78,7 @@ impl<D> FaultInjectingDevice<D> {
     }
 
     fn check_failure(&mut self, operation: IoOperation) -> Result<()> {
-        if self.next_failure == Some(operation) {
+        if self.next_failure == Some(FaultAction::Fail(operation)) {
             self.next_failure = None;
             return Err(Error::Io(std::io::Error::other(
                 "injected OpenFS block-device failure",
@@ -88,6 +104,27 @@ impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
+        if let Some(FaultAction::TornWrite { prefix_bytes }) = self.next_failure {
+            self.next_failure = None;
+            let block_size = usize::try_from(self.inner.block_size())
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if block_size == 0
+                || input.is_empty()
+                || input.len() % block_size != 0
+                || prefix_bytes >= input.len()
+            {
+                return Err(Error::InvalidInput(
+                    "torn-write prefix must be shorter than a non-empty block-aligned buffer",
+                ));
+            }
+            let mut mixed = vec![0; input.len()];
+            self.inner.read_blocks(first_block, &mut mixed)?;
+            mixed[..prefix_bytes].copy_from_slice(&input[..prefix_bytes]);
+            self.inner.write_blocks(first_block, &mixed)?;
+            return Err(Error::Io(std::io::Error::other(
+                "injected torn OpenFS block-device write",
+            )));
+        }
         self.check_failure(IoOperation::Write)?;
         self.inner.write_blocks(first_block, input)
     }
@@ -301,6 +338,35 @@ mod tests {
         let mut data = vec![0xFF; 4096];
         truncated.read_blocks(0, &mut data).unwrap();
         assert_eq!(data, vec![0; 4096]);
+    }
+
+    #[test]
+    fn torn_write_injector_persists_new_prefix_and_old_suffix() {
+        use super::{FaultInjectingDevice, IoOperation};
+
+        let image = TempImage::new();
+        let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        let mut device = FaultInjectingDevice::new(device);
+        let old = vec![0x11; 4096];
+        let new = vec![0x22; 4096];
+        device.write_blocks(0, &old).unwrap();
+        device.flush().unwrap();
+
+        device.tear_next_write_after(257);
+        assert!(matches!(
+            device.write_blocks(0, &new),
+            Err(Error::Io(_))
+        ));
+        let mut actual = vec![0; 4096];
+        device.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(&actual[..257], &new[..257]);
+        assert_eq!(&actual[257..], &old[257..]);
+
+        device.fail_next(IoOperation::Read);
+        assert!(matches!(
+            device.read_blocks(0, &mut actual),
+            Err(Error::Io(_))
+        ));
     }
 
     #[test]

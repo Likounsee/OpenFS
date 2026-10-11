@@ -6,7 +6,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 
 | Phase | Progress | Basis for current estimate |
 | --- | ---: | --- |
-| P0 | 55% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, tests and first legacy audit exist; torn-write simulation, independent format review and broader end-to-end validation remain. |
+| P0 | 60% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, tests and first legacy audit exist; torn-write simulation, independent format review and broader end-to-end validation remain. |
 | P1 | 0% | No formatter, allocator, metadata namespace or file/directory operations. |
 | P2 | 0% | No Rust journal or crash-recovery implementation. |
 | P3 | 0% | No volume checker, repair tool or fuzz target. |
@@ -39,7 +39,8 @@ The global estimate is **6%**, using explicit phase weights of P0 10%, P1 20%, P
 - [x] CI passed for the workspace code on Linux and Windows (commit 0a00995f1f57b6e1bfc44986e8dfcd0dd3520cfd; [workflow run](https://github.com/Likounsee/OpenFS/actions/runs/38172350309)).
 - [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy.
 - [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
-- [ ] Partial/torn-write injection and end-to-end volume tests.
+- [x] Mixed-state torn-write simulation and verification of persisted prefix/suffix contents.
+- [ ] End-to-end volume tests and recovery validation.
 - [ ] Complete audit of the legacy repository and its design decisions.
 
 Phase percentages must be updated after CI evidence and code reviews; the presence of a checklist item is not itself proof of runtime success.
