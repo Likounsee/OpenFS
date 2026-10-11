@@ -38,7 +38,7 @@ The project code belongs under OpenFS/. Git commits are part of the repository h
 
 The initial Rust workspace contains:
 - shared error and checked block-range primitives;
-- a file-backed block-image device with explicit block bounds, exact-length I/O, and a flush operation based on File::sync_all;
+- a file-backed block-image device with explicit block bounds, exact-length I/O, a flush operation based on File::sync_all, and non-destructive image creation by default;
 - an explicitly encoded 4096-byte superblock draft with little-endian fields, version checks, reserved-byte validation, and CRC32C;
 - unit tests for normal I/O, invalid ranges and buffers, persistence across reopen, malformed superblocks, and deterministic read/write/flush failure injection;
 - a root-level CI workflow for formatting, workspace tests, and Clippy.

@@ -22,7 +22,7 @@ These are the only implemented crates at this stage. File namespace, metadata, a
 
 ## Image I/O contract
 
-The image backend uses fixed-size blocks and rejects invalid block sizes, empty/misaligned buffers, zero-length images, and ranges outside the image. Reads use read_exact, writes use write_all, and flush uses File::sync_all. This is a host synchronization request, not a universal physical-media durability guarantee. The backend is mutable (&mut self) and does not itself promise concurrent access synchronization.
+The image backend uses fixed-size blocks and rejects invalid block sizes, empty/misaligned buffers, zero-length images, and ranges outside the image. Creating an image refuses to overwrite an existing path; destructive replacement requires the explicit create_truncate API. Reads use read_exact, writes use write_all, and flush uses File::sync_all. This is a host synchronization request, not a universal physical-media durability guarantee. The backend is mutable (&mut self) and does not itself promise concurrent access synchronization.
 
 ## Future layers
 

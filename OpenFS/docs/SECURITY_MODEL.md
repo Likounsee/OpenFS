@@ -9,6 +9,7 @@ Image contents, superblock bytes, caller-supplied offsets and lengths, and host 
 - Checked range validation avoids computing an unchecked end block.
 - Image buffer lengths must be non-zero multiples of block size.
 - Image sizes and block sizes are validated before use.
+- Image creation refuses to overwrite an existing path unless the caller explicitly chooses the destructive truncate API.
 - Superblock decode checks record length, magic, version, header size, CRC32C, reserved bytes, and field bounds.
 - Workspace lint forbids unsafe Rust.
 - I/O errors propagate through a shared explicit error type.
