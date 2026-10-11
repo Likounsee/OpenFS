@@ -7,6 +7,7 @@
 #include "openfs/mount.h"
 #include "openfs/crc32c.h"
 #include "openfs/fsck.h"
+#include "openfs/data_checksum.h"
 #include "openfs/file.h"
 #include "openfs/inode_alloc.h"
 #include "openfs/path.h"
@@ -960,9 +961,52 @@ static void malformed_later_replay_payload_does_not_publish_earlier_blocks(void)
 }
 
 
+
+static void replay_retry_repairs_data_checksum_after_publication_failure(void)
+{
+    disk_t d={.block_size=4096U,.block_count=256U};
+    d.bytes=calloc((size_t)d.block_count,d.block_size);assert(d.bytes!=NULL);
+    openfs_block_device_t v={&d,d.block_size,d.block_count,rd,wr,fl};
+    uint8_t uuid[16]={0x4AU,0x43U};
+    assert(openfs_format(&v,uuid)==OPENFS_FORMAT_OK);
+    openfs_superblock_t sb;
+    assert(openfs_read_superblock(&v,&sb)==OPENFS_FORMAT_OK);
+    assert((sb.feature_flags&OPENFS_FEATURE_DATA_CHECKSUM)!=0U);
+
+    openfs_journal_t journal;
+    assert(openfs_journal_open(&journal,&v,&sb)==OPENFS_JOURNAL_OK);
+    const uint64_t target=sb.data_start+31U;
+    uint8_t payload[4096U];
+    for(size_t i=0U;i<sizeof(payload);i++)payload[i]=(uint8_t)(i*23U+0x39U);
+    uint64_t tx=0U;
+    assert(openfs_journal_begin(&journal,&v,&tx)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write_block(&journal,&v,tx,target,payload)==OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&journal,&v,tx)==OPENFS_JOURNAL_OK);
+    memset(d.bytes+(size_t)(target*d.block_size),0U,d.block_size);
+
+    /* Home-block publication succeeds, but persisting its checksum fails. */
+    d.fail_write_block=sb.data_checksum_start;
+    d.fail_write_count=1U;
+    openfs_mount_t failed={0};
+    assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
+    assert(d.fail_write_count==0U);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+
+    /* Retrying replay must republish idempotently and repair the checksum. */
+    openfs_mount_t recovered={0};
+    assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
+    uint32_t stored_checksum=0U;
+    assert(openfs_data_checksum_get(&v,&recovered.superblock,target,&stored_checksum)==0);
+    assert(stored_checksum==openfs_data_checksum(payload,sizeof(payload)));
+    uint64_t errors=0U;
+    assert(openfs_fsck(&v,&recovered.superblock,&errors)==OPENFS_FSCK_OK&&errors==0U);
+    assert(openfs_unmount(&recovered)==OPENFS_MOUNT_OK);
+    free(d.bytes);
+}
+
 int main(void){
     malformed_later_replay_payload_does_not_publish_earlier_blocks();mount_rejects_reserved_superblock_bytes();replay_rejects_nonzero_reserved_block_header();
-    replay_retry_after_applied_write_reports_error();checkpoint_double_flush_failure_requires_recovery();checkpoint_flush_failure_restores_journal();replay_retry_after_validation_flush_failure();replay_retry_after_replay_flush_failure();
+    replay_retry_after_applied_write_reports_error();replay_retry_repairs_data_checksum_after_publication_failure();checkpoint_double_flush_failure_requires_recovery();checkpoint_flush_failure_restores_journal();replay_retry_after_validation_flush_failure();replay_retry_after_replay_flush_failure();
     replay_failure_is_retryable_and_idempotent();
  unmount_open_handle_regression();
  concurrent_handle_close_unmount_regression();
