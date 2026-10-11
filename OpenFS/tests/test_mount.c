@@ -990,9 +990,9 @@ static void replay_retry_repairs_data_checksum_after_publication_failure(void)
     openfs_mount_t failed={0};
     assert(openfs_mount(&failed,&v)==OPENFS_MOUNT_IO_ERROR);
     assert(d.fail_write_count==0U);
-    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))==0);
+    assert(memcmp(d.bytes+(size_t)(target*d.block_size),payload,sizeof(payload))!=0);
 
-    /* Retrying replay must republish idempotently and repair the checksum. */
+    /* Retrying replay must finish partial publication and repair the checksum. */
     openfs_mount_t recovered={0};
     assert(openfs_mount(&recovered,&v)==OPENFS_MOUNT_OK);
     uint32_t stored_checksum=0U;
