@@ -13,6 +13,7 @@ typedef struct {
     uint8_t *data;
     uint32_t block_size;
     uint64_t block_count;
+    int fail_next_read;
     int fail_next_write;
     int fail_write_count;
     int fail_write_after;
@@ -28,6 +29,10 @@ static openfs_io_result_t read_blocks(void *ctx, uint64_t first, uint32_t count,
     if (d == NULL || out == NULL || count == 0U ||
         first >= d->block_count || (uint64_t)count > d->block_count - first) {
         return OPENFS_IO_OUT_OF_RANGE;
+    }
+    if (d->fail_next_read) {
+        d->fail_next_read = 0;
+        return OPENFS_IO_IO_ERROR;
     }
     memcpy(out, d->data + (size_t)(first * d->block_size),
            (size_t)((uint64_t)count * d->block_size));
@@ -992,6 +997,49 @@ static void test_corrupt_wal_recovery_stays_gated(void)
     free(d.data);
 }
 
+
+static void test_checkpoint_backup_read_failure_preserves_wal(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x76U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+    uint64_t tx = 0U;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_write(&j, &v, tx, "checkpoint read", 15U) == OPENFS_JOURNAL_OK);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    size_t wal_size = (size_t)(s.journal_blocks * (uint64_t)s.block_size);
+    size_t wal_offset = (size_t)(s.journal_start * (uint64_t)s.block_size);
+    uint8_t *before = malloc(wal_size);
+    assert(before != NULL);
+    memcpy(before, d.data + wal_offset, wal_size);
+    uint64_t records_before = j.next_record;
+    uint64_t sequence_before = j.sequence;
+
+    /* Checkpoint must finish backing up the WAL before its first write. */
+    d.fail_next_read = 1;
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_IO_ERROR);
+    assert(memcmp(before, d.data + wal_offset, wal_size) == 0);
+    assert(j.recovery_required == 0U);
+    assert(j.next_record == records_before);
+    assert(j.sequence == sequence_before);
+
+    /* A transient backup-read failure must not poison a valid journal. */
+    assert(openfs_journal_checkpoint(&j, &v) == OPENFS_JOURNAL_OK);
+    assert(j.next_record == 0U);
+    free(before);
+    free(d.data);
+}
+
 static void test_checkpoint_write_failure_restores_entire_wal(void)
 {
     disk_t d = {0};
@@ -1156,6 +1204,7 @@ int main(void)
     test_replay_flush_failure_keeps_recovery_gated();
     test_partial_commit_write_and_failed_restore_stay_gated();
     test_corrupt_wal_recovery_stays_gated();
+    test_checkpoint_backup_read_failure_preserves_wal();
     test_checkpoint_write_failure_restores_entire_wal();
     test_checkpoint_rollback_flush_failure_requires_remount_recovery();
     test_checkpoint_rollback_failure_poison_journal();
