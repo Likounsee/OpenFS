@@ -24,6 +24,77 @@ pub trait BlockDevice {
     fn flush(&mut self) -> Result<()>;
 }
 
+/// Operation type used by the deterministic test-only I/O fault injector.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoOperation {
+    Read,
+    Write,
+    Flush,
+}
+
+/// A one-shot operation-boundary fault injector for filesystem tests.
+///
+/// This wrapper fails the next selected operation before delegating it to the
+/// underlying device. It simulates reported I/O errors, not torn or partially
+/// persisted writes. Enable the test-support feature to use it outside unit tests.
+#[cfg(any(test, feature = "test-support"))]
+pub struct FaultInjectingDevice<D> {
+    inner: D,
+    next_failure: Option<IoOperation>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl<D> FaultInjectingDevice<D> {
+    pub fn new(inner: D) -> Self {
+        Self { inner, next_failure: None }
+    }
+
+    pub fn fail_next(&mut self, operation: IoOperation) {
+        self.next_failure = Some(operation);
+    }
+
+    pub fn into_inner(self) -> D {
+        self.inner
+    }
+
+    fn check_failure(&mut self, operation: IoOperation) -> Result<()> {
+        if self.next_failure == Some(operation) {
+            self.next_failure = None;
+            return Err(Error::Io(std::io::Error::other(
+                "injected OpenFS block-device failure",
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
+    fn block_size(&self) -> u32 {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
+        self.check_failure(IoOperation::Read)?;
+        self.inner.read_blocks(first_block, output)
+    }
+
+    fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
+        self.check_failure(IoOperation::Write)?;
+        self.inner.write_blocks(first_block, input)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        self.check_failure(IoOperation::Flush)?;
+        self.inner.flush()
+    }
+}
+
 /// A regular file interpreted as a fixed-size block device.
 ///
 /// flush calls File::sync_all. This requests synchronization through the host
@@ -248,5 +319,35 @@ mod tests {
             ImageDevice::open(&image.0, 4096),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn fault_injector_fails_one_selected_operation_then_recovers() {
+        use super::{FaultInjectingDevice, IoOperation};
+
+        let image = TempImage::new();
+        let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        let mut device = FaultInjectingDevice::new(device);
+        let expected = vec![0x6B; 4096];
+
+        device.fail_next(IoOperation::Write);
+        assert!(matches!(
+            device.write_blocks(0, &expected),
+            Err(Error::Io(_))
+        ));
+        device.write_blocks(0, &expected).unwrap();
+
+        device.fail_next(IoOperation::Flush);
+        assert!(matches!(device.flush(), Err(Error::Io(_))));
+        device.flush().unwrap();
+
+        device.fail_next(IoOperation::Read);
+        assert!(matches!(
+            device.read_blocks(0, &mut vec![0; 4096]),
+            Err(Error::Io(_))
+        ));
+        let mut actual = vec![0; 4096];
+        device.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(actual, expected);
     }
 }
