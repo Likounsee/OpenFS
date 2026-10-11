@@ -304,6 +304,16 @@ mod tests {
     }
 
     #[test]
+    fn accepts_supported_block_size_limits() {
+        for block_size in [512, 65_536] {
+            let image = TempImage::new();
+            let device = ImageDevice::create(&image.0, block_size, 1).unwrap();
+            assert_eq!(device.block_size(), block_size);
+            assert_eq!(device.block_count(), 1);
+        }
+    }
+
+    #[test]
     fn rejects_invalid_block_sizes_and_empty_images() {
         let image = TempImage::new();
         assert!(matches!(
