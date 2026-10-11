@@ -4,8 +4,8 @@
 //! persistent namespace mutation, or transaction/crash-recovery guarantees.
 
 use crate::crc32c;
-use openfs_core::{Error, Result};
 use crate::metadata::ObjectKind;
+use openfs_core::{Error, Result};
 
 pub const DIRECTORY_ENTRY_SIZE: usize = 128;
 pub const DIRECTORY_NAME_MAX_BYTES: usize = 64;
@@ -31,7 +31,9 @@ impl DirectoryEntry {
             return Err(Error::InvalidInput("directory entry IDs must be nonzero"));
         }
         if self.parent_id == self.object_id {
-            return Err(Error::InvalidInput("directory cannot directly contain itself"));
+            return Err(Error::InvalidInput(
+                "directory cannot directly contain itself",
+            ));
         }
 
         let name = self.name.as_bytes();
@@ -60,7 +62,9 @@ impl DirectoryEntry {
             return Err(Error::UnsupportedVersion(version));
         }
         if bytes[108..CHECKSUM_OFFSET].iter().any(|byte| *byte != 0) {
-            return Err(Error::Corrupt("directory-entry reserved bytes must be zero"));
+            return Err(Error::Corrupt(
+                "directory-entry reserved bytes must be zero",
+            ));
         }
         let stored = u32::from_le_bytes(
             bytes[CHECKSUM_OFFSET..]
@@ -74,7 +78,10 @@ impl DirectoryEntry {
         if name_len == 0 || name_len > DIRECTORY_NAME_MAX_BYTES {
             return Err(Error::Corrupt("invalid directory-entry name length"));
         }
-        if bytes[NAME_OFFSET + name_len..NAME_END].iter().any(|byte| *byte != 0) {
+        if bytes[NAME_OFFSET + name_len..NAME_END]
+            .iter()
+            .any(|byte| *byte != 0)
+        {
             return Err(Error::Corrupt("directory-entry name padding must be zero"));
         }
         let name = std::str::from_utf8(&bytes[NAME_OFFSET..NAME_OFFSET + name_len])
@@ -82,16 +89,25 @@ impl DirectoryEntry {
             .to_owned();
         validate_name(&name).map_err(Error::Corrupt)?;
         let parent_id = u128::from_le_bytes(
-            bytes[12..28].try_into().map_err(|_| Error::Corrupt("invalid parent ID"))?,
+            bytes[12..28]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid parent ID"))?,
         );
         let object_id = u128::from_le_bytes(
-            bytes[28..44].try_into().map_err(|_| Error::Corrupt("invalid object ID"))?,
+            bytes[28..44]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid object ID"))?,
         );
         if parent_id == 0 || object_id == 0 || parent_id == object_id {
             return Err(Error::Corrupt("invalid directory-entry object IDs"));
         }
         let kind = ObjectKind::try_from(bytes[10])?;
-        Ok(Self { parent_id, object_id, kind, name })
+        Ok(Self {
+            parent_id,
+            object_id,
+            kind,
+            name,
+        })
     }
 }
 
@@ -103,7 +119,10 @@ fn validate_name(name: &str) -> std::result::Result<(), &'static str> {
     if name == "." || name == ".." {
         return Err("dot components are reserved");
     }
-    if name.chars().any(|ch| ch == '/' || ch == '\\' || ch == '\0' || ch.is_control()) {
+    if name
+        .chars()
+        .any(|ch| ch == '/' || ch == '\\' || ch == '\0' || ch.is_control())
+    {
         return Err("directory name contains a forbidden character");
     }
     Ok(())
@@ -138,7 +157,10 @@ mod tests {
         for name in ["", ".", "..", "a/b", "a\\b", "bad\0name", "line\nfeed"] {
             let mut entry = sample();
             entry.name = name.to_owned();
-            assert!(matches!(entry.encode(), Err(Error::InvalidInput(_))), "{name:?}");
+            assert!(
+                matches!(entry.encode(), Err(Error::InvalidInput(_))),
+                "{name:?}"
+            );
         }
         let mut entry = sample();
         entry.parent_id = 0;
@@ -157,7 +179,10 @@ mod tests {
         bytes[10] = 99;
         let crc = crate::crc32c(&bytes[..124]);
         bytes[124..128].copy_from_slice(&crc.to_le_bytes());
-        assert!(matches!(DirectoryEntry::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            DirectoryEntry::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample().encode().unwrap();
         bytes[110] = 1;
