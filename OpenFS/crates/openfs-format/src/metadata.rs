@@ -188,7 +188,7 @@ mod tests {
         let record = file();
         let bytes = record.encode().unwrap();
         assert_eq!(bytes.len(), METADATA_RECORD_SIZE);
-        assert_eq!(&bytes[..8], b"OFSMETA\\0");
+        assert_eq!(&bytes[..8], b"OFSMETA\0");
         assert_eq!(MetadataRecord::decode(&bytes).unwrap(), record);
     }
 
