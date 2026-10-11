@@ -94,7 +94,6 @@ fn allocator_first_fit_release_and_reopen_persistence() {
     assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
 
     device.flush().unwrap();
-    drop(volume);
     let reopened = open_volume(&mut device).unwrap();
     assert_eq!(reopened.allocate_block(&mut device).unwrap(), 4);
 }
