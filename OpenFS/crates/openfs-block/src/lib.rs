@@ -47,7 +47,10 @@ pub struct FaultInjectingDevice<D> {
 #[cfg(any(test, feature = "test-support"))]
 impl<D> FaultInjectingDevice<D> {
     pub fn new(inner: D) -> Self {
-        Self { inner, next_failure: None }
+        Self {
+            inner,
+            next_failure: None,
+        }
     }
 
     pub fn fail_next(&mut self, operation: IoOperation) {
