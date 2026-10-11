@@ -2,14 +2,14 @@
 
 ## Current dependency graph
 
+    openfs-format -> openfs-block -> openfs-core
     openfs-format -> openfs-core
-    openfs-block  -> openfs-core
 
 - **openfs-core**: shared error taxonomy and overflow-safe block-range validation.
 - **openfs-block**: mutable block-device trait and regular-file image implementation.
-- **openfs-format**: byte-level superblock encoding/decoding and CRC32C validation.
+- **openfs-format**: byte-level superblock encoding/decoding, CRC32C, mirrored volume formatting, bitmap initialization and read-only open-time validation.
 
-These are the only implemented crates at this stage. File namespace, metadata, allocator, journal, recovery, checker, and CLI crates must be added when each has a concrete API and tests, not as empty placeholders.
+The format crate now implements the first experimental volume layout and reserved-block bitmap checks. File namespace, object metadata, a usable allocator, journal, recovery, checker, and CLI remain unimplemented.
 
 ## Rules
 
@@ -23,6 +23,10 @@ These are the only implemented crates at this stage. File namespace, metadata, a
 ## Image I/O contract
 
 The image backend uses fixed-size blocks and rejects invalid block sizes, empty/misaligned buffers, zero-length images, and ranges outside the image. Creating an image refuses to overwrite an existing path; destructive replacement requires the explicit create_truncate API. Reads use read_exact, writes use write_all, and flush uses File::sync_all. This is a host synchronization request, not a universal physical-media durability guarantee. The backend is mutable (&mut self) and does not itself promise concurrent access synchronization.
+
+## Volume format limits
+
+Formatting is destructive and currently has no transactional rollback. Open-time validation checks mirrored superblocks and reserved bitmap bits, but does not scan every allocation bit for ownership conflicts because no object metadata exists yet. The bitmap is initialized for future allocation; no allocation/free API is exposed.
 
 ## Future layers
 

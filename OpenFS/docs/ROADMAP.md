@@ -6,8 +6,8 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 
 | Phase | Progress | Basis for current estimate |
 | --- | ---: | --- |
-| P0 | 65% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, expanded adversarial field tests and first legacy audit exist; independent format review and broader end-to-end validation remain. |
-| P1 | 0% | No formatter, allocator, metadata namespace or file/directory operations. |
+| P0 | 70% | Workspace, CI, bounded image I/O, shared errors, superblock parser, mirrored volume formatter, bitmap initialization and end-to-end image reopen/corruption tests exist; independent format review and crash/recovery validation remain. |
+| P1 | 10% | Experimental volume layout, formatter, mirrored superblocks, reserved-block bitmap initialization and open-time validation exist; allocator, metadata namespace and file/directory operations remain. |
 | P2 | 0% | No Rust journal or crash-recovery implementation. |
 | P3 | 0% | No volume checker, repair tool or fuzz target. |
 | P4 | 0% | No filesystem benchmarks or comparative measurements. |
@@ -15,12 +15,12 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | P6 | 0% | No Windows mount adapter. |
 | P7 | 0% | No stable-release hardening or compatibility gates. |
 
-The global estimate is **7%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 65% and the remaining phases at 0%, the weighted estimate is 6.5%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
+The global estimate is **7%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 10%, and the remaining phases at 0%, the weighted estimate is 9%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
 
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |
 | P0 | Foundation, safety, CI, image I/O, docs | In progress | Pass CI on current commit; verify platform builds; extend I/O fault injection and malformed-input coverage; finish legacy audit and review format draft |
-| P1 | Filesystem format and essential operations | Not started | Complete volume layout, formatter, allocation, metadata, files/directories, persistence integration tests |
+| P1 | Filesystem format and essential operations | In progress | Complete volume layout and experimental formatter exist; implement allocator, metadata, files/directories and persistence integration tests |
 | P2 | Transaction journal and crash recovery | Not started | Specify protocol, implement WAL/replay/checkpoint, run reproducible crash-cut and failed-I/O matrix |
 | P3 | Integrity/checker/fuzzing | Not started | Read-only checker, corruption detection, bounded parser fuzzing, explicit safe repair workflows |
 | P4 | Performance | Not started | Reproducible workloads and same-machine comparisons, profiling and evidence-driven changes |
@@ -40,7 +40,7 @@ The global estimate is **7%**, using explicit phase weights of P0 10%, P1 20%, P
 - [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy. Expanded tests now verify malformed field values even when CRC32C is recomputed.
 - [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
 - [x] Mixed-state torn-write simulation and verification of persisted prefix/suffix contents.
-- [ ] End-to-end volume tests and recovery validation.
+- [x] End-to-end experimental volume format/reopen and corruption tests (not crash recovery).
 - [ ] Complete audit of the legacy repository and its design decisions.
 
 Phase percentages must be updated after CI evidence and code reviews; the presence of a checklist item is not itself proof of runtime success.
