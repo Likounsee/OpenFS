@@ -1,3 +1,4 @@
-/OpenFS/target/
+/target/
+**/*.img
 *.img
 *.tmp

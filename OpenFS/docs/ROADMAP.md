@@ -15,12 +15,12 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | P6 | 0% | No Windows mount adapter. |
 | P7 | 0% | No stable-release hardening or compatibility gates. |
 
-The global estimate is **7%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 10%, and the remaining phases at 0%, the weighted estimate is 9%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
+The global estimate is **9%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 10%, and the remaining phases at 0%, the weighted estimate is 9%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
 
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |
 | P0 | Foundation, safety, CI, image I/O, docs | In progress | Pass CI on current commit; verify platform builds; extend I/O fault injection and malformed-input coverage; finish legacy audit and review format draft |
-| P1 | Filesystem format and essential operations | In progress | Complete volume layout and experimental formatter exist; implement allocator, metadata, files/directories and persistence integration tests |
+| P1 | Filesystem format and essential operations | In progress | Complete volume layout and experimental formatter exist; complete metadata namespace, files/directories and crash-safe persistence integration |
 | P2 | Transaction journal and crash recovery | Not started | Specify protocol, implement WAL/replay/checkpoint, run reproducible crash-cut and failed-I/O matrix |
 | P3 | Integrity/checker/fuzzing | Not started | Read-only checker, corruption detection, bounded parser fuzzing, explicit safe repair workflows |
 | P4 | Performance | Not started | Reproducible workloads and same-machine comparisons, profiling and evidence-driven changes |
