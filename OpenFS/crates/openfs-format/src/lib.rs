@@ -292,7 +292,9 @@ mod tests {
 
 mod directory_entry;
 mod metadata;
+mod namespace;
 mod volume;
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
+pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
