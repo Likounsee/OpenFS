@@ -85,6 +85,9 @@ fn validate_fields(block_size: u32, total_blocks: u64) -> Result<()> {
             "volume must contain at least two blocks",
         ));
     }
+    u64::from(block_size)
+        .checked_mul(total_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
     Ok(())
 }
 
@@ -188,6 +191,18 @@ mod tests {
         let mut bytes = sample().encode().unwrap();
         bytes[4095] = 1;
         assert!(matches!(Superblock::decode(&bytes), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn crc32c_matches_the_standard_check_value() {
+        assert_eq!(super::crc32c(b"123456789"), 0xE306_9283);
+    }
+
+    #[test]
+    fn rejects_volume_size_overflow() {
+        let mut value = sample();
+        value.total_blocks = u64::MAX;
+        assert!(matches!(value.encode(), Err(Error::ArithmeticOverflow)));
     }
 
     #[test]
