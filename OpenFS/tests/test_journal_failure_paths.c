@@ -1230,6 +1230,34 @@ static void test_checkpoint_rollback_failure_poison_journal(void)
     free(d.data);
 }
 
+static void test_open_read_failure_preserves_existing_journal_state(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x76U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+
+    /* open() builds a candidate and must not clobber a live caller state on I/O failure. */
+    openfs_journal_t existing;
+    memset(&existing, 0xA5, sizeof(existing));
+    openfs_journal_t before = existing;
+    d.fail_next_read = 1;
+    assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_IO_ERROR);
+    assert(memcmp(&existing, &before, sizeof(existing)) == 0);
+
+    /* A transient failure is retryable and initializes the journal normally. */
+    assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(existing.next_record == 0U);
+    assert(existing.recovery_required == 0U);
+    free(d.data);
+}
+
 int main(void)
 {
     test_data_failure_restores_sequence();
@@ -1261,5 +1289,6 @@ int main(void)
     test_checkpoint_write_failure_restores_entire_wal();
     test_checkpoint_rollback_flush_failure_requires_remount_recovery();
     test_checkpoint_rollback_failure_poison_journal();
+    test_open_read_failure_preserves_existing_journal_state();
     return 0;
 }
