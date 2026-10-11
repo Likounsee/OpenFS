@@ -2,6 +2,21 @@
 
 Percentages are estimates against phase acceptance criteria, not feature counts. A phase is not complete because its documentation exists.
 
+## Progress snapshot — 2026-10-11
+
+| Phase | Progress | Basis for current estimate |
+| --- | ---: | --- |
+| P0 | 55% | Workspace, CI, bounded image I/O, shared errors, initial superblock parser, tests and first legacy audit exist; torn-write simulation, independent format review and broader end-to-end validation remain. |
+| P1 | 0% | No formatter, allocator, metadata namespace or file/directory operations. |
+| P2 | 0% | No Rust journal or crash-recovery implementation. |
+| P3 | 0% | No volume checker, repair tool or fuzz target. |
+| P4 | 0% | No filesystem benchmarks or comparative measurements. |
+| P5 | 0% | No advanced filesystem features implemented. |
+| P6 | 0% | No Windows mount adapter. |
+| P7 | 0% | No stable-release hardening or compatibility gates. |
+
+The global estimate is **6%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. The weighted estimate is 5.5%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
+
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |
 | P0 | Foundation, safety, CI, image I/O, docs | In progress | Pass CI on current commit; verify platform builds; extend I/O fault injection and malformed-input coverage; finish legacy audit and review format draft |
@@ -21,7 +36,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 - [x] Shared error type and overflow-safe block-range check.
 - [x] Image-file backend with explicit bounds and host flush contract.
 - [x] Initial explicit superblock encoder/decoder and malformed-input tests.
-- [ ] CI passed on a commit containing all of the above.
+- [x] CI passed for the workspace code on Linux and Windows (commit 0a00995f1f57b6e1bfc44986e8dfcd0dd3520cfd; [workflow run](https://github.com/Likounsee/OpenFS/actions/runs/38172350309)).
 - [ ] Independent review of on-disk field coverage and CRC/reserved-byte policy.
 - [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
 - [ ] Partial/torn-write injection and end-to-end volume tests.
