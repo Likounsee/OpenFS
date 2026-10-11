@@ -998,6 +998,58 @@ static void test_corrupt_wal_recovery_stays_gated(void)
 }
 
 
+
+static void test_record_backup_read_failures_preserve_transaction_state(void)
+{
+    disk_t d = {0};
+    d.block_size = 4096U;
+    d.block_count = 256U;
+    d.data = calloc((size_t)d.block_size, (size_t)d.block_count);
+    assert(d.data != NULL);
+    openfs_block_device_t v = device(&d);
+    uint8_t uuid[16] = {0x77U};
+    assert(openfs_format(&v, uuid) == OPENFS_FORMAT_OK);
+    openfs_superblock_t s;
+    assert(openfs_read_superblock(&v, &s) == OPENFS_FORMAT_OK);
+    openfs_journal_t j;
+    assert(openfs_journal_open(&j, &v, &s) == OPENFS_JOURNAL_OK);
+
+    uint64_t tx = 0U;
+    d.fail_next_read = 1;
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(tx == 0U);
+    assert(j.transaction_id == 0U && j.sequence == 0U);
+    assert(j.active_transaction_id == 0U && j.next_record == 0U);
+    assert(openfs_journal_begin(&j, &v, &tx) == OPENFS_JOURNAL_OK);
+
+    uint64_t sequence_before = j.sequence;
+    uint64_t records_before = j.next_record;
+    d.fail_next_read = 1;
+    assert(openfs_journal_write(&j, &v, tx, "retry-data", 10U) ==
+           OPENFS_JOURNAL_IO_ERROR);
+    assert(j.sequence == sequence_before && j.next_record == records_before);
+    assert(j.active_transaction_id == tx && j.recovery_required == 0U);
+    assert(openfs_journal_write(&j, &v, tx, "retry-data", 10U) == OPENFS_JOURNAL_OK);
+
+    sequence_before = j.sequence;
+    records_before = j.next_record;
+    d.fail_next_read = 1;
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_IO_ERROR);
+    assert(j.sequence == sequence_before && j.next_record == records_before);
+    assert(j.active_transaction_id == tx && j.commit_record_written == 0U);
+    assert(j.recovery_required == 0U);
+    assert(openfs_journal_commit(&j, &v, tx) == OPENFS_JOURNAL_OK);
+
+    openfs_journal_t reopened;
+    assert(openfs_journal_open(&reopened, &v, &s) == OPENFS_JOURNAL_OK);
+    assert(reopened.next_record == j.next_record);
+    unsigned replay_calls = 0U;
+    assert(openfs_journal_replay(&v, &s, replay_count, &replay_calls) ==
+           OPENFS_JOURNAL_OK);
+    assert(replay_calls == 1U);
+    free(d.data);
+}
+
 static void test_checkpoint_backup_read_failure_preserves_wal(void)
 {
     disk_t d = {0};
@@ -1204,6 +1256,7 @@ int main(void)
     test_replay_flush_failure_keeps_recovery_gated();
     test_partial_commit_write_and_failed_restore_stay_gated();
     test_corrupt_wal_recovery_stays_gated();
+    test_record_backup_read_failures_preserve_transaction_state();
     test_checkpoint_backup_read_failure_preserves_wal();
     test_checkpoint_write_failure_restores_entire_wal();
     test_checkpoint_rollback_flush_failure_requires_remount_recovery();
