@@ -7,7 +7,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | Phase | Progress | Basis for current estimate |
 | --- | ---: | --- |
 | P0 | 70% | Workspace, CI, bounded image I/O, shared errors, superblock parser, mirrored volume formatter, bitmap initialization and end-to-end image reopen/corruption tests exist; independent format review and crash/recovery validation remain. |
-| P1 | 10% | Experimental volume layout, formatter, mirrored superblocks, reserved-block bitmap initialization and open-time validation exist; allocator, metadata namespace and file/directory operations remain. |
+| P1 | 15% | Experimental volume layout/formatter, mirrored superblocks, reserved-block bitmap initialization, open-time validation, and persisted first-fit allocate/free bitmap operations with tests exist; metadata namespace and file/directory operations remain. |
 | P2 | 0% | No Rust journal or crash-recovery implementation. |
 | P3 | 0% | No volume checker, repair tool or fuzz target. |
 | P4 | 0% | No filesystem benchmarks or comparative measurements. |
@@ -15,7 +15,7 @@ Percentages are estimates against phase acceptance criteria, not feature counts.
 | P6 | 0% | No Windows mount adapter. |
 | P7 | 0% | No stable-release hardening or compatibility gates. |
 
-The global estimate is **9%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 10%, and the remaining phases at 0%, the weighted estimate is 9%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
+The global estimate is **9%**, using explicit phase weights of P0 10%, P1 20%, P2 20%, P3 15%, P4 10%, P5 10%, P6 5%, and P7 10%. With P0 at 70%, P1 at 15%, and the remaining phases at 0%, the weighted estimate is 10%, rounded to the nearest whole percent. These weights intentionally emphasize the filesystem engine, transaction recovery and integrity work that does not yet exist.
 
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |

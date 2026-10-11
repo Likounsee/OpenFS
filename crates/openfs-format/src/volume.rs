@@ -63,6 +63,70 @@ impl VolumeLayout {
     pub fn data_blocks(&self) -> u64 {
         self.backup_superblock - self.data_start
     }
+
+    /// Allocate the first free data block and persist its bitmap bit.
+    ///
+    /// The caller must serialize allocator operations. Without the journal, an I/O
+    /// error during write/flush can leave the outcome uncertain; reopen and validate
+    /// the volume before retrying such an operation.
+    pub fn allocate_block<D: BlockDevice>(&self, device: &mut D) -> Result<u64> {
+        self.validate_device_geometry(device)?;
+        let block_size = usize::try_from(self.layout.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
+        let mut bitmap = vec![0_u8; block_size];
+
+        for block in self.layout.data_start..self.layout.backup_superblock {
+            let bitmap_index = block / bits_per_bitmap_block;
+            let local = block % bits_per_bitmap_block;
+            device.read_blocks(self.layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if bitmap[byte] & mask == 0 {
+                bitmap[byte] |= mask;
+                device.write_blocks(self.layout.bitmap_start + bitmap_index, &bitmap)?;
+                device.flush()?;
+                return Ok(block);
+            }
+        }
+        Err(Error::InvalidInput("volume has no free data blocks"))
+    }
+
+    /// Release a data block after verifying it is allocated and not reserved.
+    ///
+    /// This low-level primitive does not know whether metadata still references the
+    /// block. The caller must first ensure it is no longer reachable and serialize
+    /// allocator operations. Journaling/recovery is not implemented yet.
+    pub fn free_block<D: BlockDevice>(&self, device: &mut D, block: u64) -> Result<()> {
+        self.validate_device_geometry(device)?;
+        if block < self.layout.data_start || block >= self.layout.backup_superblock {
+            return Err(Error::InvalidInput("cannot free a reserved or out-of-range block"));
+        }
+        let block_size = usize::try_from(self.layout.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
+        let bitmap_index = block / bits_per_bitmap_block;
+        let local = block % bits_per_bitmap_block;
+        let mut bitmap = vec![0_u8; block_size];
+        device.read_blocks(self.layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+        let mask = 1_u8 << (local % 8);
+        if bitmap[byte] & mask == 0 {
+            return Err(Error::InvalidInput("data block is already free"));
+        }
+        bitmap[byte] &= !mask;
+        device.write_blocks(self.layout.bitmap_start + bitmap_index, &bitmap)?;
+        device.flush()
+    }
+
+    fn validate_device_geometry<D: BlockDevice>(&self, device: &D) -> Result<()> {
+        if device.block_size() != self.layout.block_size
+            || device.block_count() != self.layout.total_blocks
+        {
+            return Err(Error::InvalidInput("device geometry does not match opened volume"));
+        }
+        Ok(())
+    }
 }
 
 /// A validated, read-only view of the initial on-disk volume format.
