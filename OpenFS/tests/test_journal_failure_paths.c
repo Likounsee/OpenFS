@@ -1279,6 +1279,17 @@ static void test_open_read_failure_preserves_existing_journal_state(void)
     assert(memcmp(&existing, &before, sizeof(existing)) == 0);
     memcpy(slot, saved, sizeof(saved));
 
+    /* Corruption after a valid BEGIN must still preserve the caller's state. */
+    uint8_t *second_slot = slot + s.block_size;
+    uint8_t saved_second[4096U];
+    memcpy(saved_second, second_slot, sizeof(saved_second));
+    memset(second_slot, 0, sizeof(saved_second));
+    second_slot[0] = 0x5AU;
+    before = existing;
+    assert(openfs_journal_open(&existing, &v, &s) == OPENFS_JOURNAL_CORRUPT);
+    assert(memcmp(&existing, &before, sizeof(existing)) == 0);
+    memcpy(second_slot, saved_second, sizeof(saved_second));
+
     free(d.data);
 }
 
