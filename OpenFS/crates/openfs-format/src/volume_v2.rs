@@ -469,7 +469,9 @@ mod tests {
             let index = self.write_index;
             self.write_index += 1;
             if index == self.fail_at {
-                return Err(Error::Io(std::io::Error::other("injected allocator home-write failure")));
+                return Err(Error::Io(std::io::Error::other(
+                    "injected allocator home-write failure",
+                )));
             }
             self.inner.write_blocks(first_block, input)
         }
