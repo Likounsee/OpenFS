@@ -813,6 +813,72 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_invalid_superblock_headers_and_geometry() {
+        let cases: [(&str, usize, &[u8], &'static str); 2] = [
+            ("bad-magic", 0, b"BADMAGIC", "bad v2 superblock magic"),
+            ("bad-header-size", 10, &[0x30, 0x00], "unexpected v2 superblock header size"),
+        ];
+
+        for (label, offset, replacement, expected) in cases {
+            let path = image_path(label);
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                for block in [0_u64, 255] {
+                    let mut bytes = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(block, &mut bytes).unwrap();
+                    bytes[offset..offset + replacement.len()].copy_from_slice(replacement);
+                    device.write_blocks(block, &bytes).unwrap();
+                }
+                device.flush().unwrap();
+                assert!(matches!(
+                    open_volume_v2(&mut device),
+                    Err(Error::Corrupt(message)) if message == expected
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+
+        let path = image_path("unsupported-version");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            for block in [0_u64, 255] {
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[8..10].copy_from_slice(&99_u16.to_le_bytes());
+                device.write_blocks(block, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::UnsupportedVersion(99))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+
+        let path = image_path("geometry-mismatch");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            for block in [0_u64, 255] {
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[16..24].copy_from_slice(&255_u64.to_le_bytes());
+                let checksum = crate::crc32c(&bytes[..4088]);
+                bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                device.write_blocks(block, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::Corrupt("v2 superblock geometry does not match device geometry"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
         for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
             let path = image_path(label);
