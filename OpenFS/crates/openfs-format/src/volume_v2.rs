@@ -856,6 +856,8 @@ mod tests {
                 let mut bytes = vec![0_u8; device.block_size() as usize];
                 device.read_blocks(block, &mut bytes).unwrap();
                 bytes[8..10].copy_from_slice(&99_u16.to_le_bytes());
+                let checksum = crate::crc32c(&bytes[..4088]);
+                bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
                 device.write_blocks(block, &bytes).unwrap();
             }
             device.flush().unwrap();
@@ -865,6 +867,31 @@ mod tests {
             ));
         }
         fs::remove_file(path).unwrap();
+
+        for (label, offset, encoded) in [
+            ("invalid-block-size", 12_usize, 3000_u32.to_le_bytes().to_vec()),
+            ("invalid-block-count", 16_usize, 1_u64.to_le_bytes().to_vec()),
+        ] {
+            let path = image_path(label);
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                for block in [0_u64, 255] {
+                    let mut bytes = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(block, &mut bytes).unwrap();
+                    bytes[offset..offset + encoded.len()].copy_from_slice(&encoded);
+                    let checksum = crate::crc32c(&bytes[..4088]);
+                    bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                    device.write_blocks(block, &bytes).unwrap();
+                }
+                device.flush().unwrap();
+                assert!(matches!(
+                    open_volume_v2(&mut device),
+                    Err(Error::Corrupt("invalid v2 superblock geometry"))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
 
         for (label, offset, value) in [
             ("block-size-mismatch", 12_usize, 8192_u64),
