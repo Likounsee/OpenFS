@@ -367,7 +367,7 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayoutV2) -> R
 mod tests {
     use super::{format_volume_v2, open_volume_v2, VolumeLayoutV2};
     use crate::open_volume;
-    use openfs_block::ImageDevice;
+    use openfs_block::{ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -534,6 +534,39 @@ mod tests {
             let mut recovered = open_volume_v2(&mut device).unwrap();
             assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
             assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_format_allocate_and_reopen_through_raw_device_backend() {
+        let path = image_path("raw-device-roundtrip");
+        {
+            // A disposable regular file exercises RawDevice's exact-geometry path
+            // without touching a physical disk or USB device.
+            let image = ImageDevice::create(&path, 4096, 256).unwrap();
+            drop(image);
+        }
+
+        let first;
+        {
+            let mut device = RawDevice::open(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            first = volume.allocate_block(&mut device).unwrap();
+            device.flush().unwrap();
+        }
+        {
+            let mut device = RawDevice::open(&path, 4096, 256).unwrap();
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+            assert_ne!(first, second);
+            volume.free_block(&mut device, first).unwrap();
+            device.flush().unwrap();
+        }
+        {
+            let mut device = RawDevice::open(&path, 4096, 256).unwrap();
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
         }
         fs::remove_file(path).unwrap();
     }

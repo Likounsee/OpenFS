@@ -1,25 +1,28 @@
 # Raw block-device backend
 
-**Status: low-level development capability only. Not a safe end-user formatter or mount path.**
+**Status: low-level backend only. This is not yet a complete USB-storage workflow or a mounted filesystem.**
 
 `openfs_block::RawDevice` opens an existing path read/write without create or truncate flags. It implements the same bounded block-device interface as the image backend. The caller must provide the logical block size and block count. For regular files, the length must exactly match the declared geometry; for device nodes, geometry is not discovered automatically.
+
+The experimental V2 format now reserves its journal, validates its bitmap, and replays committed journal updates on open. V2 allocation/free and recovery tests exercise a file-backed image. A new test also exercises V2 format, allocation, reopen, free, and block reuse through `RawDevice` using a disposable regular file. This tests the shared backend contract, **not a physical USB device**.
 
 ## Safety constraints
 
 - Opening the device does not write to it. Subsequent `write_blocks` calls write directly to the selected path and may overwrite partition tables, filesystem metadata, or user data.
 - Do not use this backend on a disk containing data you need. Use a disposable image or dedicated test device.
-- The API does not identify the selected physical device, query hardware geometry, acquire an exclusive OS-level lock, coordinate with mounted filesystems, or protect against another process writing concurrently.
+- The API does not identify whether a path is a USB device, query trusted hardware geometry, acquire an exclusive OS-level lock, coordinate with mounted filesystems, or protect against another process writing concurrently.
 - `flush` requests host-side synchronization through `File::sync_all`; it is not a proof that every USB bridge, controller, or device firmware has honored power-loss guarantees.
-- No OpenFS formatter CLI, device-selection confirmation, mounted filesystem, or integrated journal recovery is provided by this backend.
+- There is no safe end-user raw-device formatter, persistent file/directory namespace, or OS mount adapter yet. A volume that has been formatted as OpenFS is not automatically browsable as a normal USB drive in Windows or Linux.
 
-## Current validation
+## Validation status
 
-Unit tests cover round-trip persistence through reopen, exact regular-file geometry, non-destructive rejection of a mismatched geometry, misaligned buffers, and out-of-range block accesses. CI must pass on Linux and Windows before considering this backend validated for development use.
+CI must pass on Linux and Windows before considering the backend validated for development use. Image-backed tests and the disposable-file `RawDevice` test do not substitute for testing the operating system's raw-device path semantics, USB controllers, disconnects, or power-loss behavior.
 
-## Path to real-device testing
+## Path to actual USB use
 
-1. Finish integrating a versioned journal region into the volume layout and reserve its blocks in the allocation bitmap.
-2. Ensure volume format/open paths validate journal geometry and recover before allowing allocation or writes.
-3. Add a formatter that requires an explicit target, displays the resolved device identity and capacity, and requires deliberate destructive confirmation.
-4. Test first on a disposable image with injected failures and process termination at every write/flush boundary.
-5. Test on a dedicated expendable USB device, then disconnect/reconnect and verify data and recovery. Never use the system disk or valuable media.
+1. Finish crash-cut and torn-write recovery testing, including failures at every journal/checkpoint/home-write/flush boundary.
+2. Add OS-specific, read-only device discovery that reports device identity, removable status, capacity, logical sector size, and mounted volumes; reject ambiguous targets.
+3. Implement a destructive formatter that uses that verified device metadata, clearly displays the exact target/capacity, requires deliberate confirmation, and refuses mounted/system devices where detectable.
+4. Test format/open/recovery on a dedicated expendable USB device only after disposable-image tests pass. Disconnect/reconnect and verify the on-disk state.
+5. Implement persistent file/directory operations and an OS integration/mount adapter. Without these, OpenFS cannot yet store and browse ordinary files as a normal USB drive.
+6. Never use the system disk or valuable media for early tests.
