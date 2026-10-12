@@ -781,7 +781,10 @@ mod tests {
         ));
         let mut device = failing.into_inner();
         let reopened = open_journal(&mut device, REGION).unwrap();
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
+        assert_eq!(
+            reopened.checkpoint().checkpoint_sequence,
+            original_sequence
+        );
         assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
     }
 
@@ -789,9 +792,10 @@ mod tests {
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        // Write indices 0..2 are begin/update records; write index 3 is the commit record.
-        // Tear the commit record after its first 64 bytes so its checksum is invalid.
-        let mut failing = TearWriteAt::new(device.clone(), 3, 64);
+        let original_sequence = journal.checkpoint().checkpoint_sequence;
+        // One block redo is encoded as multiple chunks; the commit record follows them.
+        // Tear the final record write after its first 64 bytes so its checksum is invalid.
+        let mut failing = TearWriteAt::new(device.clone(), 4, 64);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -807,8 +811,8 @@ mod tests {
     fn torn_home_write_is_repaired_from_durable_redo_record() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        // Writes 0..3 are journal records, write 4 is the home block, and write 5 is the checkpoint.
-        let mut failing = TearWriteAt::new(device.clone(), 4, 257);
+        // Begin + redo chunks + commit are written before the home block.
+        let mut failing = TearWriteAt::new(device.clone(), 5, 257);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
