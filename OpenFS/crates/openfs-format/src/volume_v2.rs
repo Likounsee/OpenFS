@@ -1001,27 +1001,35 @@ mod tests {
 
     #[test]
     fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
-        for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
-            let path = image_path(label);
-            {
-                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-                let bitmap_block = volume.volume.layout.bitmap_start + bit / (4096 * 8);
-                let local = bit % (4096 * 8);
-                let mut bitmap = vec![0_u8; device.block_size() as usize];
-                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
-                device.write_blocks(bitmap_block, &bitmap).unwrap();
-                device.flush().unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let bits_per_bitmap_block = u64::from(block_size) * 8;
+            for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
+                let path = image_path(&format!("{label}-{block_size}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let volume =
+                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let bitmap_block =
+                        volume.volume.layout.bitmap_start + bit / bits_per_bitmap_block;
+                    let local = bit % bits_per_bitmap_block;
+                    let mut bitmap = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                    bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                    device.write_blocks(bitmap_block, &bitmap).unwrap();
+                    device.flush().unwrap();
 
-                assert!(matches!(
-                    open_volume_v2(&mut device),
-                    Err(Error::Corrupt(
-                        "v2 bitmap marks a reserved or padding block free"
-                    ))
-                ));
+                    assert!(
+                        matches!(
+                            open_volume_v2(&mut device),
+                            Err(Error::Corrupt(
+                                "v2 bitmap marks a reserved or padding block free"
+                            ))
+                        ),
+                        "{label} corruption was accepted for block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
             }
-            fs::remove_file(path).unwrap();
         }
     }
 
