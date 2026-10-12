@@ -2,6 +2,12 @@
 
 **Status: experimental draft, not a stable compatibility promise.** Formatting and validation exist; allocation, journaling, recovery, file operations and mount support do not.
 
+## Compatibility policy
+
+The Rust implementation defines a **new, incompatible OpenFS format**. It does not mount historical OpenFS C v1.x images, including the v1.6 layout identified in the old source audit. Legacy images must be rejected, not guessed at or silently interpreted. A future explicit converter may be developed, but it is not part of the first Rust format's compatibility promise.
+
+OpenFS is an NTFS-inspired filesystem with its own on-disk format; this does not claim compatibility with actual NTFS volumes. The current Rust layout is still experimental and may change before a stable release. No production data should be entrusted to it.
+
 ## Superblock record
 
 Each superblock occupies the first 4096 bytes of a filesystem block; any remaining bytes in that block must be zero. Integer fields are little-endian and are encoded explicitly, never through Rust struct memory layout.
@@ -32,6 +38,8 @@ bits_per_bitmap_block = block_size * 8; bitmap_blocks = ceil(total_blocks / bits
 
 format_volume overwrites the provided device. It writes the backup and bitmap, flushes, then writes the primary and flushes again. This is deliberately not described as atomic or crash-safe; there is no journal yet. open_volume does not modify data and requires both superblocks to decode identically, geometry to match the device, and all reserved/padding bitmap bits to be allocated.
 
-## Validation
+## Validation and stability gates
 
 The parser treats bytes as untrusted, validates framing, version, checksum, reserved bytes and geometry with checked arithmetic. Tests cover malformed fields even when CRC32C is recomputed, mirrored-superblock mismatch, reserved bitmap corruption, layout sizing, formatting, flush and reopen. Passing tests do not establish transaction recovery, concurrency safety or complete filesystem semantics.
+
+Before persistent namespace data is written, the format must add a versioned journal region and durable checkpoint metadata without silently repurposing reserved-zero bytes, then add golden image fixtures and a recovery test suite. If this changes the serialized layout, bump the format version and reject older drafts unless an explicit migration path is implemented.
