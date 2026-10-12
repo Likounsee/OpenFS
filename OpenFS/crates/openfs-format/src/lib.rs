@@ -2,7 +2,7 @@
 
 use openfs_core::{Error, Result};
 
-pub use allocator_extents::AllocationStats;
+pub use allocator_extents::{AllocationOwnershipReport, AllocationStats};
 
 /// Size of the initial fixed superblock record.
 pub const SUPERBLOCK_SIZE: usize = 4096;
