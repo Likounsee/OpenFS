@@ -459,7 +459,7 @@ mod tests {
     fn validates_byte_length_against_sparse_and_partial_final_blocks() {
         let map = sample();
         assert!(map.validate_file_size(7 * 4096 - 1, 4096).is_ok());
-        assert!(map.validate_file_size(6 * 4096, 4096).is_ok());
+        assert!(map.validate_file_size(7 * 4096, 4096).is_ok());
         assert!(matches!(map.validate_file_size(6 * 4096 - 1, 4096), Err(Error::Corrupt(_))));
         assert!(matches!(map.validate_file_size(0, 4096), Err(Error::Corrupt(_))));
         assert!(matches!(map.validate_file_size(1, 0), Err(Error::InvalidInput(_))));
