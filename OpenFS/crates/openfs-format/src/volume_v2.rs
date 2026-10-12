@@ -574,6 +574,36 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocator_advances_to_next_bitmap_segment() {
+        let path = image_path("allocator-bitmap-boundary");
+        {
+            let bits_per_bitmap_block = 4096_u64 * 8;
+            let mut device =
+                ImageDevice::create(&path, 4096, bits_per_bitmap_block + 12).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            assert_eq!(layout.bitmap_blocks, 2);
+
+            // Occupy every data block represented by the first bitmap block.
+            let mut bitmap = vec![0_u8; device.block_size() as usize];
+            device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+            for block in layout.data_start..bits_per_bitmap_block {
+                let local = block % bits_per_bitmap_block;
+                bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
+            }
+            device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
+            device.flush().unwrap();
+
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(
+                volume.allocate_block(&mut device).unwrap(),
+                bits_per_bitmap_block
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_allocator_rejects_double_free_and_out_of_range_blocks() {
         let path = image_path("invalid-free");
         {
