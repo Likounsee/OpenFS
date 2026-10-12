@@ -816,68 +816,69 @@ mod tests {
 
     #[test]
     fn v2_allocation_keeps_bitmap_unchanged_when_commit_fails_before_durable_record() {
-        for fail_at in 0..4 {
-            let path = image_path(&format!("allocation-precommit-{fail_at}"));
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..4 {
+                let path = image_path(&format!("allocation-precommit-{block_size}-{fail_at}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let first = volume.volume.layout.data_start;
+                    let mut failing = FailWriteAt {
+                        inner: device,
+                        write_index: 0,
+                        fail_at,
+                    };
+                    let mut volume = volume;
+                    assert!(
+                        matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
+                        "expected injected failure at write {fail_at}, block size {block_size}"
+                    );
+                    let mut device = failing.inner;
+                    drop(volume);
+
+                    let mut recovered = open_volume_v2(&mut device).unwrap();
+                    assert_eq!(
+                        recovered.allocate_block(&mut device).unwrap(),
+                        first,
+                        "pre-commit failure at write {fail_at}, block size {block_size}, must not consume the block"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn v2_allocation_recovers_after_durable_commit_and_home_write_failure() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("allocation-recovery-{block_size}"));
             {
-                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let first = volume.volume.layout.data_start;
                 let mut failing = FailWriteAt {
                     inner: device,
                     write_index: 0,
-                    fail_at,
+                    fail_at: 4,
                 };
                 let mut volume = volume;
-                assert!(
-                    matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
-                    "expected injected failure at journal write {fail_at}"
-                );
-                device = failing.inner;
+                assert!(matches!(
+                    volume.allocate_block(&mut failing),
+                    Err(Error::Io(_))
+                ), "expected home-write failure for block size {block_size}");
+                let mut device = failing.inner;
                 drop(volume);
 
+                // Reopening twice must not replay the committed allocation twice
+                // or lose it when the home bitmap write had failed.
+                drop(open_volume_v2(&mut device).unwrap());
                 let mut recovered = open_volume_v2(&mut device).unwrap();
-                assert_eq!(
-                    recovered.allocate_block(&mut device).unwrap(),
-                    first,
-                    "pre-commit failure at write {fail_at} must not consume the block"
-                );
+                assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
+                recovered.free_block(&mut device, first).unwrap();
+                assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
             }
             fs::remove_file(path).unwrap();
         }
     }
-
-    #[test]
-    fn v2_allocation_recovers_after_durable_commit_and_home_write_failure() {
-        let path = image_path("allocation-recovery");
-        let first;
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            first = volume.volume.layout.data_start;
-            let mut failing = FailWriteAt {
-                inner: device,
-                write_index: 0,
-                fail_at: 4,
-            };
-            let mut volume = volume;
-            assert!(matches!(
-                volume.allocate_block(&mut failing),
-                Err(Error::Io(_))
-            ));
-            device = failing.inner;
-            drop(volume);
-
-            // Reopening twice must not replay the committed allocation twice
-            // or lose it when the home bitmap write had failed.
-            drop(open_volume_v2(&mut device).unwrap());
-            let mut recovered = open_volume_v2(&mut device).unwrap();
-            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
-            recovered.free_block(&mut device, first).unwrap();
-            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
-        }
-        fs::remove_file(path).unwrap();
-    }
-
     #[test]
     fn v2_rejects_primary_or_backup_superblock_mismatch() {
         for (label, block) in [("primary", 0_u64), ("backup", 255_u64)] {
@@ -1346,73 +1347,74 @@ mod tests {
 
     #[test]
     fn v2_free_keeps_allocation_when_commit_fails_before_durable_record() {
-        for fail_at in 0..4 {
-            let path = image_path(&format!("free-precommit-{fail_at}"));
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..4 {
+                let path = image_path(&format!("free-precommit-{block_size}-{fail_at}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let first = volume.allocate_block(&mut device).unwrap();
+
+                    let mut failing = FailWriteAt {
+                        inner: device,
+                        write_index: 0,
+                        fail_at,
+                    };
+                    assert!(
+                        matches!(volume.free_block(&mut failing, first), Err(Error::Io(_))),
+                        "expected injected failure at write {fail_at}, block size {block_size}"
+                    );
+                    let mut device = failing.inner;
+                    drop(volume);
+
+                    let mut recovered = open_volume_v2(&mut device).unwrap();
+                    assert_eq!(
+                        recovered.allocate_block(&mut device).unwrap(),
+                        first + 1,
+                        "pre-commit free failure at write {fail_at}, block size {block_size}, must preserve allocation"
+                    );
+                    recovered.free_block(&mut device, first).unwrap();
+                    assert_eq!(
+                        recovered.allocate_block(&mut device).unwrap(),
+                        first,
+                        "preserved block must be reusable after successful free"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("free-recovery-{block_size}"));
             {
-                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
 
                 let mut failing = FailWriteAt {
                     inner: device,
                     write_index: 0,
-                    fail_at,
+                    fail_at: 4,
                 };
-                assert!(
-                    matches!(volume.free_block(&mut failing, first), Err(Error::Io(_))),
-                    "expected injected failure at journal write {fail_at}"
-                );
+                assert!(matches!(
+                    volume.free_block(&mut failing, first),
+                    Err(Error::Io(_))
+                ), "expected home-write failure for block size {block_size}");
                 let mut device = failing.inner;
                 drop(volume);
 
+                // Recovery must be repeatable: reopening a second time must not
+                // replay the committed free as a different allocator state.
+                drop(open_volume_v2(&mut device).unwrap());
                 let mut recovered = open_volume_v2(&mut device).unwrap();
-                assert_eq!(
-                    recovered.allocate_block(&mut device).unwrap(),
-                    first + 1,
-                    "pre-commit free failure at write {fail_at} must preserve allocation"
-                );
-                recovered.free_block(&mut device, first).unwrap();
-                assert_eq!(
-                    recovered.allocate_block(&mut device).unwrap(),
-                    first,
-                    "the preserved block must be reusable after a successful free"
-                );
+                assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
+                assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
             }
             fs::remove_file(path).unwrap();
         }
     }
-
-    #[test]
-    fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
-        let path = image_path("free-recovery");
-        let first;
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            first = volume.allocate_block(&mut device).unwrap();
-
-            let mut failing = FailWriteAt {
-                inner: device,
-                write_index: 0,
-                fail_at: 4,
-            };
-            assert!(matches!(
-                volume.free_block(&mut failing, first),
-                Err(Error::Io(_))
-            ));
-            let mut device = failing.inner;
-            drop(volume);
-
-            // Recovery must be repeatable: reopening a second time must not
-            // replay the committed free as a different allocator state.
-            drop(open_volume_v2(&mut device).unwrap());
-            let mut recovered = open_volume_v2(&mut device).unwrap();
-            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
-            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
-        }
-        fs::remove_file(path).unwrap();
-    }
-
     #[test]
     fn v2_format_allocate_and_reopen_through_raw_device_backend() {
         let path = image_path("raw-device-roundtrip");
