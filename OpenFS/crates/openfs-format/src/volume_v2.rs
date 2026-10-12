@@ -424,6 +424,44 @@ mod tests {
     }
 
     #[test]
+    fn v2_layout_bitmap_boundaries_keep_regions_disjoint() {
+        for block_size in [4096_u32, 8192, 65_536] {
+            let bits_per_bitmap_block = u64::from(block_size) * 8;
+            for total_blocks in [
+                12,
+                bits_per_bitmap_block - 1,
+                bits_per_bitmap_block,
+                bits_per_bitmap_block + 1,
+                bits_per_bitmap_block * 2 + 17,
+            ] {
+                let layout = VolumeLayoutV2::calculate(block_size, total_blocks).unwrap();
+                assert_eq!(
+                    layout.bitmap_blocks,
+                    total_blocks.div_ceil(bits_per_bitmap_block),
+                    "block_size={block_size}, total_blocks={total_blocks}"
+                );
+                assert_eq!(layout.bitmap_start, 1);
+                assert_eq!(
+                    layout.journal.checkpoint_a,
+                    layout.bitmap_start + layout.bitmap_blocks
+                );
+                assert_eq!(layout.journal.checkpoint_b, layout.journal.checkpoint_a + 1);
+                assert_eq!(layout.journal.ring_start, layout.journal.checkpoint_b + 1);
+                assert_eq!(
+                    layout.data_start,
+                    layout.journal.ring_start + layout.journal.ring_blocks
+                );
+                assert!(layout.data_start < layout.backup_superblock);
+                assert_eq!(
+                    layout.data_blocks(),
+                    total_blocks - layout.data_start - 1
+                );
+                assert_eq!(layout.backup_superblock, total_blocks - 1);
+            }
+        }
+    }
+
+    #[test]
     fn v2_allocator_rejects_mutated_public_layout_before_io() {
         let path = image_path("mutated-layout");
         {
