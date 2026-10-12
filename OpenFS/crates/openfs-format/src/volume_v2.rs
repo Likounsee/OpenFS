@@ -598,31 +598,44 @@ mod tests {
 
     #[test]
     fn v2_allocator_exhaustion_and_reuse_preserve_data_region_bounds() {
-        let path = image_path("allocator-exhaustion");
-        {
-            // The minimum valid V2 geometry has exactly three data blocks.
-            let mut device = ImageDevice::create(&path, 4096, 12).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            let layout = volume.volume.layout;
-            assert_eq!(layout.data_blocks(), 3);
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("allocator-exhaustion-{block_size}"));
+            {
+                // The minimum valid V2 geometry has exactly three data blocks.
+                let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let layout = volume.volume.layout;
+                assert_eq!(layout.data_blocks(), 3);
 
-            let first = volume.allocate_block(&mut device).unwrap();
-            let second = volume.allocate_block(&mut device).unwrap();
-            let third = volume.allocate_block(&mut device).unwrap();
-            assert_eq!([first, second, third], [8, 9, 10]);
-            assert!(matches!(
-                volume.allocate_block(&mut device),
-                Err(Error::InvalidInput("volume has no free data blocks"))
-            ));
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                let third = volume.allocate_block(&mut device).unwrap();
+                assert_eq!([first, second, third], [8, 9, 10]);
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
 
-            volume.free_block(&mut device, second).unwrap();
-            assert_eq!(volume.allocate_block(&mut device).unwrap(), second);
-            assert!(volume.allocate_block(&mut device).is_err());
-            let reopened = open_volume_v2(&mut device).unwrap();
-            assert_eq!(reopened.volume.layout.data_start, 8);
-            assert_eq!(reopened.volume.layout.backup_superblock, 11);
+                volume.free_block(&mut device, second).unwrap();
+                assert_eq!(volume.allocate_block(&mut device).unwrap(), second);
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
+
+                drop(volume);
+                let mut reopened = open_volume_v2(&mut device).unwrap();
+                assert_eq!(reopened.volume.layout.data_start, 8);
+                assert_eq!(reopened.volume.layout.backup_superblock, 11);
+                assert!(matches!(
+                    reopened.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
+                reopened.free_block(&mut device, first).unwrap();
+                assert_eq!(reopened.allocate_block(&mut device).unwrap(), first);
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
