@@ -774,7 +774,6 @@ mod tests {
     fn ignores_uncommitted_transaction_after_commit_write_failure() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        let original_sequence = journal.checkpoint().checkpoint_sequence;
         let mut failing = FailAt::new(device.clone(), 4);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
