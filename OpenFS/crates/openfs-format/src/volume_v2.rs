@@ -530,6 +530,12 @@ mod tests {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
                 let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let original_layout = volume.volume.layout;
+                // The one bitmap block and six journal blocks occupy blocks 1..8
+                // for this 256-block, 4 KiB test volume.
+                let mut allocator_metadata_before = vec![0; 7 * 4096];
+                device
+                    .read_blocks(1, &mut allocator_metadata_before)
+                    .unwrap();
 
                 // Every layout field is public, so guard every field against
                 // post-validation changes before allocator I/O can occur.
@@ -559,6 +565,15 @@ mod tests {
                         "v2 volume layout was modified after validation"
                     ))
                 ));
+
+                let mut allocator_metadata_after = vec![0; 7 * 4096];
+                device
+                    .read_blocks(1, &mut allocator_metadata_after)
+                    .unwrap();
+                assert_eq!(
+                    allocator_metadata_after, allocator_metadata_before,
+                    "rejected operations modified bitmap or journal for field {mutation}"
+                );
 
                 let reopened = open_volume_v2(&mut device).unwrap();
                 assert_eq!(
