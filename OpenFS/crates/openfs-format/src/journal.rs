@@ -386,7 +386,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn block_framing_round_trips_and_validates_padding() {
         let expected = sample(JournalRecordKind::Update, b"redo bytes");
