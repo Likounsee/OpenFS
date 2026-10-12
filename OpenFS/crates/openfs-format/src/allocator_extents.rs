@@ -355,11 +355,37 @@ impl OpenedVolumeV2 {
             );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-            for block in start..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                    free.push(block);
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
+            {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                while free_bits != 0 {
+                    let bit = u64::from(free_bits.trailing_zeros());
+                    free.push(
+                        base.checked_add(byte_start)
+                            .and_then(|block| block.checked_add(bit))
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    free_bits &= free_bits - 1;
                 }
             }
         }
@@ -760,6 +786,36 @@ mod allocation_bitmap_report_tests {
             ));
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn free_inventory_matches_allocation_state_across_supported_block_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("free-inventory-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let allocated = volume.allocate_blocks(&mut device, 9).unwrap();
+                volume.free_blocks(&mut device, &allocated[2..5]).unwrap();
+
+                let allocated_inventory =
+                    volume.allocated_data_block_inventory(&mut device).unwrap();
+                let free_inventory = volume.free_data_block_inventory(&mut device).unwrap();
+                assert_eq!(allocated_inventory, vec![allocated[0], allocated[1], allocated[5], allocated[6], allocated[7], allocated[8]]);
+                assert_eq!(free_inventory.len() as u64, volume.volume.layout.data_blocks() - 6);
+                assert!(free_inventory.windows(2).all(|pair| pair[0] < pair[1]));
+                assert!(free_inventory.iter().all(|block| !allocated_inventory.contains(block)));
+                for block in allocated_inventory.iter().chain(free_inventory.iter()) {
+                    assert!(volume.is_data_block_allocated(&mut device, *block).unwrap()
+                        == allocated_inventory.contains(block));
+                }
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_inventory.len() as u64
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
