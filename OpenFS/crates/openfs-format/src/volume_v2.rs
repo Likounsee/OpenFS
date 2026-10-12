@@ -4,7 +4,8 @@
 //! redo ring before the data region, and journals allocator bitmap changes.
 
 use crate::{
-    crc32c, format_journal, JournalRegion, PersistentJournal, RedoUpdate, SUPERBLOCK_SIZE,
+    crc32c, format_journal, plan_recovery, JournalCheckpoint, JournalRecord, JournalRegion,
+    PersistentJournal, RedoUpdate, SUPERBLOCK_SIZE, JOURNAL_CHECKPOINT_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -298,6 +299,14 @@ pub struct VolumeCheckReport {
     pub data_blocks: u64,
     pub allocated_data_blocks: u64,
     pub free_data_blocks: u64,
+    /// Generation of the newest valid journal checkpoint copy.
+    pub journal_generation: u64,
+    /// Highest journal sequence known to have been applied to home blocks.
+    pub journal_checkpoint_sequence: u64,
+    /// Valid post-checkpoint journal records found in the bounded ring.
+    pub pending_journal_records: u64,
+    /// Fully committed transactions represented by the pending records.
+    pub recoverable_transactions: u64,
 }
 
 /// Inspect static V2 volume metadata without writing to the device.
@@ -327,6 +336,8 @@ pub fn check_volume_v2<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckRepo
     }
     let layout = VolumeLayoutV2::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
+    let (journal_generation, journal_checkpoint_sequence, pending_journal_records,
+        recoverable_transactions) = check_journal_read_only(device, layout.journal)?;
 
     let bits_per_bitmap_block = u64::from(block_size) * 8;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
@@ -369,7 +380,94 @@ pub fn check_volume_v2<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckRepo
         data_blocks,
         allocated_data_blocks: data_blocks - free_data_blocks,
         free_data_blocks,
+        journal_generation,
+        journal_checkpoint_sequence,
+        pending_journal_records,
+        recoverable_transactions,
     })
+}
+
+/// Validate the persisted journal without replaying records or writing checkpoints.
+///
+/// Mirrors the journal engine's checkpoint selection and ring-order checks. A malformed
+/// terminal append may be a torn write and is tolerated only when no later valid record
+/// follows it; committed redo payloads are decoded as journal records, but are not applied.
+fn check_journal_read_only<D: BlockDevice>(
+    device: &mut D,
+    region: JournalRegion,
+) -> Result<(u64, u64, u64, u64)> {
+    fn read_copy<D: BlockDevice>(device: &mut D, block_number: u64) -> Result<JournalCheckpoint> {
+        let mut block = vec![0_u8; device.block_size() as usize];
+        device.read_blocks(block_number, &mut block)?;
+        if block[JOURNAL_CHECKPOINT_SIZE..].iter().any(|byte| *byte != 0) {
+            return Err(Error::Corrupt("checkpoint block padding must be zero"));
+        }
+        JournalCheckpoint::decode(&block[..JOURNAL_CHECKPOINT_SIZE])
+    }
+
+    let first = read_copy(device, region.checkpoint_a);
+    let second = read_copy(device, region.checkpoint_b);
+    let (checkpoint, _) = match (first, second) {
+        (Ok(a), Ok(b)) if a.generation == b.generation && a != b => {
+            return Err(Error::Corrupt("checkpoint copies conflict at the same generation"));
+        }
+        (Ok(a), Ok(b)) if a.generation >= b.generation => (a, 0),
+        (Ok(_), Ok(b)) => (b, 1),
+        (Ok(a), Err(_)) => (a, 0),
+        (Err(_), Ok(b)) => (b, 1),
+        (Err(_), Err(_)) => {
+            return Err(Error::Corrupt("both journal checkpoint copies are invalid"));
+        }
+    };
+    if checkpoint.head_block >= region.ring_blocks
+        || checkpoint.tail_block >= region.ring_blocks
+        || checkpoint.head_block != 0
+        || checkpoint.tail_block != 0
+    {
+        return Err(Error::Corrupt("unsupported journal checkpoint ring position"));
+    }
+    if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
+        return Err(Error::Corrupt("journal checkpoint sequence counters disagree"));
+    }
+
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut newer = Vec::<(u64, JournalRecord)>::new();
+    let mut malformed = Vec::<u64>::new();
+    for slot in 0..region.ring_blocks {
+        let mut block = vec![0_u8; block_size];
+        device.read_blocks(region.ring_start + slot, &mut block)?;
+        if block.iter().all(|byte| *byte == 0) {
+            continue;
+        }
+        match JournalRecord::decode_block(&block) {
+            Ok(record) if record.sequence <= checkpoint.checkpoint_sequence => {}
+            Ok(record) => newer.push((slot, record)),
+            Err(_) => malformed.push(slot),
+        }
+    }
+    newer.sort_by_key(|(_, record)| record.sequence);
+    if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
+        if malformed.iter().any(|slot| slot < last_slot) {
+            return Err(Error::Corrupt(
+                "malformed journal block appears before a later valid record",
+            ));
+        }
+    }
+    for (index, (slot, _)) in newer.iter().enumerate() {
+        if *slot != index as u64 {
+            return Err(Error::Corrupt(
+                "post-checkpoint journal records are not contiguous from ring start",
+            ));
+        }
+    }
+    let records: Vec<JournalRecord> = newer.into_iter().map(|(_, record)| record).collect();
+    let committed = plan_recovery(&records, checkpoint.checkpoint_sequence)?;
+    Ok((
+        checkpoint.generation,
+        checkpoint.checkpoint_sequence,
+        records.len() as u64,
+        committed.len() as u64,
+    ))
 }
 
 /// Format a device as v2. Destructive; call only on a disposable image or explicitly
