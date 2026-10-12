@@ -2578,15 +2578,15 @@ mod tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
                 let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-                let blocks = volume.allocate_blocks(&mut device, 5).unwrap();
+                let blocks = volume.allocate_blocks(&mut device, 6).unwrap();
                 let map = ExtentMap::new(vec![
                     Extent {
                         logical_start: 0,
                         physical_start: blocks[2],
-                        block_count: 2,
+                        block_count: 4,
                     },
                     Extent {
-                        logical_start: 3,
+                        logical_start: 5,
                         physical_start: blocks[0],
                         block_count: 2,
                     },
@@ -2594,14 +2594,15 @@ mod tests {
                 .unwrap();
 
                 volume
-                    .validate_extent_map_ownership(&mut device, &[(&map, 5)])
+                    .validate_extent_map_ownership(&mut device, &[(&map, 7)])
                     .unwrap();
 
+                let orphan = volume.allocate_blocks(&mut device, 1).unwrap()[0];
                 volume.free_block(&mut device, blocks[1]).unwrap();
                 let report = volume
-                    .extent_map_ownership_report(&mut device, &[(&map, 5)])
+                    .extent_map_ownership_report(&mut device, &[(&map, 7)])
                     .unwrap();
-                assert_eq!(report.orphaned_allocations, vec![blocks[4]]);
+                assert_eq!(report.orphaned_allocations, vec![orphan]);
                 assert_eq!(report.orphaned_allocation_count, 1);
                 assert_eq!(report.dangling_references, vec![blocks[1]]);
                 assert_eq!(report.dangling_reference_count, 1);
