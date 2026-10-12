@@ -206,10 +206,25 @@ impl ExtentMap {
         Ok(blocks)
     }
 
-    /// Return validated physical ranges as sorted (start, end-exclusive) block pairs.
+    /// Return the validated number of physical blocks owned by this map.
     ///
-    /// This preserves extent-level representation instead of expanding every run into one
-    /// entry per block, making it suitable for consistency scans of large files.
+    /// Unlike `allocated_blocks`, this rejects malformed logical bounds, physical bounds,
+    /// and physical aliases before reporting a count suitable for ownership accounting.
+    pub fn validated_physical_block_count(
+        &self,
+        logical_block_count: u64,
+        data_start: u64,
+        data_end: u64,
+    ) -> Result<u64> {
+        self.validate(logical_block_count, data_start, data_end)?;
+        self.allocated_blocks()
+    }
+
+    /// Return validated physical ranges as sorted, coalesced (start, end-exclusive) pairs.
+    ///
+    /// Adjacent physical extents are merged, while gaps remain distinct. This preserves an
+    /// extent-level representation instead of expanding every run into one entry per block,
+    /// reducing the work needed by bitmap consistency scans of highly fragmented files.
     pub fn validated_physical_ranges(
         &self,
         logical_block_count: u64,
@@ -223,7 +238,18 @@ impl ExtentMap {
             .map(|extent| Ok((extent.physical_start, extent.physical_end()?)))
             .collect::<Result<_>>()?;
         ranges.sort_unstable();
-        Ok(ranges)
+
+        let mut coalesced: Vec<(u64, u64)> = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
+            if let Some(last) = coalesced.last_mut() {
+                if last.1 == start {
+                    last.1 = end;
+                    continue;
+                }
+            }
+            coalesced.push((start, end));
+        }
+        Ok(coalesced)
     }
 
     /// Remove a logical block range and return the physical runs that became unreferenced.
@@ -683,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn validated_physical_ranges_preserve_runs_and_sort_by_physical_address() {
+    fn validated_physical_ranges_coalesce_adjacent_runs_and_keep_gaps() {
         let map = ExtentMap::new(vec![
             Extent {
                 logical_start: 0,
@@ -695,18 +721,31 @@ mod tests {
                 physical_start: 100,
                 block_count: 2,
             },
+            Extent {
+                logical_start: 8,
+                physical_start: 102,
+                block_count: 4,
+            },
         ])
         .unwrap();
         assert_eq!(
-            map.validated_physical_ranges(6, 80, 300).unwrap(),
-            vec![(100, 102), (200, 203)]
+            map.validated_physical_ranges(12, 80, 300).unwrap(),
+            vec![(100, 106), (200, 203)]
+        );
+        assert_eq!(
+            map.validated_physical_block_count(12, 80, 300).unwrap(),
+            9
         );
         assert!(matches!(
             map.validated_physical_ranges(5, 80, 300),
             Err(Error::Corrupt(_))
         ));
         assert!(matches!(
-            map.validated_physical_ranges(6, 201, 300),
+            map.validated_physical_ranges(12, 201, 300),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validated_physical_block_count(12, 201, 300),
             Err(Error::Corrupt(_))
         ));
     }
