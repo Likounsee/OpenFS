@@ -944,9 +944,7 @@ impl OpenedVolumeV2 {
                 }
                 let mut owner_mask = 0_u8;
                 let mut candidate = range_index;
-                while candidate < owned_ranges.len()
-                    && owned_ranges[candidate].0 < byte_end
-                {
+                while candidate < owned_ranges.len() && owned_ranges[candidate].0 < byte_end {
                     let (range_start, range_end) = owned_ranges[candidate];
                     let overlap_start = range_start.max(byte_base);
                     let overlap_end = range_end.min(byte_end);
