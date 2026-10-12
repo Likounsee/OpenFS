@@ -21,7 +21,7 @@ HEAD reviewed: `ad9f6e61253ab2b2648de8f8285b2e37a77fed65`.
 | P6 — OS integration | 0% | No Windows mount adapter or Linux userspace/kernel integration; no ArchiaOS adapter. |
 | P7 — compatibility, hardening and release | 0% | No release-grade compatibility matrix or hardware acceptance suite. |
 
-The current weighted planning estimate is approximately **17%** (weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%). This is not a claim that OpenFS can already be used on a USB drive. It cannot yet.
+The current weighted planning estimate is approximately **18%** (weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%). This is not a claim that OpenFS can already be used on a USB drive. It cannot yet.
 
 ## Product definition and scope
 
