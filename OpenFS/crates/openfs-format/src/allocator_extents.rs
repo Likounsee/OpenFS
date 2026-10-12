@@ -1053,6 +1053,35 @@ mod allocation_bitmap_report_tests {
                     volume.find_best_fit_free_extent(&mut device, 0),
                     Err(Error::InvalidInput(_))
                 ));
+                let fragmentation = volume.free_extent_stats(&mut device).unwrap();
+                assert_eq!(
+                    fragmentation.free_extent_count,
+                    free_extents.len() as u64,
+                    "block_size={block_size}"
+                );
+                assert_eq!(
+                    fragmentation.free_extent_count, 2,
+                    "block_size={block_size}"
+                );
+                assert_eq!(
+                    fragmentation.largest_free_extent_blocks,
+                    volume.volume.layout.data_blocks() - 9,
+                    "block_size={block_size}"
+                );
+                assert!(free_inventory.windows(2).all(|pair| pair[0] < pair[1]));
+                assert!(free_inventory
+                    .iter()
+                    .all(|block| !allocated_inventory.contains(block)));
+                for block in allocated_inventory.iter().chain(free_inventory.iter()) {
+                    assert_eq!(
+                        volume.is_data_block_allocated(&mut device, *block).unwrap(),
+                        allocated_inventory.contains(block)
+                    );
+                }
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_inventory.len() as u64
+                );
                 let before_best_fit = volume.allocation_stats(&mut device).unwrap();
                 assert_eq!(
                     volume
@@ -1083,35 +1112,7 @@ mod allocation_bitmap_report_tests {
                     ),
                     Err(Error::InvalidInput("no contiguous free data extent"))
                 ));
-                let fragmentation = volume.free_extent_stats(&mut device).unwrap();
-                assert_eq!(
-                    fragmentation.free_extent_count,
-                    free_extents.len() as u64,
-                    "block_size={block_size}"
-                );
-                assert_eq!(
-                    fragmentation.free_extent_count, 2,
-                    "block_size={block_size}"
-                );
-                assert_eq!(
-                    fragmentation.largest_free_extent_blocks,
-                    volume.volume.layout.data_blocks() - 9,
-                    "block_size={block_size}"
-                );
-                assert!(free_inventory.windows(2).all(|pair| pair[0] < pair[1]));
-                assert!(free_inventory
-                    .iter()
-                    .all(|block| !allocated_inventory.contains(block)));
-                for block in allocated_inventory.iter().chain(free_inventory.iter()) {
-                    assert_eq!(
-                        volume.is_data_block_allocated(&mut device, *block).unwrap(),
-                        allocated_inventory.contains(block)
-                    );
-                }
-                assert_eq!(
-                    volume.free_data_block_count(&mut device).unwrap(),
-                    free_inventory.len() as u64
-                );
+
             }
             fs::remove_file(path).unwrap();
         }
