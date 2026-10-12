@@ -676,7 +676,7 @@ mod tests {
         check_volume_v2, decode_superblock_v2, encode_superblock_v2, format_volume_v2,
         open_volume_v2, VolumeLayoutV2,
     };
-    use crate::open_volume;
+    use crate::{open_volume, Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
@@ -2528,6 +2528,82 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn v2_extent_map_ownership_bridge_checks_bitmap_and_cross_file_aliases() {
+        let path = image_path("extent-map-ownership-bridge");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
+            let first_map = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: blocks[0],
+                block_count: 2,
+            }])
+            .unwrap();
+            let second_map = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: blocks[2],
+                block_count: 2,
+            }])
+            .unwrap();
+
+            volume
+                .validate_extent_map_ownership(
+                    &mut device,
+                    &[(&first_map, 2), (&second_map, 2)],
+                )
+                .unwrap();
+
+            // Every allocated block must have exactly one owner.
+            assert!(matches!(
+                volume.validate_extent_map_ownership(&mut device, &[(&first_map, 2)]),
+                Err(Error::Corrupt(_))
+            ));
+
+            // Reusing a physical block in a second file is rejected even if the bitmap is set.
+            let alias_map = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: blocks[0],
+                block_count: 1,
+            }])
+            .unwrap();
+            assert!(matches!(
+                volume.validate_extent_map_ownership(
+                    &mut device,
+                    &[(&first_map, 2), (&alias_map, 1)],
+                ),
+                Err(Error::Corrupt(_))
+            ));
+
+            // An extent pointing into metadata or past the data region is rejected before bitmap comparison.
+            let out_of_region = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: volume.volume.layout.backup_superblock,
+                block_count: 1,
+            }])
+            .unwrap();
+            assert!(matches!(
+                volume.validate_extent_map_ownership(&mut device, &[(&out_of_region, 1)]),
+                Err(Error::Corrupt(_))
+            ));
+
+            // A freed block still referenced by an extent is a dangling ownership reference.
+            volume.free_block(&mut device, blocks[3]).unwrap();
+            let dangling = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: blocks[3],
+                block_count: 1,
+            }])
+            .unwrap();
+            assert!(matches!(
+                volume.validate_extent_map_ownership(&mut device, &[(&dangling, 1)]),
+                Err(Error::Corrupt(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
