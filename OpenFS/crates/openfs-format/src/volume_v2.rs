@@ -2456,6 +2456,42 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocated_block_inventory_tracks_persistent_bitmap_state() {
+        let path = image_path("allocated-block-inventory");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            assert!(volume
+                .allocated_data_block_inventory(&mut device)
+                .unwrap()
+                .is_empty());
+
+            let first = volume.allocate_block(&mut device).unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+            let third = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(
+                volume.allocated_data_block_inventory(&mut device).unwrap(),
+                vec![first, second, third]
+            );
+
+            volume.free_block(&mut device, second).unwrap();
+            device.flush().unwrap();
+            drop(volume);
+
+            let volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(
+                volume.allocated_data_block_inventory(&mut device).unwrap(),
+                vec![first, third]
+            );
+            assert_eq!(
+                volume.allocation_stats(&mut device).unwrap().allocated_data_blocks,
+                2
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_allocation_ownership_validator_detects_orphans_and_dangling_references() {
         let path = image_path("ownership-inventory");
         {
