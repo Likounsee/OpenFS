@@ -61,8 +61,12 @@ impl Namespace {
     /// rather than interpreted, and every intermediate component must be a directory.
     /// This resolves the in-memory model only; it does not read or persist disk state.
     pub fn resolve_path(&self, path: &str) -> Result<ObjectId> {
+        let components: Vec<&str> = path
+            .split('/')
+            .filter(|component| !component.is_empty())
+            .collect();
         let mut current = self.root_id;
-        for component in path.split('/').filter(|component| !component.is_empty()) {
+        for (index, component) in components.iter().enumerate() {
             if component == "." || component == ".." {
                 return Err(Error::InvalidInput(
                     "dot path components are not supported",
@@ -76,7 +80,7 @@ impl Namespace {
                 return Err(Error::Corrupt("directory entry points to a missing object"));
             }
             current = next;
-            if component != path.rsplit('/').find(|part| !part.is_empty()).unwrap_or("") {
+            if index + 1 < components.len() {
                 let record = self
                     .objects
                     .get(&current)
