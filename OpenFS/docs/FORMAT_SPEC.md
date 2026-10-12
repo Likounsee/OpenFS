@@ -1,6 +1,6 @@
 # OpenFS disk format — version 1 draft
 
-**Status: experimental draft, not a stable compatibility promise.** Formatting and validation exist; allocation, journaling, recovery, file operations and mount support do not.
+**Status: experimental draft, not a stable compatibility promise.** Formatting, bitmap allocation, block-device backends and a low-level persistent journal engine exist. The journal is not integrated into this versioned volume layout or the allocator; persistent file operations and mounting are not implemented.
 
 ## Compatibility policy
 
@@ -36,10 +36,10 @@ CRC32C uses the reflected Castagnoli polynomial and covers bytes 0 through 4087.
 
 bits_per_bitmap_block = block_size * 8; bitmap_blocks = ceil(total_blocks / bits_per_bitmap_block); data_start = 1 + bitmap_blocks. Formatting rejects a volume if no data block remains before the backup superblock. Bitmap bits are least-significant-bit first within each byte. A set bit means allocated. The primary superblock, bitmap blocks, backup superblock, and padding bits beyond the volume end are marked allocated. Other bitmap bits begin free. This is an initial allocation map, not yet a production allocator.
 
-format_volume overwrites the provided device. It writes the backup and bitmap, flushes, then writes the primary and flushes again. This is deliberately not described as atomic or crash-safe; there is no journal yet. open_volume does not modify data and requires both superblocks to decode identically, geometry to match the device, and all reserved/padding bitmap bits to be allocated.
+format_volume overwrites the provided device. It writes the backup and bitmap, flushes, then writes the primary and flushes again. This is deliberately not atomic or crash-safe. The standalone journal engine is not part of this version 1 layout, so it cannot protect volume formatting or ordinary allocator mutations. open_volume does not modify data and requires both superblocks to decode identically, geometry to match the device, and all reserved/padding bitmap bits to be allocated.
 
 ## Validation and stability gates
 
 The parser treats bytes as untrusted, validates framing, version, checksum, reserved bytes and geometry with checked arithmetic. Tests cover malformed fields even when CRC32C is recomputed, mirrored-superblock mismatch, reserved bitmap corruption, layout sizing, formatting, flush and reopen. Passing tests do not establish transaction recovery, concurrency safety or complete filesystem semantics.
 
-Before persistent namespace data is written, the format must add a versioned journal region and durable checkpoint metadata without silently repurposing reserved-zero bytes, then add golden image fixtures and a recovery test suite. If this changes the serialized layout, bump the format version and reject older drafts unless an explicit migration path is implemented.
+Before physical-device use is considered safe, the format must add a versioned journal region and durable checkpoint metadata without silently repurposing reserved-zero bytes, integrate allocator changes with journal transactions, and add golden image fixtures plus crash-cut recovery tests. If the serialized layout changes, bump the format version and reject older drafts unless an explicit migration path is implemented.
