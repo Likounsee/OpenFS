@@ -31,7 +31,9 @@ pub struct DirectoryEntry {
 /// infer the on-disk location or ordering of a directory index.
 pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
     if bytes.len() % DIRECTORY_ENTRY_SIZE != 0 {
-        return Err(Error::InvalidInput("directory inventory is not record-aligned"));
+        return Err(Error::InvalidInput(
+            "directory inventory is not record-aligned",
+        ));
     }
     bytes
         .chunks_exact(DIRECTORY_ENTRY_SIZE)
@@ -166,7 +168,10 @@ mod tests {
         second.name = "second".to_owned();
         let mut packed = first.encode().unwrap().to_vec();
         packed.extend_from_slice(&second.encode().unwrap());
-        assert_eq!(super::decode_directory_entries(&packed).unwrap(), vec![first, second]);
+        assert_eq!(
+            super::decode_directory_entries(&packed).unwrap(),
+            vec![first, second]
+        );
         packed.push(0);
         assert!(matches!(
             super::decode_directory_entries(&packed),
