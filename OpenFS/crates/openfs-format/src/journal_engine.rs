@@ -734,8 +734,9 @@ mod tests {
                 "operation {fail_at} was expected to fail"
             );
             let mut recovered_device = failing.into_inner();
-            let reopened = open_journal(&mut recovered_device, REGION)
-                .unwrap_or_else(|error| panic!("recovery failed at operation {fail_at}: {error:?}"));
+            let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
+                panic!("recovery failed at operation {fail_at}: {error:?}")
+            });
             let expected_byte = if fail_at <= 4 { 0x11 } else { 0xA5 };
             assert_eq!(
                 read_home(&mut recovered_device),
