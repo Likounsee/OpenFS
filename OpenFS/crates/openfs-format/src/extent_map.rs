@@ -683,6 +683,35 @@ mod tests {
     }
 
     #[test]
+    fn validated_physical_ranges_preserve_runs_and_sort_by_physical_address() {
+        let map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 200,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 100,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+        assert_eq!(
+            map.validated_physical_ranges(6, 80, 300).unwrap(),
+            vec![(100, 102), (200, 203)]
+        );
+        assert!(matches!(
+            map.validated_physical_ranges(5, 80, 300),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validated_physical_ranges(6, 201, 300),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
     fn range_removal_splits_extents_and_returns_releasable_runs() {
         let mut map = ExtentMap::new(vec![
             Extent {
