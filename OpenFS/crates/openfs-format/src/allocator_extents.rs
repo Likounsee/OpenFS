@@ -28,6 +28,10 @@ pub struct FreeExtentStats {
 /// Bounded diagnostics for reserved or out-of-volume bits incorrectly marked free.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AllocationBitmapReport {
+    /// Number of usable data blocks currently marked free.
+    pub free_data_block_count: u64,
+    /// Number of usable data blocks currently marked allocated.
+    pub allocated_data_block_count: u64,
     /// Total invalid free bits found, including those beyond the returned sample.
     pub invalid_free_block_count: u64,
     /// Lowest offending block numbers, capped at 64 entries.
@@ -56,15 +60,22 @@ impl AllocationOwnershipReport {
 impl OpenedVolumeV2 {
     /// Return total, allocated, and free data-block counts from the current bitmap.
     pub fn allocation_stats<D: BlockDevice>(&self, device: &mut D) -> Result<AllocationStats> {
-        let free = self.free_data_block_count(device)?;
+        let report = self.allocation_bitmap_report(device)?;
+        if report.invalid_free_block_count != 0 {
+            return Err(Error::Corrupt(
+                "v2 bitmap marks a reserved or padding block free",
+            ));
+        }
         let total = self.volume.layout.data_blocks();
-        let allocated = total.checked_sub(free).ok_or(Error::Corrupt(
-            "free-space count exceeds the usable data region",
-        ))?;
+        if report.free_data_block_count + report.allocated_data_block_count != total {
+            return Err(Error::Corrupt(
+                "v2 bitmap data-block counts do not match the usable data region",
+            ));
+        }
         Ok(AllocationStats {
             total_data_blocks: total,
-            allocated_data_blocks: allocated,
-            free_data_blocks: free,
+            allocated_data_blocks: report.allocated_data_block_count,
+            free_data_blocks: report.free_data_block_count,
         })
     }
 
@@ -587,6 +598,15 @@ impl OpenedVolumeV2 {
                         data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
                     }
                 }
+                let data_bits = *byte & data_mask;
+                report.allocated_data_block_count = report
+                    .allocated_data_block_count
+                    .checked_add(u64::from(data_bits.count_ones()))
+                    .ok_or(Error::ArithmeticOverflow)?;
+                report.free_data_block_count = report
+                    .free_data_block_count
+                    .checked_add(u64::from((!*byte & data_mask).count_ones()))
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut invalid = !*byte & !data_mask;
                 report.invalid_free_block_count = report
                     .invalid_free_block_count
@@ -683,6 +703,8 @@ mod allocation_bitmap_report_tests {
 
             let report = volume.allocation_bitmap_report(&mut device).unwrap();
             assert_eq!(report.invalid_free_block_count, 3);
+            assert_eq!(report.free_data_block_count, layout.data_blocks());
+            assert_eq!(report.allocated_data_block_count, 0);
             assert_eq!(report.first_invalid_free_blocks, vec![0, 255, 300]);
             assert!(!report.truncated);
             assert!(matches!(
@@ -691,6 +713,32 @@ mod allocation_bitmap_report_tests {
                     "v2 bitmap marks a reserved or padding block free"
                 ))
             ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn bitmap_report_counts_free_and_allocated_data_blocks() {
+        let path = image_path("counts");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let total = volume.volume.layout.data_blocks();
+            let allocated = volume.allocate_blocks(&mut device, 5).unwrap();
+            volume.free_blocks(&mut device, &allocated[1..3]).unwrap();
+
+            let report = volume.allocation_bitmap_report(&mut device).unwrap();
+            assert_eq!(report.invalid_free_block_count, 0);
+            assert_eq!(report.allocated_data_block_count, 3);
+            assert_eq!(report.free_data_block_count, total - 3);
+            assert_eq!(
+                volume.allocation_stats(&mut device).unwrap(),
+                AllocationStats {
+                    total_data_blocks: total,
+                    allocated_data_blocks: 3,
+                    free_data_blocks: total - 3,
+                }
+            );
         }
         fs::remove_file(path).unwrap();
     }
