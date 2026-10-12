@@ -331,13 +331,16 @@ impl Namespace {
         }
         let mut visited = std::collections::BTreeSet::new();
         let mut pending = vec![self.root_id];
+        visited.insert(self.root_id);
         while let Some(parent_id) = pending.pop() {
-            if !visited.insert(parent_id) {
-                return Err(Error::Corrupt("namespace contains a directory cycle"));
-            }
             for entry in self.children(parent_id) {
                 let child_id = ObjectId::new(entry.object_id)
                     .map_err(|_| Error::Corrupt("invalid child object ID"))?;
+                if !visited.insert(child_id) {
+                    return Err(Error::Corrupt(
+                        "namespace contains a cycle or multiply referenced object",
+                    ));
+                }
                 if self.objects.get(&child_id).map(|record| record.kind)
                     == Some(ObjectKind::Directory)
                 {
@@ -496,12 +499,17 @@ mod tests {
         assert_eq!(ns.object(ObjectId(4)).unwrap().generation, 2);
         assert_eq!(ns.entry_count(), 3);
 
+        ns.insert(
+            entry(3, 5, "nested", ObjectKind::Directory),
+            record(5, 3, ObjectKind::Directory),
+        )
+        .unwrap();
         assert!(matches!(
-            ns.rename(ObjectId(4), ObjectId(3), "after.txt"),
+            ns.rename(ObjectId(4), ObjectId(3), "nested"),
             Err(Error::InvalidInput(_))
         ));
         assert!(matches!(
-            ns.rename(ObjectId(3), ObjectId(4), "cycle"),
+            ns.rename(ObjectId(3), ObjectId(5), "cycle"),
             Err(Error::InvalidInput(_))
         ));
         assert_eq!(ns.lookup(ObjectId(3), "after.txt").unwrap().object_id, 4);
