@@ -127,9 +127,15 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     println!("Allocated data blocks: {}", report.allocated_data_blocks);
     println!("Free data blocks: {}", report.free_data_blocks);
     println!("Journal generation: {}", report.journal_generation);
-    println!("Journal checkpoint sequence: {}", report.journal_checkpoint_sequence);
+    println!(
+        "Journal checkpoint sequence: {}",
+        report.journal_checkpoint_sequence
+    );
     println!("Pending journal records: {}", report.pending_journal_records);
-    println!("Recoverable committed transactions: {}", report.recoverable_transactions);
+    println!(
+        "Recoverable committed transactions: {}",
+        report.recoverable_transactions
+    );
     println!("The check validates superblocks, geometry, bitmap invariants, and journal framing.");
     println!("It does not validate file ownership or namespace integrity.");
     Ok(())
@@ -165,7 +171,9 @@ fn print_usage() {
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
-    eprintln!("check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536.");
+    eprintln!(
+        "check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536."
+    );
     eprintln!("create-image refuses to overwrite an existing file.");
 }
 
