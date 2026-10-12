@@ -753,8 +753,9 @@ mod tests {
                     Err(Error::InvalidInput("data block is already free"))
                 ));
 
-                // Probe both sides of the legal allocation interval and integer limits.
-                for invalid in [0, first_data_block - 1, backup_superblock, u64::MAX] {
+                // Probe every reserved block, both sides of the data interval,
+                // and the integer limit. None may reach the journaled bitmap update.
+                for invalid in (0..first_data_block).chain([backup_superblock, u64::MAX]) {
                     assert!(
                         matches!(
                             volume.free_block(&mut device, invalid),
