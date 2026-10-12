@@ -399,7 +399,9 @@ impl OpenedVolumeV2 {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                return Err(Error::Corrupt("contiguous extent changed during allocation"));
+                return Err(Error::Corrupt(
+                    "contiguous extent changed during allocation",
+                ));
             }
         }
         for block in start..end {
@@ -1059,8 +1061,7 @@ mod allocation_bitmap_report_tests {
             let path = image_path(&format!("contiguous-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 assert!(matches!(
                     volume.allocate_contiguous_blocks(&mut device, u64::from(block_size) * 8 + 1),
                     Err(Error::InvalidInput(_))
@@ -1099,9 +1100,8 @@ mod allocation_bitmap_report_tests {
                 let after = volume.allocation_stats(&mut device).unwrap();
                 assert_eq!(after.allocated_data_blocks, 0);
                 assert_eq!(after.free_data_blocks, before.free_data_blocks + 5);
-                assert!((start..start + 5).all(|block| {
-                    !volume.is_data_block_allocated(&mut device, block).unwrap()
-                }));
+                assert!((start..start + 5)
+                    .all(|block| { !volume.is_data_block_allocated(&mut device, block).unwrap() }));
                 assert!(matches!(
                     volume.free_contiguous_blocks(&mut device, start, 5),
                     Err(Error::InvalidInput(
