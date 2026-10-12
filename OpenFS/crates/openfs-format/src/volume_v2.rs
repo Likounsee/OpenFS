@@ -1007,8 +1007,7 @@ mod tests {
                 let path = image_path(&format!("{label}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume =
-                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + bit / bits_per_bitmap_block;
                     let local = bit % bits_per_bitmap_block;
