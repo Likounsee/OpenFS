@@ -82,7 +82,9 @@ impl JournalRecord {
     /// Decode exactly one complete record, rejecting truncation and trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < JOURNAL_HEADER_SIZE {
-            return Err(Error::InvalidInput("journal record is shorter than its header"));
+            return Err(Error::InvalidInput(
+                "journal record is shorter than its header",
+            ));
         }
         if &bytes[0..8] != MAGIC {
             return Err(Error::Corrupt("bad journal record magic"));
@@ -100,13 +102,17 @@ impl JournalRecord {
 
         let payload_len = get_u32(bytes, 32) as usize;
         if payload_len > JOURNAL_MAX_PAYLOAD_SIZE {
-            return Err(Error::Corrupt("journal payload exceeds the supported limit"));
+            return Err(Error::Corrupt(
+                "journal payload exceeds the supported limit",
+            ));
         }
         let expected_size = JOURNAL_HEADER_SIZE
             .checked_add(payload_len)
             .ok_or(Error::ArithmeticOverflow)?;
         if bytes.len() != expected_size {
-            return Err(Error::InvalidInput("journal record length does not match its header"));
+            return Err(Error::InvalidInput(
+                "journal record length does not match its header",
+            ));
         }
         if get_u32(bytes, CHECKSUM_OFFSET) != record_checksum(bytes) {
             return Err(Error::Corrupt("journal record CRC32C mismatch"));
@@ -128,7 +134,9 @@ fn validate_record(record: &JournalRecord) -> Result<()> {
         return Err(Error::InvalidInput("journal sequence must be non-zero"));
     }
     if record.transaction_id == 0 {
-        return Err(Error::InvalidInput("journal transaction ID must be non-zero"));
+        return Err(Error::InvalidInput(
+            "journal transaction ID must be non-zero",
+        ));
     }
     if record.payload.len() > JOURNAL_MAX_PAYLOAD_SIZE {
         return Err(Error::InvalidInput(
@@ -225,7 +233,10 @@ mod tests {
             let encoded = record.encode().unwrap();
             assert_eq!(&encoded[..8], b"OFSJNL\0\0");
             assert_eq!(&encoded[8..10], &JOURNAL_VERSION.to_le_bytes());
-            assert_eq!(&encoded[10..12], &(JOURNAL_HEADER_SIZE as u16).to_le_bytes());
+            assert_eq!(
+                &encoded[10..12],
+                &(JOURNAL_HEADER_SIZE as u16).to_le_bytes()
+            );
             assert_eq!(JournalRecord::decode(&encoded).unwrap(), record);
         }
     }
@@ -247,9 +258,14 @@ mod tests {
 
     #[test]
     fn rejects_checksum_magic_version_and_reserved_field_corruption() {
-        let mut bytes = sample(JournalRecordKind::Update, b"payload").encode().unwrap();
+        let mut bytes = sample(JournalRecordKind::Update, b"payload")
+            .encode()
+            .unwrap();
         bytes[40] ^= 1;
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[0] ^= 1;
@@ -279,7 +295,10 @@ mod tests {
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[16..24].copy_from_slice(&0_u64.to_le_bytes());
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::InvalidInput(_))
+        ));
 
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[24..32].copy_from_slice(&0_u64.to_le_bytes());
