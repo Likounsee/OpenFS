@@ -313,4 +313,7 @@ pub use journal_engine::{
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
-pub use volume_v2::{format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeLayoutV2, VolumeV2};
+pub use volume_v2::{
+    check_volume_v2, format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeCheckReport,
+    VolumeLayoutV2, VolumeV2,
+};
