@@ -396,6 +396,17 @@ impl Namespace {
             ));
         }
 
+        let mut extent_roots = std::collections::BTreeSet::new();
+        for record in self.objects.values() {
+            if let Some(root_block) = record.extent_root_block {
+                if !extent_roots.insert(root_block) {
+                    return Err(Error::Corrupt(
+                        "multiple namespace objects claim the same extent-map root block",
+                    ));
+                }
+            }
+        }
+
         let mut referenced = std::collections::BTreeSet::new();
         for ((parent_id, key_name), entry) in &self.names {
             entry
@@ -599,6 +610,7 @@ mod tests {
             ns.validated_extent_root_inventory(8, 40),
             Err(Error::Corrupt(_))
         ));
+        assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
     }
 
     #[test]
