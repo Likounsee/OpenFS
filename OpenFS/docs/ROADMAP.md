@@ -15,10 +15,9 @@ The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, 
 
 ## Current snapshot
 
-- Current branch head at review: `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`.
-- GitHub Actions run [38236874023](https://github.com/Likounsee/OpenFS/actions/runs/38236874023) passed for this exact commit on Linux and Windows, including formatting, workspace tests, and Clippy.
-- GitHub Actions for that commit report Linux and Windows jobs successful for formatting, workspace tests, and Clippy.
-- Recent regressions cover allocator exhaustion/reuse, bitmap segment boundaries, layout tampering, reserved/padding bitmap corruption, device-geometry mismatches, allocator failure recovery, V2 superblock validation, and golden-byte/CRC32C fixtures.
+- Current branch head at review: `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
+- GitHub Actions run [38247258586](https://github.com/Likounsee/OpenFS/actions/runs/38247258586) passed for the reviewed code commit `f29b565af1d68d6f887c3d146934d29a55e79d6a` on Linux and Windows, including formatting, workspace tests, and Clippy.
+- Recent regressions cover allocator exhaustion/reuse, bitmap segment boundaries, layout tampering, reserved/padding bitmap corruption (including a later bitmap segment and journal replay), device-geometry mismatches, allocator failure recovery across all five supported block sizes, V2 superblock validation, and golden-byte/CRC32C fixtures.
 - The V2 layout specification documents geometry formulas, minimum layout, reserved bitmap bits, and disjoint regions.
 - V2 journaling currently protects allocator bitmap changes; it is not yet a general transaction layer for persistent file and directory operations.
 - Metadata codecs, directory-entry primitives, and an in-memory namespace exist, but a complete durable file/namespace workflow does not.
@@ -74,10 +73,10 @@ A supported Windows PC must identify a removable device, show stable identity an
 - [x] Test allocation/free, exhaustion, reserved-block rejection, double-free behavior, reopen persistence, and reuse.
 - [x] Cover bitmap-segment boundaries, reserved/padding bitmap corruption, and canonical-layout tampering.
 - [x] Validate superblock checksums, reserved bytes, supported versions, block geometry, and mismatched device geometry.
-- [x] Cover selected allocator failures and repeated recovery.
+- [x] Cover selected allocator failures and repeated recovery, including pre-commit failures and durable-commit/home-write failures across all five supported block sizes (Linux/Windows CI run `38247258586`).
 - [ ] Verify every allocated block has exactly one valid owner once persistent objects exist.
 - [ ] Expand corruption coverage across additional malformed bitmap/layout cases.
-- [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed).
+- [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed). The expanded allocator crash/failure matrix is also green on commit `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
 
 **Exit gate:** deterministic format/open/allocate/free/reopen tests, stable golden fixtures, malformed-layout rejection, and explicit ownership invariants when persistent objects are implemented.
 
