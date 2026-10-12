@@ -2293,12 +2293,20 @@ mod tests {
             );
             assert_eq!(initial.data_blocks, initial.free_data_blocks);
             assert_eq!(initial.allocated_data_blocks, 0);
+            assert_eq!(initial.journal_generation, 2);
+            assert_eq!(initial.journal_checkpoint_sequence, 0);
+            assert_eq!(initial.pending_journal_records, 0);
+            assert_eq!(initial.recoverable_transactions, 0);
 
             volume.allocate_blocks(&mut device, 3).unwrap();
             let after_allocate = check_volume_v2(&mut device).unwrap();
             assert_eq!(after_allocate.block_size, 4096);
             assert_eq!(after_allocate.total_blocks, 512);
             assert_eq!(after_allocate.allocated_data_blocks, 3);
+            assert!(after_allocate.journal_generation > initial.journal_generation);
+            assert!(after_allocate.journal_checkpoint_sequence > 0);
+            assert_eq!(after_allocate.pending_journal_records, 0);
+            assert_eq!(after_allocate.recoverable_transactions, 0);
             assert_eq!(
                 after_allocate.free_data_blocks,
                 initial.free_data_blocks - 3
@@ -2318,6 +2326,48 @@ mod tests {
             ));
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_read_only_checker_validates_journal_copies_for_all_block_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("checker-journal-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let layout = volume.volume.layout;
+                drop(volume);
+                device.flush().unwrap();
+
+                let mut latest = vec![0_u8; block_size as usize];
+                device.read_blocks(layout.journal.checkpoint_b, &mut latest).unwrap();
+                latest[0] ^= 1;
+                device.write_blocks(layout.journal.checkpoint_b, &latest).unwrap();
+                device.flush().unwrap();
+
+                let before_check = fs::read(&path).unwrap();
+                let report = check_volume_v2(&mut device).unwrap();
+                assert_eq!(report.journal_generation, 1);
+                assert_eq!(report.journal_checkpoint_sequence, 0);
+                assert_eq!(report.pending_journal_records, 0);
+                assert_eq!(report.recoverable_transactions, 0);
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    before_check,
+                    "journal checking must remain read-only for block size {block_size}"
+                );
+
+                let mut other = vec![0_u8; block_size as usize];
+                device.read_blocks(layout.journal.checkpoint_a, &mut other).unwrap();
+                other[0] ^= 1;
+                device.write_blocks(layout.journal.checkpoint_a, &other).unwrap();
+                assert!(
+                    matches!(check_volume_v2(&mut device), Err(Error::Corrupt(_))),
+                    "checker accepted two invalid checkpoint copies at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
