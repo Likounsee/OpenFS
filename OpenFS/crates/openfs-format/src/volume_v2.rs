@@ -639,8 +639,13 @@ mod tests {
             ));
 
             // Invalid free attempts must not damage the journal or bitmap.
-            let reopened = open_volume_v2(&mut device).unwrap();
+            let mut reopened = open_volume_v2(&mut device).unwrap();
             assert_eq!(reopened.journal.checkpoint().checkpoint_sequence, 8);
+            assert_eq!(
+                reopened.allocate_block(&mut device).unwrap(),
+                allocated,
+                "invalid free attempts must not alter the freed block's bitmap state"
+            );
         }
         fs::remove_file(path).unwrap();
     }
@@ -1064,6 +1069,9 @@ mod tests {
             let mut device = failing.inner;
             drop(volume);
 
+            // Recovery must be repeatable: reopening a second time must not
+            // replay the committed free as a different allocator state.
+            drop(open_volume_v2(&mut device).unwrap());
             let mut recovered = open_volume_v2(&mut device).unwrap();
             assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
             assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
