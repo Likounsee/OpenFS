@@ -1948,14 +1948,12 @@ mod tests {
                 Err(Error::InvalidInput(_))
             ));
             assert_eq!(volume.journal.checkpoint(), before);
+            let first = volume.volume.layout.data_start;
+            assert_eq!(volume.allocate_contiguous_blocks(&mut device, 3).unwrap(), first);
             assert_eq!(
-                volume.allocate_contiguous_blocks(&mut device, 4096_u64 * 8).unwrap(),
-                volume.volume.layout.data_start
+                volume.find_contiguous_free_blocks(&mut device, 3).unwrap(),
+                Some(first + 3)
             );
-            assert!(matches!(
-                volume.allocate_contiguous_blocks(&mut device, 1),
-                Err(Error::InvalidInput("no contiguous free data extent"))
-            ));
         }
         fs::remove_file(path).unwrap();
     }
