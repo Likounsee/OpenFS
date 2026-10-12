@@ -2185,7 +2185,14 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            device.flush().unwrap();
+            let bytes_before_check = fs::read(&path).unwrap();
             let initial = check_volume_v2(&mut device).unwrap();
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                bytes_before_check,
+                "read-only checker must not modify the image"
+            );
             assert_eq!(initial.data_blocks, initial.free_data_blocks);
             assert_eq!(initial.allocated_data_blocks, 0);
 
