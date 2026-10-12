@@ -2036,7 +2036,7 @@ mod tests {
                 let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                    let mut volume =
+                    let volume =
                         format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     volume.validate_allocation_bitmap(&mut device).unwrap();
 
