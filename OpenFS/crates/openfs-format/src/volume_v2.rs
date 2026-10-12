@@ -511,6 +511,34 @@ mod tests {
     }
 
     #[test]
+    fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
+        let path = image_path("free-recovery");
+        let first;
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            first = volume.allocate_block(&mut device).unwrap();
+
+            let mut failing = FailWriteAt {
+                inner: device,
+                write_index: 0,
+                fail_at: 4,
+            };
+            assert!(matches!(
+                volume.free_block(&mut failing, first),
+                Err(Error::Io(_))
+            ));
+            let mut device = failing.inner;
+            drop(volume);
+
+            let mut recovered = open_volume_v2(&mut device).unwrap();
+            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
+            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
     }
