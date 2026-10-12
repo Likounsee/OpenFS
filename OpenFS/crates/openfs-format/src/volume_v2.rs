@@ -136,7 +136,12 @@ impl OpenedVolumeV2 {
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, byte) in bitmap.iter_mut().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_index, byte) in bitmap
+                .iter_mut()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
                 let byte_start = (byte_index as u64) * 8;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
