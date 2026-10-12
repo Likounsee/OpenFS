@@ -8,13 +8,13 @@ Percentages are planning estimates against acceptance criteria, not feature coun
 
 ## Current snapshot
 
-HEAD reviewed: `22f16555aa31f76328f942bc983bab44cdc442a8` (2026-10-12).
+Code reviewed through `3203b1817b42915083ec81976547f24f56459aef`; documentation reconciled on `OpenFS` (2026-10-12).
 
 | Workstream | Estimate | Evidence / limitation |
 | --- | ---: | --- |
 | P0 — engineering foundation and format safety | 90% | Rust workspace, bounded block I/O, explicit parsing, CRC checks, mirrored volume metadata, failure injection, image/reopen tests, v1 superblock golden bytes, and volume geometry invariants exist. The previous `original_sequence` test-scope issue and subsequent journal test corrections are followed by green Linux and Windows CI on HEAD `22f1655`. Remaining P0 work is a final cross-module format/safety review and any gaps found there; CI success does not establish hardware durability. |
 | P1 — volume layout and allocation | 25% | Experimental V2 layout, reserved regions, bitmap validation, allocation/free, and disposable-file RawDevice coverage exist. Persistent namespace/file operations are not complete. |
-| P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. The latest tests do not currently compile; exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
+| P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. Linux and Windows CI passed on code commit `22f1655`; the new V2 geometry test is awaiting CI. Exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
 | P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, repair workflow, or parser fuzzing gate. |
 | P4 — persistent files and directories | 5% | Some metadata/namespace primitives exist, but no complete durable create/read/write/rename/delete path. |
 | P5 — safe removable-device workflow | 5% | Low-level RawDevice exists. There is no trustworthy device discovery, mounted/system-device exclusion, or safe end-user raw formatter. |
@@ -131,7 +131,7 @@ This milestone must not start destructive hardware testing until P0–P4 accepta
 
 ## Immediate execution order
 
-1. Finish the P0 cross-module review of format boundaries and document any remaining invariants.
+1. Finish the P0 cross-module review of format boundaries and document any remaining invariants. The V2 minimum geometry and invalid/overflow input cases now have a dedicated regression test.
 2. Audit V2 journal/checkpoint geometry and expand the crash-cut matrix, including persisted-byte reopen at each failure point.
 3. Integrate journal durability with allocator/metadata updates only after recovery ordering is demonstrated.
 4. Complete persistent namespace/file operations and ownership validation.
