@@ -683,8 +683,7 @@ mod tests {
             let path = image_path(&format!("invalid-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let allocated = volume.allocate_block(&mut device).unwrap();
                 let first_data_block = volume.volume.layout.data_start;
                 let backup_superblock = volume.volume.layout.backup_superblock;
