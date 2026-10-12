@@ -504,6 +504,31 @@ mod tests {
     }
 
     #[test]
+    fn raw_device_open_never_creates_a_missing_path() {
+        let image = TempImage::new();
+        assert!(!image.0.exists());
+        assert!(matches!(
+            RawDevice::open(&image.0, 4096, 1),
+            Err(Error::Io(_))
+        ));
+        assert!(!image.0.exists());
+    }
+
+    #[test]
+    fn raw_device_rejects_invalid_or_overflowing_geometry_before_open() {
+        let image = TempImage::new();
+        assert!(matches!(
+            RawDevice::open(&image.0, 1000, 1),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            RawDevice::open(&image.0, 4096, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(!image.0.exists());
+    }
+
+    #[test]
     fn raw_device_rejects_misaligned_and_out_of_range_access() {
         let image = TempImage::new();
         let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
