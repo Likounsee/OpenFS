@@ -681,13 +681,24 @@ mod tests {
     }
     impl<D> TearWriteAt<D> {
         fn new(inner: D, tear_at: usize, prefix_bytes: usize) -> Self {
-            Self { inner, operation: 0, tear_at, prefix_bytes }
+            Self {
+                inner,
+                operation: 0,
+                tear_at,
+                prefix_bytes,
+            }
         }
-        fn into_inner(self) -> D { self.inner }
+        fn into_inner(self) -> D {
+            self.inner
+        }
     }
     impl<D: BlockDevice> BlockDevice for TearWriteAt<D> {
-        fn block_size(&self) -> u32 { self.inner.block_size() }
-        fn block_count(&self) -> u64 { self.inner.block_count() }
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
         fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
             self.inner.read_blocks(first, output)
         }
@@ -702,11 +713,15 @@ mod tests {
                 self.inner.read_blocks(first, &mut mixed)?;
                 mixed[..self.prefix_bytes].copy_from_slice(&input[..self.prefix_bytes]);
                 self.inner.write_blocks(first, &mixed)?;
-                return Err(Error::Io(std::io::Error::other("injected torn journal write")));
+                return Err(Error::Io(std::io::Error::other(
+                    "injected torn journal write",
+                )));
             }
             self.inner.write_blocks(first, input)
         }
-        fn flush(&mut self) -> Result<()> { self.inner.flush() }
+        fn flush(&mut self) -> Result<()> {
+            self.inner.flush()
+        }
     }
 
     fn update(byte: u8) -> RedoUpdate {
@@ -774,7 +789,7 @@ mod tests {
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        // Writes 0..3 are begin/update records; write 4 is the commit record.
+        // Writes 0..2 are begin/update records, operation 3 flushes, and write 4 is the commit record.
         // Tear the commit record after its first 64 bytes so its checksum is invalid.
         let mut failing = TearWriteAt::new(device.clone(), 4, 64);
         assert!(matches!(
