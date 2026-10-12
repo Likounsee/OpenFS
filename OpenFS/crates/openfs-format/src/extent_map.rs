@@ -64,6 +64,32 @@ impl ExtentMap {
         })
     }
 
+    /// Number of bytes backed by physical storage, excluding sparse holes.
+    ///
+    /// The multiplication is checked so a malformed or extremely large map cannot wrap
+    /// a byte count. A zero block size is rejected instead of silently reporting zero.
+    pub fn allocated_byte_count(&self, block_size: u32) -> Result<u64> {
+        if block_size == 0 {
+            return Err(Error::InvalidInput("block size must be nonzero"));
+        }
+        self.allocated_blocks()?
+            .checked_mul(u64::from(block_size))
+            .ok_or(Error::ArithmeticOverflow)
+    }
+
+    /// Logical byte length implied by the final extent, including sparse gaps.
+    ///
+    /// This reports the extent map's covered length, not necessarily the file's recorded
+    /// byte length (the final allocated block may be only partially used).
+    pub fn logical_byte_capacity(&self, block_size: u32) -> Result<u64> {
+        if block_size == 0 {
+            return Err(Error::InvalidInput("block size must be nonzero"));
+        }
+        self.logical_block_count()?
+            .checked_mul(u64::from(block_size))
+            .ok_or(Error::ArithmeticOverflow)
+    }
+
     /// Return the logical block count covered by the map, including trailing holes.
     ///
     /// An empty map covers zero blocks. Sparse gaps before the final extent count toward
@@ -389,6 +415,22 @@ mod tests {
         assert_eq!(map.physical_block(5), Some(200));
         assert_eq!(map.physical_block(7), None);
         assert_eq!(map.allocated_blocks().unwrap(), 5);
+    }
+
+    #[test]
+    fn reports_allocated_bytes_separately_from_sparse_logical_capacity() {
+        let map = sample();
+        assert_eq!(map.allocated_byte_count(4096).unwrap(), 5 * 4096);
+        assert_eq!(map.logical_byte_capacity(4096).unwrap(), 7 * 4096);
+        assert!(matches!(map.allocated_byte_count(0), Err(Error::InvalidInput(_))));
+        assert!(matches!(map.logical_byte_capacity(0), Err(Error::InvalidInput(_))));
+
+        let huge = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 1,
+            block_count: u64::MAX,
+        }]);
+        assert!(matches!(huge, Err(Error::ArithmeticOverflow)));
     }
 
     #[test]
