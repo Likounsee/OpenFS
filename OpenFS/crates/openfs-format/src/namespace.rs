@@ -590,7 +590,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(ns.validated_extent_root_inventory(8, 40).unwrap(), vec![12, 30]);
+        assert_eq!(
+            ns.validated_extent_root_inventory(8, 40).unwrap(),
+            vec![12, 30]
+        );
         assert_eq!(ns.extent_root_owner_count().unwrap(), 2);
         assert!(matches!(
             ns.validated_extent_root_inventory(12, 40),
