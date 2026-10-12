@@ -98,6 +98,73 @@ impl ExtentMap {
         self.validate_ordering()
     }
 
+    /// Remove a logical block range and return the physical runs that became unreferenced.
+    ///
+    /// The operation is atomic in memory: validation or arithmetic errors leave the map
+    /// unchanged. The caller is responsible for journaling metadata changes and freeing
+    /// returned physical runs in the same persistent transaction.
+    pub fn remove_range(&mut self, logical_start: u64, block_count: u64) -> Result<Vec<Extent>> {
+        if block_count == 0 {
+            return Err(Error::InvalidInput("removed logical range must be nonzero"));
+        }
+        let logical_end = logical_start
+            .checked_add(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut kept = Vec::with_capacity(self.extents.len() + 1);
+        let mut removed = Vec::new();
+        for extent in &self.extents {
+            let extent_end = extent.logical_end()?;
+            let overlap_start = extent.logical_start.max(logical_start);
+            let overlap_end = extent_end.min(logical_end);
+            if overlap_start >= overlap_end {
+                kept.push(*extent);
+                continue;
+            }
+            if extent.logical_start < overlap_start {
+                kept.push(Extent {
+                    logical_start: extent.logical_start,
+                    physical_start: extent.physical_start,
+                    block_count: overlap_start - extent.logical_start,
+                });
+            }
+            removed.push(Extent {
+                logical_start: overlap_start,
+                physical_start: extent.physical_start
+                    .checked_add(overlap_start - extent.logical_start)
+                    .ok_or(Error::ArithmeticOverflow)?,
+                block_count: overlap_end - overlap_start,
+            });
+            if overlap_end < extent_end {
+                kept.push(Extent {
+                    logical_start: overlap_end,
+                    physical_start: extent.physical_start
+                        .checked_add(overlap_end - extent.logical_start)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                    block_count: extent_end - overlap_end,
+                });
+            }
+        }
+        let validated = Self::new(kept)?;
+        self.extents = validated.extents;
+        Ok(removed)
+    }
+
+    /// Truncate the logical file to the given block count, returning blocks to release.
+    /// Extents before the new end are preserved, including sparse holes.
+    pub fn truncate(&mut self, logical_block_count: u64) -> Result<Vec<Extent>> {
+        let logical_end = self
+            .extents
+            .iter()
+            .map(|extent| extent.logical_end())
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .max()
+            .unwrap_or(0);
+        if logical_block_count >= logical_end {
+            return Ok(Vec::new());
+        }
+        self.remove_range(logical_block_count, logical_end - logical_block_count)
+    }
     /// Validate logical ordering and ensure physical extents are inside the data region.
     /// data_end is exclusive. Physical extents must not alias one another.
     pub fn validate(&self, logical_block_count: u64, data_start: u64, data_end: u64) -> Result<()> {
@@ -346,6 +413,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn range_removal_splits_extents_and_returns_releasable_runs() {
+        let mut map = ExtentMap::new(vec![
+            Extent { logical_start: 0, physical_start: 100, block_count: 8 },
+            Extent { logical_start: 12, physical_start: 300, block_count: 3 },
+        ]).unwrap();
+        let removed = map.remove_range(2, 4).unwrap();
+        assert_eq!(removed, vec![Extent {
+            logical_start: 2, physical_start: 102, block_count: 4
+        }]);
+        assert_eq!(map.extents(), &[
+            Extent { logical_start: 0, physical_start: 100, block_count: 2 },
+            Extent { logical_start: 6, physical_start: 106, block_count: 2 },
+            Extent { logical_start: 12, physical_start: 300, block_count: 3 },
+        ]);
+        assert!(matches!(map.remove_range(u64::MAX, 2), Err(Error::ArithmeticOverflow)));
+        assert_eq!(map.extents().len(), 3);
+    }
+
+    #[test]
+    fn truncate_preserves_prefix_and_returns_tail_extents() {
+        let mut map = ExtentMap::new(vec![
+            Extent { logical_start: 0, physical_start: 100, block_count: 3 },
+            Extent { logical_start: 5, physical_start: 200, block_count: 4 },
+        ]).unwrap();
+        let removed = map.truncate(6).unwrap();
+        assert_eq!(removed, vec![Extent {
+            logical_start: 6, physical_start: 201, block_count: 3
+        }]);
+        assert_eq!(map.extents(), &[
+            Extent { logical_start: 0, physical_start: 100, block_count: 3 },
+            Extent { logical_start: 5, physical_start: 200, block_count: 1 },
+        ]);
+        assert!(map.truncate(64).unwrap().is_empty());
+    }
     #[test]
     fn rejects_overflow_zero_length_and_capacity_errors() {
         assert!(matches!(
