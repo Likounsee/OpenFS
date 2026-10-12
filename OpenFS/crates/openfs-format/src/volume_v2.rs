@@ -489,22 +489,38 @@ mod tests {
         let other_path = image_path("geometry-other");
         {
             let mut original = ImageDevice::create(&volume_path, 4096, 256).unwrap();
-            let mut volume =
-                format_volume_v2(&mut original, *b"openfs-v2-test!!", 0).unwrap();
-            let mut other = ImageDevice::create(&other_path, 4096, 257).unwrap();
+            let mut volume = format_volume_v2(&mut original, *b"openfs-v2-test!!", 0).unwrap();
+            let mut wrong_count = ImageDevice::create(&other_path, 4096, 257).unwrap();
+            assert!(matches!(
+                volume.allocate_block(&mut wrong_count),
+                Err(Error::InvalidInput(
+                    "device geometry does not match opened v2 volume"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_block(&mut wrong_count, volume.volume.layout.data_start),
+                Err(Error::InvalidInput(
+                    "device geometry does not match opened v2 volume"
+                ))
+            ));
 
-            assert!(matches!(
-                volume.allocate_block(&mut other),
-                Err(Error::InvalidInput(
-                    "device geometry does not match opened v2 volume"
-                ))
-            ));
-            assert!(matches!(
-                volume.free_block(&mut other, volume.volume.layout.data_start),
-                Err(Error::InvalidInput(
-                    "device geometry does not match opened v2 volume"
-                ))
-            ));
+            let wrong_size_path = image_path("geometry-wrong-size");
+            {
+                let mut wrong_size = ImageDevice::create(&wrong_size_path, 8192, 256).unwrap();
+                assert!(matches!(
+                    volume.allocate_block(&mut wrong_size),
+                    Err(Error::InvalidInput(
+                        "device geometry does not match opened v2 volume"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_block(&mut wrong_size, volume.volume.layout.data_start),
+                    Err(Error::InvalidInput(
+                        "device geometry does not match opened v2 volume"
+                    ))
+                ));
+            }
+            fs::remove_file(wrong_size_path).unwrap();
 
             let reopened = open_volume_v2(&mut original).unwrap();
             assert_eq!(
