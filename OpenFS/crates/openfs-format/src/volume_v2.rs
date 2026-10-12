@@ -1887,6 +1887,80 @@ mod tests {
     }
 
     #[test]
+    fn v2_contiguous_allocator_is_atomic_and_persistent() {
+        let path = image_path("contiguous-allocator");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.volume.layout.data_start;
+            let initial_free = volume.free_data_block_count(&mut device).unwrap();
+
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 3).unwrap(),
+                Some(first)
+            );
+            let allocated = volume.allocate_contiguous_blocks(&mut device, 3).unwrap();
+            assert_eq!(allocated, first);
+            for block in first..first + 3 {
+                assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
+            }
+            assert_eq!(
+                volume.free_data_block_count(&mut device).unwrap(),
+                initial_free - 3
+            );
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 3).unwrap(),
+                Some(first + 3)
+            );
+            volume.validate_allocation_bitmap(&mut device).unwrap();
+            drop(volume);
+
+            let mut reopened = open_volume_v2(&mut device).unwrap();
+            for block in first..first + 3 {
+                assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+            }
+            reopened.free_block(&mut device, first + 1).unwrap();
+            assert_eq!(
+                reopened.find_contiguous_free_blocks(&mut device, 2).unwrap(),
+                Some(first + 3)
+            );
+            assert!(matches!(
+                reopened.allocate_contiguous_blocks(&mut device, 0),
+                Err(Error::InvalidInput(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_contiguous_allocator_rejects_unrepresentable_extents_without_mutation() {
+        let path = image_path("contiguous-allocator-limits");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let before = volume.journal.checkpoint();
+            assert!(matches!(
+                volume.find_contiguous_free_blocks(&mut device, 0),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                volume.allocate_contiguous_blocks(&mut device, 4096_u64 * 8 + 1),
+                Err(Error::InvalidInput(_))
+            ));
+            assert_eq!(volume.journal.checkpoint(), before);
+            assert_eq!(
+                volume.allocate_contiguous_blocks(&mut device, 4096_u64 * 8).unwrap(),
+                volume.volume.layout.data_start
+            );
+            assert!(matches!(
+                volume.allocate_contiguous_blocks(&mut device, 1),
+                Err(Error::InvalidInput("no contiguous free data extent"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
