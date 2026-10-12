@@ -284,8 +284,8 @@ impl OpenedVolumeV2 {
                 let allocated = bitmap[byte] & (1_u8 << (local % 8)) != 0;
                 if owner_index < owned.len() && owned[owner_index] < block {
                     return Err(Error::Corrupt(
-                "ownership map contains an unscanned data block",
-            ));
+                        "ownership map contains an unscanned data block",
+                    ));
                 }
                 let referenced = owner_index < owned.len() && owned[owner_index] == block;
                 if allocated != referenced {
