@@ -2554,7 +2554,15 @@ mod tests {
                 .validate_extent_map_ownership(&mut device, &[(&first_map, 2), (&second_map, 2)])
                 .unwrap();
 
-            // Every allocated block must have exactly one owner.
+            // Diagnostic mode identifies the exact allocated blocks with no discovered owner.
+            let orphan_report = volume
+                .extent_map_ownership_report(&mut device, &[(&first_map, 2)])
+                .unwrap();
+            assert_eq!(orphan_report.orphaned_allocations, vec![blocks[2], blocks[3]]);
+            assert!(orphan_report.dangling_references.is_empty());
+            assert!(!orphan_report.is_consistent());
+
+            // Strict mode remains available when a caller only needs pass/fail.
             assert!(matches!(
                 volume.validate_extent_map_ownership(&mut device, &[(&first_map, 2)]),
                 Err(Error::Corrupt(_))
@@ -2595,6 +2603,14 @@ mod tests {
                 block_count: 1,
             }])
             .unwrap();
+            let dangling_report = volume
+                .extent_map_ownership_report(&mut device, &[(&dangling, 1)])
+                .unwrap();
+            assert_eq!(
+                dangling_report.orphaned_allocations,
+                vec![blocks[0], blocks[1], blocks[2]]
+            );
+            assert_eq!(dangling_report.dangling_references, vec![blocks[3]]);
             assert!(matches!(
                 volume.validate_extent_map_ownership(&mut device, &[(&dangling, 1)]),
                 Err(Error::Corrupt(_))
