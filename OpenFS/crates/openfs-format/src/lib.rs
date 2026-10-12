@@ -299,8 +299,8 @@ mod volume;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use journal::{
-    JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE,
-    JOURNAL_VERSION,
+    plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
+    JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
 };
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use namespace::Namespace;

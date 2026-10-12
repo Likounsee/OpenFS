@@ -1,7 +1,7 @@
 //! Byte-level codec for OpenFS write-ahead journal records.
 //!
-//! This module validates individual records only. It does not implement ordering,
-//! transaction assembly, persistence barriers, replay, or crash recovery.
+//! This module validates individual records and builds a fail-closed recovery plan.
+//! It does not scan persistent storage, write a WAL, apply redo, or provide crash recovery.
 
 use openfs_core::{Error, Result};
 
@@ -129,6 +129,105 @@ impl JournalRecord {
     }
 }
 
+/// One fully committed transaction selected for redo during recovery planning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommittedTransaction {
+    /// The transaction's non-zero, monotonically increasing identifier.
+    pub transaction_id: u64,
+    /// Redo payloads in journal order. Their interpretation belongs to the caller.
+    pub updates: Vec<Vec<u8>>,
+}
+
+/// Validate an ordered stream after a durable checkpoint and select committed redo.
+///
+/// The first record must have sequence `checkpoint_sequence + 1`; every subsequent
+/// record must be contiguous. The draft protocol permits one serialized writer, so
+/// transactions cannot interleave. A final transaction without a terminal COMMIT or
+/// ABORT is treated as uncommitted and omitted. Malformed ordering, sequence gaps,
+/// reused/non-increasing transaction IDs, or an incomplete transaction followed by
+/// more records are corruption. The caller must still scan persistent storage,
+/// distinguish a torn final record, and apply returned updates idempotently.
+pub fn plan_recovery(
+    records: &[JournalRecord],
+    checkpoint_sequence: u64,
+) -> Result<Vec<CommittedTransaction>> {
+    let mut expected_sequence = checkpoint_sequence
+        .checked_add(1)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut last_transaction_id = 0_u64;
+    let mut active: Option<CommittedTransaction> = None;
+    let mut completed = Vec::new();
+
+    for (index, record) in records.iter().enumerate() {
+        validate_record(record)?;
+        if record.sequence != expected_sequence {
+            return Err(Error::Corrupt(
+                "journal sequence is not contiguous after checkpoint",
+            ));
+        }
+        expected_sequence = expected_sequence
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        match record.kind {
+            JournalRecordKind::Begin => {
+                if active.is_some() || record.transaction_id <= last_transaction_id {
+                    return Err(Error::Corrupt(
+                        "invalid or interleaved journal transaction",
+                    ));
+                }
+                last_transaction_id = record.transaction_id;
+                active = Some(CommittedTransaction {
+                    transaction_id: record.transaction_id,
+                    updates: Vec::new(),
+                });
+            }
+            JournalRecordKind::Update => {
+                let transaction = active
+                    .as_mut()
+                    .ok_or(Error::Corrupt("journal UPDATE without BEGIN"))?;
+                if transaction.transaction_id != record.transaction_id {
+                    return Err(Error::Corrupt("journal UPDATE transaction ID mismatch"));
+                }
+                transaction.updates.push(record.payload.clone());
+            }
+            JournalRecordKind::Commit => {
+                let transaction = active
+                    .take()
+                    .ok_or(Error::Corrupt("journal COMMIT without BEGIN"))?;
+                if transaction.transaction_id != record.transaction_id {
+                    return Err(Error::Corrupt("journal COMMIT transaction ID mismatch"));
+                }
+                completed.push(transaction);
+            }
+            JournalRecordKind::Abort => {
+                let transaction = active
+                    .take()
+                    .ok_or(Error::Corrupt("journal ABORT without BEGIN"))?;
+                if transaction.transaction_id != record.transaction_id {
+                    return Err(Error::Corrupt("journal ABORT transaction ID mismatch"));
+                }
+            }
+        }
+
+        if let Some(transaction) = active.as_ref() {
+            if index + 1 < records.len() {
+                let next = &records[index + 1];
+                if next.kind == JournalRecordKind::Begin
+                    || next.transaction_id != transaction.transaction_id
+                {
+                    return Err(Error::Corrupt(
+                        "incomplete journal transaction is not at stream tail",
+                    ));
+                }
+            }
+        }
+    }
+
+    // Any transaction still active at the end lacks a durable terminal record.
+    Ok(completed)
+}
+
 fn validate_record(record: &JournalRecord) -> Result<()> {
     if record.sequence == 0 {
         return Err(Error::InvalidInput("journal sequence must be non-zero"));
@@ -199,8 +298,8 @@ fn get_u64(bytes: &[u8], offset: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE,
-        JOURNAL_VERSION,
+        plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind,
+        JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
     };
     use openfs_core::Error;
 
@@ -338,6 +437,88 @@ mod tests {
         };
         let bytes = valid_max.encode().unwrap();
         assert_eq!(JournalRecord::decode(&bytes).unwrap(), valid_max);
+    }
+
+
+    fn record(
+        kind: JournalRecordKind,
+        sequence: u64,
+        transaction_id: u64,
+        payload: &[u8],
+    ) -> JournalRecord {
+        JournalRecord {
+            kind,
+            sequence,
+            transaction_id,
+            payload: payload.to_vec(),
+        }
+    }
+
+    #[test]
+    fn recovery_plan_replays_only_committed_transactions_in_order() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 11, 4, b""),
+            record(JournalRecordKind::Update, 12, 4, b"redo-a"),
+            record(JournalRecordKind::Update, 13, 4, b"redo-b"),
+            record(JournalRecordKind::Commit, 14, 4, b""),
+            record(JournalRecordKind::Begin, 15, 5, b""),
+            record(JournalRecordKind::Update, 16, 5, b"redo-uncommitted"),
+        ];
+        let plan = plan_recovery(&records, 10).unwrap();
+        assert_eq!(
+            plan,
+            vec![CommittedTransaction {
+                transaction_id: 4,
+                updates: vec![b"redo-a".to_vec(), b"redo-b".to_vec()],
+            }]
+        );
+    }
+
+    #[test]
+    fn recovery_plan_discards_aborted_transactions() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 1, 1, b""),
+            record(JournalRecordKind::Update, 2, 1, b"must-not-replay"),
+            record(JournalRecordKind::Abort, 3, 1, b""),
+        ];
+        assert!(plan_recovery(&records, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn recovery_plan_fails_closed_on_sequence_gaps_and_bad_order() {
+        let gap = vec![
+            record(JournalRecordKind::Begin, 1, 1, b""),
+            record(JournalRecordKind::Commit, 3, 1, b""),
+        ];
+        assert!(matches!(plan_recovery(&gap, 0), Err(Error::Corrupt(_))));
+
+        let update_without_begin = vec![record(JournalRecordKind::Update, 1, 1, b"x")];
+        assert!(matches!(
+            plan_recovery(&update_without_begin, 0),
+            Err(Error::Corrupt(_))
+        ));
+
+        let mismatched = vec![
+            record(JournalRecordKind::Begin, 1, 1, b""),
+            record(JournalRecordKind::Commit, 2, 2, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&mismatched, 0),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn recovery_plan_requires_incomplete_transaction_at_the_tail() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 1, 1, b""),
+            record(JournalRecordKind::Update, 2, 1, b"redo"),
+            record(JournalRecordKind::Begin, 3, 2, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&records, 0),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
