@@ -7,7 +7,32 @@ use crate::{OpenedVolumeV2, RedoUpdate, VolumeLayoutV2};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
+/// Read-only snapshot of usable data-space capacity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllocationStats {
+    pub total_data_blocks: u64,
+    pub allocated_data_blocks: u64,
+    pub free_data_blocks: u64,
+}
+
 impl OpenedVolumeV2 {
+    /// Return total, allocated, and free data-block counts from the current bitmap.
+    pub fn allocation_stats<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<AllocationStats> {
+        let free = self.free_data_block_count(device)?;
+        let total = self.volume.layout.data_blocks();
+        let allocated = total.checked_sub(free).ok_or(Error::Corrupt(
+            "free-space count exceeds the usable data region",
+        ))?;
+        Ok(AllocationStats {
+            total_data_blocks: total,
+            allocated_data_blocks: allocated,
+            free_data_blocks: free,
+        })
+    }
+
     /// Allocate several data blocks atomically and return their block numbers.
     ///
     /// All selected blocks are represented by one bitmap home-block image, so this
@@ -130,7 +155,7 @@ impl OpenedVolumeV2 {
                 target_block: bitmap_block,
                 contents: bitmap,
             }],
-        )
+        ).map(|_| ())
     }
 
     /// Find the first free contiguous extent wholly contained in one bitmap block.
