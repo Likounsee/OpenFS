@@ -269,10 +269,7 @@ impl OpenedVolumeV2 {
     ///
     /// This is a read-only allocator inventory, not a promise that all listed blocks can be
     /// allocated together: each journaled batch must fit within one bitmap segment.
-    pub fn free_data_block_inventory<D: BlockDevice>(
-        &self,
-        device: &mut D,
-    ) -> Result<Vec<u64>> {
+    pub fn free_data_block_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<u64>> {
         validate_device(self, device)?;
         self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
@@ -333,7 +330,8 @@ impl OpenedVolumeV2 {
                     run_len += 1;
                 } else if run_len != 0 {
                     stats.free_extent_count += 1;
-                    stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+                    stats.largest_free_extent_blocks =
+                        stats.largest_free_extent_blocks.max(run_len);
                     run_len = 0;
                 }
             }
