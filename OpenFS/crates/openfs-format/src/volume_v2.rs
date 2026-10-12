@@ -984,7 +984,10 @@ mod tests {
             reserved_blocks = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
                 .collect::<Vec<_>>();
-            assert_eq!(reserved_blocks, (0..8).chain(std::iter::once(255)).collect::<Vec<_>>());
+            assert_eq!(
+                reserved_blocks,
+                (0..8).chain(std::iter::once(255)).collect::<Vec<_>>()
+            );
         }
         fs::remove_file(&base).unwrap();
 
@@ -1001,10 +1004,15 @@ mod tests {
                 device.write_blocks(bitmap_block, &bitmap).unwrap();
                 device.flush().unwrap();
 
-                assert!(matches!(
-                    open_volume_v2(&mut device),
-                    Err(Error::Corrupt("v2 bitmap marks a reserved or padding block free"))
-                ), "reserved block {reserved} was accepted as free");
+                assert!(
+                    matches!(
+                        open_volume_v2(&mut device),
+                        Err(Error::Corrupt(
+                            "v2 bitmap marks a reserved or padding block free"
+                        ))
+                    ),
+                    "reserved block {reserved} was accepted as free"
+                );
             }
             fs::remove_file(path).unwrap();
         }
