@@ -286,6 +286,92 @@ impl OpenedVolumeV2 {
     }
 }
 
+/// Result of a non-mutating V2 volume check.
+///
+/// This verifies the primary/backup superblocks, canonical geometry, and reserved/padding
+/// bitmap invariants. It deliberately does not replay the journal or claim namespace
+/// ownership integrity; use `open_volume_v2` when recovery is intended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeCheckReport {
+    pub block_size: u32,
+    pub total_blocks: u64,
+    pub data_blocks: u64,
+    pub allocated_data_blocks: u64,
+    pub free_data_blocks: u64,
+}
+
+/// Inspect static V2 volume metadata without writing to the device.
+///
+/// Unlike `open_volume_v2`, this function does not recover or checkpoint the journal.
+/// It is suitable for a read-only first-pass checker, not a full crash-recovery verdict.
+pub fn check_volume_v2<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport> {
+    if device.block_size() < SUPERBLOCK_SIZE as u32 {
+        return Err(Error::InvalidInput(
+            "device block is smaller than the superblock record",
+        ));
+    }
+    let last = device
+        .block_count()
+        .checked_sub(1)
+        .ok_or(Error::InvalidInput("empty device"))?;
+    let primary = read_superblock(device, 0)?;
+    let backup = read_superblock(device, last)?;
+    if primary != backup {
+        return Err(Error::Corrupt("primary and backup v2 superblocks disagree"));
+    }
+    let (block_size, total_blocks, _features, _uuid) = decode_superblock_v2(&primary)?;
+    if block_size != device.block_size() || total_blocks != device.block_count() {
+        return Err(Error::Corrupt(
+            "v2 superblock geometry does not match device geometry",
+        ));
+    }
+    let layout = VolumeLayoutV2::calculate(block_size, total_blocks)?;
+    validate_bitmap(device, &layout)?;
+
+    let bits_per_bitmap_block = u64::from(block_size) * 8;
+    let first_bitmap = layout.data_start / bits_per_bitmap_block;
+    let last_data_block = layout.backup_superblock - 1;
+    let last_bitmap = last_data_block / bits_per_bitmap_block;
+    let mut free_data_blocks = 0_u64;
+    for bitmap_index in first_bitmap..=last_bitmap {
+        let bitmap_block = layout.bitmap_start + bitmap_index;
+        let mut bitmap = vec![0_u8; block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        let base = bitmap_index * bits_per_bitmap_block;
+        let first = layout.data_start.max(base);
+        let end = layout
+            .backup_superblock
+            .min(base.saturating_add(bits_per_bitmap_block));
+        let first_byte = usize::try_from((first - base) / 8)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let end_byte = usize::try_from((end - base).saturating_add(7) / 8)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            let mut mask = u8::MAX;
+            if byte_index == first_byte {
+                mask &= u8::MAX << ((first - base) % 8);
+            }
+            if byte_index + 1 == end_byte && (end - base) % 8 != 0 {
+                mask &= (1_u8 << ((end - base) % 8)) - 1;
+            }
+            free_data_blocks = free_data_blocks
+                .checked_add((!*byte & mask).count_ones() as u64)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+    }
+    let data_blocks = layout.data_blocks();
+    if free_data_blocks > data_blocks {
+        return Err(Error::Corrupt("free data block count exceeds data region"));
+    }
+    Ok(VolumeCheckReport {
+        block_size,
+        total_blocks,
+        data_blocks,
+        allocated_data_blocks: data_blocks - free_data_blocks,
+        free_data_blocks,
+    })
+}
+
 /// Format a device as v2. Destructive; call only on a disposable image or explicitly
 /// selected device. Physical-device formatting is not exposed by the host utility.
 pub fn format_volume_v2<D: BlockDevice>(
