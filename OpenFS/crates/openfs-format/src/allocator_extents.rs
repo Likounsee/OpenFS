@@ -887,7 +887,9 @@ impl OpenedVolumeV2 {
             start >= end || *start < layout.data_start || *end > layout.backup_superblock
         }) || owned_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0)
         {
-            return Err(Error::Corrupt("invalid or overlapping physical owner ranges"));
+            return Err(Error::Corrupt(
+                "invalid or overlapping physical owner ranges",
+            ));
         }
 
         let bits_per_block = u64::from(layout.block_size) * 8;
