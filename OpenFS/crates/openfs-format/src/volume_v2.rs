@@ -2491,41 +2491,44 @@ mod tests {
 
     #[test]
     fn v2_allocated_block_inventory_tracks_persistent_bitmap_state() {
-        let path = image_path("allocated-block-inventory");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            assert!(volume
-                .allocated_data_block_inventory(&mut device)
-                .unwrap()
-                .is_empty());
-
-            let first = volume.allocate_block(&mut device).unwrap();
-            let second = volume.allocate_block(&mut device).unwrap();
-            let third = volume.allocate_block(&mut device).unwrap();
-            assert_eq!(
-                volume.allocated_data_block_inventory(&mut device).unwrap(),
-                vec![first, second, third]
-            );
-
-            volume.free_block(&mut device, second).unwrap();
-            device.flush().unwrap();
-            drop(volume);
-
-            let volume = open_volume_v2(&mut device).unwrap();
-            assert_eq!(
-                volume.allocated_data_block_inventory(&mut device).unwrap(),
-                vec![first, third]
-            );
-            assert_eq!(
-                volume
-                    .allocation_stats(&mut device)
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("allocated-block-inventory-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                assert!(volume
+                    .allocated_data_block_inventory(&mut device)
                     .unwrap()
-                    .allocated_data_blocks,
-                2
-            );
+                    .is_empty());
+
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                let third = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(
+                    volume.allocated_data_block_inventory(&mut device).unwrap(),
+                    vec![first, second, third]
+                );
+
+                volume.free_block(&mut device, second).unwrap();
+                device.flush().unwrap();
+                drop(volume);
+
+                let volume = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    volume.allocated_data_block_inventory(&mut device).unwrap(),
+                    vec![first, third]
+                );
+                assert_eq!(
+                    volume
+                        .allocation_stats(&mut device)
+                        .unwrap()
+                        .allocated_data_blocks,
+                    2
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
