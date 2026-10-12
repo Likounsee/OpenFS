@@ -124,8 +124,8 @@ impl OpenedVolumeV2 {
             device.read_blocks(bitmap_block, &mut bitmap)?;
 
             let first_block = (bitmap_index * bits_per_block).max(self.volume.layout.data_start);
-            let end_block = ((bitmap_index + 1) * bits_per_block)
-                .min(self.volume.layout.backup_superblock);
+            let end_block =
+                ((bitmap_index + 1) * bits_per_block).min(self.volume.layout.backup_superblock);
             for block in first_block..end_block {
                 let local = block % bits_per_block;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
