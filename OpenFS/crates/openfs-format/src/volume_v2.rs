@@ -130,12 +130,27 @@ impl OpenedVolumeV2 {
             let end_block = bitmap_base
                 .saturating_add(bits_per_block)
                 .min(self.volume.layout.backup_superblock);
-            for block in first_block..end_block {
-                let local = block % bits_per_block;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                let mask = 1_u8 << (local % 8);
-                if bitmap[byte] & mask == 0 {
-                    bitmap[byte] |= mask;
+            let local_start = first_block - bitmap_base;
+            let local_end = end_block - bitmap_base;
+            let first_byte = usize::try_from(local_start / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for byte_index in first_byte..end_byte {
+                let byte_start = (byte_index as u64) * 8;
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
+                }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let available = !bitmap[byte_index] & valid_mask;
+                if available != 0 {
+                    let bit = u64::from(available.trailing_zeros());
+                    let local = byte_start + bit;
+                    let block = bitmap_base + local;
+                    bitmap[byte_index] |= 1_u8 << bit;
                     self.journal.commit(
                         device,
                         &[RedoUpdate {
@@ -195,13 +210,22 @@ impl OpenedVolumeV2 {
             let end_block = bitmap_base
                 .saturating_add(bits_per_block)
                 .min(self.volume.layout.backup_superblock);
-            for block in first_block..end_block {
-                let local = block % bits_per_block;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                let mask = 1_u8 << (local % 8);
-                if bitmap[byte] & mask == 0 {
-                    free = free.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            let local_start = first_block - bitmap_base;
+            let local_end = end_block - bitmap_base;
+            let first_byte = usize::try_from(local_start / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for byte_index in first_byte..end_byte {
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
                 }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let free_bits = (!bitmap[byte_index] & valid_mask).count_ones() as u64;
+                free = free.checked_add(free_bits).ok_or(Error::ArithmeticOverflow)?;
             }
         }
         Ok(free)
