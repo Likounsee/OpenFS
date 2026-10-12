@@ -1191,6 +1191,52 @@ mod allocation_bitmap_report_tests {
     }
 
     #[test]
+    fn bitmap_run_search_handles_byte_boundaries_and_fragmentation() {
+        let path = image_path("bitmap-run-search");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let data_start = volume.volume.layout.data_start;
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 17).unwrap(),
+                Some(data_start),
+                "a free run must span bitmap-byte boundaries"
+            );
+
+            let first = volume.allocate_contiguous_blocks(&mut device, 3).unwrap();
+            assert_eq!(first, data_start);
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 17).unwrap(),
+                Some(data_start + 3),
+                "search must resume after an allocated prefix"
+            );
+
+            let isolated = volume.allocate_contiguous_blocks(&mut device, 1).unwrap();
+            assert_eq!(isolated, data_start + 3);
+            volume.allocate_contiguous_blocks(&mut device, 1).unwrap();
+            volume.allocate_contiguous_blocks(&mut device, 1).unwrap();
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 17).unwrap(),
+                Some(data_start + 6),
+                "an allocated gap must terminate the preceding free run"
+            );
+
+            let extents = volume.free_extent_inventory(&mut device).unwrap();
+            assert!(extents.iter().all(|extent| extent.block_count > 0));
+            assert!(extents.windows(2).all(|pair| {
+                pair[0].start_block + pair[0].block_count <= pair[1].start_block
+            }));
+            assert!(extents.iter().all(|extent| {
+                extent.start_block / (u64::from(4096_u32) * 8)
+                    == (extent.start_block + extent.block_count - 1)
+                        / (u64::from(4096_u32) * 8)
+            }));
+            assert_eq!(isolated, data_start + 3);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn free_inventory_matches_allocation_state_across_supported_block_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("free-inventory-{block_size}"));
