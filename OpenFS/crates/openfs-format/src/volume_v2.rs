@@ -1989,14 +1989,20 @@ mod tests {
             assert_eq!(blocks[0], first);
             let after_allocate = volume.allocation_stats(&mut device).unwrap();
             assert_eq!(after_allocate.free_data_blocks, before.free_data_blocks - 4);
-            assert_eq!(after_allocate.allocated_data_blocks, before.allocated_data_blocks + 4);
+            assert_eq!(
+                after_allocate.allocated_data_blocks,
+                before.allocated_data_blocks + 4
+            );
 
             assert!(matches!(
                 volume.free_blocks(&mut device, &[blocks[0], blocks[0]]),
                 Err(Error::InvalidInput(_))
             ));
             assert!(matches!(
-                volume.free_blocks(&mut device, &[blocks[0], volume.volume.layout.backup_superblock]),
+                volume.free_blocks(
+                    &mut device,
+                    &[blocks[0], volume.volume.layout.backup_superblock]
+                ),
                 Err(Error::InvalidInput(_))
             ));
             volume.free_blocks(&mut device, &blocks).unwrap();
