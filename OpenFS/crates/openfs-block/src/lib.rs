@@ -280,14 +280,12 @@ impl RawDevice {
     /// For regular files, the declared geometry must exactly match the current file
     /// length. Device nodes may report no meaningful length, so their block count is
     /// supplied explicitly by the caller.
-    pub fn open(
-        path: impl AsRef<Path>,
-        block_size: u32,
-        block_count: u64,
-    ) -> Result<Self> {
+    pub fn open(path: impl AsRef<Path>, block_size: u32, block_count: u64) -> Result<Self> {
         validate_block_size(block_size)?;
         if block_count == 0 {
-            return Err(Error::InvalidInput("raw device must contain at least one block"));
+            return Err(Error::InvalidInput(
+                "raw device must contain at least one block",
+            ));
         }
         let expected_length = u64::from(block_size)
             .checked_mul(block_count)
@@ -299,7 +297,11 @@ impl RawDevice {
                 "regular-file length does not match declared raw-device geometry",
             ));
         }
-        Ok(Self { file, block_size, block_count })
+        Ok(Self {
+            file,
+            block_size,
+            block_count,
+        })
     }
 
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<()> {
@@ -315,18 +317,25 @@ impl RawDevice {
     }
 
     fn byte_offset(&self, first_block: u64) -> Result<u64> {
-        first_block.checked_mul(u64::from(self.block_size)).ok_or(Error::ArithmeticOverflow)
+        first_block
+            .checked_mul(u64::from(self.block_size))
+            .ok_or(Error::ArithmeticOverflow)
     }
 }
 
 impl BlockDevice for RawDevice {
-    fn block_size(&self) -> u32 { self.block_size }
+    fn block_size(&self) -> u32 {
+        self.block_size
+    }
 
-    fn block_count(&self) -> u64 { self.block_count }
+    fn block_count(&self) -> u64 {
+        self.block_count
+    }
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
         self.validate_buffer(first_block, output.len())?;
-        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file
+            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
         self.file.read_exact(output)?;
         Ok(())
     }
