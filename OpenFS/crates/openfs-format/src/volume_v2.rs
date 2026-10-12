@@ -1303,8 +1303,7 @@ mod tests {
             let path = image_path(&format!("minimum-volume-exhaustion-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
 
