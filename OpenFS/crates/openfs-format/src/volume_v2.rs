@@ -348,6 +348,13 @@ impl OpenedVolumeV2 {
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
+        if u64::try_from(required_blocks).map_err(|_| Error::ArithmeticOverflow)?
+            > self.volume.layout.data_blocks()
+        {
+            return Err(Error::InvalidInput(
+                "inventory exceeds the usable data region",
+            ));
+        }
         if blocks.len() != required_blocks {
             return Err(Error::InvalidInput(
                 "inventory block list does not match its record count",
@@ -906,6 +913,14 @@ mod tests {
                 Err(Error::InvalidInput(
                     "inventory block list does not match its record count"
                 ))
+            ));
+            assert!(matches!(
+                volume.read_metadata_inventory(
+                    &mut device,
+                    &[],
+                    usize::MAX / crate::METADATA_RECORD_SIZE,
+                ),
+                Err(Error::ArithmeticOverflow)
             ));
         }
         fs::remove_file(path).unwrap();
