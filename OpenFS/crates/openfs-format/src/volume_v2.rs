@@ -2572,6 +2572,51 @@ mod tests {
     }
 
     #[test]
+    fn v2_range_based_ownership_report_handles_fragmentation_and_freed_references() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("range-ownership-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let blocks = volume.allocate_blocks(&mut device, 5).unwrap();
+                let map = ExtentMap::new(vec![
+                    Extent {
+                        logical_start: 0,
+                        physical_start: blocks[2],
+                        block_count: 2,
+                    },
+                    Extent {
+                        logical_start: 3,
+                        physical_start: blocks[0],
+                        block_count: 2,
+                    },
+                ])
+                .unwrap();
+
+                volume
+                    .validate_extent_map_ownership(&mut device, &[(&map, 5)])
+                    .unwrap();
+
+                volume.free_block(&mut device, blocks[1]).unwrap();
+                let report = volume
+                    .extent_map_ownership_report(&mut device, &[(&map, 5)])
+                    .unwrap();
+                assert_eq!(report.orphaned_allocations, vec![blocks[4]]);
+                assert_eq!(report.orphaned_allocation_count, 1);
+                assert_eq!(report.dangling_references, vec![blocks[1]]);
+                assert_eq!(report.dangling_reference_count, 1);
+                assert!(!report.is_consistent());
+                assert!(matches!(
+                    volume.validate_extent_map_ownership(&mut device, &[(&map, 5)]),
+                    Err(Error::Corrupt(_))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_extent_map_ownership_bridge_checks_bitmap_and_cross_file_aliases() {
         let path = image_path("extent-map-ownership-bridge");
         {
