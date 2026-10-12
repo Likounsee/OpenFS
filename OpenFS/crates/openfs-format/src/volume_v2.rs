@@ -1696,7 +1696,9 @@ mod tests {
                 // Consume every data block represented by the first bitmap segment.
                 let first_end = bits_per_block.min(layout.backup_superblock);
                 let mut bitmap = vec![0_u8; block_size as usize];
-                device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+                device
+                    .read_blocks(layout.bitmap_start, &mut bitmap)
+                    .unwrap();
                 for block in layout.data_start..first_end {
                     let bit = block;
                     bitmap[(bit / 8) as usize] |= 1 << (bit % 8);
