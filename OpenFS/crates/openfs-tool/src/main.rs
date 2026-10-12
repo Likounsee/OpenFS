@@ -131,3 +131,55 @@ fn print_usage() {
     eprintln!("  openfs inspect-image <path>");
     eprintln!("create-image refuses to overwrite an existing file.");
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{create_image, inspect_image};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "openfs-tool-{label}-{}-{nonce}.img",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn creates_and_reopens_a_valid_development_image() {
+        let path = unique_path("roundtrip");
+        let result = create_image(&path, 1);
+        assert!(result.is_ok(), "image creation failed: {result:?}");
+        assert!(inspect_image(&path).is_ok(), "created image did not reopen");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_overwrite_existing_file_and_preserves_contents() {
+        let path = unique_path("no-overwrite");
+        let original = b"preserve this unrelated file";
+        fs::write(&path, original).unwrap();
+
+        assert!(create_image(&path, 1).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_zero_and_excessive_image_sizes_before_creating_files() {
+        let zero_path = unique_path("zero");
+        let huge_path = unique_path("huge");
+
+        assert!(create_image(&zero_path, 0).is_err());
+        assert!(create_image(&huge_path, u64::MAX).is_err());
+        assert!(!zero_path.exists());
+        assert!(!huge_path.exists());
+    }
+}
