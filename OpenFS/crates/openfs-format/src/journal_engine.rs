@@ -360,11 +360,7 @@ fn read_checkpoint_pair<D: BlockDevice>(
     if let Err(Error::Io(_)) = &first {
         return first.map(|c| (c, 0));
     }
-        return first.map(|c| (c, 0));
-    }
     if let Err(Error::Io(_)) = &second {
-        return second.map(|c| (c, 1));
-    }
         return second.map(|c| (c, 1));
     }
     match (first, second) {
