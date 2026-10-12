@@ -782,7 +782,9 @@ mod tests {
         ));
         let mut device = failing.into_inner();
         let reopened = open_journal(&mut device, REGION).unwrap();
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, original_sequence);
+        // The scanner may advance past the valid BEGIN/UPDATE prefix, but must
+        // not replay the transaction without its terminal COMMIT.
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
         assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
     }
 
@@ -791,8 +793,9 @@ mod tests {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
         // One block redo is encoded as multiple chunks; the commit record follows them.
-        // Tear the final record write after its first 64 bytes so its checksum is invalid.
-        let mut failing = TearWriteAt::new(device.clone(), 4, 64);
+        // Tear inside the fixed header, before the checksum field is fully written.
+        // A 64-byte prefix would include the entire empty COMMIT record and is not torn.
+        let mut failing = TearWriteAt::new(device.clone(), 4, 20);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
