@@ -806,32 +806,34 @@ mod tests {
 
     #[test]
     fn recovery_io_failure_can_be_retried_without_losing_committed_redo() {
-        let mut device = formatted();
-        let mut journal = open_journal(&mut device, REGION).unwrap();
+        // Cover failures during replay, its flush, checkpoint write, and
+        // checkpoint flush. The transaction must remain consistent each time.
+        for fail_at in 6..10 {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
 
-        // First leave a durable commit whose home-block write fails.
-        let mut failing_commit = FailAt::new(device.clone(), 6);
-        assert!(matches!(
-            journal.commit(&mut failing_commit, &[update(0xA5)]),
-            Err(Error::Io(_))
-        ));
-        let mut device = failing_commit.into_inner();
-        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+            // Leave a durable commit whose first home-block write fails.
+            let mut failing_commit = FailAt::new(device.clone(), 6);
+            assert!(matches!(
+                journal.commit(&mut failing_commit, &[update(0xA5)]),
+                Err(Error::Io(_))
+            ));
+            let device = failing_commit.into_inner();
 
-        // Recovery reads both checkpoints and the four ring slots before its
-        // first home write. Fail that write, then retry recovery from disk.
-        let mut failing_recovery = FailAt::new(device, 6);
-        assert!(matches!(
-            open_journal(&mut failing_recovery, REGION),
-            Err(Error::Io(_))
-        ));
-        let mut device = failing_recovery.into_inner();
-        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+            // Recovery reads two checkpoints and four ring slots before the
+            // home write (operation 6), then flushes and checkpoints.
+            let mut failing_recovery = FailAt::new(device, fail_at);
+            assert!(matches!(
+                open_journal(&mut failing_recovery, REGION),
+                Err(Error::Io(_))
+            ));
+            let mut device = failing_recovery.into_inner();
 
-        let reopened = open_journal(&mut device, REGION)
-            .expect("a second recovery attempt must replay the durable transaction");
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
-        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+            let reopened = open_journal(&mut device, REGION)
+                .unwrap_or_else(|error| panic!("retry failed after recovery I/O {fail_at}: {error:?}"));
+            assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+            assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+        }
     }
 
     #[test]
