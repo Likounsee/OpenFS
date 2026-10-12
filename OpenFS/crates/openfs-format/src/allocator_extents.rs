@@ -261,6 +261,67 @@ impl OpenedVolumeV2 {
             .map(|_| ())
     }
 
+    /// Free a contiguous data extent atomically with one bitmap journal update.
+    ///
+    /// The entire range must be allocated, contained in the data region, and represented
+    /// by one bitmap block. Invalid ranges are rejected before the bitmap is journaled.
+    pub fn free_contiguous_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        start_block: u64,
+        count: u64,
+    ) -> Result<()> {
+        validate_device(self, device)?;
+        if count == 0 {
+            return Err(Error::InvalidInput(
+                "contiguous free extent length must be nonzero",
+            ));
+        }
+        let layout = self.volume.layout;
+        let end_block = start_block
+            .checked_add(count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if start_block < layout.data_start || end_block > layout.backup_superblock {
+            return Err(Error::InvalidInput(
+                "contiguous free extent contains a non-data block",
+            ));
+        }
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        if start_block / bits_per_block != (end_block - 1) / bits_per_block {
+            return Err(Error::InvalidInput(
+                "contiguous free extent must belong to one bitmap segment",
+            ));
+        }
+        let bitmap_index = start_block / bits_per_block;
+        let bitmap_block = layout.bitmap_start + bitmap_index;
+        let base = bitmap_index * bits_per_block;
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        for block in start_block..end_block {
+            let local = block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                return Err(Error::InvalidInput(
+                    "contiguous free extent contains an already-free block",
+                ));
+            }
+        }
+        for block in start_block..end_block {
+            let local = block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            bitmap[byte] &= !(1_u8 << (local % 8));
+        }
+        self.journal
+            .commit(
+                device,
+                &[RedoUpdate {
+                    target_block: bitmap_block,
+                    contents: bitmap,
+                }],
+            )
+            .map(|_| ())
+    }
+
     /// Find the first free contiguous extent wholly contained in one bitmap block.
     /// Returns its first data block, or None if no extent of this size exists.
     pub fn find_contiguous_free_blocks<D: BlockDevice>(
@@ -976,6 +1037,62 @@ mod allocation_bitmap_report_tests {
             ));
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn contiguous_free_round_trip_and_invalid_ranges_across_block_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("contiguous-free-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let start = volume.allocate_contiguous_blocks(&mut device, 5).unwrap();
+                let before = volume.allocation_stats(&mut device).unwrap();
+                assert_eq!(before.allocated_data_blocks, 5);
+
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, start, 0),
+                    Err(Error::InvalidInput(_))
+                ));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, start - 1, 2),
+                    Err(Error::InvalidInput(_))
+                ));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, start, u64::MAX),
+                    Err(Error::ArithmeticOverflow)
+                ));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, start, 6),
+                    Err(Error::InvalidInput(
+                        "contiguous free extent contains an already-free block"
+                    ))
+                ));
+                assert_eq!(
+                    volume.allocation_stats(&mut device).unwrap(),
+                    before,
+                    "invalid free attempts must not change allocation state, block_size={block_size}"
+                );
+
+                volume
+                    .free_contiguous_blocks(&mut device, start, 5)
+                    .unwrap();
+                let after = volume.allocation_stats(&mut device).unwrap();
+                assert_eq!(after.allocated_data_blocks, 0);
+                assert_eq!(after.free_data_blocks, before.free_data_blocks + 5);
+                assert!((start..start + 5).all(|block| {
+                    !volume.is_data_block_allocated(&mut device, block).unwrap()
+                }));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, start, 5),
+                    Err(Error::InvalidInput(
+                        "contiguous free extent contains an already-free block"
+                    ))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
