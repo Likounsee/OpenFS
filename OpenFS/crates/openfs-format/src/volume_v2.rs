@@ -1144,6 +1144,70 @@ mod tests {
     }
 
     #[test]
+    fn v2_layout_regions_are_disjoint_across_supported_geometries() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
+                let layout = VolumeLayoutV2::calculate(block_size, total_blocks).unwrap();
+                let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
+                let checkpoint_end = layout.journal.checkpoint_a + 1;
+                let ring_end = layout.journal.ring_start + layout.journal.ring_blocks;
+
+                assert_eq!(layout.bitmap_start, 1);
+                assert_eq!(bitmap_end, layout.journal.checkpoint_a);
+                assert_eq!(layout.journal.checkpoint_b, checkpoint_end);
+                assert_eq!(layout.journal.ring_start, layout.journal.checkpoint_b + 1);
+                assert_eq!(ring_end, layout.data_start);
+                assert!(layout.data_start < layout.backup_superblock);
+                assert_eq!(layout.backup_superblock, total_blocks - 1);
+                assert_eq!(
+                    layout.data_blocks(),
+                    layout.backup_superblock - layout.data_start
+                );
+
+                for block in 0..total_blocks {
+                    let should_be_reserved = block < layout.data_start
+                        || block == layout.backup_superblock;
+                    assert_eq!(
+                        layout.is_reserved(block),
+                        should_be_reserved,
+                        "reserved-region mismatch: block_size={block_size}, total_blocks={total_blocks}, block={block}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn v2_allocator_persists_mixed_allocate_free_sequence_across_reopens() {
+        let path = image_path("mixed-allocation-reopen-sequence");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.allocate_block(&mut device).unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+            let third = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(second, first + 1);
+            assert_eq!(third, second + 1);
+
+            volume.free_block(&mut device, second).unwrap();
+            volume.free_block(&mut device, first).unwrap();
+            device.flush().unwrap();
+            drop(volume);
+
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), second);
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), third + 1);
+            device.flush().unwrap();
+            drop(volume);
+
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), third + 2);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
     }
