@@ -428,11 +428,15 @@ mod tests {
             ));
             assert!(matches!(
                 volume.free_block(&mut device, volume.volume.layout.backup_superblock),
-                Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+                Err(Error::InvalidInput(
+                    "cannot free a reserved or out-of-range block",
+                ))
             ));
             assert!(matches!(
                 volume.free_block(&mut device, u64::MAX),
-                Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+                Err(Error::InvalidInput(
+                    "cannot free a reserved or out-of-range block",
+                ))
             ));
 
             // Invalid free attempts must not damage the journal or bitmap.
