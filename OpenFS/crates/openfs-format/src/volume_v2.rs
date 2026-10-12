@@ -527,13 +527,17 @@ mod tests {
         for block_size in [0_u32, 2048, 3000, 131_072] {
             assert!(matches!(
                 VolumeLayoutV2::calculate(block_size, 256),
-                Err(Error::InvalidInput("unsupported filesystem block size"))
+                Err(Error::InvalidInput(
+                    "unsupported filesystem block size"
+                ))
             ));
         }
 
         assert!(matches!(
             VolumeLayoutV2::calculate(4096, 11),
-            Err(Error::InvalidInput("volume is too small for v2 reserved regions"))
+            Err(Error::InvalidInput(
+                "volume is too small for v2 reserved regions"
+            ))
         ));
 
         let overflowing_blocks = u64::MAX / 4096 + 1;
