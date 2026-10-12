@@ -833,6 +833,10 @@ mod tests {
                     let mut bytes = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(block, &mut bytes).unwrap();
                     bytes[offset..offset + replacement.len()].copy_from_slice(replacement);
+                    if offset != 0 {
+                        let checksum = crate::crc32c(&bytes[..4088]);
+                        bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                    }
                     device.write_blocks(block, &bytes).unwrap();
                 }
                 device.flush().unwrap();
