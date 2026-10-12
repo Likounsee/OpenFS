@@ -55,6 +55,42 @@ impl Namespace {
         self.names.get(&(parent_id, name.to_owned()))
     }
 
+    /// Resolve a slash-separated path from the namespace root.
+    ///
+    /// Leading, trailing, and repeated slashes are accepted. Dot components are rejected
+    /// rather than interpreted, and every intermediate component must be a directory.
+    /// This resolves the in-memory model only; it does not read or persist disk state.
+    pub fn resolve_path(&self, path: &str) -> Result<ObjectId> {
+        let mut current = self.root_id;
+        for component in path.split('/').filter(|component| !component.is_empty()) {
+            if component == "." || component == ".." {
+                return Err(Error::InvalidInput(
+                    "dot path components are not supported",
+                ));
+            }
+            let entry = self
+                .lookup(current, component)
+                .ok_or(Error::InvalidInput("path component does not exist"))?;
+            let next = ObjectId::new(entry.object_id)?;
+            if next != self.root_id && self.objects.get(&next).is_none() {
+                return Err(Error::Corrupt("directory entry points to a missing object"));
+            }
+            current = next;
+            if component != path.rsplit('/').find(|part| !part.is_empty()).unwrap_or("") {
+                let record = self
+                    .objects
+                    .get(&current)
+                    .ok_or(Error::Corrupt("path object metadata is missing"))?;
+                if record.kind != ObjectKind::Directory {
+                    return Err(Error::InvalidInput(
+                        "intermediate path component is not a directory",
+                    ));
+                }
+            }
+        }
+        Ok(current)
+    }
+
     /// Iterate over a directory's children in deterministic lexical order.
     pub fn children(&self, parent_id: ObjectId) -> impl Iterator<Item = &DirectoryEntry> {
         self.names
@@ -428,6 +464,37 @@ mod tests {
         ));
         assert!(ns.lookup(ObjectId(1), "stable").is_some());
         assert!(ns.lookup(ObjectId(1), "changed").is_none());
+    }
+
+    #[test]
+    fn resolves_nested_paths_and_rejects_traversal_or_file_intermediates() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "docs", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 3, "readme.txt", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+
+        assert_eq!(ns.resolve_path("/").unwrap(), ObjectId(1));
+        assert_eq!(ns.resolve_path("///docs//").unwrap(), ObjectId(2));
+        assert_eq!(ns.resolve_path("/docs/readme.txt").unwrap(), ObjectId(3));
+        assert!(matches!(
+            ns.resolve_path("/docs/readme.txt/child"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ns.resolve_path("../docs"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ns.resolve_path("/missing"),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
