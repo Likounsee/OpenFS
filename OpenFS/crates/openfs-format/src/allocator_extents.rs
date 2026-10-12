@@ -978,7 +978,9 @@ impl OpenedVolumeV2 {
                 while dangling != 0 {
                     let bit = u64::from(dangling.trailing_zeros());
                     report.record_dangling_reference(
-                        byte_base.checked_add(bit).ok_or(Error::ArithmeticOverflow)?,
+                        byte_base
+                            .checked_add(bit)
+                            .ok_or(Error::ArithmeticOverflow)?,
                     )?;
                     dangling &= dangling - 1;
                 }
