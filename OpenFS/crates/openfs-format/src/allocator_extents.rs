@@ -861,6 +861,13 @@ mod allocation_bitmap_report_tests {
                 let free_inventory = volume.free_data_block_inventory(&mut device).unwrap();
                 assert_eq!(allocated_inventory, vec![allocated[0], allocated[1], allocated[5], allocated[6], allocated[7], allocated[8]]);
                 assert_eq!(free_inventory.len() as u64, volume.volume.layout.data_blocks() - 6);
+                let fragmentation = volume.free_extent_stats(&mut device).unwrap();
+                assert_eq!(fragmentation.free_extent_count, 2, "block_size={block_size}");
+                assert_eq!(
+                    fragmentation.largest_free_extent_blocks,
+                    volume.volume.layout.data_blocks() - 9,
+                    "block_size={block_size}"
+                );
                 assert!(free_inventory.windows(2).all(|pair| pair[0] < pair[1]));
                 assert!(free_inventory.iter().all(|block| !allocated_inventory.contains(block)));
                 for block in allocated_inventory.iter().chain(free_inventory.iter()) {
