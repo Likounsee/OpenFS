@@ -45,3 +45,41 @@ fn encoded_superblock_survives_image_write_flush_and_reopen() {
     device.read_blocks(0, &mut bytes).unwrap();
     assert_eq!(Superblock::decode(&bytes).unwrap(), expected);
 }
+
+#[test]
+fn superblock_matches_v1_golden_bytes_and_checksum() {
+    let encoded = Superblock {
+        block_size: 4096,
+        total_blocks: 16,
+        features: 0,
+        uuid: *b"openfs-test-uuid",
+    }
+    .encode()
+    .unwrap();
+
+    // Golden bytes pin the v1 field offsets, little-endian encoding and CRC32C.
+    assert_eq!(
+        &encoded[..48],
+        &[
+            0x4f, 0x50, 0x45, 0x4e, 0x46, 0x53, 0x00, 0x00, // magic
+            0x01, 0x00, 0x30, 0x00, // version and header size
+            0x00, 0x10, 0x00, 0x00, // block size = 4096
+            0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // total blocks = 16
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // features
+            0x6f, 0x70, 0x65, 0x6e, 0x66, 0x73, 0x2d, 0x74, // UUID
+            0x65, 0x73, 0x74, 0x2d, 0x75, 0x75, 0x69, 0x64,
+        ]
+    );
+    assert_eq!(&encoded[4088..4092], &[0x46, 0x74, 0x39, 0xe1]);
+    assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
+    assert!(encoded[4092..].iter().all(|byte| *byte == 0));
+    assert_eq!(
+        Superblock::decode(&encoded).unwrap(),
+        Superblock {
+            block_size: 4096,
+            total_blocks: 16,
+            features: 0,
+            uuid: *b"openfs-test-uuid",
+        }
+    );
+}

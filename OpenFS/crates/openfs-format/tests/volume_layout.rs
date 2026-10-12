@@ -33,6 +33,36 @@ fn layout_reserves_mirrors_bitmap_and_data() {
 }
 
 #[test]
+fn layout_accepts_supported_geometry_and_rejects_invalid_or_overflowing_geometry() {
+    for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
+        let layout = VolumeLayout::calculate(block_size, 128).unwrap();
+        assert_eq!(layout.block_size, block_size);
+        assert_eq!(layout.total_blocks, 128);
+        assert!(layout.data_blocks() > 0);
+    }
+
+    for block_size in [0, 512, 2048, 4097, 131_072] {
+        assert!(
+            matches!(VolumeLayout::calculate(block_size, 128), Err(Error::InvalidInput(_))),
+            "unexpectedly accepted block size {block_size}"
+        );
+    }
+
+    assert!(matches!(
+        VolumeLayout::calculate(4096, 3),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(
+        VolumeLayout::calculate(4096, u64::MAX),
+        Err(Error::ArithmeticOverflow)
+    ));
+    assert!(matches!(
+        VolumeLayout::calculate(4096, 4),
+        Ok(layout) if layout.data_blocks() == 1
+    ));
+}
+
+#[test]
 fn formats_reopens_and_checks_mirrored_superblocks_and_bitmap() {
     let image = TempImage::new();
     let uuid = *b"openfs-volume-01";
