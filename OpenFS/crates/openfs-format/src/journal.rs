@@ -127,6 +127,54 @@ impl JournalRecord {
         validate_record(&record)?;
         Ok(record)
     }
+
+    /// Encode a record into one fixed-size block with zero-filled trailing padding.
+    pub fn encode_block(&self, block_size: usize) -> Result<Vec<u8>> {
+        if block_size < JOURNAL_HEADER_SIZE {
+            return Err(Error::InvalidInput(
+                "journal block is smaller than the record header",
+            ));
+        }
+        let encoded = self.encode()?;
+        if encoded.len() > block_size {
+            return Err(Error::InvalidInput(
+                "journal record does not fit in one journal block",
+            ));
+        }
+        let mut block = vec![0_u8; block_size];
+        block[..encoded.len()].copy_from_slice(&encoded);
+        Ok(block)
+    }
+
+    /// Decode one block-framed record and require all bytes after it to be zero.
+    pub fn decode_block(block: &[u8]) -> Result<Self> {
+        if block.len() < JOURNAL_HEADER_SIZE {
+            return Err(Error::InvalidInput(
+                "journal block is smaller than the record header",
+            ));
+        }
+        if &block[0..8] != MAGIC {
+            return Err(Error::Corrupt("bad journal record magic"));
+        }
+        let payload_len = get_u32(block, 32) as usize;
+        if payload_len > JOURNAL_MAX_PAYLOAD_SIZE {
+            return Err(Error::Corrupt(
+                "journal payload exceeds the supported limit",
+            ));
+        }
+        let record_size = JOURNAL_HEADER_SIZE
+            .checked_add(payload_len)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if record_size > block.len() {
+            return Err(Error::InvalidInput(
+                "journal record does not fit in its block",
+            ));
+        }
+        if block[record_size..].iter().any(|byte| *byte != 0) {
+            return Err(Error::Corrupt("journal block padding must be zero"));
+        }
+        Self::decode(&block[..record_size])
+    }
 }
 
 /// One fully committed transaction selected for redo during recovery planning.
@@ -336,6 +384,39 @@ mod tests {
             );
             assert_eq!(JournalRecord::decode(&encoded).unwrap(), record);
         }
+    }
+
+
+    #[test]
+    fn block_framing_round_trips_and_validates_padding() {
+        let expected = sample(JournalRecordKind::Update, b"redo bytes");
+        let block = expected.encode_block(4096).unwrap();
+        assert_eq!(block.len(), 4096);
+        assert_eq!(JournalRecord::decode_block(&block).unwrap(), expected);
+
+        let mut nonzero_padding = block;
+        *nonzero_padding.last_mut().unwrap() = 1;
+        assert!(matches!(
+            JournalRecord::decode_block(&nonzero_padding),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn block_framing_rejects_small_blocks_and_oversized_records() {
+        let record = sample(JournalRecordKind::Update, b"redo");
+        assert!(matches!(
+            record.encode_block(JOURNAL_HEADER_SIZE - 1),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            record.encode_block(JOURNAL_HEADER_SIZE + 3),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            JournalRecord::decode_block(&[0; JOURNAL_HEADER_SIZE - 1]),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
