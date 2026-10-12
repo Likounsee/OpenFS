@@ -271,6 +271,84 @@ impl Namespace {
             .ok_or(Error::Corrupt("object has no matching directory entry"))
     }
 
+    /// Validate both namespace indexes and prove that every object is reachable from root.
+    ///
+    /// This is an in-memory consistency check, not a disk scanner or a persistence guarantee.
+    pub fn validate(&self) -> Result<()> {
+        let root = self
+            .objects
+            .get(&self.root_id)
+            .ok_or(Error::Corrupt("namespace root object is missing"))?;
+        if root.kind != ObjectKind::Directory || root.parent_id != 0 {
+            return Err(Error::Corrupt("namespace root metadata is invalid"));
+        }
+        if self.names.len().checked_add(1) != Some(self.objects.len()) {
+            return Err(Error::Corrupt(
+                "namespace object and directory-entry counts disagree",
+            ));
+        }
+
+        let mut referenced = std::collections::BTreeSet::new();
+        for ((parent_id, key_name), entry) in &self.names {
+            entry
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid directory entry in namespace"))?;
+            if entry.parent_id != parent_id.0 || entry.name != *key_name {
+                return Err(Error::Corrupt("directory-entry index key is inconsistent"));
+            }
+            let parent = self
+                .objects
+                .get(parent_id)
+                .ok_or(Error::Corrupt("directory entry parent is missing"))?;
+            if parent.kind != ObjectKind::Directory {
+                return Err(Error::Corrupt("directory entry parent is not a directory"));
+            }
+            let object_id = ObjectId::new(entry.object_id)
+                .map_err(|_| Error::Corrupt("directory entry has an invalid object ID"))?;
+            let object = self
+                .objects
+                .get(&object_id)
+                .ok_or(Error::Corrupt("directory entry points to a missing object"))?;
+            object
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
+            if object.parent_id != parent_id.0 || object.kind != entry.kind {
+                return Err(Error::Corrupt(
+                    "directory entry disagrees with object metadata",
+                ));
+            }
+            if !referenced.insert(object_id) {
+                return Err(Error::Corrupt(
+                    "an object is referenced by more than one directory entry",
+                ));
+            }
+        }
+
+        if referenced.contains(&self.root_id) {
+            return Err(Error::Corrupt("namespace root must not have a directory entry"));
+        }
+        let mut visited = std::collections::BTreeSet::new();
+        let mut pending = vec![self.root_id];
+        while let Some(parent_id) = pending.pop() {
+            if !visited.insert(parent_id) {
+                return Err(Error::Corrupt("namespace contains a directory cycle"));
+            }
+            for entry in self.children(parent_id) {
+                let child_id = ObjectId::new(entry.object_id)
+                    .map_err(|_| Error::Corrupt("invalid child object ID"))?;
+                if self.objects.get(&child_id).map(|record| record.kind)
+                    == Some(ObjectKind::Directory)
+                {
+                    pending.push(child_id);
+                }
+            }
+        }
+        if visited.len() != self.objects.len() {
+            return Err(Error::Corrupt("namespace contains unreachable objects"));
+        }
+        Ok(())
+    }
+
     pub fn object_count(&self) -> usize {
         self.objects.len()
     }
@@ -506,6 +584,41 @@ mod tests {
             ns.resolve_path("/missing"),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn validates_nested_namespace_and_detects_orphan_objects() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "folder", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 3, "file.txt", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+        assert_eq!(ns.validate(), Ok(()));
+
+        ns.objects.insert(ObjectId(99), record(99, 1, ObjectKind::File));
+        assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn validates_namespace_indexes_and_rejects_mismatched_entry() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "file.txt", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+        assert_eq!(ns.validate(), Ok(()));
+
+        let mut bad = entry(1, 2, "file.txt", ObjectKind::File);
+        bad.kind = ObjectKind::Directory;
+        ns.names.insert((ObjectId(1), "file.txt".to_owned()), bad);
+        assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
     }
 
     #[test]
