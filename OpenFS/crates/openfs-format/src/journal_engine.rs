@@ -774,6 +774,37 @@ mod tests {
     }
 
     #[test]
+    fn protected_recovery_rejects_durable_redo_to_volume_control_block() {
+        let mut device = formatted();
+        let original = {
+            let mut bytes = vec![0; BS as usize];
+            device.read_blocks(0, &mut bytes).unwrap();
+            bytes
+        };
+        let bad = RedoUpdate {
+            target_block: 0,
+            contents: vec![0xCC; BS as usize],
+        };
+
+        // Operation 6 is the home-block write, after the commit record and its
+        // flush have succeeded. The durable redo must not overwrite block zero
+        // when the volume is reopened with its control blocks protected.
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(
+            journal.commit(&mut failing, &[bad]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered_device = failing.into_inner();
+        let result = super::open_journal_protected(&mut recovered_device, REGION, &[0]);
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+
+        let mut after = vec![0; BS as usize];
+        recovered_device.read_blocks(0, &mut after).unwrap();
+        assert_eq!(after, original);
+    }
+
+    #[test]
     fn every_commit_io_failure_recovers_to_a_consistent_home_block() {
         // One full-block redo image produces ten I/O operations:
         // 3 pre-commit records, flush, commit record, flush, home write,
