@@ -781,10 +781,7 @@ mod tests {
         ));
         let mut device = failing.into_inner();
         let reopened = open_journal(&mut device, REGION).unwrap();
-        assert_eq!(
-            reopened.checkpoint().checkpoint_sequence,
-            original_sequence
-        );
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, original_sequence);
         assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
     }
 
