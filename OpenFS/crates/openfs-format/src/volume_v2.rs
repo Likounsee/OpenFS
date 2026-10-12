@@ -1917,11 +1917,15 @@ mod tests {
 
             let mut reopened = open_volume_v2(&mut device).unwrap();
             for block in first..first + 3 {
-                assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+                assert!(reopened
+                    .is_data_block_allocated(&mut device, block)
+                    .unwrap());
             }
             reopened.free_block(&mut device, first + 1).unwrap();
             assert_eq!(
-                reopened.find_contiguous_free_blocks(&mut device, 2).unwrap(),
+                reopened
+                    .find_contiguous_free_blocks(&mut device, 2)
+                    .unwrap(),
                 Some(first + 3)
             );
             assert!(matches!(
