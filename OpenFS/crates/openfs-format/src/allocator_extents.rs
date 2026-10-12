@@ -874,7 +874,10 @@ mod allocation_bitmap_report_tests {
                     volume.volume.layout.data_blocks() - 6
                 );
                 let fragmentation = volume.free_extent_stats(&mut device).unwrap();
-                assert_eq!(fragmentation.free_extent_count, 2, "block_size={block_size}");
+                assert_eq!(
+                    fragmentation.free_extent_count, 2,
+                    "block_size={block_size}"
+                );
                 assert_eq!(
                     fragmentation.largest_free_extent_blocks,
                     volume.volume.layout.data_blocks() - 9,
