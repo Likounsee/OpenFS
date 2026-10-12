@@ -282,7 +282,8 @@ impl OpenedVolumeV2 {
         blocks: &[u64],
         record_count: usize,
     ) -> Result<Vec<MetadataRecord>> {
-        let bytes = self.read_packed_inventory(device, blocks, record_count, METADATA_RECORD_SIZE)?;
+        let bytes =
+            self.read_packed_inventory(device, blocks, record_count, METADATA_RECORD_SIZE)?;
         decode_metadata_records(&bytes)
     }
 
@@ -297,7 +298,8 @@ impl OpenedVolumeV2 {
         blocks: &[u64],
         entry_count: usize,
     ) -> Result<Vec<DirectoryEntry>> {
-        let bytes = self.read_packed_inventory(device, blocks, entry_count, DIRECTORY_ENTRY_SIZE)?;
+        let bytes =
+            self.read_packed_inventory(device, blocks, entry_count, DIRECTORY_ENTRY_SIZE)?;
         decode_directory_entries(&bytes)
     }
 
@@ -324,7 +326,8 @@ impl OpenedVolumeV2 {
             }
         }
         let records = self.read_metadata_inventory(device, metadata_blocks, metadata_count)?;
-        let entries = self.read_directory_inventory(device, directory_blocks, directory_entry_count)?;
+        let entries =
+            self.read_directory_inventory(device, directory_blocks, directory_entry_count)?;
         Namespace::from_records(root_id, records, entries)
     }
 
@@ -339,8 +342,8 @@ impl OpenedVolumeV2 {
         let required_bytes = record_count
             .checked_mul(record_size)
             .ok_or(Error::ArithmeticOverflow)?;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let required_blocks = required_bytes
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
@@ -362,7 +365,9 @@ impl OpenedVolumeV2 {
                 return Err(Error::Corrupt("inventory block is outside the data region"));
             }
             if !self.is_data_block_allocated(device, *block)? {
-                return Err(Error::Corrupt("inventory block is marked free in the bitmap"));
+                return Err(Error::Corrupt(
+                    "inventory block is marked free in the bitmap",
+                ));
             }
             let mut bytes = vec![0_u8; block_size];
             device.read_blocks(*block, &mut bytes)?;
@@ -809,29 +814,52 @@ mod tests {
             let directory_block = volume.allocate_block(&mut device).unwrap();
 
             let root = MetadataRecord {
-                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                flags: 0, size: 0, extent_root_block: None, generation: 1,
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
             let file = MetadataRecord {
-                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 12, extent_root_block: None, generation: 1,
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 12,
+                extent_root_block: None,
+                generation: 1,
             };
             let entry = DirectoryEntry {
-                parent_id: 1, object_id: 2, kind: ObjectKind::File,
+                parent_id: 1,
+                object_id: 2,
+                kind: ObjectKind::File,
                 name: "hello.txt".to_owned(),
             };
             let mut metadata_bytes = vec![0_u8; 4096];
             metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
             metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
             let mut directory_bytes = vec![0_u8; 4096];
             directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device
+                .write_blocks(directory_block, &directory_bytes)
+                .unwrap();
             device.flush().unwrap();
 
-            let namespace = volume.reconstruct_namespace(
-                &mut device, ObjectId(1), &[metadata_block], 2, &[directory_block], 1,
-            ).unwrap();
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                )
+                .unwrap();
             assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
             assert_eq!(namespace.object_count(), 2);
         }
@@ -848,7 +876,9 @@ mod tests {
             let free = allocated + 1;
             assert!(matches!(
                 volume.read_metadata_inventory(&mut device, &[free], 1),
-                Err(Error::Corrupt("inventory block is marked free in the bitmap"))
+                Err(Error::Corrupt(
+                    "inventory block is marked free in the bitmap"
+                ))
             ));
             assert!(matches!(
                 volume.read_metadata_inventory(&mut device, &[allocated, allocated], 2),
@@ -856,9 +886,16 @@ mod tests {
             ));
             assert!(matches!(
                 volume.reconstruct_namespace(
-                    &mut device, crate::ObjectId(1), &[allocated], 1, &[allocated], 1,
+                    &mut device,
+                    crate::ObjectId(1),
+                    &[allocated],
+                    1,
+                    &[allocated],
+                    1,
                 ),
-                Err(Error::Corrupt("metadata and directory inventories share a physical block"))
+                Err(Error::Corrupt(
+                    "metadata and directory inventories share a physical block"
+                ))
             ));
             assert!(matches!(
                 volume.read_metadata_inventory(&mut device, &[0], 1),
@@ -866,7 +903,9 @@ mod tests {
             ));
             assert!(matches!(
                 volume.read_metadata_inventory(&mut device, &[], 1),
-                Err(Error::InvalidInput("inventory block list does not match its record count"))
+                Err(Error::InvalidInput(
+                    "inventory block list does not match its record count"
+                ))
             ));
         }
         fs::remove_file(path).unwrap();
