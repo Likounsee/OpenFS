@@ -135,7 +135,9 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_image, inspect_image};
+    use super::{create_image, inspect_image, BLOCK_SIZE};
+    use openfs_block::ImageDevice;
+    use openfs_format::open_volume;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -157,6 +159,30 @@ mod tests {
         let result = create_image(&path, 1);
         assert!(result.is_ok(), "image creation failed: {result:?}");
         assert!(inspect_image(&path).is_ok(), "created image did not reopen");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn allocation_state_survives_closing_and_reopening_the_image() {
+        let path = unique_path("allocator");
+        create_image(&path, 1).unwrap();
+
+        let first = {
+            let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            volume.allocate_block(&mut device).unwrap()
+        };
+        let second = {
+            let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let next = volume.allocate_block(&mut device).unwrap();
+            assert_ne!(next, first);
+            volume.free_block(&mut device, first).unwrap();
+            let reused = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(reused, first);
+            next
+        };
+        assert_ne!(second, first);
         fs::remove_file(path).unwrap();
     }
 
