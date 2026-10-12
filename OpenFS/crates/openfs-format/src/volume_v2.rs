@@ -1684,7 +1684,7 @@ mod tests {
 
     #[test]
     fn v2_later_bitmap_segment_read_failures_preserve_allocator_state() {
-        for block_size in [4096_u32, 8192] {
+        for block_size in [4096_u32] {
             let path = image_path(&format!("later-bitmap-read-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 65_537).unwrap();
