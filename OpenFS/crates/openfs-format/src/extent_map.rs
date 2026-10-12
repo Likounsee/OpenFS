@@ -129,7 +129,8 @@ impl ExtentMap {
             }
             removed.push(Extent {
                 logical_start: overlap_start,
-                physical_start: extent.physical_start
+                physical_start: extent
+                    .physical_start
                     .checked_add(overlap_start - extent.logical_start)
                     .ok_or(Error::ArithmeticOverflow)?,
                 block_count: overlap_end - overlap_start,
@@ -137,7 +138,8 @@ impl ExtentMap {
             if overlap_end < extent_end {
                 kept.push(Extent {
                     logical_start: overlap_end,
-                    physical_start: extent.physical_start
+                    physical_start: extent
+                        .physical_start
                         .checked_add(overlap_end - extent.logical_start)
                         .ok_or(Error::ArithmeticOverflow)?,
                     block_count: extent_end - overlap_end,
@@ -416,17 +418,37 @@ mod tests {
     #[test]
     fn range_removal_splits_extents_and_returns_releasable_runs() {
         let mut map = ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 100, block_count: 8 },
-            Extent { logical_start: 12, physical_start: 300, block_count: 3 },
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 8,
+            },
+            Extent {
+                logical_start: 12,
+                physical_start: 300,
+                block_count: 3,
+            },
         ]).unwrap();
         let removed = map.remove_range(2, 4).unwrap();
         assert_eq!(removed, vec![Extent {
             logical_start: 2, physical_start: 102, block_count: 4
         }]);
         assert_eq!(map.extents(), &[
-            Extent { logical_start: 0, physical_start: 100, block_count: 2 },
-            Extent { logical_start: 6, physical_start: 106, block_count: 2 },
-            Extent { logical_start: 12, physical_start: 300, block_count: 3 },
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 6,
+                physical_start: 106,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 12,
+                physical_start: 300,
+                block_count: 3,
+            },
         ]);
         assert!(matches!(map.remove_range(u64::MAX, 2), Err(Error::ArithmeticOverflow)));
         assert_eq!(map.extents().len(), 3);
@@ -435,8 +457,16 @@ mod tests {
     #[test]
     fn truncate_preserves_prefix_and_returns_tail_extents() {
         let mut map = ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 100, block_count: 3 },
-            Extent { logical_start: 5, physical_start: 200, block_count: 4 },
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 5,
+                physical_start: 200,
+                block_count: 4,
+            },
         ]).unwrap();
         let removed = map.truncate(6).unwrap();
         assert_eq!(removed, vec![Extent {
@@ -444,7 +474,11 @@ mod tests {
         }]);
         assert_eq!(map.extents(), &[
             Extent { logical_start: 0, physical_start: 100, block_count: 3 },
-            Extent { logical_start: 5, physical_start: 200, block_count: 1 },
+            Extent {
+                logical_start: 5,
+                physical_start: 200,
+                block_count: 1,
+            },
         ]);
         assert!(map.truncate(64).unwrap().is_empty());
     }
