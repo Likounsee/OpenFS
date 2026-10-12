@@ -829,8 +829,9 @@ mod tests {
             ));
             let mut device = failing_recovery.into_inner();
 
-            let reopened = open_journal(&mut device, REGION)
-                .unwrap_or_else(|error| panic!("retry failed after recovery I/O {fail_at}: {error:?}"));
+            let reopened = open_journal(&mut device, REGION).unwrap_or_else(|error| {
+                panic!("retry failed after recovery I/O {fail_at}: {error:?}")
+            });
             assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
             assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
         }
