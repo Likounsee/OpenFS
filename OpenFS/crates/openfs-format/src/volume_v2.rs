@@ -1822,6 +1822,33 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocator_queries_report_free_space_and_block_state() {
+        let path = image_path("allocator-state-queries");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first_data = volume.volume.layout.data_start;
+            let initial_free = volume.free_data_block_count(&mut device).unwrap();
+            assert_eq!(initial_free, volume.volume.layout.data_blocks());
+            assert!(!volume.is_data_block_allocated(&mut device, first_data).unwrap());
+
+            let allocated = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(allocated, first_data);
+            assert!(volume.is_data_block_allocated(&mut device, allocated).unwrap());
+            assert_eq!(volume.free_data_block_count(&mut device).unwrap(), initial_free - 1);
+
+            volume.free_block(&mut device, allocated).unwrap();
+            assert!(!volume.is_data_block_allocated(&mut device, allocated).unwrap());
+            assert_eq!(volume.free_data_block_count(&mut device).unwrap(), initial_free);
+            assert!(matches!(
+                volume.is_data_block_allocated(&mut device, 0),
+                Err(Error::InvalidInput(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
