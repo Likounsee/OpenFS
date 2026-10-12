@@ -881,7 +881,7 @@ mod tests {
                 ))
             ));
             assert!(matches!(
-                volume.read_metadata_inventory(&mut device, &[allocated, allocated], 2),
+                volume.read_metadata_inventory(&mut device, &[allocated, allocated], 52),
                 Err(Error::Corrupt("inventory repeats a physical block"))
             ));
             assert!(matches!(
