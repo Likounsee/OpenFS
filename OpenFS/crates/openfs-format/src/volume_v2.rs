@@ -2577,8 +2577,7 @@ mod tests {
             let path = image_path(&format!("range-ownership-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 5).unwrap();
                 let map = ExtentMap::new(vec![
                     Extent {
