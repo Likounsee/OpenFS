@@ -3,7 +3,10 @@
 //! Version 1 remains unchanged. V2 reserves two checkpoint blocks and a four-block
 //! redo ring before the data region, and journals allocator bitmap changes.
 
-use crate::{crc32c, format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate, SUPERBLOCK_SIZE};
+use crate::{
+    crc32c, format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
+    SUPERBLOCK_SIZE,
+};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
@@ -32,18 +35,32 @@ impl VolumeLayoutV2 {
             return Err(Error::InvalidInput("unsupported filesystem block size"));
         }
         if total_blocks < 12 {
-            return Err(Error::InvalidInput("volume is too small for v2 reserved regions"));
+            return Err(Error::InvalidInput(
+                "volume is too small for v2 reserved regions",
+            ));
         }
-        u64::from(block_size).checked_mul(total_blocks).ok_or(Error::ArithmeticOverflow)?;
-        let bits_per_bitmap_block = u64::from(block_size).checked_mul(8).ok_or(Error::ArithmeticOverflow)?;
-        let bitmap_blocks = total_blocks.checked_add(bits_per_bitmap_block - 1)
-            .ok_or(Error::ArithmeticOverflow)? / bits_per_bitmap_block;
+        u64::from(block_size)
+        .checked_mul(total_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(block_size)
+            .checked_mul(8)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_blocks = total_blocks
+            .checked_add(bits_per_bitmap_block - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / bits_per_bitmap_block;
         let bitmap_start = 1_u64;
-        let journal_start = bitmap_start.checked_add(bitmap_blocks).ok_or(Error::ArithmeticOverflow)?;
-        let data_start = journal_start.checked_add(JOURNAL_RESERVED_BLOCKS).ok_or(Error::ArithmeticOverflow)?;
+        let journal_start = bitmap_start
+            .checked_add(bitmap_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let data_start = journal_start
+            .checked_add(JOURNAL_RESERVED_BLOCKS)
+            .ok_or(Error::ArithmeticOverflow)?;
         let backup_superblock = total_blocks - 1;
         if data_start >= backup_superblock {
-            return Err(Error::InvalidInput("volume has no data region after v2 reserved blocks"));
+            return Err(Error::InvalidInput(
+                "volume has no data region after v2 reserved blocks",
+            ));
         }
         Ok(Self {
             total_blocks,
@@ -70,7 +87,8 @@ impl VolumeLayoutV2 {
             || (block >= self.bitmap_start && block < self.bitmap_start + self.bitmap_blocks)
             || block == self.journal.checkpoint_a
             || block == self.journal.checkpoint_b
-            || (block >= self.journal.ring_start && block - self.journal.ring_start < self.journal.ring_blocks)
+            || (block >= self.journal.ring_start
+                && block - self.journal.ring_start < self.journal.ring_blocks)
             || block == self.backup_superblock
     }
 }
@@ -108,7 +126,13 @@ impl OpenedVolumeV2 {
             let mask = 1_u8 << (local % 8);
             if bitmap[byte] & mask == 0 {
                 bitmap[byte] |= mask;
-                self.journal.commit(device, &[RedoUpdate { target_block: bitmap_block, contents: bitmap }])?;
+                self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )?;
                 return Ok(block);
             }
         }
@@ -118,8 +142,12 @@ impl OpenedVolumeV2 {
     /// Free a data block through the journal; reserved and already-free blocks are rejected.
     pub fn free_block<D: BlockDevice>(&mut self, device: &mut D, block: u64) -> Result<()> {
         self.validate_device(device)?;
-        if block < self.volume.layout.data_start || block >= self.volume.layout.backup_superblock {
-            return Err(Error::InvalidInput("cannot free a reserved or out-of-range block"));
+        if block < self.volume.layout.data_start
+            || block >= self.volume.layout.backup_superblock
+        {
+            return Err(Error::InvalidInput(
+                "cannot free a reserved or out-of-range block",
+            ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let bitmap_block = self.volume.layout.bitmap_start + block / bits_per_block;
@@ -132,13 +160,23 @@ impl OpenedVolumeV2 {
             return Err(Error::InvalidInput("data block is already free"));
         }
         bitmap[byte] &= !mask;
-        self.journal.commit(device, &[RedoUpdate { target_block: bitmap_block, contents: bitmap }])?;
+        self.journal.commit(
+                    device,
+                    &[RedoUpdate {
+                        target_block: bitmap_block,
+                        contents: bitmap,
+                    }],
+                )?;
         Ok(())
     }
 
     fn validate_device<D: BlockDevice>(&self, device: &D) -> Result<()> {
-        if device.block_size() != self.volume.block_size || device.block_count() != self.volume.total_blocks {
-            return Err(Error::InvalidInput("device geometry does not match opened v2 volume"));
+        if device.block_size() != self.volume.block_size
+            || device.block_count() != self.volume.total_blocks
+        {
+            return Err(Error::InvalidInput(
+                "device geometry does not match opened v2 volume",
+            ));
         }
         Ok(())
     }
@@ -146,17 +184,26 @@ impl OpenedVolumeV2 {
 
 /// Format a device as v2. Destructive; call only on a disposable image or explicitly
 /// selected device. Physical-device formatting is not exposed by the host utility.
-pub fn format_volume_v2<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features: u64) -> Result<OpenedVolumeV2> {
+pub fn format_volume_v2<D: BlockDevice>(
+    device: &mut D,
+    uuid: [u8; 16],
+    features: u64,
+) -> Result<OpenedVolumeV2> {
     let layout = VolumeLayoutV2::calculate(device.block_size(), device.block_count())?;
     let encoded = encode_superblock_v2(layout.block_size, layout.total_blocks, features, uuid)?;
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
     for index in 0..layout.bitmap_blocks {
-        let first = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+        let first = index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; block_size];
         for block in first..first + bits_per_block {
-            if block >= layout.total_blocks || block < layout.data_start || block == layout.backup_superblock {
+            if block >= layout.total_blocks
+                || block < layout.data_start
+                || block == layout.backup_superblock
+            {
                 let local = block - first;
                 bitmap[(local / 8) as usize] |= 1 << (local % 8);
             }
@@ -174,9 +221,14 @@ pub fn format_volume_v2<D: BlockDevice>(device: &mut D, uuid: [u8; 16], features
 /// Validate a v2 volume and recover committed journal records before returning writable state.
 pub fn open_volume_v2<D: BlockDevice>(device: &mut D) -> Result<OpenedVolumeV2> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
-        return Err(Error::InvalidInput("device block is smaller than the superblock record"));
+        return Err(Error::InvalidInput(
+            "device block is smaller than the superblock record",
+        ));
     }
-    let last = device.block_count().checked_sub(1).ok_or(Error::InvalidInput("empty device"))?;
+    let last = device
+        .block_count()
+        .checked_sub(1)
+        .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
     if primary != backup {
@@ -184,19 +236,40 @@ pub fn open_volume_v2<D: BlockDevice>(device: &mut D) -> Result<OpenedVolumeV2> 
     }
     let (block_size, total_blocks, features, uuid) = decode_superblock_v2(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
-        return Err(Error::Corrupt("v2 superblock geometry does not match device geometry"));
+        return Err(Error::Corrupt(
+            "v2 superblock geometry does not match device geometry",
+        ));
     }
     let layout = VolumeLayoutV2::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
     let journal = open_journal(device, layout.journal)?;
-    Ok(OpenedVolumeV2 { volume: VolumeV2 { block_size, total_blocks, features, uuid, layout }, journal })
+    Ok(OpenedVolumeV2 {
+        volume: VolumeV2 {
+            block_size,
+            total_blocks,
+            features,
+            uuid,
+            layout,
+        },
+        journal,
+    })
 }
 
-fn encode_superblock_v2(block_size: u32, total_blocks: u64, features: u64, uuid: [u8; 16]) -> Result<[u8; SUPERBLOCK_SIZE]> {
-    if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
+fn encode_superblock_v2(
+    block_size: u32,
+    total_blocks: u64,
+    features: u64,
+    uuid: [u8; 16],
+) -> Result<[u8; SUPERBLOCK_SIZE]> {
+    if !(4096..=65_536).contains(&block_size)
+        || !block_size.is_power_of_two()
+        || total_blocks < 2
+    {
         return Err(Error::InvalidInput("invalid v2 superblock geometry"));
     }
-    u64::from(block_size).checked_mul(total_blocks).ok_or(Error::ArithmeticOverflow)?;
+    u64::from(block_size)
+            .checked_mul(total_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
     let mut bytes = [0_u8; SUPERBLOCK_SIZE];
     bytes[..8].copy_from_slice(MAGIC);
     bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
@@ -211,26 +284,41 @@ fn encode_superblock_v2(block_size: u32, total_blocks: u64, features: u64, uuid:
 }
 
 fn decode_superblock_v2(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u8; 16])> {
-    if &bytes[..8] != MAGIC { return Err(Error::Corrupt("bad v2 superblock magic")); }
+    if &bytes[..8] != MAGIC {
+        return Err(Error::Corrupt("bad v2 superblock magic"));
+    }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION { return Err(Error::UnsupportedVersion(version)); }
+    if version != VERSION {
+        return Err(Error::UnsupportedVersion(version));
+    }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
         return Err(Error::Corrupt("unexpected v2 superblock header size"));
     }
-    let stored = u32::from_le_bytes(bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].try_into().unwrap());
+    let stored = u32::from_le_bytes(
+        bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
+            .try_into()
+            .unwrap(),
+    );
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("v2 superblock CRC32C mismatch"));
     }
-    if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0) || bytes[4092..].iter().any(|b| *b != 0) {
+    if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0)
+        || bytes[4092..].iter().any(|b| *b != 0)
+    {
         return Err(Error::Corrupt("reserved v2 superblock bytes must be zero"));
     }
     let block_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
     let total_blocks = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
     let features = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-    if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
+    if !(4096..=65_536).contains(&block_size)
+        || !block_size.is_power_of_two()
+        || total_blocks < 2
+    {
         return Err(Error::Corrupt("invalid v2 superblock geometry"));
     }
-    u64::from(block_size).checked_mul(total_blocks).ok_or(Error::ArithmeticOverflow)?;
+    u64::from(block_size)
+            .checked_mul(total_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
     let mut uuid = [0_u8; 16];
     uuid.copy_from_slice(&bytes[32..48]);
     Ok((block_size, total_blocks, features, uuid))
@@ -244,9 +332,17 @@ fn read_superblock<D: BlockDevice>(device: &mut D, block: u64) -> Result<[u8; SU
     Ok(record)
 }
 
-fn write_superblock<D: BlockDevice>(device: &mut D, block: u64, encoded: &[u8; SUPERBLOCK_SIZE]) -> Result<()> {
+fn write_superblock<D: BlockDevice>(
+    device: &mut D,
+    block: u64,
+    encoded: &[u8; SUPERBLOCK_SIZE],
+) -> Result<()> {
     let mut buffer = vec![0; device.block_size() as usize];
-    if buffer.len() < SUPERBLOCK_SIZE { return Err(Error::InvalidInput("device block is smaller than superblock")); }
+    if buffer.len() < SUPERBLOCK_SIZE {
+        return Err(Error::InvalidInput(
+            "device block is smaller than superblock",
+        ));
+    }
     buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
     device.write_blocks(block, &buffer)
 }
@@ -255,14 +351,18 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayoutV2) -> R
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
     for index in 0..layout.bitmap_blocks {
-        let first = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+        let first = index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0; block_size];
         device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
         for block in first..first + bits_per_block {
             if layout.is_reserved(block) || block >= layout.total_blocks {
                 let local = block - first;
                 if bitmap[(local / 8) as usize] & (1 << (local % 8)) == 0 {
-                    return Err(Error::Corrupt("v2 bitmap marks a reserved or padding block free"));
+                    return Err(Error::Corrupt(
+                        "v2 bitmap marks a reserved or padding block free",
+                    ));
                 }
             }
         }
@@ -274,14 +374,20 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayoutV2) -> R
 mod tests {
     use super::{format_volume_v2, open_volume_v2, VolumeLayoutV2};
     use crate::open_volume;
-    use openfs_block::{BlockDevice, ImageDevice};
+    use openfs_block::ImageDevice;
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn image_path(label: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        std::env::temp_dir().join(format!("openfs-v2-{label}-{}-{nonce}.img", std::process::id()))
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "openfs-v2-{label}-{}-{nonce}.img",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -297,7 +403,10 @@ mod tests {
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
-            assert!(matches!(open_volume(&mut device), Err(Error::UnsupportedVersion(2))));
+            assert!(matches!(
+                open_volume(&mut device),
+                Err(Error::UnsupportedVersion(2))
+            ));
             let mut volume = open_volume_v2(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
             assert_ne!(first, second);
