@@ -3,7 +3,7 @@
 use openfs_core::{Error, Result};
 
 pub use allocator_extents::{
-    AllocationBitmapReport, AllocationOwnershipReport, AllocationStats, FreeExtentStats,
+    AllocationBitmapReport, AllocationOwnershipReport, AllocationStats, FreeExtent, FreeExtentStats,
     OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT,
 };
 
