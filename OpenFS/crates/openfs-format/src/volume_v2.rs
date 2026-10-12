@@ -1006,6 +1006,45 @@ mod tests {
     }
 
     #[test]
+    fn v2_free_keeps_allocation_when_commit_fails_before_durable_record() {
+        for fail_at in 0..4 {
+            let path = image_path(&format!("free-precommit-{fail_at}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+
+                let mut failing = FailWriteAt {
+                    inner: device,
+                    write_index: 0,
+                    fail_at,
+                };
+                assert!(
+                    matches!(volume.free_block(&mut failing, first), Err(Error::Io(_))),
+                    "expected injected failure at journal write {fail_at}"
+                );
+                let mut device = failing.inner;
+                drop(volume);
+
+                let mut recovered = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    recovered.allocate_block(&mut device).unwrap(),
+                    first + 1,
+                    "pre-commit free failure at write {fail_at} must preserve allocation"
+                );
+                recovered.free_block(&mut device, first).unwrap();
+                assert_eq!(
+                    recovered.allocate_block(&mut device).unwrap(),
+                    first,
+                    "the preserved block must be reusable after a successful free"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
         let path = image_path("free-recovery");
         let first;
