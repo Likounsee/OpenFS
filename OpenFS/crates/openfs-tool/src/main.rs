@@ -172,7 +172,7 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::{create_image, inspect_image, BLOCK_SIZE};
-    use openfs_block::ImageDevice;
+    use openfs_block::{BlockDevice, ImageDevice};
     use openfs_format::{format_volume_v2, open_volume};
     use std::fs;
     use std::path::PathBuf;
