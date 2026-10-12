@@ -78,9 +78,11 @@ impl ExtentMap {
     }
 
     /// Append a run, merging it with the previous run when both address spaces are adjacent.
+    /// Failed insertions leave the original map unchanged.
     pub fn push_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
-        if let Some(last) = self.extents.last_mut() {
+        let mut candidate = self.extents.clone();
+        if let Some(last) = candidate.last_mut() {
             if last.logical_end()? == extent.logical_start
                 && last.physical_end()? == extent.physical_start
             {
@@ -88,14 +90,26 @@ impl ExtentMap {
                     .block_count
                     .checked_add(extent.block_count)
                     .ok_or(Error::ArithmeticOverflow)?;
-                return Ok(());
+            } else {
+                if extent.logical_start < last.logical_end()? {
+                    return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
+                }
+                candidate.push(extent);
             }
-            if extent.logical_start < last.logical_end()? {
-                return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
-            }
+        } else {
+            candidate.push(extent);
         }
-        self.extents.push(extent);
-        self.validate_ordering()
+        let validated = Self::new(candidate)?;
+        self.extents = validated.extents;
+        Ok(())
+    }
+
+    /// Iterate every physical data block represented by this map in logical extent order.
+    /// Sparse holes are omitted. The caller must still validate the map against its volume.
+    pub fn physical_blocks(&self) -> impl Iterator<Item = u64> + '_ {
+        self.extents.iter().flat_map(|extent| {
+            extent.physical_start..extent.physical_start + extent.block_count
+        })
     }
 
     /// Remove a logical block range and return the physical runs that became unreferenced.
@@ -373,6 +387,25 @@ mod tests {
             }),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn failed_extent_insertions_leave_map_unchanged_and_physical_iteration_skips_holes() {
+        let mut map = sample();
+        let before = map.clone();
+        assert!(matches!(
+            map.push_coalescing(Extent {
+                logical_start: 7,
+                physical_start: 201,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput(_))
+        ));
+        assert_eq!(map, before);
+        assert_eq!(
+            map.physical_blocks().collect::<Vec<_>>(),
+            vec![100, 101, 102, 200, 201]
+        );
     }
 
     #[test]
