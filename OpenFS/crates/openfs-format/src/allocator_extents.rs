@@ -299,7 +299,9 @@ impl OpenedVolumeV2 {
             }
         }
         if owner_index != owned.len() {
-            return Err(Error::Corrupt("ownership map contains an unscanned data block"));
+            return Err(Error::Corrupt(
+                "ownership map contains an unscanned data block",
+            ));
         }
         Ok(())
     }
