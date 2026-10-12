@@ -562,8 +562,8 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayoutV2) -> R
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_superblock_v2, encode_superblock_v2, format_volume_v2, open_volume_v2,
-        VolumeLayoutV2,
+        check_volume_v2, decode_superblock_v2, encode_superblock_v2, format_volume_v2,
+        open_volume_v2, VolumeLayoutV2,
     };
     use crate::open_volume;
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
@@ -2178,6 +2178,39 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn v2_read_only_checker_reports_allocator_state_and_rejects_mirror_mismatch() {
+        let path = image_path("read-only-checker");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let initial = check_volume_v2(&mut device).unwrap();
+            assert_eq!(initial.data_blocks, initial.free_data_blocks);
+            assert_eq!(initial.allocated_data_blocks, 0);
+
+            volume.allocate_blocks(&mut device, 3).unwrap();
+            let after_allocate = check_volume_v2(&mut device).unwrap();
+            assert_eq!(after_allocate.block_size, 4096);
+            assert_eq!(after_allocate.total_blocks, 512);
+            assert_eq!(after_allocate.allocated_data_blocks, 3);
+            assert_eq!(after_allocate.free_data_blocks, initial.free_data_blocks - 3);
+            assert_eq!(
+                after_allocate.allocated_data_blocks + after_allocate.free_data_blocks,
+                after_allocate.data_blocks
+            );
+
+            let mut primary = vec![0_u8; 4096];
+            device.read_blocks(0, &mut primary).unwrap();
+            primary[100] ^= 1;
+            device.write_blocks(0, &primary).unwrap();
+            assert!(matches!(
+                check_volume_v2(&mut device),
+                Err(Error::Corrupt(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
