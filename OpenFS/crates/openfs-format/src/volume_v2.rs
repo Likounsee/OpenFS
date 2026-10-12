@@ -2551,10 +2551,7 @@ mod tests {
             .unwrap();
 
             volume
-                .validate_extent_map_ownership(
-                    &mut device,
-                    &[(&first_map, 2), (&second_map, 2)],
-                )
+                .validate_extent_map_ownership(&mut device, &[(&first_map, 2), (&second_map, 2)])
                 .unwrap();
 
             // Every allocated block must have exactly one owner.
