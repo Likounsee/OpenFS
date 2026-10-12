@@ -19,7 +19,7 @@ The global estimate is **11%**, using explicit phase weights of P0 10%, P1 20%, 
 
 | Phase | Goal | Initial status | Remaining acceptance work |
 | --- | --- | --- | --- |
-| P0 | Foundation, safety, CI, image I/O, docs | In progress | Independent review of format fields/CRC policy; extend I/O fault injection; finish legacy audit and review format draft |
+| P0 | Foundation, safety, CI, image I/O, docs | In progress | Independent review of on-disk field coverage and CRC/reserved-byte policy; extend I/O fault injection; reconcile the Rust format contract with the historical v1.6 design review |
 | P1 | Filesystem format and essential operations | In progress | Persist namespace metadata, implement file/directory operations and integrate crash-safe persistence |
 | P2 | Transaction journal and crash recovery | In progress | Specify protocol, implement WAL/replay/checkpoint, run reproducible crash-cut and failed-I/O matrix |
 | P3 | Integrity/checker/fuzzing | Not started | Read-only checker, corruption detection, bounded parser fuzzing, explicit safe repair workflows |
@@ -41,6 +41,7 @@ The global estimate is **11%**, using explicit phase weights of P0 10%, P1 20%, 
 - [x] Deterministic one-shot read/write/flush failure injection and retry tests at the device-operation boundary.
 - [x] Mixed-state torn-write simulation and verification of persisted prefix/suffix contents.
 - [x] End-to-end experimental volume format/reopen and corruption tests (not crash recovery).
-- [ ] Complete audit of the legacy repository and its design decisions.
+- [x] Repository-wide inventory and migration audit of the historical C repository, including format drift, feature gaps and legacy failure-test scenarios; see [OLD_OPENFS_AUDIT.md](OLD_OPENFS_AUDIT.md).
+- [ ] Exact-HEAD CI green for the draft journal codec and its tests.
 
 Phase percentages must be updated after CI evidence and code reviews; the presence of a checklist item is not itself proof of runtime success.

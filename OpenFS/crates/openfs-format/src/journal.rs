@@ -269,7 +269,10 @@ mod tests {
 
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[0] ^= 1;
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[8..10].copy_from_slice(&(JOURNAL_VERSION + 1).to_le_bytes());
@@ -303,7 +306,10 @@ mod tests {
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[24..32].copy_from_slice(&0_u64.to_le_bytes());
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
