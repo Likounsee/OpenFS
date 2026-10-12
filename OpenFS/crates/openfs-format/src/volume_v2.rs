@@ -524,27 +524,56 @@ mod tests {
 
     #[test]
     fn v2_allocator_rejects_mutated_public_layout_before_io() {
-        let path = image_path("mutated-layout");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            volume.volume.layout.data_start = 0;
-            assert!(matches!(
-                volume.allocate_block(&mut device),
-                Err(Error::InvalidInput(
-                    "v2 volume layout was modified after validation"
-                ))
-            ));
-            assert!(matches!(
-                volume.free_block(&mut device, 8),
-                Err(Error::InvalidInput(
-                    "v2 volume layout was modified after validation"
-                ))
-            ));
-            let reopened = open_volume_v2(&mut device).unwrap();
-            assert_eq!(reopened.volume.layout.data_start, 8);
+        for mutation in 0..10 {
+            let path = image_path(&format!("mutated-layout-{mutation}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let original_layout = volume.volume.layout.clone();
+
+                // Every layout field is public, so guard every field against
+                // post-validation changes before allocator I/O can occur.
+                match mutation {
+                    0 => volume.volume.layout.total_blocks += 1,
+                    1 => volume.volume.layout.block_size = 8192,
+                    2 => volume.volume.layout.bitmap_start += 1,
+                    3 => volume.volume.layout.bitmap_blocks += 1,
+                    4 => volume.volume.layout.journal.checkpoint_a += 1,
+                    5 => volume.volume.layout.journal.checkpoint_b += 1,
+                    6 => volume.volume.layout.journal.ring_start += 1,
+                    7 => volume.volume.layout.journal.ring_blocks += 1,
+                    8 => volume.volume.layout.data_start += 1,
+                    9 => volume.volume.layout.backup_superblock -= 1,
+                    _ => unreachable!(),
+                }
+
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput(
+                        "v2 volume layout was modified after validation"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_block(&mut device, 8),
+                    Err(Error::InvalidInput(
+                        "v2 volume layout was modified after validation"
+                    ))
+                ));
+
+                let reopened = open_volume_v2(&mut device).unwrap();
+                assert_eq!(reopened.volume.layout.total_blocks, original_layout.total_blocks);
+                assert_eq!(reopened.volume.layout.block_size, original_layout.block_size);
+                assert_eq!(reopened.volume.layout.bitmap_start, original_layout.bitmap_start);
+                assert_eq!(reopened.volume.layout.bitmap_blocks, original_layout.bitmap_blocks);
+                assert_eq!(reopened.volume.layout.journal, original_layout.journal);
+                assert_eq!(reopened.volume.layout.data_start, original_layout.data_start);
+                assert_eq!(
+                    reopened.volume.layout.backup_superblock,
+                    original_layout.backup_superblock
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
