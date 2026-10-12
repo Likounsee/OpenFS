@@ -578,7 +578,6 @@ mod tests {
         let bits_per_bitmap_block = 4096_u64 * 8;
         let path = image_path("allocator-bitmap-boundary");
         {
-
             let mut device = ImageDevice::create(&path, 4096, bits_per_bitmap_block + 12).unwrap();
             let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let layout = volume.volume.layout;
