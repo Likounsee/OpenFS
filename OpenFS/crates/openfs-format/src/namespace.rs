@@ -102,6 +102,125 @@ impl Namespace {
         Ok(())
     }
 
+    /// Rename an object or move it to another directory in the in-memory namespace.
+    ///
+    /// The operation updates the directory edge and the object's parent together.
+    /// It rejects moves below the object itself, which would create a directory cycle.
+    /// This does not persist changes or provide crash consistency.
+    pub fn rename(
+        &mut self,
+        object_id: ObjectId,
+        new_parent_id: ObjectId,
+        new_name: &str,
+    ) -> Result<()> {
+        if object_id == self.root_id {
+            return Err(Error::InvalidInput("the root directory cannot be renamed or moved"));
+        }
+        let record = self
+            .objects
+            .get(&object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        let old_parent_id = ObjectId::new(record.parent_id)?;
+        let old_entry = self
+            .names
+            .get(&(old_parent_id, self.entry_name_for(old_parent_id, object_id)?))
+            .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        let mut updated_entry = old_entry.clone();
+        updated_entry.parent_id = new_parent_id.0;
+        updated_entry.name = new_name.to_owned();
+        updated_entry.encode()?;
+
+        let parent = self
+            .objects
+            .get(&new_parent_id)
+            .ok_or(Error::InvalidInput("destination directory does not exist"))?;
+        if parent.kind != ObjectKind::Directory {
+            return Err(Error::InvalidInput("destination parent is not a directory"));
+        }
+
+        let mut ancestor = new_parent_id;
+        loop {
+            if ancestor == object_id {
+                return Err(Error::InvalidInput("directory move would create a cycle"));
+            }
+            let Some(ancestor_record) = self.objects.get(&ancestor) else {
+                return Err(Error::Corrupt("destination ancestor is missing"));
+            };
+            if ancestor == self.root_id {
+                break;
+            }
+            ancestor = ObjectId::new(ancestor_record.parent_id)
+                .map_err(|_| Error::Corrupt("non-root ancestor has no parent"))?;
+        }
+
+        let new_key = (new_parent_id, new_name.to_owned());
+        if self.names.contains_key(&new_key)
+            && !(new_parent_id == old_parent_id && new_name == old_entry.name)
+        {
+            return Err(Error::InvalidInput("destination name already exists"));
+        }
+
+        let mut updated_record = record.clone();
+        updated_record.parent_id = new_parent_id.0;
+        updated_record.generation = updated_record
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        updated_record.encode()?;
+
+        let old_key = (old_parent_id, old_entry.name.clone());
+        self.names.remove(&old_key);
+        self.names.insert(new_key, updated_entry);
+        self.objects.insert(object_id, updated_record);
+        Ok(())
+    }
+
+    /// Remove an object from the in-memory namespace.
+    ///
+    /// Directories must be empty. The root cannot be removed. This changes only
+    /// namespace records; a future persistent implementation must free data extents
+    /// transactionally before exposing equivalent deletion semantics.
+    pub fn remove(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
+        if object_id == self.root_id {
+            return Err(Error::InvalidInput("the root directory cannot be removed"));
+        }
+        let record = self
+            .objects
+            .get(&object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        if record.kind == ObjectKind::Directory
+            && self.names.keys().any(|(parent_id, _)| *parent_id == object_id)
+        {
+            return Err(Error::InvalidInput("directory is not empty"));
+        }
+
+        let parent_id = ObjectId::new(record.parent_id)?;
+        let name = self.entry_name_for(parent_id, object_id)?;
+        let key = (parent_id, name);
+        let entry = self
+            .names
+            .get(&key)
+            .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        if entry.object_id != object_id.0 || entry.kind != record.kind {
+            return Err(Error::Corrupt("directory entry disagrees with object metadata"));
+        }
+
+        self.names.remove(&key);
+        self.objects
+            .remove(&object_id)
+            .ok_or(Error::Corrupt("object disappeared during removal"))
+    }
+
+    fn entry_name_for(&self, parent_id: ObjectId, object_id: ObjectId) -> Result<String> {
+        self.names
+            .iter()
+            .find_map(|((parent, _), entry)| {
+                (*parent == parent_id && entry.object_id == object_id.0)
+                    .then(|| entry.name.clone())
+            })
+            .ok_or(Error::Corrupt("object has no matching directory entry"))
+    }
+
     pub fn object_count(&self) -> usize {
         self.objects.len()
     }
@@ -219,6 +338,93 @@ mod tests {
         ));
         assert_eq!(ns.object_count(), 2);
         assert_eq!(ns.entry_count(), 1);
+    }
+
+    #[test]
+    fn renames_and_moves_objects_without_partial_mutation() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "left", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(1, 3, "right", ObjectKind::Directory),
+            record(3, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 4, "before.txt", ObjectKind::File),
+            record(4, 2, ObjectKind::File),
+        )
+        .unwrap();
+
+        ns.rename(ObjectId(4), ObjectId(3), "after.txt").unwrap();
+        assert!(ns.lookup(ObjectId(2), "before.txt").is_none());
+        assert_eq!(ns.lookup(ObjectId(3), "after.txt").unwrap().object_id, 4);
+        assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 3);
+        assert_eq!(ns.object(ObjectId(4)).unwrap().generation, 2);
+        assert_eq!(ns.entry_count(), 3);
+
+        assert!(matches!(
+            ns.rename(ObjectId(4), ObjectId(3), "after.txt"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ns.rename(ObjectId(3), ObjectId(4), "cycle"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert_eq!(ns.lookup(ObjectId(3), "after.txt").unwrap().object_id, 4);
+        assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 3);
+    }
+
+    #[test]
+    fn removes_files_and_only_empty_directories() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "folder", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 3, "item", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            ns.remove(ObjectId(2)),
+            Err(Error::InvalidInput(_))
+        ));
+        let removed = ns.remove(ObjectId(3)).unwrap();
+        assert_eq!(removed.id, ObjectId(3));
+        assert!(ns.lookup(ObjectId(2), "item").is_none());
+        assert_eq!(ns.object_count(), 2);
+        assert_eq!(ns.entry_count(), 1);
+
+        assert_eq!(ns.remove(ObjectId(2)).unwrap().kind, ObjectKind::Directory);
+        assert_eq!(ns.object_count(), 1);
+        assert_eq!(ns.entry_count(), 0);
+        assert!(matches!(
+            ns.remove(ObjectId(1)),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn rename_rejects_generation_overflow_without_mutating_indexes() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        let mut item = record(2, 1, ObjectKind::File);
+        item.generation = u32::MAX;
+        ns.insert(entry(1, 2, "stable", ObjectKind::File), item)
+            .unwrap();
+
+        assert!(matches!(
+            ns.rename(ObjectId(2), ObjectId(1), "changed"),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(ns.lookup(ObjectId(1), "stable").is_some());
+        assert!(ns.lookup(ObjectId(1), "changed").is_none());
     }
 
     #[test]
