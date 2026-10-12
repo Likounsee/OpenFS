@@ -101,6 +101,28 @@ impl ExtentMap {
         }
     }
 
+    /// Validate that no allocated logical block lies beyond a file's byte length.
+    ///
+    /// A partially used final block is valid, and sparse holes are allowed anywhere,
+    /// including at the end of a file. This validates the upper bound only; it does not
+    /// require every byte in the file to be allocated.
+    pub fn validate_file_size(&self, file_size: u64, block_size: u32) -> Result<()> {
+        if block_size == 0 {
+            return Err(Error::InvalidInput("block size must be nonzero"));
+        }
+        let block_size = u64::from(block_size);
+        let required_blocks = file_size / block_size + u64::from(file_size % block_size != 0);
+        for extent in &self.extents {
+            if extent.logical_end()? > required_blocks {
+                return Err(Error::Corrupt("extent exceeds file byte length"));
+            }
+        }
+        if file_size == 0 && !self.extents.is_empty() {
+            return Err(Error::Corrupt("empty file must not own data extents"));
+        }
+        Ok(())
+    }
+
     /// Ensure every physical run is inside the volume's allocatable data region.
     ///
     /// The data start is inclusive and total_blocks is exclusive. This prevents extents
@@ -431,6 +453,17 @@ mod tests {
             block_count: u64::MAX,
         }]);
         assert!(matches!(huge, Err(Error::ArithmeticOverflow)));
+    }
+
+    #[test]
+    fn validates_byte_length_against_sparse_and_partial_final_blocks() {
+        let map = sample();
+        assert!(map.validate_file_size(7 * 4096 - 1, 4096).is_ok());
+        assert!(map.validate_file_size(6 * 4096, 4096).is_ok());
+        assert!(matches!(map.validate_file_size(6 * 4096 - 1, 4096), Err(Error::Corrupt(_))));
+        assert!(matches!(map.validate_file_size(0, 4096), Err(Error::Corrupt(_))));
+        assert!(matches!(map.validate_file_size(1, 0), Err(Error::InvalidInput(_))));
+        assert!(ExtentMap::default().validate_file_size(0, 4096).is_ok());
     }
 
     #[test]
