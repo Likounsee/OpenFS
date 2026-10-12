@@ -265,11 +265,39 @@ impl OpenedVolumeV2 {
             );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-            for block in start..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                    allocated.push(block);
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte = usize::try_from(first_local / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                end_local
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            for byte_index in first_byte..end_byte {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut bits = bitmap[byte_index] & lower_mask & upper_mask;
+                while bits != 0 {
+                    let bit = u64::from(bits.trailing_zeros());
+                    allocated.push(
+                        base.checked_add(byte_start)
+                            .and_then(|block| block.checked_add(bit))
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    bits &= bits - 1;
                 }
             }
         }
