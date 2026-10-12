@@ -979,6 +979,28 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
 
+        // A checksum-valid superblock must still reject byte-size overflow
+        // before comparing its claimed geometry with the backing device.
+        let path = image_path("overflowing-byte-geometry");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            for block in [0_u64, 255] {
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[16..24].copy_from_slice(&u64::MAX.to_le_bytes());
+                let checksum = crate::crc32c(&bytes[..4088]);
+                bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                device.write_blocks(block, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::ArithmeticOverflow)
+            ));
+        }
+        fs::remove_file(path).unwrap();
+
         for (label, offset, value) in [
             ("block-size-mismatch", 12_usize, 8192_u64),
             ("block-count-mismatch", 16_usize, 255_u64),
