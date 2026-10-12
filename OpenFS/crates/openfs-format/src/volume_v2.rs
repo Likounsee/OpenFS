@@ -2030,6 +2030,39 @@ mod tests {
     }
 
     #[test]
+    fn v2_public_bitmap_validator_rejects_reserved_and_padding_corruption_for_all_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for (label, corrupt_block) in [("reserved", 0_u64), ("padding", 300_u64)] {
+                let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
+                    let mut volume =
+                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    volume.validate_allocation_bitmap(&mut device).unwrap();
+
+                    let bits_per_bitmap_block = u64::from(block_size) * 8;
+                    let bitmap_index = corrupt_block / bits_per_bitmap_block;
+                    let local = corrupt_block % bits_per_bitmap_block;
+                    let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
+                    let mut bitmap = vec![0_u8; block_size as usize];
+                    device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                    bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                    device.write_blocks(bitmap_block, &bitmap).unwrap();
+
+                    assert!(
+                        matches!(
+                            volume.validate_allocation_bitmap(&mut device),
+                            Err(Error::Corrupt(_))
+                        ),
+                        "validator accepted {label} corruption at block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
