@@ -462,6 +462,57 @@ impl Namespace {
         Ok(())
     }
 
+    /// Return sorted extent-map root blocks owned by namespace objects.
+    ///
+    /// This bridges decoded namespace metadata to the allocator ownership checker. Every
+    /// root must lie inside the allocatable data region, and two objects may not claim the
+    /// same root block. This inspects the in-memory namespace only; it does not discover
+    /// records by scanning a volume.
+    pub fn validated_extent_root_inventory(
+        &self,
+        data_start: u64,
+        data_end: u64,
+    ) -> Result<Vec<u64>> {
+        if data_start >= data_end {
+            return Err(Error::InvalidInput("data region bounds are invalid"));
+        }
+
+        let mut roots = Vec::new();
+        for record in self.objects.values() {
+            record
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
+            if let Some(root) = record.extent_root_block {
+                if root < data_start || root >= data_end {
+                    return Err(Error::Corrupt(
+                        "extent-map root lies outside the allocatable data region",
+                    ));
+                }
+                roots.push(root);
+            }
+        }
+
+        roots.sort_unstable();
+        if roots.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Corrupt(
+                "multiple namespace objects claim the same extent-map root block",
+            ));
+        }
+        Ok(roots)
+    }
+
+    /// Count objects that own an extent-map root after validating metadata records.
+    pub fn extent_root_owner_count(&self) -> Result<usize> {
+        self.objects.values().try_fold(0_usize, |count, record| {
+            record
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
+            count
+                .checked_add(usize::from(record.extent_root_block.is_some()))
+                .ok_or(Error::ArithmeticOverflow)
+        })
+    }
+
     pub fn object_count(&self) -> usize {
         self.objects.len()
     }
@@ -496,6 +547,58 @@ mod tests {
             kind,
             name: name.to_owned(),
         }
+    }
+
+    #[test]
+    fn extent_root_inventory_is_sorted_bounded_and_rejects_aliases() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "later", ObjectKind::File),
+            MetadataRecord {
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 1,
+                extent_root_block: Some(30),
+                generation: 1,
+            },
+        )
+        .unwrap();
+        ns.insert(
+            entry(1, 3, "earlier", ObjectKind::File),
+            MetadataRecord {
+                id: ObjectId(3),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 1,
+                extent_root_block: Some(12),
+                generation: 1,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(ns.validated_extent_root_inventory(8, 40).unwrap(), vec![12, 30]);
+        assert_eq!(ns.extent_root_owner_count().unwrap(), 2);
+        assert!(matches!(
+            ns.validated_extent_root_inventory(12, 40),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            ns.validated_extent_root_inventory(8, 30),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            ns.validated_extent_root_inventory(40, 40),
+            Err(Error::InvalidInput(_))
+        ));
+
+        ns.set_file_layout(ObjectId(3), 1, Some(30)).unwrap();
+        assert!(matches!(
+            ns.validated_extent_root_inventory(8, 40),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
