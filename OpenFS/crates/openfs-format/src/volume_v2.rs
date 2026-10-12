@@ -1034,46 +1034,47 @@ mod tests {
 
     #[test]
     fn v2_rejects_each_reserved_block_marked_free() {
-        let base = image_path("reserved-blocks-base");
-        let reserved_blocks;
-        {
-            let mut device = ImageDevice::create(&base, 4096, 256).unwrap();
-            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            let layout = volume.volume.layout;
-            reserved_blocks = (0..layout.total_blocks)
-                .filter(|block| layout.is_reserved(*block))
-                .collect::<Vec<_>>();
-            assert_eq!(
-                reserved_blocks,
-                (0..8).chain(std::iter::once(255)).collect::<Vec<_>>()
-            );
-        }
-        fs::remove_file(&base).unwrap();
+        let reserved_blocks = (0..256_u64)
+            .filter(|block| {
+                VolumeLayoutV2::calculate(4096, 256)
+                    .unwrap()
+                    .is_reserved(*block)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            reserved_blocks,
+            (0..8).chain(std::iter::once(255)).collect::<Vec<_>>()
+        );
 
-        for reserved in reserved_blocks {
-            let path = image_path(&format!("reserved-block-{reserved}"));
-            {
-                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-                let bitmap_block = volume.volume.layout.bitmap_start + reserved / (4096 * 8);
-                let local = reserved % (4096 * 8);
-                let mut bitmap = vec![0_u8; device.block_size() as usize];
-                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
-                device.write_blocks(bitmap_block, &bitmap).unwrap();
-                device.flush().unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let bits_per_bitmap_block = u64::from(block_size) * 8;
+            for reserved in &reserved_blocks {
+                let path = image_path(&format!("reserved-block-{reserved}-{block_size}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let volume =
+                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let bitmap_block =
+                        volume.volume.layout.bitmap_start + *reserved / bits_per_bitmap_block;
+                    let local = *reserved % bits_per_bitmap_block;
+                    let mut bitmap = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                    bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                    device.write_blocks(bitmap_block, &bitmap).unwrap();
+                    device.flush().unwrap();
 
-                assert!(
-                    matches!(
-                        open_volume_v2(&mut device),
-                        Err(Error::Corrupt(
-                            "v2 bitmap marks a reserved or padding block free"
-                        ))
-                    ),
-                    "reserved block {reserved} was accepted as free"
-                );
+                    assert!(
+                        matches!(
+                            open_volume_v2(&mut device),
+                            Err(Error::Corrupt(
+                                "v2 bitmap marks a reserved or padding block free"
+                            ))
+                        ),
+                        "reserved block {reserved} was accepted as free at block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
             }
-            fs::remove_file(path).unwrap();
         }
     }
 
