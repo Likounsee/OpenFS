@@ -2566,10 +2566,7 @@ mod tests {
             assert!(holes.contains(&blocks[1]));
             let split = volume.free_extent_stats(&mut device).unwrap();
             assert_eq!(split.free_extent_count, 2);
-            assert_eq!(
-                split.largest_free_extent_blocks,
-                layout.data_blocks() - 3
-            );
+            assert_eq!(split.largest_free_extent_blocks, layout.data_blocks() - 3);
         }
         fs::remove_file(path).unwrap();
     }
