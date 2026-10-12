@@ -9,7 +9,7 @@ This directory is the Rust project root. The root-level repository README remain
 - `openfs-format`: explicit little-endian superblock encoding/decoding with CRC32C; experimental V1 and V2 volume layouts; V2 allocation bitmap validation and journaled block allocation/free; persistent journal/checkpoint encoding, commit/replay, and recovery paths; initial metadata and directory-entry/namespace primitives.
 - `openfs-tool`: workspace utility crate; its capabilities should not be confused with a safe physical-device formatter.
 
-The V1 and V2 layouts are separate experimental formats. V2 journals allocator bitmap mutations, but the journal is not yet a general transaction layer for persistent file and directory metadata. There is no complete durable create/read/write/rename/delete workflow, no accepted read-only checker or repair utility, and no OS mount adapter. This is not yet a usable end-user filesystem and must not be used with valuable data.
+The V1 and V2 layouts are separate experimental formats. V2 journals allocator bitmap mutations, but the journal is not yet a general transaction layer for persistent file and directory metadata. A read-only V2 image checker is available; it validates superblocks, layout, bitmap invariants, and journal framing without replaying or repairing the journal. There is no complete durable create/read/write/rename/delete workflow, no ownership/namespace integrity checker, no repair utility, and no OS mount adapter. This is not yet a usable end-user filesystem and must not be used with valuable data.
 
 ## Toolchain and commands
 
@@ -18,6 +18,12 @@ Use the Rust stable toolchain from rust-toolchain.toml. Run commands here:
     cargo fmt --all -- --check
     cargo test --workspace
     cargo clippy --workspace --all-targets -- -D warnings
+
+Inspect a V2 image without modifying it (supply its actual block size):
+
+    cargo run -p openfs-tool -- check-image ./volume.img 4096
+
+The checker is read-only and does not replay pending journal records. The existing `create-image` command still creates the V1 development format; it does not create a V2 image or format a physical USB drive.
 
 The repository-root GitHub Actions workflow runs formatting, workspace tests, and Clippy on Linux and Windows. Check the exact commit's Actions results before treating a change as validated; the presence of a workflow or a previous green commit is not evidence that the latest commit passed.
 
