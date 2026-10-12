@@ -1978,7 +1978,10 @@ mod tests {
             let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let first = volume.volume.layout.data_start;
             let before = volume.allocation_stats(&mut device).unwrap();
-            assert_eq!(before.total_data_blocks, before.allocated_data_blocks + before.free_data_blocks);
+            assert_eq!(
+                before.total_data_blocks,
+                before.allocated_data_blocks + before.free_data_blocks
+            );
 
             let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
             assert_eq!(blocks.len(), 4);
@@ -2002,7 +2005,9 @@ mod tests {
 
             let mut reopened = open_volume_v2(&mut device).unwrap();
             for block in &blocks {
-                assert!(!reopened.is_data_block_allocated(&mut device, *block).unwrap());
+                assert!(!reopened
+                    .is_data_block_allocated(&mut device, *block)
+                    .unwrap());
             }
             let after_reopen = reopened.allocate_blocks(&mut device, 4).unwrap();
             assert_eq!(after_reopen, blocks);
