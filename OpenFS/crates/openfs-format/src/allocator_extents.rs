@@ -263,8 +263,8 @@ impl OpenedVolumeV2 {
             // required mask byte-by-byte, so valid data bits are not constrained.
             let first_data_bit = data_start - base;
             let end_data_bit = data_end - base;
-            let first_data_byte = usize::try_from(first_data_bit / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_data_byte =
+                usize::try_from(first_data_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_data_byte = usize::try_from(end_data_bit.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
             for (byte_index, byte) in bitmap.iter().enumerate() {
