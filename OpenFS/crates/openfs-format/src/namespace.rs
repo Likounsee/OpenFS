@@ -67,7 +67,7 @@ impl Namespace {
             .collect();
         let mut current = self.root_id;
         for (index, component) in components.iter().enumerate() {
-            if component == "." || component == ".." {
+            if *component == "." || *component == ".." {
                 return Err(Error::InvalidInput("dot path components are not supported"));
             }
             let entry = self
