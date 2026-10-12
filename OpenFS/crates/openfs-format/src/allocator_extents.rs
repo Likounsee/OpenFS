@@ -15,6 +15,16 @@ pub struct AllocationStats {
     pub free_data_blocks: u64,
 }
 
+/// One currently free contiguous run, constrained to a single bitmap segment.
+///
+/// The run can be used as a placement hint; it is not reserved and may change after
+/// another allocator operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreeExtent {
+    pub start_block: u64,
+    pub block_count: u64,
+}
+
 /// Read-only fragmentation summary for free space in the V2 data region.
 ///
 /// A free extent is a consecutive run of free data blocks within one bitmap segment,
@@ -390,6 +400,49 @@ impl OpenedVolumeV2 {
             }
         }
         Ok(free)
+    }
+
+    /// Return free contiguous runs in ascending order, split at bitmap-segment boundaries.
+    ///
+    /// This read-only inventory is suitable for placement decisions and diagnostics. Returned
+    /// extents are snapshots only; they are not reservations, and the current journal limits
+    /// atomic allocation to a single bitmap segment.
+    pub fn free_extent_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<FreeExtent>> {
+        let free = self.free_data_block_inventory(device)?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let mut extents = Vec::new();
+        let mut current: Option<FreeExtent> = None;
+        for block in free {
+            match current {
+                Some(mut extent)
+                    if extent.start_block.checked_add(extent.block_count) == Some(block)
+                        && extent.start_block / bits_per_block == block / bits_per_block =>
+                {
+                    extent.block_count = extent
+                        .block_count
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    current = Some(extent);
+                }
+                Some(extent) => {
+                    extents.push(extent);
+                    current = Some(FreeExtent {
+                        start_block: block,
+                        block_count: 1,
+                    });
+                }
+                None => {
+                    current = Some(FreeExtent {
+                        start_block: block,
+                        block_count: 1,
+                    });
+                }
+            }
+        }
+        if let Some(extent) = current {
+            extents.push(extent);
+        }
+        Ok(extents)
     }
 
     /// Measure free-space fragmentation without modifying the volume.
@@ -873,7 +926,28 @@ mod allocation_bitmap_report_tests {
                     free_inventory.len() as u64,
                     volume.volume.layout.data_blocks() - 6
                 );
+                let free_extents = volume.free_extent_inventory(&mut device).unwrap();
+                assert_eq!(
+                    free_extents,
+                    vec![
+                        FreeExtent {
+                            start_block: allocated[2],
+                            block_count: 3,
+                        },
+                        FreeExtent {
+                            start_block: allocated[8] + 1,
+                            block_count: volume.volume.layout.backup_superblock
+                                - (allocated[8] + 1),
+                        },
+                    ],
+                    "block_size={block_size}"
+                );
                 let fragmentation = volume.free_extent_stats(&mut device).unwrap();
+                assert_eq!(
+                    fragmentation.free_extent_count,
+                    free_extents.len() as u64,
+                    "block_size={block_size}"
+                );
                 assert_eq!(
                     fragmentation.free_extent_count, 2,
                     "block_size={block_size}"
@@ -997,6 +1071,12 @@ mod allocation_bitmap_report_tests {
             ));
             assert!(matches!(
                 volume.free_extent_stats(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_extent_inventory(&mut device),
                 Err(Error::Corrupt(
                     "v2 bitmap marks a reserved or padding block free"
                 ))
