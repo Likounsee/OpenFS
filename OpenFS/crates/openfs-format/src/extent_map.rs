@@ -64,6 +64,39 @@ impl ExtentMap {
         })
     }
 
+    /// Return the logical block count covered by the map, including trailing holes.
+    ///
+    /// An empty map covers zero blocks. Sparse gaps before the final extent count toward
+    /// the logical length even though they consume no physical storage.
+    pub fn logical_block_count(&self) -> Result<u64> {
+        match self.extents.last().copied() {
+            Some(extent) => extent.logical_end(),
+            None => Ok(0),
+        }
+    }
+
+    /// Ensure every physical run is inside the volume's allocatable data region.
+    ///
+    /// The data start is inclusive and total_blocks is exclusive. This prevents extents
+    /// from aliasing superblocks, journal/checkpoint blocks, or addresses past EOF.
+    pub fn validate_physical_bounds(
+        &self,
+        data_start_block: u64,
+        total_blocks: u64,
+    ) -> Result<()> {
+        if data_start_block >= total_blocks {
+            return Err(Error::InvalidInput("data region bounds are invalid"));
+        }
+        self.validate_ordering()?;
+        for extent in &self.extents {
+            let end = extent.physical_end()?;
+            if extent.physical_start < data_start_block || end > total_blocks {
+                return Err(Error::Corrupt("extent points outside the data region"));
+            }
+        }
+        Ok(())
+    }
+
     /// Map a logical block to its physical block, returning None for a sparse hole or EOF.
     pub fn physical_block(&self, logical_block: u64) -> Option<u64> {
         let index = self
@@ -446,6 +479,21 @@ mod tests {
             sample().validate(6, 100, 201),
             Err(Error::Corrupt(_))
         ));
+    }
+
+    #[test]
+    fn logical_length_includes_sparse_holes_and_physical_bounds_exclude_metadata() {
+        let map = ExtentMap::new(vec![
+            Extent { logical_start: 2, physical_start: 20, block_count: 3 },
+            Extent { logical_start: 9, physical_start: 30, block_count: 2 },
+        ]).unwrap();
+        assert_eq!(map.allocated_blocks().unwrap(), 5);
+        assert_eq!(map.logical_block_count().unwrap(), 11);
+        assert!(map.validate_physical_bounds(16, 40).is_ok());
+        assert!(matches!(map.validate_physical_bounds(21, 40), Err(Error::Corrupt(_))));
+        assert!(matches!(map.validate_physical_bounds(16, 31), Err(Error::Corrupt(_))));
+        assert!(matches!(map.validate_physical_bounds(40, 40), Err(Error::InvalidInput(_))));
+        assert_eq!(ExtentMap::default().logical_block_count().unwrap(), 0);
     }
 
     #[test]
