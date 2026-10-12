@@ -43,7 +43,10 @@ fn layout_accepts_supported_geometry_and_rejects_invalid_or_overflowing_geometry
 
     for block_size in [0, 512, 2048, 4097, 131_072] {
         assert!(
-            matches!(VolumeLayout::calculate(block_size, 128), Err(Error::InvalidInput(_))),
+            matches!(
+                VolumeLayout::calculate(block_size, 128),
+                Err(Error::InvalidInput(_))
+            ),
             "unexpectedly accepted block size {block_size}"
         );
     }
