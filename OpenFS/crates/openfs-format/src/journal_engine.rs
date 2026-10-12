@@ -795,7 +795,7 @@ mod tests {
         // One block redo is encoded as multiple chunks; the commit record follows them.
         // Tear inside the fixed header, before the checksum field is fully written.
         // A 64-byte prefix would include the entire empty COMMIT record and is not torn.
-        let mut failing = TearWriteAt::new(device.clone(), 4, 20);
+        let mut failing = TearWriteAt::new(device.clone(), 3, 20);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -811,8 +811,8 @@ mod tests {
     fn torn_home_write_is_repaired_from_durable_redo_record() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        // Begin + redo chunks + commit are written before the home block.
-        let mut failing = TearWriteAt::new(device.clone(), 5, 257);
+        // Begin + redo chunks + commit are writes 0..=3; the home block is write 4.
+        let mut failing = TearWriteAt::new(device.clone(), 4, 257);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
