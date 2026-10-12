@@ -484,15 +484,33 @@ mod tests {
     #[test]
     fn logical_length_includes_sparse_holes_and_physical_bounds_exclude_metadata() {
         let map = ExtentMap::new(vec![
-            Extent { logical_start: 2, physical_start: 20, block_count: 3 },
-            Extent { logical_start: 9, physical_start: 30, block_count: 2 },
-        ]).unwrap();
+            Extent {
+                logical_start: 2,
+                physical_start: 20,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 9,
+                physical_start: 30,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
         assert_eq!(map.allocated_blocks().unwrap(), 5);
         assert_eq!(map.logical_block_count().unwrap(), 11);
         assert!(map.validate_physical_bounds(16, 40).is_ok());
-        assert!(matches!(map.validate_physical_bounds(21, 40), Err(Error::Corrupt(_))));
-        assert!(matches!(map.validate_physical_bounds(16, 31), Err(Error::Corrupt(_))));
-        assert!(matches!(map.validate_physical_bounds(40, 40), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            map.validate_physical_bounds(21, 40),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(16, 31),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(40, 40),
+            Err(Error::InvalidInput(_))
+        ));
         assert_eq!(ExtentMap::default().logical_block_count().unwrap(), 0);
     }
 
