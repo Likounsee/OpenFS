@@ -8,6 +8,130 @@ use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
 impl OpenedVolumeV2 {
+    /// Allocate several data blocks atomically and return their block numbers.
+    ///
+    /// All selected blocks are represented by one bitmap home-block image, so this
+    /// operation is bounded to one bitmap segment and one journal redo update.
+    pub fn allocate_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        count: u64,
+    ) -> Result<Vec<u64>> {
+        validate_device(self, device)?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        if count == 0 || count > bits_per_block {
+            return Err(Error::InvalidInput(
+                "batch allocation count must fit within one bitmap block",
+            ));
+        }
+        let layout = self.volume.layout;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        for index in first_bitmap..=last_bitmap {
+            let base = index * bits_per_block;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(base.saturating_add(bits_per_block));
+            if end - start < count {
+                continue;
+            }
+            let bitmap_block = layout.bitmap_start + index;
+            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let mut selected = Vec::with_capacity(count as usize);
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let mask = 1_u8 << (local % 8);
+                if bitmap[byte] & mask == 0 {
+                    selected.push(block);
+                    if selected.len() as u64 == count {
+                        break;
+                    }
+                }
+            }
+            if selected.len() as u64 != count {
+                continue;
+            }
+            for block in &selected {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                bitmap[byte] |= 1_u8 << (local % 8);
+            }
+            self.journal.commit(
+                device,
+                &[RedoUpdate {
+                    target_block: bitmap_block,
+                    contents: bitmap,
+                }],
+            )?;
+            return Ok(selected);
+        }
+        Err(Error::InvalidInput(
+            "no bitmap segment has enough free data blocks for this batch",
+        ))
+    }
+
+    /// Free several data blocks atomically using one bitmap redo image.
+    ///
+    /// Duplicate blocks, non-data blocks, blocks in different bitmap segments, and
+    /// already-free blocks are rejected before any mutation is journaled.
+    pub fn free_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        blocks: &[u64],
+    ) -> Result<()> {
+        validate_device(self, device)?;
+        if blocks.is_empty() {
+            return Err(Error::InvalidInput("batch free list must not be empty"));
+        }
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let mut sorted = blocks.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        if sorted.len() != blocks.len() {
+            return Err(Error::InvalidInput("batch free list contains duplicates"));
+        }
+        if sorted.iter().any(|block| {
+            *block < layout.data_start || *block >= layout.backup_superblock
+        }) {
+            return Err(Error::InvalidInput("batch free contains a non-data block"));
+        }
+        let bitmap_index = sorted[0] / bits_per_block;
+        if sorted
+            .iter()
+            .any(|block| *block / bits_per_block != bitmap_index)
+        {
+            return Err(Error::InvalidInput(
+                "batch free blocks must belong to one bitmap segment",
+            ));
+        }
+        let bitmap_block = layout.bitmap_start + bitmap_index;
+        let base = bitmap_index * bits_per_block;
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        for block in &sorted {
+            let local = *block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if bitmap[byte] & mask == 0 {
+                return Err(Error::InvalidInput("batch free contains an already-free block"));
+            }
+        }
+        for block in &sorted {
+            let local = *block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            bitmap[byte] &= !(1_u8 << (local % 8));
+        }
+        self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )
+    }
+
     /// Find the first free contiguous extent wholly contained in one bitmap block.
     /// Returns its first data block, or None if no extent of this size exists.
     pub fn find_contiguous_free_blocks<D: BlockDevice>(
