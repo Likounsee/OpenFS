@@ -123,10 +123,12 @@ impl OpenedVolumeV2 {
             let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(bitmap_block, &mut bitmap)?;
 
-            let first_block = (bitmap_index * bits_per_block).max(self.volume.layout.data_start);
+            let bitmap_base = bitmap_index * bits_per_block;
+            let first_block = bitmap_base.max(self.volume.layout.data_start);
             // Saturate the exclusive end: valid volume byte geometry does not imply
             // that the bitmap's wider bit-index range fits in u64.
-            let end_block = (first_block.saturating_add(bits_per_block))
+            let end_block = bitmap_base
+                .saturating_add(bits_per_block)
                 .min(self.volume.layout.backup_superblock);
             for block in first_block..end_block {
                 let local = block % bits_per_block;
