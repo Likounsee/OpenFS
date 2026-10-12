@@ -871,7 +871,20 @@ impl OpenedVolumeV2 {
                 "a data block is referenced by multiple owners",
             ));
         }
-        self.allocation_ownership_range_report(device, &owned_ranges)
+
+        // Merge adjacent runs across maps too, so the bitmap checker visits each
+        // physical ownership run once even when a file boundary splits that run.
+        let mut coalesced_ranges: Vec<(u64, u64)> = Vec::with_capacity(owned_ranges.len());
+        for (start, end) in owned_ranges {
+            if let Some(last) = coalesced_ranges.last_mut() {
+                if last.1 == start {
+                    last.1 = end;
+                    continue;
+                }
+            }
+            coalesced_ranges.push((start, end));
+        }
+        self.allocation_ownership_range_report(device, &coalesced_ranges)
     }
 
     /// Compare physical owner ranges against the bitmap without expanding each range to
