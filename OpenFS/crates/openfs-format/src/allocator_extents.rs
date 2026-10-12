@@ -30,7 +30,9 @@ impl OpenedVolumeV2 {
             device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
             let base = index * bits_per_block;
             let start = layout.data_start.max(base);
-            let end = layout.backup_superblock.min(base.saturating_add(bits_per_block));
+            let end = layout
+                .backup_superblock
+                .min(base.saturating_add(bits_per_block));
             let mut run_start = start;
             let mut run_len = 0_u64;
             for block in start..end {
@@ -61,7 +63,9 @@ impl OpenedVolumeV2 {
     ) -> Result<u64> {
         validate_device(self, device)?;
         if count == 0 {
-            return Err(Error::InvalidInput("contiguous extent length must be nonzero"));
+            return Err(Error::InvalidInput(
+                "contiguous extent length must be nonzero",
+            ));
         }
         let start = self
             .find_contiguous_free_blocks(device, count)?
@@ -91,7 +95,9 @@ impl OpenedVolumeV2 {
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         for index in 0..layout.bitmap_blocks {
-            let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+            let base = index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
             for local in 0..bits_per_block {
@@ -127,7 +133,8 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolumeV2, device: &D) -> Resul
             "device geometry does not match opened v2 volume",
         ));
     }
-    let canonical = VolumeLayoutV2::calculate(volume.volume.block_size, volume.volume.total_blocks)?;
+    let canonical =
+        VolumeLayoutV2::calculate(volume.volume.block_size, volume.volume.total_blocks)?;
     if volume.volume.layout != canonical {
         return Err(Error::InvalidInput(
             "v2 volume layout was modified after validation",
