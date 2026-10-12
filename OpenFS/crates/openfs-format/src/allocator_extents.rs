@@ -937,9 +937,7 @@ impl OpenedVolumeV2 {
                 };
                 let data_mask = lower_mask & data_upper_mask;
 
-                while range_index < owned_ranges.len()
-                    && owned_ranges[range_index].1 <= byte_base
-                {
+                while range_index < owned_ranges.len() && owned_ranges[range_index].1 <= byte_base {
                     range_index += 1;
                 }
                 let mut owner_mask = 0_u8;
