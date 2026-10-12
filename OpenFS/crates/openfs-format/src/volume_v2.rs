@@ -2063,6 +2063,36 @@ mod tests {
     }
 
     #[test]
+    fn v2_batch_allocator_roundtrips_all_supported_block_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("batch-roundtrip-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let initial = volume.allocation_stats(&mut device).unwrap();
+                let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
+                assert_eq!(blocks.len(), 4);
+                assert_eq!(
+                    volume.allocation_stats(&mut device).unwrap().free_data_blocks,
+                    initial.free_data_blocks - 4
+                );
+                volume.free_blocks(&mut device, &blocks).unwrap();
+                assert_eq!(volume.allocation_stats(&mut device).unwrap(), initial);
+                volume.validate_allocation_bitmap(&mut device).unwrap();
+                drop(volume);
+
+                let mut reopened = open_volume_v2(&mut device).unwrap();
+                assert_eq!(reopened.allocation_stats(&mut device).unwrap(), initial);
+                let allocated_again = reopened.allocate_blocks(&mut device, 4).unwrap();
+                assert_eq!(allocated_again, blocks);
+                reopened.free_blocks(&mut device, &allocated_again).unwrap();
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
