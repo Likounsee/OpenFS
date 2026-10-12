@@ -15,7 +15,7 @@ The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, 
 
 ## Current snapshot
 
-- Latest batch adds `find_best_fit_free_extent`, a deterministic read-only placement query that selects the smallest contiguous free extent able to satisfy a request (ties choose the lower block number). Tests cover exact-fit selection, smallest-fitting selection, no-fit and zero-length requests, all five supported block sizes, and corruption rejection. The previous `free_extent_inventory` batch passed Linux and Windows CI on commit `09c5ab04bdc4e47b5cc5416d15f70f9c88820963` (run [38304731238](https://github.com/Likounsee/OpenFS/actions/runs/38304731238)); CI for the new best-fit batch is pending.
+- Latest batch adds `allocate_best_fit_contiguous_blocks`, which chooses the smallest fitting free run and commits the selected contiguous blocks through one journaled bitmap update after rereading and validating every target bit. Regression coverage checks exact-fit reuse, allocation counts/inventory, invalid zero-length requests, and no-fit failure across all five supported block sizes. The read-only best-fit query and prior free-extent inventory are also covered. CI for the atomic best-fit batch is pending.
 
 - Previous batch optimizes read-only free-space queries: free-block inventory now scans bitmap bytes and extracts zero bits rather than testing every data block individually; fragmentation statistics detect free runs from byte-level masks and use checked run/count arithmetic. Tests compare free and allocated inventories, per-block allocation state, free counts, and fragmented-run results across all five supported block sizes. The prior bounded ownership diagnostics batch passed Linux/Windows CI on commit `74a0a79adadeb5c2cee7dc26b9d5ccb9f5e10cf8` (run [38302795167](https://github.com/Likounsee/OpenFS/actions/runs/38302795167)).
 
@@ -96,6 +96,7 @@ A supported Windows PC must identify a removable device, show stable identity an
 - [x] Expand corruption coverage across malformed reserved/padding bitmap cases, allocation count consistency, and namespace lifecycle/index invariants (CI run `38302439267` passed on Linux and Windows).
 - [x] Scan free-block inventories and free-space fragmentation by bitmap byte masks, with cross-block-size inventory/fragmentation regressions (CI pending for the current batch).\n- [x] Expose a read-only free-extent inventory with segment-bounded runs, and cross-check its results against fragmentation statistics (implementation and regression tests added; current CI pending).
 - [x] Add deterministic best-fit free-extent selection with smallest-fit and no-fit regressions (implementation and tests added; current CI pending).
+- [x] Add atomic best-fit contiguous allocation with bitmap revalidation and journaled commit, plus allocation accounting/no-fit regressions (CI pending).
 - [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed). The expanded allocator crash/failure matrix is also green on commit `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
 
 **Exit gate:** deterministic format/open/allocate/free/reopen tests, stable golden fixtures, malformed-layout rejection, and explicit ownership invariants when persistent objects are implemented.
