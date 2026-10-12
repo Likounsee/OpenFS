@@ -861,10 +861,10 @@ mod tests {
                     fail_at: 4,
                 };
                 let mut volume = volume;
-                assert!(matches!(
-                    volume.allocate_block(&mut failing),
-                    Err(Error::Io(_))
-                ), "expected home-write failure for block size {block_size}");
+                assert!(
+                    matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
+                    "expected home-write failure for block size {block_size}"
+                );
                 let mut device = failing.inner;
                 drop(volume);
 
@@ -1352,7 +1352,8 @@ mod tests {
                 let path = image_path(&format!("free-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let mut volume =
+                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -1398,10 +1399,10 @@ mod tests {
                     write_index: 0,
                     fail_at: 4,
                 };
-                assert!(matches!(
-                    volume.free_block(&mut failing, first),
-                    Err(Error::Io(_))
-                ), "expected home-write failure for block size {block_size}");
+                assert!(
+                    matches!(volume.free_block(&mut failing, first), Err(Error::Io(_))),
+                    "expected home-write failure for block size {block_size}"
+                );
                 let mut device = failing.inner;
                 drop(volume);
 
