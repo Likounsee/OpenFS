@@ -974,6 +974,81 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_each_reserved_block_marked_free() {
+        let base = image_path("reserved-blocks-base");
+        let reserved_blocks;
+        {
+            let mut device = ImageDevice::create(&base, 4096, 256).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            reserved_blocks = (0..layout.total_blocks)
+                .filter(|block| layout.is_reserved(*block))
+                .collect::<Vec<_>>();
+            assert_eq!(reserved_blocks, (0..8).chain(std::iter::once(255)).collect::<Vec<_>>());
+        }
+        fs::remove_file(&base).unwrap();
+
+        for reserved in reserved_blocks {
+            let path = image_path(&format!("reserved-block-{reserved}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let bitmap_block = volume.volume.layout.bitmap_start + reserved / (4096 * 8);
+                let local = reserved % (4096 * 8);
+                let mut bitmap = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+                device.flush().unwrap();
+
+                assert!(matches!(
+                    open_volume_v2(&mut device),
+                    Err(Error::Corrupt("v2 bitmap marks a reserved or padding block free"))
+                ), "reserved block {reserved} was accepted as free");
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn v2_allocator_reuses_freed_blocks_in_order_after_reopen() {
+        let path = image_path("allocator-reuse-order");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.volume.layout.data_start;
+            let allocated = (0..40)
+                .map(|_| volume.allocate_block(&mut device).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(allocated, (first..first + 40).collect::<Vec<_>>());
+
+            for block in allocated.iter().step_by(2) {
+                volume.free_block(&mut device, *block).unwrap();
+            }
+            device.flush().unwrap();
+            drop(volume);
+
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            for block in allocated.iter().step_by(2) {
+                assert_eq!(volume.allocate_block(&mut device).unwrap(), *block);
+            }
+            assert_eq!(
+                volume.allocate_block(&mut device).unwrap(),
+                first + allocated.len() as u64
+            );
+            device.flush().unwrap();
+            drop(volume);
+
+            let mut volume = open_volume_v2(&mut device).unwrap();
+            assert_eq!(
+                volume.allocate_block(&mut device).unwrap(),
+                first + allocated.len() as u64 + 1
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_rejects_reserved_bitmap_corruption_replayed_from_journal() {
         let path = image_path("reserved-bitmap-replay");
         {
