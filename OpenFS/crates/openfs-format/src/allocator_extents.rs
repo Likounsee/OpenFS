@@ -468,6 +468,66 @@ impl OpenedVolumeV2 {
             .min_by_key(|extent| (extent.block_count, extent.start_block)))
     }
 
+    /// Atomically allocate a contiguous extent from the smallest fitting free run.
+    ///
+    /// Selection is deterministic (smallest extent, then lowest block number). The selected
+    /// bitmap is reread and every target bit is checked before the journal is committed.
+    /// Like other V2 allocator transactions, the extent must fit in one bitmap segment.
+    pub fn allocate_best_fit_contiguous_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        count: u64,
+    ) -> Result<u64> {
+        validate_device(self, device)?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        if count == 0 || count > bits_per_block {
+            return Err(Error::InvalidInput(
+                "best-fit allocation length must fit within one bitmap block",
+            ));
+        }
+        let extent = self
+            .find_best_fit_free_extent(device, count)?
+            .ok_or(Error::InvalidInput("no contiguous free data extent"))?;
+        let end = extent
+            .start_block
+            .checked_add(count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if end > self.volume.layout.backup_superblock
+            || extent.start_block / bits_per_block != (end - 1) / bits_per_block
+        {
+            return Err(Error::Corrupt(
+                "best-fit extent crosses an allocation bitmap segment",
+            ));
+        }
+        let bitmap_block =
+            self.volume.layout.bitmap_start + extent.start_block / bits_per_block;
+        let base = (extent.start_block / bits_per_block) * bits_per_block;
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        for block in extent.start_block..end {
+            let local = block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                return Err(Error::Corrupt(
+                    "best-fit extent changed during allocation",
+                ));
+            }
+        }
+        for block in extent.start_block..end {
+            let local = block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            bitmap[byte] |= 1_u8 << (local % 8);
+        }
+        self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )?;
+        Ok(extent.start_block)
+    }
+
     /// Measure free-space fragmentation without modifying the volume.
     ///
     /// Extents are counted independently per bitmap segment because allocation transactions
@@ -992,6 +1052,36 @@ mod allocation_bitmap_report_tests {
                 assert!(matches!(
                     volume.find_best_fit_free_extent(&mut device, 0),
                     Err(Error::InvalidInput(_))
+                ));
+                let before_best_fit = volume.allocation_stats(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .allocate_best_fit_contiguous_blocks(&mut device, 3)
+                        .unwrap(),
+                    allocated[2],
+                    "best-fit allocation should reuse the exact-sized hole for block_size={block_size}"
+                );
+                assert_eq!(
+                    volume
+                        .allocation_stats(&mut device)
+                        .unwrap()
+                        .allocated_data_blocks,
+                    before_best_fit.allocated_data_blocks + 3,
+                    "best-fit allocation should account for all committed blocks"
+                );
+                let after_best_fit = volume.allocated_data_block_inventory(&mut device).unwrap();
+                assert!((allocated[2]..allocated[2] + 3)
+                    .all(|block| after_best_fit.contains(&block)));
+                assert!(matches!(
+                    volume.allocate_best_fit_contiguous_blocks(&mut device, 0),
+                    Err(Error::InvalidInput(_))
+                ));
+                assert!(matches!(
+                    volume.allocate_best_fit_contiguous_blocks(
+                        &mut device,
+                        volume.volume.layout.data_blocks(),
+                    ),
+                    Err(Error::InvalidInput("no contiguous free data extent"))
                 ));
                 let fragmentation = volume.free_extent_stats(&mut device).unwrap();
                 assert_eq!(
