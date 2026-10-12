@@ -428,29 +428,41 @@ mod tests {
                 physical_start: 300,
                 block_count: 3,
             },
-        ]).unwrap();
+        ])
+        .unwrap();
         let removed = map.remove_range(2, 4).unwrap();
-        assert_eq!(removed, vec![Extent {
-            logical_start: 2, physical_start: 102, block_count: 4
-        }]);
-        assert_eq!(map.extents(), &[
-            Extent {
-                logical_start: 0,
-                physical_start: 100,
-                block_count: 2,
-            },
-            Extent {
-                logical_start: 6,
-                physical_start: 106,
-                block_count: 2,
-            },
-            Extent {
-                logical_start: 12,
-                physical_start: 300,
-                block_count: 3,
-            },
-        ]);
-        assert!(matches!(map.remove_range(u64::MAX, 2), Err(Error::ArithmeticOverflow)));
+        assert_eq!(
+            removed,
+            vec![Extent {
+                logical_start: 2,
+                physical_start: 102,
+                block_count: 4,
+            }]
+        );
+        assert_eq!(
+            map.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 6,
+                    physical_start: 106,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 12,
+                    physical_start: 300,
+                    block_count: 3,
+                },
+            ]
+        );
+        assert!(matches!(
+            map.remove_range(u64::MAX, 2),
+            Err(Error::ArithmeticOverflow)
+        ));
         assert_eq!(map.extents().len(), 3);
     }
 
@@ -467,19 +479,32 @@ mod tests {
                 physical_start: 200,
                 block_count: 4,
             },
-        ]).unwrap();
+        ])
+        .unwrap();
         let removed = map.truncate(6).unwrap();
-        assert_eq!(removed, vec![Extent {
-            logical_start: 6, physical_start: 201, block_count: 3
-        }]);
-        assert_eq!(map.extents(), &[
-            Extent { logical_start: 0, physical_start: 100, block_count: 3 },
-            Extent {
-                logical_start: 5,
-                physical_start: 200,
-                block_count: 1,
-            },
-        ]);
+        assert_eq!(
+            removed,
+            vec![Extent {
+                logical_start: 6,
+                physical_start: 201,
+                block_count: 3,
+            }]
+        );
+        assert_eq!(
+            map.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 5,
+                    physical_start: 200,
+                    block_count: 1,
+                },
+            ]
+        );
         assert!(map.truncate(64).unwrap().is_empty());
     }
     #[test]
