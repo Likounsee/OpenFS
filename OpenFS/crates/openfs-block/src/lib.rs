@@ -342,7 +342,8 @@ impl BlockDevice for RawDevice {
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
         self.validate_buffer(first_block, input.len())?;
-        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file
+            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
         self.file.write_all(input)?;
         Ok(())
     }
