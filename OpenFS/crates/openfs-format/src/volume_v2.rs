@@ -596,9 +596,17 @@ mod tests {
             device.flush().unwrap();
 
             let mut volume = open_volume_v2(&mut device).unwrap();
+            let allocated = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(allocated, bits_per_bitmap_block);
+            volume.free_block(&mut device, allocated).unwrap();
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated);
+        }
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let mut volume = open_volume_v2(&mut device).unwrap();
             assert_eq!(
                 volume.allocate_block(&mut device).unwrap(),
-                bits_per_bitmap_block
+                bits_per_bitmap_block + 1
             );
         }
         fs::remove_file(path).unwrap();
