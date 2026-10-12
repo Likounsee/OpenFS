@@ -1588,13 +1588,19 @@ mod tests {
             );
         }
 
-        assert!(matches!(
-            VolumeLayoutV2::calculate(4096, u64::MAX),
-            Err(Error::ArithmeticOverflow)
-        ));
-        assert!(matches!(
-            VolumeLayoutV2::calculate(4096, 12),
-            Ok(layout) if layout.data_blocks() > 0
-        ));
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            assert!(matches!(
+                VolumeLayoutV2::calculate(block_size, u64::MAX),
+                Err(Error::ArithmeticOverflow)
+            ));
+            assert!(matches!(
+                VolumeLayoutV2::calculate(block_size, u64::MAX / u64::from(block_size) + 1),
+                Err(Error::ArithmeticOverflow)
+            ));
+            assert!(matches!(
+                VolumeLayoutV2::calculate(block_size, 12),
+                Ok(layout) if layout.data_blocks() > 0
+            ));
+        }
     }
 }
