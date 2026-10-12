@@ -2484,7 +2484,10 @@ mod tests {
                 vec![first, third]
             );
             assert_eq!(
-                volume.allocation_stats(&mut device).unwrap().allocated_data_blocks,
+                volume
+                    .allocation_stats(&mut device)
+                    .unwrap()
+                    .allocated_data_blocks,
                 2
             );
         }
