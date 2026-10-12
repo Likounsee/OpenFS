@@ -712,8 +712,9 @@ mod tests {
             journal.commit(&mut device, &[bad]),
             Err(Error::InvalidInput(_))
         ));
+        let many = (0..4).map(|_| update(1)).collect::<Vec<_>>();
         assert!(matches!(
-            journal.commit(&mut device, &[update(1); 4]),
+            journal.commit(&mut device, &many),
             Err(Error::InvalidInput(_))
         ));
     }
