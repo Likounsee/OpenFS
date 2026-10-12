@@ -60,9 +60,9 @@ impl Namespace {
         ObjectId::new(root_id.0)?;
         let mut objects = BTreeMap::new();
         for record in records {
-            record
-                .encode()
-                .map_err(|_| Error::Corrupt("invalid metadata record during namespace reconstruction"))?;
+            record.encode().map_err(|_| {
+                Error::Corrupt("invalid metadata record during namespace reconstruction")
+            })?;
             if objects.insert(record.id, record).is_some() {
                 return Err(Error::Corrupt("duplicate object ID in metadata inventory"));
             }
@@ -70,12 +70,14 @@ impl Namespace {
 
         let mut names = BTreeMap::new();
         for entry in entries {
-            entry
-                .encode()
-                .map_err(|_| Error::Corrupt("invalid directory entry during namespace reconstruction"))?;
+            entry.encode().map_err(|_| {
+                Error::Corrupt("invalid directory entry during namespace reconstruction")
+            })?;
             let key = (ObjectId::new(entry.parent_id)?, entry.name.clone());
             if names.insert(key, entry).is_some() {
-                return Err(Error::Corrupt("duplicate directory name in metadata inventory"));
+                return Err(Error::Corrupt(
+                    "duplicate directory name in metadata inventory",
+                ));
             }
         }
 
