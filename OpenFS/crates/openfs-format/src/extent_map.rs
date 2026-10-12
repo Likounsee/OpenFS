@@ -22,11 +22,15 @@ pub struct Extent {
 
 impl Extent {
     fn logical_end(self) -> Result<u64> {
-        self.logical_start.checked_add(self.block_count).ok_or(Error::ArithmeticOverflow)
+        self.logical_start
+            .checked_add(self.block_count)
+            .ok_or(Error::ArithmeticOverflow)
     }
 
     fn physical_end(self) -> Result<u64> {
-        self.physical_start.checked_add(self.block_count).ok_or(Error::ArithmeticOverflow)
+        self.physical_start
+            .checked_add(self.block_count)
+            .ok_or(Error::ArithmeticOverflow)
     }
 }
 
@@ -54,13 +58,17 @@ impl ExtentMap {
     /// Number of logical blocks explicitly backed by physical storage.
     pub fn allocated_blocks(&self) -> Result<u64> {
         self.extents.iter().try_fold(0_u64, |total, extent| {
-            total.checked_add(extent.block_count).ok_or(Error::ArithmeticOverflow)
+            total
+                .checked_add(extent.block_count)
+                .ok_or(Error::ArithmeticOverflow)
         })
     }
 
     /// Map a logical block to its physical block, returning None for a sparse hole or EOF.
     pub fn physical_block(&self, logical_block: u64) -> Option<u64> {
-        let index = self.extents.partition_point(|extent| extent.logical_start <= logical_block);
+        let index = self
+            .extents
+            .partition_point(|extent| extent.logical_start <= logical_block);
         let extent = self.extents.get(index.checked_sub(1)?)?;
         let offset = logical_block.checked_sub(extent.logical_start)?;
         if offset >= extent.block_count {
@@ -73,8 +81,12 @@ impl ExtentMap {
     pub fn push_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
         if let Some(last) = self.extents.last_mut() {
-            if last.logical_end()? == extent.logical_start && last.physical_end()? == extent.physical_start {
-                last.block_count = last.block_count.checked_add(extent.block_count)
+            if last.logical_end()? == extent.logical_start
+                && last.physical_end()? == extent.physical_start
+            {
+                last.block_count = last
+                    .block_count
+                    .checked_add(extent.block_count)
                     .ok_or(Error::ArithmeticOverflow)?;
                 return Ok(());
             }
@@ -102,7 +114,9 @@ impl ExtentMap {
                 return Err(Error::Corrupt("extent lies outside the data region"));
             }
         }
-        let mut physical: Vec<(u64, u64)> = self.extents.iter()
+        let mut physical: Vec<(u64, u64)> = self
+            .extents
+            .iter()
             .map(|extent| Ok((extent.physical_start, extent.physical_end()?)))
             .collect::<Result<_>>()?;
         physical.sort_unstable();
@@ -154,19 +168,28 @@ impl ExtentMap {
             return Err(Error::Corrupt("unexpected extent-map header size"));
         }
         let checksum_offset = bytes.len() - CHECKSUM_SIZE;
-        let stored = u32::from_le_bytes(bytes[checksum_offset..].try_into()
-            .map_err(|_| Error::Corrupt("invalid extent-map checksum"))?);
+        let stored = u32::from_le_bytes(
+            bytes[checksum_offset..]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid extent-map checksum"))?,
+        );
         if stored != crc32c(&bytes[..checksum_offset]) {
             return Err(Error::Corrupt("extent-map CRC32C mismatch"));
         }
-        let count = u32::from_le_bytes(bytes[12..16].try_into()
-            .map_err(|_| Error::Corrupt("invalid extent count"))?) as usize;
+        let count = u32::from_le_bytes(
+            bytes[12..16]
+                .try_into()
+                .map_err(|_| Error::Corrupt("invalid extent count"))?,
+        ) as usize;
         let capacity = (checksum_offset - HEADER_SIZE) / EXTENT_SIZE;
         if count > capacity {
             return Err(Error::Corrupt("extent count exceeds block capacity"));
         }
         let used_end = HEADER_SIZE + count * EXTENT_SIZE;
-        if bytes[used_end..checksum_offset].iter().any(|byte| *byte != 0) {
+        if bytes[used_end..checksum_offset]
+            .iter()
+            .any(|byte| *byte != 0)
+        {
             return Err(Error::Corrupt("extent-map padding must be zero"));
         }
         let mut extents = Vec::with_capacity(count);
@@ -189,7 +212,9 @@ impl ExtentMap {
         for (index, extent) in self.extents.iter().copied().enumerate() {
             validate_extent(extent)?;
             if index > 0 && extent.logical_start < previous_end {
-                return Err(Error::InvalidInput("logical extents overlap or are unordered"));
+                return Err(Error::InvalidInput(
+                    "logical extents overlap or are unordered",
+                ));
             }
             previous_end = extent.logical_end()?;
         }
@@ -207,8 +232,11 @@ fn validate_extent(extent: Extent) -> Result<()> {
 }
 
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
-    Ok(u64::from_le_bytes(bytes[offset..offset + 8].try_into()
-        .map_err(|_| Error::Corrupt("truncated extent record"))?))
+    Ok(u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .map_err(|_| Error::Corrupt("truncated extent record"))?,
+    ))
 }
 
 #[cfg(test)]
@@ -218,9 +246,18 @@ mod tests {
 
     fn sample() -> ExtentMap {
         ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 100, block_count: 3 },
-            Extent { logical_start: 5, physical_start: 200, block_count: 2 },
-        ]).unwrap()
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 5,
+                physical_start: 200,
+                block_count: 2,
+            },
+        ])
+        .unwrap()
     }
 
     #[test]
@@ -239,8 +276,18 @@ mod tests {
     #[test]
     fn coalesces_adjacent_runs_and_rejects_logical_overlap() {
         let mut map = ExtentMap::default();
-        map.push_coalescing(Extent { logical_start: 0, physical_start: 50, block_count: 2 }).unwrap();
-        map.push_coalescing(Extent { logical_start: 2, physical_start: 52, block_count: 3 }).unwrap();
+        map.push_coalescing(Extent {
+            logical_start: 0,
+            physical_start: 50,
+            block_count: 2,
+        })
+        .unwrap();
+        map.push_coalescing(Extent {
+            logical_start: 2,
+            physical_start: 52,
+            block_count: 3,
+        })
+        .unwrap();
         assert_eq!(map.extents().len(), 1);
         assert_eq!(map.extents()[0].block_count, 5);
         assert!(matches!(map.push_coalescing(Extent {
@@ -252,7 +299,10 @@ mod tests {
     fn rejects_bad_crc_padding_order_and_out_of_region_extents() {
         let mut bytes = sample().encode_block(4096).unwrap();
         bytes[200] = 1;
-        assert!(matches!(ExtentMap::decode_block(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample().encode_block(4096).unwrap();
         bytes[100] = 1;
@@ -262,21 +312,49 @@ mod tests {
         assert!(matches!(ExtentMap::decode_block(&bytes), Err(Error::Corrupt(_))));
 
         let overlap = ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 100, block_count: 4 },
-            Extent { logical_start: 4, physical_start: 102, block_count: 2 },
-        ]).unwrap();
-        assert!(matches!(overlap.validate(8, 10, 300), Err(Error::Corrupt(_))));
-        assert!(matches!(sample().validate(6, 100, 201), Err(Error::Corrupt(_))));
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 4,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 102,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+        assert!(matches!(
+            overlap.validate(8, 10, 300),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            sample().validate(6, 100, 201),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
     fn rejects_overflow_zero_length_and_capacity_errors() {
-        assert!(matches!(ExtentMap::new(vec![Extent {
-            logical_start: u64::MAX, physical_start: 1, block_count: 1
-        }]), Err(Error::ArithmeticOverflow)));
-        assert!(matches!(ExtentMap::new(vec![Extent {
-            logical_start: 0, physical_start: 1, block_count: 0
-        }]), Err(Error::InvalidInput(_))));
-        assert!(matches!(sample().encode_block(32), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            ExtentMap::new(vec![Extent {
+                logical_start: u64::MAX,
+                physical_start: 1,
+                block_count: 1
+            }]),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(matches!(
+            ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: 1,
+                block_count: 0
+            }]),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            sample().encode_block(32),
+            Err(Error::InvalidInput(_))
+        ));
     }
 }
