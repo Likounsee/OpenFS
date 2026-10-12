@@ -819,7 +819,7 @@ mod tests {
             (
                 "bad-header-size",
                 10,
-                &[0x30, 0x00],
+                &[0x31, 0x00],
                 "unexpected v2 superblock header size",
             ),
         ];
