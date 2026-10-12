@@ -212,8 +212,8 @@ impl OpenedVolumeV2 {
                 .min(self.volume.layout.backup_superblock);
             let local_start = first_block - bitmap_base;
             let local_end = end_block - bitmap_base;
-            let first_byte = usize::try_from(local_start / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
             for byte_index in first_byte..end_byte {
