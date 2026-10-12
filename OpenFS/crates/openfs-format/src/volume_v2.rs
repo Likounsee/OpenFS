@@ -328,7 +328,44 @@ impl OpenedVolumeV2 {
         let records = self.read_metadata_inventory(device, metadata_blocks, metadata_count)?;
         let entries =
             self.read_directory_inventory(device, directory_blocks, directory_entry_count)?;
-        Namespace::from_records(root_id, records, entries)
+        let namespace = Namespace::from_records(root_id, records, entries)?;
+        let roots = namespace.validated_extent_root_inventory(
+            self.volume.layout.data_start,
+            self.volume.layout.backup_superblock,
+        )?;
+        for root in &roots {
+            if claimed.contains(root) {
+                return Err(Error::Corrupt(
+                    "extent-map root aliases a metadata or directory inventory block",
+                ));
+            }
+        }
+        self.validate_namespace_extent_roots(device, &namespace)?;
+        Ok(namespace)
+    }
+
+    /// Validate every extent-map root referenced by a namespace against the V2 bitmap.
+    ///
+    /// Returns the sorted, unique roots after checking data-region bounds and requiring
+    /// each root block to be allocated. This does not decode the extent-map pages.
+    pub fn validate_namespace_extent_roots<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        namespace: &Namespace,
+    ) -> Result<Vec<u64>> {
+        self.validate_device(device)?;
+        let roots = namespace.validated_extent_root_inventory(
+            self.volume.layout.data_start,
+            self.volume.layout.backup_superblock,
+        )?;
+        for root in &roots {
+            if !self.is_data_block_allocated(device, *root)? {
+                return Err(Error::Corrupt(
+                    "extent-map root is marked free in the allocation bitmap",
+                ));
+            }
+        }
+        Ok(roots)
     }
 
     fn read_packed_inventory<D: BlockDevice>(
@@ -869,6 +906,121 @@ mod tests {
                 .unwrap();
             assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
             assert_eq!(namespace.object_count(), 2);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn namespace_extent_roots_must_be_allocated_and_not_alias_inventory_blocks() {
+        use crate::{DirectoryEntry, MetadataRecord, Namespace, ObjectId, ObjectKind};
+
+        let path = image_path("namespace-extent-root-bitmap");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let directory_block = volume.allocate_block(&mut device).unwrap();
+            let extent_root = volume.allocate_block(&mut device).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let file = MetadataRecord {
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 12,
+                extent_root_block: Some(extent_root),
+                generation: 1,
+            };
+            let entry = DirectoryEntry {
+                parent_id: 1,
+                object_id: 2,
+                kind: ObjectKind::File,
+                name: "hello.txt".to_owned(),
+            };
+            let mut metadata_bytes = vec![0_u8; 4096];
+            metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+            metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            let mut directory_bytes = vec![0_u8; 4096];
+            directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+            device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                )
+                .unwrap();
+            assert_eq!(
+                volume
+                    .validate_namespace_extent_roots(&mut device, &namespace)
+                    .unwrap(),
+                vec![extent_root]
+            );
+
+            volume.free_block(&mut device, extent_root).unwrap();
+            assert!(matches!(
+                volume.validate_namespace_extent_roots(&mut device, &namespace),
+                Err(Error::Corrupt(
+                    "extent-map root is marked free in the allocation bitmap"
+                ))
+            ));
+
+            let aliasing_namespace = Namespace::from_records(
+                ObjectId(1),
+                [
+                    root,
+                    MetadataRecord {
+                        id: ObjectId(3),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 1,
+                        extent_root_block: Some(metadata_block),
+                        generation: 1,
+                    },
+                ],
+                [DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 3,
+                    kind: ObjectKind::File,
+                    name: "alias.txt".to_owned(),
+                }],
+            )
+            .unwrap();
+            assert!(matches!(
+                volume.reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                ),
+                Err(Error::Corrupt(
+                    "extent-map root is marked free in the allocation bitmap"
+                )) | Err(Error::Corrupt(
+                    "extent-map root aliases a metadata or directory inventory block"
+                ))
+            ));
+            assert!(matches!(
+                volume.validate_namespace_extent_roots(&mut device, &aliasing_namespace),
+                Err(Error::Corrupt(
+                    "extent-map root is marked free in the allocation bitmap"
+                ))
+            ));
         }
         fs::remove_file(path).unwrap();
     }
