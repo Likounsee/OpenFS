@@ -139,6 +139,14 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             "protected journal target lies outside the device",
         ));
     }
+    if protected_blocks
+        .iter()
+        .any(|block| region.contains_journal_block(*block))
+    {
+        return Err(Error::InvalidInput(
+            "journal metadata overlaps a protected volume-control block",
+        ));
+    }
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
     validate_checkpoint_geometry(&checkpoint, region)?;
     let scanned = scan_uncheckpointed_records(device, region, checkpoint.checkpoint_sequence)?;
@@ -840,6 +848,32 @@ mod tests {
             journal.commit(&mut device, &many),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn protected_open_rejects_journal_region_overlapping_volume_control_blocks() {
+        let mut device = formatted();
+
+        for protected in [
+            REGION.checkpoint_a,
+            REGION.checkpoint_b,
+            REGION.ring_start,
+            REGION.ring_start + REGION.ring_blocks - 1,
+        ] {
+            assert!(
+                matches!(
+                    super::open_journal_protected(&mut device, REGION, &[protected]),
+                    Err(Error::InvalidInput(
+                        "journal metadata overlaps a protected volume-control block"
+                    ))
+                ),
+                "accepted protected block inside journal region: {protected}"
+            );
+        }
+
+        // The rejection is performed before reading or modifying journal state.
+        let reopened = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 0);
     }
 
     #[test]
