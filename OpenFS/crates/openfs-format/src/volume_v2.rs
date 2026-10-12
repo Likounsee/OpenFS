@@ -5,7 +5,7 @@
 
 use crate::{
     crc32c, format_journal, plan_recovery, JournalCheckpoint, JournalRecord, JournalRegion,
-    PersistentJournal, RedoUpdate, SUPERBLOCK_SIZE, JOURNAL_CHECKPOINT_SIZE,
+    PersistentJournal, RedoUpdate, JOURNAL_CHECKPOINT_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -336,8 +336,12 @@ pub fn check_volume_v2<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckRepo
     }
     let layout = VolumeLayoutV2::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
-    let (journal_generation, journal_checkpoint_sequence, pending_journal_records,
-        recoverable_transactions) = check_journal_read_only(device, layout.journal)?;
+    let (
+        journal_generation,
+        journal_checkpoint_sequence,
+        pending_journal_records,
+        recoverable_transactions,
+    ) = check_journal_read_only(device, layout.journal)?;
 
     let bits_per_bitmap_block = u64::from(block_size) * 8;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
@@ -399,7 +403,10 @@ fn check_journal_read_only<D: BlockDevice>(
     fn read_copy<D: BlockDevice>(device: &mut D, block_number: u64) -> Result<JournalCheckpoint> {
         let mut block = vec![0_u8; device.block_size() as usize];
         device.read_blocks(block_number, &mut block)?;
-        if block[JOURNAL_CHECKPOINT_SIZE..].iter().any(|byte| *byte != 0) {
+        if block[JOURNAL_CHECKPOINT_SIZE..]
+            .iter()
+            .any(|byte| *byte != 0)
+        {
             return Err(Error::Corrupt("checkpoint block padding must be zero"));
         }
         JournalCheckpoint::decode(&block[..JOURNAL_CHECKPOINT_SIZE])
@@ -409,7 +416,9 @@ fn check_journal_read_only<D: BlockDevice>(
     let second = read_copy(device, region.checkpoint_b);
     let (checkpoint, _) = match (first, second) {
         (Ok(a), Ok(b)) if a.generation == b.generation && a != b => {
-            return Err(Error::Corrupt("checkpoint copies conflict at the same generation"));
+            return Err(Error::Corrupt(
+                "checkpoint copies conflict at the same generation",
+            ));
         }
         (Ok(a), Ok(b)) if a.generation >= b.generation => (a, 0),
         (Ok(_), Ok(b)) => (b, 1),
@@ -424,10 +433,14 @@ fn check_journal_read_only<D: BlockDevice>(
         || checkpoint.head_block != 0
         || checkpoint.tail_block != 0
     {
-        return Err(Error::Corrupt("unsupported journal checkpoint ring position"));
+        return Err(Error::Corrupt(
+            "unsupported journal checkpoint ring position",
+        ));
     }
     if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
-        return Err(Error::Corrupt("journal checkpoint sequence counters disagree"));
+        return Err(Error::Corrupt(
+            "journal checkpoint sequence counters disagree",
+        ));
     }
 
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
@@ -2340,9 +2353,13 @@ mod tests {
                 device.flush().unwrap();
 
                 let mut latest = vec![0_u8; block_size as usize];
-                device.read_blocks(layout.journal.checkpoint_b, &mut latest).unwrap();
+                device
+                    .read_blocks(layout.journal.checkpoint_b, &mut latest)
+                    .unwrap();
                 latest[0] ^= 1;
-                device.write_blocks(layout.journal.checkpoint_b, &latest).unwrap();
+                device
+                    .write_blocks(layout.journal.checkpoint_b, &latest)
+                    .unwrap();
                 device.flush().unwrap();
 
                 let before_check = fs::read(&path).unwrap();
@@ -2358,9 +2375,13 @@ mod tests {
                 );
 
                 let mut other = vec![0_u8; block_size as usize];
-                device.read_blocks(layout.journal.checkpoint_a, &mut other).unwrap();
+                device
+                    .read_blocks(layout.journal.checkpoint_a, &mut other)
+                    .unwrap();
                 other[0] ^= 1;
-                device.write_blocks(layout.journal.checkpoint_a, &other).unwrap();
+                device
+                    .write_blocks(layout.journal.checkpoint_a, &other)
+                    .unwrap();
                 assert!(
                     matches!(check_volume_v2(&mut device), Err(Error::Corrupt(_))),
                     "checker accepted two invalid checkpoint copies at block size {block_size}"
