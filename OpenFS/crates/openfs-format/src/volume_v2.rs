@@ -40,8 +40,8 @@ impl VolumeLayoutV2 {
             ));
         }
         u64::from(block_size)
-        .checked_mul(total_blocks)
-        .ok_or(Error::ArithmeticOverflow)?;
+            .checked_mul(total_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(block_size)
             .checked_mul(8)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -127,12 +127,12 @@ impl OpenedVolumeV2 {
             if bitmap[byte] & mask == 0 {
                 bitmap[byte] |= mask;
                 self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        )?;
+                    device,
+                    &[RedoUpdate {
+                        target_block: bitmap_block,
+                        contents: bitmap,
+                    }],
+                )?;
                 return Ok(block);
             }
         }
@@ -142,9 +142,7 @@ impl OpenedVolumeV2 {
     /// Free a data block through the journal; reserved and already-free blocks are rejected.
     pub fn free_block<D: BlockDevice>(&mut self, device: &mut D, block: u64) -> Result<()> {
         self.validate_device(device)?;
-        if block < self.volume.layout.data_start
-            || block >= self.volume.layout.backup_superblock
-        {
+        if block < self.volume.layout.data_start || block >= self.volume.layout.backup_superblock {
             return Err(Error::InvalidInput(
                 "cannot free a reserved or out-of-range block",
             ));
@@ -161,12 +159,12 @@ impl OpenedVolumeV2 {
         }
         bitmap[byte] &= !mask;
         self.journal.commit(
-                    device,
-                    &[RedoUpdate {
-                        target_block: bitmap_block,
-                        contents: bitmap,
-                    }],
-                )?;
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )?;
         Ok(())
     }
 
@@ -261,15 +259,12 @@ fn encode_superblock_v2(
     features: u64,
     uuid: [u8; 16],
 ) -> Result<[u8; SUPERBLOCK_SIZE]> {
-    if !(4096..=65_536).contains(&block_size)
-        || !block_size.is_power_of_two()
-        || total_blocks < 2
-    {
+    if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
         return Err(Error::InvalidInput("invalid v2 superblock geometry"));
     }
     u64::from(block_size)
-            .checked_mul(total_blocks)
-            .ok_or(Error::ArithmeticOverflow)?;
+        .checked_mul(total_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
     let mut bytes = [0_u8; SUPERBLOCK_SIZE];
     bytes[..8].copy_from_slice(MAGIC);
     bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
@@ -302,23 +297,18 @@ fn decode_superblock_v2(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64,
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("v2 superblock CRC32C mismatch"));
     }
-    if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0)
-        || bytes[4092..].iter().any(|b| *b != 0)
-    {
+    if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0) || bytes[4092..].iter().any(|b| *b != 0) {
         return Err(Error::Corrupt("reserved v2 superblock bytes must be zero"));
     }
     let block_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
     let total_blocks = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
     let features = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-    if !(4096..=65_536).contains(&block_size)
-        || !block_size.is_power_of_two()
-        || total_blocks < 2
-    {
+    if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
         return Err(Error::Corrupt("invalid v2 superblock geometry"));
     }
     u64::from(block_size)
-            .checked_mul(total_blocks)
-            .ok_or(Error::ArithmeticOverflow)?;
+        .checked_mul(total_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
     let mut uuid = [0_u8; 16];
     uuid.copy_from_slice(&bytes[32..48]);
     Ok((block_size, total_blocks, features, uuid))
