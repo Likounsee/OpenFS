@@ -2227,6 +2227,40 @@ mod tests {
     }
 
     #[test]
+    fn v2_bitmap_validator_rejects_padding_corruption_in_second_segment() {
+        // 4096-byte bitmap blocks cover 32768 volume blocks each. Keep the
+        // image sparse so this regression exercises the second segment without
+        // requiring a large physical test fixture.
+        let path = image_path("bitmap-validator-second-segment-padding");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 32_770).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            volume.validate_allocation_bitmap(&mut device).unwrap();
+
+            let corrupt_block = 32_770_u64;
+            let bitmap_index = corrupt_block / (4096_u64 * 8);
+            let local = corrupt_block % (4096_u64 * 8);
+            assert_eq!(bitmap_index, 1);
+            let bitmap_block = layout.bitmap_start + bitmap_index;
+            let mut bitmap = vec![0_u8; 4096];
+            device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+            bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+            device.write_blocks(bitmap_block, &bitmap).unwrap();
+
+            assert!(matches!(
+                volume.validate_allocation_bitmap(&mut device),
+                Err(Error::Corrupt(_))
+            ));
+            assert!(matches!(
+                volume.allocated_data_block_inventory(&mut device),
+                Err(Error::Corrupt(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_public_bitmap_validator_rejects_reserved_and_padding_corruption_for_all_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for (label, corrupt_block) in [("reserved", 0_u64), ("padding", 300_u64)] {
