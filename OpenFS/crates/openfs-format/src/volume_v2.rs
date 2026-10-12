@@ -1971,6 +1971,54 @@ mod tests {
     }
 
     #[test]
+    fn v2_batch_allocator_and_free_are_atomic_and_persistent() {
+        let path = image_path("batch-allocator");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.volume.layout.data_start;
+            let before = volume.allocation_stats(&mut device).unwrap();
+            assert_eq!(before.total_data_blocks, before.allocated_data_blocks + before.free_data_blocks);
+
+            let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
+            assert_eq!(blocks.len(), 4);
+            assert!(blocks.windows(2).all(|pair| pair[0] < pair[1]));
+            assert_eq!(blocks[0], first);
+            let after_allocate = volume.allocation_stats(&mut device).unwrap();
+            assert_eq!(after_allocate.free_data_blocks, before.free_data_blocks - 4);
+            assert_eq!(after_allocate.allocated_data_blocks, before.allocated_data_blocks + 4);
+
+            assert!(matches!(
+                volume.free_blocks(&mut device, &[blocks[0], blocks[0]]),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                volume.free_blocks(&mut device, &[blocks[0], volume.volume.layout.backup_superblock]),
+                Err(Error::InvalidInput(_))
+            ));
+            volume.free_blocks(&mut device, &blocks).unwrap();
+            assert_eq!(volume.allocation_stats(&mut device).unwrap(), before);
+            drop(volume);
+
+            let mut reopened = open_volume_v2(&mut device).unwrap();
+            for block in &blocks {
+                assert!(!reopened.is_data_block_allocated(&mut device, *block).unwrap());
+            }
+            let after_reopen = reopened.allocate_blocks(&mut device, 4).unwrap();
+            assert_eq!(after_reopen, blocks);
+            assert!(matches!(
+                reopened.allocate_blocks(&mut device, 0),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                reopened.free_blocks(&mut device, &[]),
+                Err(Error::InvalidInput(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
