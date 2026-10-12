@@ -238,6 +238,62 @@ impl OpenedVolumeV2 {
         Ok(start)
     }
 
+    /// Verify that the allocation bitmap exactly matches the caller's discovered ownership map.
+    ///
+    /// owned_data_blocks must contain every data block referenced by persistent metadata,
+    /// with each block listed once. This detects both orphaned allocations (bitmap set but no
+    /// owner) and dangling ownership references (owner points to a free block). It does not
+    /// discover metadata itself; the persistent namespace scanner must supply that inventory.
+    pub fn validate_allocation_ownership<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        owned_data_blocks: &[u64],
+    ) -> Result<()> {
+        validate_device(self, device)?;
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        let mut owned = owned_data_blocks.to_vec();
+        owned.sort_unstable();
+        if owned.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Corrupt("a data block is referenced by multiple owners"));
+        }
+        if owned
+            .iter()
+            .any(|block| *block < layout.data_start || *block >= layout.backup_superblock)
+        {
+            return Err(Error::Corrupt("metadata references a non-data block"));
+        }
+
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut owner_index = 0_usize;
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index * bits_per_block;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(base.saturating_add(bits_per_block));
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let allocated = bitmap[byte] & (1_u8 << (local % 8)) != 0;
+                let referenced = owner_index < owned.len() && owned[owner_index] == block;
+                if allocated != referenced {
+                    return Err(Error::Corrupt(
+                        "allocation bitmap and persistent block ownership disagree",
+                    ));
+                }
+                if referenced {
+                    owner_index += 1;
+                }
+            }
+        }
+        if owner_index != owned.len() {
+            return Err(Error::Corrupt("ownership map contains an unscanned data block"));
+        }
+        Ok(())
+    }
     /// Check reserved and padding bits in the allocation bitmap without repairing it.
     ///
     /// The scan is byte-oriented: it verifies only bits outside the usable data region,
