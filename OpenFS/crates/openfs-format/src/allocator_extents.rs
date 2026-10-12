@@ -272,11 +272,8 @@ impl OpenedVolumeV2 {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, bitmap_byte) in bitmap
-                .iter()
-                .enumerate()
-                .take(end_byte)
-                .skip(first_byte)
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
             {
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
