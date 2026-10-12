@@ -1303,51 +1303,60 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_later_segment_reserved_corruption_replayed_from_journal() {
+    fn v2_rejects_later_segment_reserved_and_padding_corruption_replayed_from_journal() {
         let total_blocks = 4096_u64 * 8 + 2;
-        let path = image_path("later-segment-reserved-bitmap-replay");
-        {
-            let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
-            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            assert_eq!(volume.volume.layout.bitmap_blocks, 2);
+        let bits_per_bitmap_block = 4096_u64 * 8;
+        // The same post-replay validation must reject both the backup-superblock
+        // bit and padding immediately beyond the volume in a later bitmap segment.
+        for (label, corrupted_block) in [
+            ("backup-superblock", total_blocks - 1),
+            ("padding-after-volume", total_blocks),
+        ] {
+            let path = image_path(&format!("later-segment-{label}-bitmap-replay"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                assert_eq!(volume.volume.layout.bitmap_blocks, 2);
 
-            let backup_block = total_blocks - 1;
-            let bitmap_block = volume.volume.layout.bitmap_start + 1;
-            let local = backup_block % (4096 * 8);
-            let mut bitmap = vec![0_u8; device.block_size() as usize];
-            device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-            bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                let bitmap_index = corrupted_block / bits_per_bitmap_block;
+                let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
+                let local = corrupted_block % bits_per_bitmap_block;
+                assert_eq!(bitmap_index, 1);
+                let mut bitmap = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
 
-            let mut failing = FailWriteAt {
-                inner: device,
-                write_index: 0,
-                fail_at: 4,
-            };
-            let mut volume = volume;
-            assert!(matches!(
-                volume.journal.commit(
-                    &mut failing,
-                    &[crate::RedoUpdate {
-                        target_block: bitmap_block,
-                        contents: bitmap,
-                    }],
-                ),
-                Err(Error::Io(_))
-            ));
-            let mut device = failing.inner;
-            drop(volume);
+                let mut failing = FailWriteAt {
+                    inner: device,
+                    write_index: 0,
+                    fail_at: 4,
+                };
+                let mut volume = volume;
+                assert!(matches!(
+                    volume.journal.commit(
+                        &mut failing,
+                        &[crate::RedoUpdate {
+                            target_block: bitmap_block,
+                            contents: bitmap,
+                        }],
+                    ),
+                    Err(Error::Io(_))
+                ));
+                let mut device = failing.inner;
+                drop(volume);
 
-            assert!(
-                matches!(
-                    open_volume_v2(&mut device),
-                    Err(Error::Corrupt(
-                        "v2 bitmap marks a reserved or padding block free"
-                    ))
-                ),
-                "replay must validate reserved bits in the second bitmap segment"
-            );
+                assert!(
+                    matches!(
+                        open_volume_v2(&mut device),
+                        Err(Error::Corrupt(
+                            "v2 bitmap marks a reserved or padding block free"
+                        ))
+                    ),
+                    "replay must reject {label} corruption in the second bitmap segment"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
