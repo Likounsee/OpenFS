@@ -136,7 +136,12 @@ impl OpenedVolumeV2 {
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
-            for byte_index in first_byte..end_byte {
+            for (byte_index, byte) in bitmap
+                .iter_mut()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
                 let byte_start = (byte_index as u64) * 8;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
@@ -145,12 +150,12 @@ impl OpenedVolumeV2 {
                 if byte_index + 1 == end_byte && local_end % 8 != 0 {
                     valid_mask &= (1_u8 << (local_end % 8)) - 1;
                 }
-                let available = !bitmap[byte_index] & valid_mask;
+                let available = !*byte & valid_mask;
                 if available != 0 {
                     let bit = u64::from(available.trailing_zeros());
                     let local = byte_start + bit;
                     let block = bitmap_base + local;
-                    bitmap[byte_index] |= 1_u8 << bit;
+                    *byte |= 1_u8 << bit;
                     self.journal.commit(
                         device,
                         &[RedoUpdate {
@@ -216,7 +221,12 @@ impl OpenedVolumeV2 {
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
-            for byte_index in first_byte..end_byte {
+            for (byte_index, byte) in bitmap
+                .iter()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -224,7 +234,7 @@ impl OpenedVolumeV2 {
                 if byte_index + 1 == end_byte && local_end % 8 != 0 {
                     valid_mask &= (1_u8 << (local_end % 8)) - 1;
                 }
-                let free_bits = (!bitmap[byte_index] & valid_mask).count_ones() as u64;
+                let free_bits = (!*byte & valid_mask).count_ones() as u64;
                 free = free
                     .checked_add(free_bits)
                     .ok_or(Error::ArithmeticOverflow)?;
