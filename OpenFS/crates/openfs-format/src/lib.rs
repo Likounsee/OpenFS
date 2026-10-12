@@ -297,6 +297,7 @@ mod journal_engine;
 mod metadata;
 mod namespace;
 mod volume;
+mod volume_v2;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use journal::{
@@ -309,3 +310,4 @@ pub use journal_engine::{
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
+pub use volume_v2::{format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeLayoutV2, VolumeV2};
