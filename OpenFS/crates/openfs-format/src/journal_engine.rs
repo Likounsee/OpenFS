@@ -743,9 +743,16 @@ mod tests {
                 vec![expected_byte; BS as usize],
                 "unexpected home image after failure at operation {fail_at}"
             );
+            let expected_sequence = match fail_at {
+                0 => 0,
+                1 => 1,
+                2 => 2,
+                3 | 4 => 3,
+                _ => 4,
+            };
             assert_eq!(
                 reopened.checkpoint().checkpoint_sequence,
-                if fail_at <= 4 { 0 } else { 4 },
+                expected_sequence,
                 "unexpected checkpoint after failure at operation {fail_at}"
             );
         }
