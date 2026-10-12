@@ -67,7 +67,11 @@ impl OpenedVolumeV2 {
             ));
         }
         let total = self.volume.layout.data_blocks();
-        if report.free_data_block_count + report.allocated_data_block_count != total {
+        let accounted = report
+            .free_data_block_count
+            .checked_add(report.allocated_data_block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if accounted != total {
             return Err(Error::Corrupt(
                 "v2 bitmap data-block counts do not match the usable data region",
             ));
@@ -739,6 +743,72 @@ mod allocation_bitmap_report_tests {
                     free_data_blocks: total - 3,
                 }
             );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn bitmap_counts_match_allocator_state_for_all_supported_block_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("all-sizes-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let total = volume.volume.layout.data_blocks();
+                let allocated = volume.allocate_blocks(&mut device, 3).unwrap();
+                volume.free_blocks(&mut device, &allocated[1..2]).unwrap();
+
+                let report = volume.allocation_bitmap_report(&mut device).unwrap();
+                assert_eq!(report.invalid_free_block_count, 0, "block_size={block_size}");
+                assert_eq!(report.allocated_data_block_count, 2, "block_size={block_size}");
+                assert_eq!(report.free_data_block_count, total - 2, "block_size={block_size}");
+                assert_eq!(
+                    volume.allocation_stats(&mut device).unwrap(),
+                    AllocationStats {
+                        total_data_blocks: total,
+                        allocated_data_blocks: 2,
+                        free_data_blocks: total - 2,
+                    },
+                    "block_size={block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn allocation_stats_rejects_reserved_and_padding_bitmap_corruption() {
+        let path = image_path("stats-corrupt");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            let mut bitmap = vec![0_u8; 4096];
+            device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+            for block in [0_u64, layout.backup_superblock, 300] {
+                bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
+            }
+            device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
+
+            assert!(matches!(
+                volume.allocation_stats(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_data_block_inventory(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_extent_stats(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
         }
         fs::remove_file(path).unwrap();
     }
