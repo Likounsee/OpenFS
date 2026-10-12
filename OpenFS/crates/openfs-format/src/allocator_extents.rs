@@ -349,12 +349,11 @@ impl OpenedVolumeV2 {
                 .min(base.saturating_add(bits_per_block));
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte = usize::try_from(first_local / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             let mut run_start = start;
             let mut run_len = 0_u64;
             let mut previous_free = None;
@@ -536,12 +535,11 @@ impl OpenedVolumeV2 {
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte = usize::try_from(first_local / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             let mut current: Option<FreeExtent> = None;
             for (byte_index, bitmap_byte) in
                 bitmap.iter().enumerate().take(end_byte).skip(first_byte)
