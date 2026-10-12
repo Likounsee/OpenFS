@@ -25,6 +25,17 @@ pub struct FreeExtentStats {
     pub largest_free_extent_blocks: u64,
 }
 
+/// Bounded diagnostics for reserved or out-of-volume bits incorrectly marked free.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AllocationBitmapReport {
+    /// Total invalid free bits found, including those beyond the returned sample.
+    pub invalid_free_block_count: u64,
+    /// Lowest offending block numbers, capped at 64 entries.
+    pub first_invalid_free_blocks: Vec<u64>,
+    /// True when more invalid block numbers exist than the sample contains.
+    pub truncated: bool,
+}
+
 /// Detailed result of comparing persistent block ownership with the allocation bitmap.
 ///
 /// Orphaned blocks are marked allocated but absent from the supplied ownership inventory.
@@ -536,29 +547,25 @@ impl OpenedVolumeV2 {
             ))
         }
     }
-    /// Check reserved and padding bits in the allocation bitmap without repairing it.
+    /// Return a bounded diagnostic sample of free reserved and padding bitmap bits.
     ///
-    /// The scan is byte-oriented: it verifies only bits outside the usable data region,
-    /// instead of iterating over every individual block. The running time is therefore
-    /// proportional to bitmap bytes, including for large volumes.
-    pub fn validate_allocation_bitmap<D: BlockDevice>(&self, device: &mut D) -> Result<()> {
+    /// The report counts every invalid bit but retains at most 64 block numbers, keeping
+    /// memory usage bounded even when a damaged bitmap contains many invalid bits.
+    pub fn allocation_bitmap_report<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<AllocationBitmapReport> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
+        let mut report = AllocationBitmapReport::default();
         for index in 0..layout.bitmap_blocks {
-            let base = index
-                .checked_mul(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let end = base
-                .checked_add(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?;
+            let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+            let end = base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
             let data_start = layout.data_start.max(base);
             let data_end = layout.backup_superblock.min(end);
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
-
-            // Every bit outside [data_start, data_end) must be set. Build the
-            // required mask byte-by-byte, so valid data bits are not constrained.
             let first_data_bit = data_start - base;
             let end_data_bit = data_end - base;
             let first_data_byte =
@@ -576,13 +583,42 @@ impl OpenedVolumeV2 {
                         data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
                     }
                 }
-                let required_reserved_mask = !data_mask;
-                if byte & required_reserved_mask != required_reserved_mask {
-                    return Err(Error::Corrupt(
-                        "v2 bitmap marks a reserved or padding block free",
-                    ));
+                let mut invalid = !*byte & !data_mask;
+                report.invalid_free_block_count = report
+                    .invalid_free_block_count
+                    .checked_add(u64::from(invalid.count_ones()))
+                    .ok_or(Error::ArithmeticOverflow)?;
+                while invalid != 0 && report.first_invalid_free_blocks.len() < 64 {
+                    let bit = u64::from(invalid.trailing_zeros());
+                    let block = base
+                        .checked_add(
+                            u64::try_from(byte_index)
+                                .map_err(|_| Error::ArithmeticOverflow)?
+                                .checked_mul(8)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        )
+                        .and_then(|value| value.checked_add(bit))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    report.first_invalid_free_blocks.push(block);
+                    invalid &= invalid - 1;
                 }
             }
+        }
+        report.truncated = report.invalid_free_block_count
+            > report.first_invalid_free_blocks.len() as u64;
+        Ok(report)
+    }
+
+    /// Check reserved and padding bits in the allocation bitmap without repairing it.
+    ///
+    /// This strict convenience method retains the historical error contract. Use
+    /// allocation_bitmap_report to inspect a bounded list of offending block numbers.
+    pub fn validate_allocation_bitmap<D: BlockDevice>(&self, device: &mut D) -> Result<()> {
+        let report = self.allocation_bitmap_report(device)?;
+        if report.invalid_free_block_count != 0 {
+            return Err(Error::Corrupt(
+                "v2 bitmap marks a reserved or padding block free",
+            ));
         }
         Ok(())
     }
@@ -604,4 +640,67 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolumeV2, device: &D) -> Resul
         ));
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod allocation_bitmap_report_tests {
+    use super::*;
+    use crate::format_volume_v2;
+    use openfs_block::{BlockDevice, ImageDevice};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn image_path(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("openfs-bitmap-report-{label}-{}-{nonce}.img", std::process::id()))
+    }
+
+    #[test]
+    fn bitmap_report_lists_exact_reserved_and_padding_bits() {
+        let path = image_path("exact");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = crate::format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            let mut bitmap = vec![0_u8; 4096];
+            device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+            for block in [0_u64, layout.backup_superblock, 300] {
+                bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
+            }
+            device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
+
+            let report = volume.allocation_bitmap_report(&mut device).unwrap();
+            assert_eq!(report.invalid_free_block_count, 3);
+            assert_eq!(report.first_invalid_free_blocks, vec![0, 255, 300]);
+            assert!(!report.truncated);
+            assert!(matches!(
+                volume.validate_allocation_bitmap(&mut device),
+                Err(Error::Corrupt("v2 bitmap marks a reserved or padding block free"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn bitmap_report_bounds_samples_for_heavily_corrupted_padding() {
+        let path = image_path("bounded");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut bitmap = vec![0_u8; 4096];
+            device.read_blocks(volume.volume.layout.bitmap_start, &mut bitmap).unwrap();
+            for block in 256_u64..336 {
+                bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
+            }
+            device.write_blocks(volume.volume.layout.bitmap_start, &bitmap).unwrap();
+
+            let report = volume.allocation_bitmap_report(&mut device).unwrap();
+            assert_eq!(report.invalid_free_block_count, 80);
+            assert_eq!(report.first_invalid_free_blocks.len(), 64);
+            assert_eq!(report.first_invalid_free_blocks, (256_u64..320).collect::<Vec<_>>());
+            assert!(report.truncated);
+        }
+        fs::remove_file(path).unwrap();
+    }
 }
