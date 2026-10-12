@@ -15,9 +15,9 @@ The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, 
 
 ## Current snapshot
 
-- Current branch head at review: `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
-- GitHub Actions run [38247258586](https://github.com/Likounsee/OpenFS/actions/runs/38247258586) passed for the reviewed code commit `f29b565af1d68d6f887c3d146934d29a55e79d6a` on Linux and Windows, including formatting, workspace tests, and Clippy.
-- Recent regressions cover allocator exhaustion/reuse, bitmap segment boundaries, layout tampering, reserved/padding bitmap corruption (including a later bitmap segment and journal replay), device-geometry mismatches, allocator failure recovery across all five supported block sizes, V2 superblock validation, and golden-byte/CRC32C fixtures.
+- Current branch head at review: `050920286d1db910796ebe4fbecd92f80c3efc3b`.
+- GitHub Actions run [38247835365](https://github.com/Likounsee/OpenFS/actions/runs/38247835365) passed for code commit `dd01c9edd0b837c4b90f654a949066b4898ab77e` on Linux and Windows, including formatting, workspace tests, and Clippy. Run [38248009836](https://github.com/Likounsee/OpenFS/actions/runs/38248009836) is validating the follow-up geometry-overflow matrix on `050920286d1db910796ebe4fbecd92f80c3efc3b`.
+- Recent regressions cover allocator exhaustion/reuse without journal advancement on failed allocation, every reserved-block free rejection, first and last bitmap padding bits across all five supported block sizes, later-segment reserved/padding corruption and journal replay, layout tampering, device-geometry and arithmetic-overflow boundaries, allocator failure recovery across all five supported block sizes, V2 superblock validation, and golden-byte/CRC32C fixtures.
 - The V2 layout specification documents geometry formulas, minimum layout, reserved bitmap bits, and disjoint regions.
 - V2 journaling currently protects allocator bitmap changes; it is not yet a general transaction layer for persistent file and directory operations.
 - Metadata codecs, directory-entry primitives, and an in-memory namespace exist, but a complete durable file/namespace workflow does not.
@@ -74,6 +74,7 @@ A supported Windows PC must identify a removable device, show stable identity an
 - [x] Cover bitmap-segment boundaries, reserved/padding bitmap corruption, and canonical-layout tampering.
 - [x] Validate superblock checksums, reserved bytes, supported versions, block geometry, and mismatched device geometry.
 - [x] Cover selected allocator failures and repeated recovery, including pre-commit failures and durable-commit/home-write failures across all five supported block sizes (Linux/Windows CI run `38247258586`).
+- [x] Check first and last bitmap padding bits across all supported block sizes, verify exhaustion does not advance the journal checkpoint, and exercise layout overflow boundaries for every supported block size (commits `dd01c9e` and `0509202`; CI links recorded in the snapshot above).
 - [ ] Verify every allocated block has exactly one valid owner once persistent objects exist.
 - [ ] Expand corruption coverage across additional malformed bitmap/layout cases.
 - [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed). The expanded allocator crash/failure matrix is also green on commit `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
