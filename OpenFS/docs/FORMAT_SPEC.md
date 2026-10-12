@@ -43,12 +43,16 @@ format_volume overwrites the provided device. It writes the backup and bitmap, f
 V2 uses the same 4096-byte superblock record framing, but the version field is 2. V1 and V2 must not be silently interchanged; the V1 opener rejects version 2 and the V2 opener rejects version 1.
 
 - Block 0: primary V2 superblock.
-- Bitmap blocks begin at block 1; the bitmap covers the whole volume.
-- Immediately after the bitmap: checkpoint A, checkpoint B, then a four-block redo journal ring.
-- Data blocks begin after those six journal blocks.
-- The final block stores the backup V2 superblock.
+- Bitmap blocks begin at block 1 and describe every block in the volume, including reserved and padding bits.
+- Immediately after the bitmap: checkpoint A, checkpoint B, then a four-block redo journal ring (six journal-reserved blocks total).
+- Data blocks begin immediately after those six journal blocks.
+- The final block (block `total_blocks - 1`) stores the backup V2 superblock.
 
-V2 opening checks that the primary and backup superblocks match, validates the decoded geometry and reserved/padding bitmap bits, then opens and recovers the journal before returning writable volume state. The journal rejects redo targets in protected superblock blocks and the allocator journals bitmap updates. The journal has a deliberately bounded ring; a transaction must fit entirely in it.
+For block size `B` bytes and volume length `N` blocks, V2 requires `B` to be a power of two in the inclusive range 4096–65536 and `N >= 12`. Compute `bits_per_bitmap_block = B * 8`, `bitmap_blocks = ceil(N / bits_per_bitmap_block)`, `bitmap_start = 1`, `checkpoint_a = 1 + bitmap_blocks`, `checkpoint_b = checkpoint_a + 1`, `ring_start = checkpoint_b + 1`, `ring_blocks = 4`, `data_start = ring_start + ring_blocks`, and `backup_superblock = N - 1`. The data region is the half-open block interval `[data_start, backup_superblock)`; the geometry is rejected if it is empty or if any arithmetic overflows. With the minimum supported block size and 12 blocks, the layout has one bitmap block, checkpoints at 2 and 3, ring blocks 4–7, data blocks 8–10, and the backup superblock at 11.
+
+Bitmap bits are least-significant-bit first within each byte; a set bit means allocated. The primary superblock, every bitmap block, both checkpoints, every journal-ring block, the backup superblock, and all padding bits beyond the volume end must be marked allocated. Only blocks in the data interval may be allocated or freed by the V2 allocator. Layout regions must be disjoint and ordered exactly as specified above.
+
+V2 opening checks that the primary and backup superblocks match, validates the decoded geometry against the actual device, rejects nonzero reserved bytes and reserved/padding bitmap bits, then opens and recovers the journal before returning writable volume state. The journal rejects redo targets in protected volume-control blocks and the allocator journals bitmap updates. The journal has a deliberately bounded ring; a transaction must fit entirely in it.
 
 V2 is still experimental: the journal is not yet a general transaction layer for namespace/file metadata; format operations are not crash-atomic; ownership checks and a read-only checker are not complete. Image-based fault injection is not evidence of physical USB durability or safe device discovery.
 
