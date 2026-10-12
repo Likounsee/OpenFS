@@ -738,6 +738,9 @@ mod tests {
             device = failing.inner;
             drop(volume);
 
+            // Reopening twice must not replay the committed allocation twice
+            // or lose it when the home bitmap write had failed.
+            drop(open_volume_v2(&mut device).unwrap());
             let mut recovered = open_volume_v2(&mut device).unwrap();
             assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
             recovered.free_block(&mut device, first).unwrap();
