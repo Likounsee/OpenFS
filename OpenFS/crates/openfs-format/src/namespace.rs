@@ -596,7 +596,7 @@ mod tests {
         );
         assert_eq!(ns.extent_root_owner_count().unwrap(), 2);
         assert!(matches!(
-            ns.validated_extent_root_inventory(12, 40),
+            ns.validated_extent_root_inventory(13, 40),
             Err(Error::Corrupt(_))
         ));
         assert!(matches!(
