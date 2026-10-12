@@ -79,11 +79,14 @@ impl Namespace {
             }
         }
 
-        let namespace = Self { root_id, objects, names };
+        let namespace = Self {
+            root_id,
+            objects,
+            names,
+        };
         namespace.validate()?;
         Ok(namespace)
     }
-
 
     pub fn object(&self, id: ObjectId) -> Option<&MetadataRecord> {
         self.objects.get(&id)
@@ -667,7 +670,8 @@ mod tests {
                 entry(1, 2, "docs", ObjectKind::Directory),
                 entry(2, 3, "readme.txt", ObjectKind::File),
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(ns.object_count(), 3);
         assert_eq!(ns.entry_count(), 2);
         assert_eq!(ns.resolve_path("/docs/readme.txt").unwrap(), ObjectId(3));
@@ -684,8 +688,15 @@ mod tests {
         assert!(matches!(
             Namespace::from_records(
                 ObjectId(1),
-                [root.clone(), record(2, 1, ObjectKind::File), record(3, 1, ObjectKind::File)],
-                [entry(1, 2, "same", ObjectKind::File), entry(1, 3, "same", ObjectKind::File)],
+                [
+                    root.clone(),
+                    record(2, 1, ObjectKind::File),
+                    record(3, 1, ObjectKind::File),
+                ],
+                [
+                    entry(1, 2, "same", ObjectKind::File),
+                    entry(1, 3, "same", ObjectKind::File),
+                ],
             ),
             Err(Error::Corrupt(_))
         ));
