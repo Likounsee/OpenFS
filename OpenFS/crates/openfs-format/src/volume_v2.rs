@@ -1261,44 +1261,58 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_reserved_bitmap_corruption_replayed_from_journal() {
+    fn v2_rejects_each_reserved_bitmap_corruption_replayed_from_journal() {
+        // Exercise every reserved bit through durable journal replay, not just
+        // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let path = image_path(&format!("reserved-bitmap-replay-{block_size}"));
-            {
-                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-                let bitmap_block = volume.volume.layout.bitmap_start;
-                let mut bitmap = vec![0_u8; device.block_size() as usize];
-                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                bitmap[0] &= !1; // Mark primary-superblock block zero as free.
+            let layout = VolumeLayoutV2::calculate(block_size, 12).unwrap();
+            let reserved_blocks = (0..layout.total_blocks)
+                .filter(|block| layout.is_reserved(*block))
+                .collect::<Vec<_>>();
+            for reserved in reserved_blocks {
+                let path = image_path(&format!("reserved-replay-{block_size}-{reserved}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
+                    let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let bits_per_bitmap_block = u64::from(block_size) * 8;
+                    let bitmap_block =
+                        volume.volume.layout.bitmap_start + reserved / bits_per_bitmap_block;
+                    let local = reserved % bits_per_bitmap_block;
+                    let mut bitmap = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                    bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
 
-                let mut failing = FailWriteAt {
-                    inner: device,
-                    write_index: 0,
-                    fail_at: 4, // Fail after the commit record is durable, at the home write.
-                };
-                let mut volume = volume;
-                assert!(matches!(
-                    volume.journal.commit(
-                        &mut failing,
-                        &[crate::RedoUpdate {
-                            target_block: bitmap_block,
-                            contents: bitmap,
-                        }],
-                    ),
-                    Err(Error::Io(_))
-                ));
-                let mut device = failing.inner;
-                drop(volume);
+                    let mut failing = FailWriteAt {
+                        inner: device,
+                        write_index: 0,
+                        fail_at: 4, // Commit is durable; the home-block write fails.
+                    };
+                    let mut volume = volume;
+                    assert!(matches!(
+                        volume.journal.commit(
+                            &mut failing,
+                            &[crate::RedoUpdate {
+                                target_block: bitmap_block,
+                                contents: bitmap,
+                            }],
+                        ),
+                        Err(Error::Io(_))
+                    ));
+                    let mut device = failing.inner;
+                    drop(volume);
 
-                assert!(matches!(
-                    open_volume_v2(&mut device),
-                    Err(Error::Corrupt(
-                        "v2 bitmap marks a reserved or padding block free"
-                    ))
-                ));
+                    assert!(
+                        matches!(
+                            open_volume_v2(&mut device),
+                            Err(Error::Corrupt(
+                                "v2 bitmap marks a reserved or padding block free"
+                            ))
+                        ),
+                        "replay accepted reserved block {reserved} as free for block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
             }
-            fs::remove_file(path).unwrap();
         }
     }
 
