@@ -325,7 +325,9 @@ impl Namespace {
         }
 
         if referenced.contains(&self.root_id) {
-            return Err(Error::Corrupt("namespace root must not have a directory entry"));
+            return Err(Error::Corrupt(
+                "namespace root must not have a directory entry",
+            ));
         }
         let mut visited = std::collections::BTreeSet::new();
         let mut pending = vec![self.root_id];
@@ -601,7 +603,8 @@ mod tests {
         .unwrap();
         assert_eq!(ns.validate(), Ok(()));
 
-        ns.objects.insert(ObjectId(99), record(99, 1, ObjectKind::File));
+        ns.objects
+            .insert(ObjectId(99), record(99, 1, ObjectKind::File));
         assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
     }
 
