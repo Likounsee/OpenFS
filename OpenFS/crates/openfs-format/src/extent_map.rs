@@ -107,9 +107,9 @@ impl ExtentMap {
     /// Iterate every physical data block represented by this map in logical extent order.
     /// Sparse holes are omitted. The caller must still validate the map against its volume.
     pub fn physical_blocks(&self) -> impl Iterator<Item = u64> + '_ {
-        self.extents.iter().flat_map(|extent| {
-            extent.physical_start..extent.physical_start + extent.block_count
-        })
+        self.extents
+            .iter()
+            .flat_map(|extent| extent.physical_start..extent.physical_start + extent.block_count)
     }
 
     /// Remove a logical block range and return the physical runs that became unreferenced.
