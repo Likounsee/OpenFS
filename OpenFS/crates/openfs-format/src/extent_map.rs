@@ -732,10 +732,7 @@ mod tests {
             map.validated_physical_ranges(12, 80, 300).unwrap(),
             vec![(100, 106), (200, 203)]
         );
-        assert_eq!(
-            map.validated_physical_block_count(12, 80, 300).unwrap(),
-            9
-        );
+        assert_eq!(map.validated_physical_block_count(12, 80, 300).unwrap(), 9);
         assert!(matches!(
             map.validated_physical_ranges(5, 80, 300),
             Err(Error::Corrupt(_))
