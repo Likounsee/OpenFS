@@ -765,6 +765,54 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_matching_superblocks_with_bad_checksum() {
+        let path = image_path("superblock-bad-checksum");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+
+            for block in [0_u64, 255] {
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[40] ^= 0x01;
+                device.write_blocks(block, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::Corrupt("v2 superblock CRC32C mismatch"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_rejects_nonzero_reserved_superblock_bytes_with_valid_checksum() {
+        let path = image_path("superblock-reserved-byte");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+
+            for block in [0_u64, 255] {
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[48] = 1;
+                let checksum = crate::crc32c(&bytes[..4088]);
+                bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                device.write_blocks(block, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::Corrupt("reserved v2 superblock bytes must be zero"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
         for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
             let path = image_path(label);
