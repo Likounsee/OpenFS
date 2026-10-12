@@ -244,6 +244,9 @@ pub fn open_volume_v2<D: BlockDevice>(device: &mut D) -> Result<OpenedVolumeV2> 
         layout.journal,
         &[0, layout.backup_superblock],
     )?;
+    // Recovery may replay a bitmap home-block image. Validate reserved bits again
+    // after replay before exposing writable volume state.
+    validate_bitmap(device, &layout)?;
     Ok(OpenedVolumeV2 {
         volume: VolumeV2 {
             block_size,
