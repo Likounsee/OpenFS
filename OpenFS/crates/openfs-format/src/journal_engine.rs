@@ -718,4 +718,35 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
     }
+
+    #[test]
+    fn every_commit_io_failure_recovers_to_a_consistent_home_block() {
+        // One full-block redo image produces ten I/O operations:
+        // 3 pre-commit records, flush, commit record, flush, home write,
+        // flush, checkpoint write, flush. Before the commit record is durable,
+        // recovery must keep the old home block; after it may replay the new one.
+        for fail_at in 0..10 {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            let mut failing = FailAt::new(device.clone(), fail_at);
+            assert!(
+                journal.commit(&mut failing, &[update(0xA5)]).is_err(),
+                "operation {fail_at} was expected to fail"
+            );
+            let mut recovered_device = failing.into_inner();
+            let reopened = open_journal(&mut recovered_device, REGION)
+                .unwrap_or_else(|error| panic!("recovery failed at operation {fail_at}: {error:?}"));
+            let expected_byte = if fail_at <= 4 { 0x11 } else { 0xA5 };
+            assert_eq!(
+                read_home(&mut recovered_device),
+                vec![expected_byte; BS as usize],
+                "unexpected home image after failure at operation {fail_at}"
+            );
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                if fail_at <= 4 { 0 } else { 4 },
+                "unexpected checkpoint after failure at operation {fail_at}"
+            );
+        }
+    }
 }
