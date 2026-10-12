@@ -444,8 +444,14 @@ mod tests {
         let map = sample();
         assert_eq!(map.allocated_byte_count(4096).unwrap(), 5 * 4096);
         assert_eq!(map.logical_byte_capacity(4096).unwrap(), 7 * 4096);
-        assert!(matches!(map.allocated_byte_count(0), Err(Error::InvalidInput(_))));
-        assert!(matches!(map.logical_byte_capacity(0), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            map.allocated_byte_count(0),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            map.logical_byte_capacity(0),
+            Err(Error::InvalidInput(_))
+        ));
 
         let huge = ExtentMap::new(vec![Extent {
             logical_start: 0,
@@ -460,9 +466,18 @@ mod tests {
         let map = sample();
         assert!(map.validate_file_size(7 * 4096 - 1, 4096).is_ok());
         assert!(map.validate_file_size(7 * 4096, 4096).is_ok());
-        assert!(matches!(map.validate_file_size(6 * 4096 - 1, 4096), Err(Error::Corrupt(_))));
-        assert!(matches!(map.validate_file_size(0, 4096), Err(Error::Corrupt(_))));
-        assert!(matches!(map.validate_file_size(1, 0), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            map.validate_file_size(6 * 4096 - 1, 4096),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validate_file_size(0, 4096),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validate_file_size(1, 0),
+            Err(Error::InvalidInput(_))
+        ));
         assert!(ExtentMap::default().validate_file_size(0, 4096).is_ok());
     }
 
