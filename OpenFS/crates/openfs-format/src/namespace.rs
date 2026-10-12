@@ -68,9 +68,7 @@ impl Namespace {
         let mut current = self.root_id;
         for (index, component) in components.iter().enumerate() {
             if component == "." || component == ".." {
-                return Err(Error::InvalidInput(
-                    "dot path components are not supported",
-                ));
+                return Err(Error::InvalidInput("dot path components are not supported"));
             }
             let entry = self
                 .lookup(current, component)
@@ -154,7 +152,9 @@ impl Namespace {
         new_name: &str,
     ) -> Result<()> {
         if object_id == self.root_id {
-            return Err(Error::InvalidInput("the root directory cannot be renamed or moved"));
+            return Err(Error::InvalidInput(
+                "the root directory cannot be renamed or moved",
+            ));
         }
         let record = self
             .objects
@@ -164,7 +164,10 @@ impl Namespace {
         let old_parent_id = ObjectId::new(record.parent_id)?;
         let old_entry = self
             .names
-            .get(&(old_parent_id, self.entry_name_for(old_parent_id, object_id)?))
+            .get(&(
+                old_parent_id,
+                self.entry_name_for(old_parent_id, object_id)?,
+            ))
             .cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         let mut updated_entry = old_entry.clone();
@@ -232,7 +235,10 @@ impl Namespace {
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         if record.kind == ObjectKind::Directory
-            && self.names.keys().any(|(parent_id, _)| *parent_id == object_id)
+            && self
+                .names
+                .keys()
+                .any(|(parent_id, _)| *parent_id == object_id)
         {
             return Err(Error::InvalidInput("directory is not empty"));
         }
@@ -245,7 +251,9 @@ impl Namespace {
             .get(&key)
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         if entry.object_id != object_id.0 || entry.kind != record.kind {
-            return Err(Error::Corrupt("directory entry disagrees with object metadata"));
+            return Err(Error::Corrupt(
+                "directory entry disagrees with object metadata",
+            ));
         }
 
         self.names.remove(&key);
@@ -258,8 +266,7 @@ impl Namespace {
         self.names
             .iter()
             .find_map(|((parent, _), entry)| {
-                (*parent == parent_id && entry.object_id == object_id.0)
-                    .then(|| entry.name.clone())
+                (*parent == parent_id && entry.object_id == object_id.0).then(|| entry.name.clone())
             })
             .ok_or(Error::Corrupt("object has no matching directory entry"))
     }
