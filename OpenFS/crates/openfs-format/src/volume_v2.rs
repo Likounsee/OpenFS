@@ -2456,6 +2456,43 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocation_ownership_validator_detects_orphans_and_dangling_references() {
+        let path = image_path("ownership-inventory");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.allocate_block(&mut device).unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+
+            volume
+                .validate_allocation_ownership(&mut device, &[first, second])
+                .unwrap();
+            assert!(matches!(
+                volume.validate_allocation_ownership(&mut device, &[first]),
+                Err(Error::Corrupt(_))
+            ));
+            assert!(matches!(
+                volume.validate_allocation_ownership(&mut device, &[first, first, second]),
+                Err(Error::Corrupt(_))
+            ));
+
+            volume.free_block(&mut device, second).unwrap();
+            assert!(matches!(
+                volume.validate_allocation_ownership(&mut device, &[first, second]),
+                Err(Error::Corrupt(_))
+            ));
+            assert!(matches!(
+                volume.validate_allocation_ownership(
+                    &mut device,
+                    &[first, volume.volume.layout.backup_superblock]
+                ),
+                Err(Error::Corrupt(_))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
     }
