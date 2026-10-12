@@ -206,6 +206,26 @@ impl ExtentMap {
         Ok(blocks)
     }
 
+    /// Return validated physical ranges as sorted (start, end-exclusive) block pairs.
+    ///
+    /// This preserves extent-level representation instead of expanding every run into one
+    /// entry per block, making it suitable for consistency scans of large files.
+    pub fn validated_physical_ranges(
+        &self,
+        logical_block_count: u64,
+        data_start: u64,
+        data_end: u64,
+    ) -> Result<Vec<(u64, u64)>> {
+        self.validate(logical_block_count, data_start, data_end)?;
+        let mut ranges: Vec<(u64, u64)> = self
+            .extents
+            .iter()
+            .map(|extent| Ok((extent.physical_start, extent.physical_end()?)))
+            .collect::<Result<_>>()?;
+        ranges.sort_unstable();
+        Ok(ranges)
+    }
+
     /// Remove a logical block range and return the physical runs that became unreferenced.
     ///
     /// The operation is atomic in memory: validation or arithmetic errors leave the map
