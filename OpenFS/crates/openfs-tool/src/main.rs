@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::ImageDevice;
-use openfs_format::{format_volume, open_volume};
+use openfs_format::{check_volume_v2, format_volume, open_volume};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -44,6 +44,17 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 return Err("too many arguments".into());
             }
             inspect_image(Path::new(&path))
+        }
+        Some("check-image") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = args
+                .next()
+                .ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?
+                .parse::<u32>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            check_image(Path::new(&path), block_size)
         }
         _ => {
             print_usage();
@@ -100,6 +111,30 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+/// Read-only V2 consistency check. Unlike opening a writable volume, this never replays
+/// pending journal records and never changes the image.
+fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
+        return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
+    }
+    let mut device = ImageDevice::open(path, block_size)?;
+    let report = check_volume_v2(&mut device)?;
+    println!("OpenFS V2 volume check passed (read-only; no recovery performed).");
+    println!("Path: {}", path.display());
+    println!("Block size: {} bytes", report.block_size);
+    println!("Total blocks: {}", report.total_blocks);
+    println!("Data blocks: {}", report.data_blocks);
+    println!("Allocated data blocks: {}", report.allocated_data_blocks);
+    println!("Free data blocks: {}", report.free_data_blocks);
+    println!("Journal generation: {}", report.journal_generation);
+    println!("Journal checkpoint sequence: {}", report.journal_checkpoint_sequence);
+    println!("Pending journal records: {}", report.pending_journal_records);
+    println!("Recoverable committed transactions: {}", report.recoverable_transactions);
+    println!("The check validates superblocks, geometry, bitmap invariants, and journal framing.");
+    println!("It does not validate file ownership or namespace integrity.");
+    Ok(())
+}
+
 fn development_uuid() -> [u8; 16] {
     // A volume label only; this is not a cryptographic random identifier.
     let time = SystemTime::now()
@@ -129,6 +164,8 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs inspect-image <path>");
+    eprintln!("  openfs check-image <path> <block-size>");
+    eprintln!("check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536.");
     eprintln!("create-image refuses to overwrite an existing file.");
 }
 
@@ -136,7 +173,7 @@ fn print_usage() {
 mod tests {
     use super::{create_image, inspect_image, BLOCK_SIZE};
     use openfs_block::ImageDevice;
-    use openfs_format::open_volume;
+    use openfs_format::{format_volume_v2, open_volume};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -182,6 +219,21 @@ mod tests {
             next
         };
         assert_ne!(second, first);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn checks_v2_image_without_modifying_it() {
+        let path = unique_path("v2-check");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            device.flush().unwrap();
+        }
+        let before = fs::read(&path).unwrap();
+        assert!(super::check_image(&path, BLOCK_SIZE).is_ok());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert!(super::check_image(&path, 512).is_err());
         fs::remove_file(path).unwrap();
     }
 
