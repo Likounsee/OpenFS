@@ -2664,6 +2664,39 @@ mod tests {
     }
 
     #[test]
+    fn v2_ownership_report_bounds_large_orphan_and_dangling_samples() {
+        let path = image_path("bounded-ownership-report");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let blocks = volume.allocate_blocks(&mut device, 100).unwrap();
+
+            let orphaned = volume
+                .allocation_ownership_report(&mut device, &[])
+                .unwrap();
+            assert_eq!(orphaned.orphaned_allocation_count, 100);
+            assert_eq!(orphaned.orphaned_allocations, blocks[..64]);
+            assert!(orphaned.orphaned_allocations_truncated);
+            assert_eq!(orphaned.dangling_reference_count, 0);
+            assert!(!orphaned.dangling_references_truncated);
+            assert!(!orphaned.is_consistent());
+
+            volume.free_blocks(&mut device, &blocks).unwrap();
+            let dangling = volume
+                .allocation_ownership_report(&mut device, &blocks)
+                .unwrap();
+            assert_eq!(dangling.orphaned_allocation_count, 0);
+            assert!(dangling.orphaned_allocations.is_empty());
+            assert!(!dangling.orphaned_allocations_truncated);
+            assert_eq!(dangling.dangling_reference_count, 100);
+            assert_eq!(dangling.dangling_references, blocks[..64]);
+            assert!(dangling.dangling_references_truncated);
+            assert!(!dangling.is_consistent());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_allocation_ownership_validator_detects_orphans_and_dangling_references() {
         let path = image_path("ownership-inventory");
         {
