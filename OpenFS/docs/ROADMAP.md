@@ -2,145 +2,169 @@
 
 Last reviewed: 2026-10-12  
 Authoritative branch: `OpenFS`  
-Primary product goal: a user can safely format a standard USB flash drive as OpenFS, then create, read, write, rename, and delete files through a supported operating system. OpenFS defines its own format; it is **not** an NTFS implementation and must not claim NTFS compatibility.
+Planning baseline: `48e41393992d9b7bc3ad85e3afc374d5e1226dfc`  
+Primary product goal: a user can safely format a standard USB flash drive as OpenFS, then create, read, write, rename, and delete files through a supported operating system.
 
-Percentages are planning estimates against acceptance criteria, not feature counts. A phase is complete only when its tests and evidence pass. Never infer hardware support from file-image tests.
+OpenFS defines its own filesystem format. It is **not** an NTFS implementation and must not claim NTFS compatibility. Formatting a device is destructive. Image-backed tests do not establish physical-device durability or safe USB handling.
+
+## How progress is measured
+
+Percentages below are planning estimates against the acceptance gates, not code-line counts or release-readiness scores. A phase advances only when its listed evidence exists. Distinguish implementation, static inspection, tests added, tests executed, and behavior verified. Do not mark a phase complete because code merely exists.
+
+The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%.
 
 ## Current snapshot
 
-P1 allocator exhaustion/reuse passed Linux and Windows CI on `db44f54d714d5d030257ee3853aae4f1f0e39324`; layout-tampering rejection passed both platforms on `ec4bd0092985827019fc7866910e47516e2a688e`; bitmap-boundary tests and their formatting correction passed CI on `620c633426d0ed0ae01b71d42d2e375485182543`. The open-time reserved/padding bitmap corruption test passed full Linux/Windows CI on `97b0e703528ed2e3e5ed27859fe563b9192f6ba2`. The device-geometry regression covering mismatched block count and block size passed full Linux/Windows CI on `e9e43246af21544fd102d10c67575b8a9bdfc548`. Pre-durable-commit allocator write-failure recovery coverage passed full CI on `6301e472d7a6942b495b6cb3c157ca095101e342`. The allocator was then optimized to read each relevant bitmap block once instead of once per candidate data block (`c76a223477df722305ac7ccfe5e99cc4a9a68993`). The initial formatting failure was corrected in `8823471f1b8b737312648d7486a186426d1127ac`; CI passed on that correction and follow-up documentation commits (`c1f7bec3`). The allocator scan is bounded to its own bitmap segment and exclusive range ends saturate to avoid u64 overflow (`10fbde46`). The regression test that fills the first bitmap segment and verifies allocation continues at the next segment passed formatting, workspace tests, and Clippy on Linux and Windows (`ba9632f5`). It now also checks free/reuse and reopen behavior across that segment boundary; full formatting, workspace tests, and Clippy passed on Linux and Windows (`b8c7da7a`). A mirrored-superblock mismatch regression passed full Linux/Windows CI on `e150cd55`. Superblock corruption tests for CRC32C and nonzero reserved bytes passed full CI on `bbbc1897`. Malformed magic/header-size, unsupported version, and block-geometry checks passed full formatting, workspace tests, and Clippy on Linux and Windows on `1afe30f5`. An intermediate commit (`0400b33c`) failed formatting because the expanded test had not yet been rustfmt-adjusted; corrected and validated on `e9e43246`. P0's exit-gate evidence remains green on `fd4d40a874b5e06f3b4037a1e358a3fda8aa6439`.
+- Current branch head at review: `48e41393992d9b7bc3ad85e3afc374d5e1226dfc`.
+- GitHub Actions for that commit report Linux and Windows jobs successful for formatting, workspace tests, and Clippy.
+- Recent regressions cover allocator exhaustion/reuse, bitmap segment boundaries, layout tampering, reserved/padding bitmap corruption, device-geometry mismatches, allocator failure recovery, V2 superblock validation, and golden-byte/CRC32C fixtures.
+- The V2 layout specification documents geometry formulas, minimum layout, reserved bitmap bits, and disjoint regions.
+- V2 journaling currently protects allocator bitmap changes; it is not yet a general transaction layer for persistent file and directory operations.
+- Metadata codecs, directory-entry primitives, and an in-memory namespace exist, but a complete durable file/namespace workflow does not.
+- No accepted read-only volume checker, parser fuzzing gate, safe physical-device discovery/formatter, or OS mount adapter is present in the current roadmap scope.
 
-| Workstream | Estimate | Evidence / limitation |
+The current weighted planning estimate is **20%**. This is a roadmap estimate, not a claim that OpenFS is ready to use on a USB drive. It is not yet a complete end-user filesystem.
+
+| Workstream | Estimate | Evidence and remaining limitation |
 | --- | ---: | --- |
-| P0 — engineering foundation and format safety | 100% | Cross-module review completed for the current V1/V2 boundary, reserved regions, journal replay, bitmap invariants, and error paths. Linux and Windows formatting, full workspace tests, and Clippy pass on exact code commit `fd4d40a`. Regression coverage includes protected journal-region overlap and reserved-bitmap corruption replay. This closes P0's engineering baseline gate; it does not establish physical-device durability or production readiness. |
-| P1 — volume layout and allocation | 60% | Experimental V2 layout, reserved regions, journaled allocation/free, exhaustion/reuse, canonical-layout tampering rejection, bitmap-boundary geometry tests, open-time reserved/padding bitmap corruption detection, mismatched device geometry rejection, and pre-durable-commit failure recovery are covered by regression tests. The latest geometry and pre-commit recovery tests passed full Linux/Windows CI (`e9e43246`, `6301e472`). Allocation scanning now reads each relevant bitmap block once rather than rereading it for every candidate data block (`c76a2234`; the formatting correction passed CI on `c1f7bec3`). Bitmap scan ranges are bounded to the matching bitmap segment and range-end additions saturate instead of overflowing (`10fbde46`). A boundary regression test exercises allocation across two bitmap blocks and passed full Linux/Windows CI (`ba9632f5`). It now also checks freeing/reusing a block in the second segment and persistence after reopen; full Linux/Windows CI passed (`b8c7da7a`). A primary/backup superblock mismatch regression passed CI (`e150cd55`). Additional malformed-superblock checks passed Linux/Windows CI (`1afe30f5`). Pre-durable free failure and repeated recovery regressions passed full CI (`98de9149`); repeated allocation recovery passed (`f3e3b9b0`); minimum-volume exhaustion and reuse passed (`ad1110e0`). A follow-up batch checking disjoint layout regions across supported geometries and mixed allocate/free persistence across reopen passed full Linux/Windows CI on `203be441`. The V2 format specification now spells out the geometry formulas, minimum layout, reserved bitmap bits, and region-disjointness rules (`ec40ecf8`; full Linux/Windows CI passed). Persistent namespace/file operations and broader corruption coverage remain incomplete. The reserved-block-by-reserved-block bitmap corruption and ordered allocation reuse regressions passed Linux/Windows CI (`77361e4c`), as did the V2 superblock golden-byte/CRC32C fixture (`7503a2b5`). Cross-block-size format/open/allocate/free roundtrips are pending CI. |
-| P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. Linux and Windows CI pass on code commit `fd4d40a`; protected-region overlap and reserved-bitmap replay regressions are covered. Exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
-| P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, repair workflow, or parser fuzzing gate. |
-| P4 — persistent files and directories | 5% | Some metadata/namespace primitives exist, but no complete durable create/read/write/rename/delete path. |
-| P5 — safe removable-device workflow | 5% | Low-level RawDevice exists. There is no trustworthy device discovery, mounted/system-device exclusion, or safe end-user raw formatter. |
-| P6 — OS integration | 0% | No Windows mount adapter or Linux userspace/kernel integration; no ArchiaOS adapter. |
-| P7 — compatibility, hardening and release | 0% | No release-grade compatibility matrix or hardware acceptance suite. |
+| P0 — engineering foundation and format safety | 100% | Baseline gate documented as passed: Linux/Windows formatting, workspace tests, and Clippy on the recorded code commit. This is not physical-device or production validation. |
+| P1 — volume layout and allocation | 60% | V2 layout, bitmap bounds, reserved-region checks, allocation/free, exhaustion/reuse, reopen persistence, malformed-superblock checks, geometry validation, and failure/recovery regressions exist. Ownership validation for persistent objects and broader corruption coverage remain. |
+| P2 — journal and crash recovery | 30% | Journal encoding, commit/replay/checkpoint paths, and selected torn-write/failure tests exist. Exhaustive crash-cut and flush-order guarantees are not established. |
+| P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, explicit repair workflow, or parser fuzzing CI gate. |
+| P4 — persistent files and directories | 5% | Some metadata and namespace primitives exist; complete durable create/read/write/rename/delete is missing. |
+| P5 — safe removable-device workflow | 5% | Raw-device primitives exist, but trusted device discovery, system/mounted-device exclusion, and safe end-user formatting are missing. |
+| P6 — OS integration | 0% | No Windows mount/access adapter, Linux integration, or ArchiaOS adapter. |
+| P7 — compatibility, hardening, release | 0% | No release-grade hardware matrix or complete compatibility and recovery acceptance suite. |
 
-The allocator failure/recovery regressions passed full Linux/Windows CI on `98de9149`; repeated allocation recovery passed on `f3e3b9b0`; minimum-volume exhaustion/reuse passed on `ad1110e0`. The layout-region disjointness and mixed allocate/free persistence batch passed full Linux/Windows CI on `203be441`. The V2 layout specification and geometry formulas passed full Linux/Windows CI (`ec40ecf8`). Tests that individually clear every reserved bitmap block and verify ordered reuse after reopening passed full Linux/Windows CI (`77361e4c`). The V2 superblock golden-byte/CRC32C fixture passed full Linux/Windows CI on `7503a2b5`. A further format/open/allocate/free roundtrip across 4096-, 8192-, and 65536-byte block sizes is running in CI.
+## Product scope and platform order
 
-The current weighted planning estimate is approximately **20%** (weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%; phase estimates above are rounded planning estimates, not release readiness). This is not a claim that OpenFS can already be used on a USB drive. It cannot yet.
+### First usable milestone: a disposable USB drive on Windows
 
-## Product definition and scope
-
-### First usable milestone: disposable USB drive on Windows
-
-A supported Windows PC can identify a removable USB device, show its model/identity and exact capacity, and format only that explicitly selected device as OpenFS after deliberate confirmation. The user can then browse and modify files through the supported adapter. The first release is limited to a dedicated, expendable test drive and clearly documented supported devices.
+A supported Windows PC must identify a removable device, show stable identity and exact capacity, and format only the explicitly selected target after deliberate confirmation. The resulting volume must support ordinary file operations through a documented adapter. Initial hardware testing is limited to a dedicated, expendable test drive.
 
 ### Cross-platform direction
 
-- **Portable Rust core and on-disk format:** no OS-specific behavior in format parsing, allocation, transactions, or namespace semantics.
-- **Windows:** first end-user integration target, because it is the first requested ordinary-desktop USB workflow. Select and document the adapter architecture before implementing it; raw block access alone does not make a drive browseable in Explorer.
-- **Linux:** provide equivalent safe device handling and a documented mount/access path; validate separately rather than assuming Windows behavior transfers.
-- **ArchiaOS:** integrate only after the core API and semantics stabilize, through its block-device and VFS interfaces. Do not couple the experimental core prematurely to ArchiaOS internals.
-- **ARM64:** keep the portable core architecture-neutral and add ARM64 CI/build validation when the host adapter and test environment are ready. Do not make ARM64 a prerequisite for fixing current data-integrity failures.
-
-OpenFS is a new filesystem format. Formatting a drive erases the selected target's existing layout/data. Other operating systems will not automatically read OpenFS without an OpenFS driver or adapter.
+- Keep the portable Rust core and on-disk format independent of OS-specific behavior.
+- Target Windows first for the first ordinary-desktop USB workflow; choose and document the adapter architecture before implementing it.
+- Implement Linux access as a separate adapter with its own safety and compatibility tests.
+- Integrate ArchiaOS only after core APIs stabilize, through its block-device and VFS interfaces.
+- Keep the portable core architecture-neutral; add ARM64 validation when supported host adapters and CI environments are available.
+- Do not assume another OS can read OpenFS without a compatible driver or adapter.
 
 ## Milestones and acceptance gates
 
-### P0 — Restore a trustworthy development baseline (current blocker)
+### P0 — Trustworthy engineering baseline — COMPLETE (baseline gate only)
 
 - [x] Rust workspace and stable toolchain.
-- [x] Linux and Windows CI for formatting, tests, and Clippy.
+- [x] Linux and Windows CI for formatting, workspace tests, and Clippy.
 - [x] Bounds-checked block I/O and shared error model.
 - [x] Explicit on-disk parsing, CRC checks, and malformed-input tests.
 - [x] Disposable image backend and refusal to overwrite by default.
-- [x] Experimental volume formatting/open/reopen tests.
-- [x] Fix the `original_sequence` test-scope compile error and correct the torn-write test setup/assertions; Linux and Windows CI pass on HEAD `22f16555aa31f76328f942bc983bab44cdc442a8`.
-- [x] Add a v1 superblock golden-byte/checksum test and pin the volume layout's supported geometry, overflow, minimum-size and reserved-block invariants.
-- [x] Document the distinct experimental V1/V2 layouts and the V2 journal's current allocator-only transaction scope in `docs/FORMAT_SPEC.md`.
-- [x] Reject protected volume-control blocks that overlap V2 journal checkpoint/ring metadata, with a regression test.
-- [x] Complete the cross-module review of V1/V2 format boundaries, reserved regions, journal replay, bitmap invariants, and crash/error behavior; V1 still does not integrate the journal.
+- [x] Experimental volume format/open/reopen tests.
+- [x] Document the distinct experimental V1/V2 layouts and V2's allocator-only transaction scope.
+- [x] Review V1/V2 boundaries, reserved regions, journal replay, bitmap invariants, and error paths.
+- [x] Reject protected volume-control blocks overlapping V2 journal checkpoint/ring metadata.
 
-**Exit gate — passed on `fd4d40a874b5e06f3b4037a1e358a3fda8aa6439`:** clean fmt, full workspace tests, and Clippy on Linux and Windows. This validates the engineering baseline only; later milestones remain incomplete until their own acceptance gates pass.
+**Exit gate:** baseline formatting, workspace tests, and Clippy passed on Linux and Windows on the recorded baseline commit. P0 completion means the engineering baseline is trustworthy enough to continue; it does **not** establish production readiness, general transaction safety, or physical USB durability. Reopen P0 if a concrete integrity/security defect is discovered.
 
-### P1 — Make the volume layout and allocator dependable
+### P1 — Dependable volume layout and allocator — IN PROGRESS (60%)
 
-- [x] Specify the V2 layout completely: primary/mirror metadata, bitmap, journal, reserved regions, alignment, limits, and version compatibility; formulas and minimum geometry are documented in `docs/FORMAT_SPEC.md` and passed Linux/Windows CI (`ec40ecf8`).
-- [x] Test allocation/free across block boundaries, exhaustion, double-free, reserved-block rejection, and reopen; reserved-block-by-reserved-block corruption and ordered reuse regressions passed Linux/Windows CI (`77361e4c`).
-- [ ] Verify every allocation bit has a single valid owner once persistent objects exist.
-- [x] Reject inconsistent geometry and metadata without panic, overflow, or unbounded allocation; supported geometry, overflow, device mismatch, reserved bitmap, and golden V2 superblock/CRC32C cases have regression coverage (golden fixture CI passed on `7503a2b5`).
+- [x] Specify V2 layout, primary/mirror metadata, bitmap, journal, reserved regions, alignment, limits, and version compatibility.
+- [x] Test allocation/free, exhaustion, reserved-block rejection, double-free behavior, reopen persistence, and reuse.
+- [x] Cover bitmap-segment boundaries, reserved/padding bitmap corruption, and canonical-layout tampering.
+- [x] Validate superblock checksums, reserved bytes, supported versions, block geometry, and mismatched device geometry.
+- [x] Cover selected allocator failures and repeated recovery.
+- [ ] Verify every allocated block has exactly one valid owner once persistent objects exist.
+- [ ] Expand corruption coverage and verify format/open/allocate/free/reopen across all supported block sizes in CI.
 
-**Exit gate:** deterministic format/open/allocate/free/reopen tests, corruption tests, and stable golden fixtures.
+**Exit gate:** deterministic format/open/allocate/free/reopen tests, stable golden fixtures, malformed-layout rejection, and explicit ownership invariants when persistent objects are implemented.
 
-### P2 — Finish transaction durability and recovery (priority after P0)
+### P2 — Transaction durability and crash recovery — IN PROGRESS (30%)
 
-- [ ] Review write ordering for Begin/redo/commit, home blocks, checkpoint, and flush boundaries.
-- [ ] Inject failure before, during, and after every journal, home-write, checkpoint, and flush boundary.
-- [ ] Cover torn records and torn home blocks, not just whole-operation errors.
-- [ ] Reopen from the persisted bytes after each simulated crash and verify only allowed old/new states.
-- [ ] Test repeated recovery, idempotency, sequence wrap/overflow policy, malformed log lengths, and log exhaustion.
-- [ ] Document what `flush` can and cannot guarantee for host files and physical USB controllers.
+- [ ] Review Begin/redo/commit, home-block writes, checkpoint ordering, and every flush boundary.
+- [ ] Inject failure before, during, and after journal, home-write, checkpoint, and flush operations.
+- [ ] Cover torn records and torn home blocks, not only whole-operation errors.
+- [ ] Reopen from persisted bytes after every simulated crash and assert allowed old/new states.
+- [ ] Test repeated recovery and idempotency, sequence wrap/overflow policy, malformed log lengths, and journal exhaustion.
+- [ ] Document what host-file and physical-device flushes do and do not guarantee.
+- [ ] Define the transaction contract before extending journaling from bitmap allocation to persistent metadata and file contents.
 
-**Exit gate:** crash-cut matrix passes on disposable images on Linux and Windows; recovery is repeatable and never silently accepts ambiguous/corrupt state.
+**Exit gate:** crash-cut matrix passes on disposable images in Linux and Windows CI; recovery is repeatable and never silently accepts ambiguous/corrupt state. Physical hardware claims require separate hardware testing.
 
-### P3 — Read-only checker and hostile-input testing
+### P3 — Read-only checker and hostile-input testing — NOT STARTED (0%)
 
-- [ ] Add a read-only volume checker for superblocks, journal, bitmap, reserved areas, and later namespace ownership.
-- [ ] Add bounded fuzz targets for all disk parsers and directory/name parsing.
-- [ ] Keep repair separate from checking; repair must be explicit, explain proposed changes, and never silently overwrite data.
-- [ ] Add corrupt/truncated/oversized image corpus to CI.
+- [ ] Implement a read-only checker for superblocks, layout, journal, bitmap, reserved areas, and later namespace ownership.
+- [ ] Add bounded fuzz targets for disk parsers, metadata, and directory/name parsing.
+- [ ] Keep repair separate from checking; repair must be explicit and must describe proposed changes before writing.
+- [ ] Add corrupt, truncated, oversized, and inconsistent image fixtures to CI.
 
-**Exit gate:** checker reports corruption without modifying the volume; fuzz targets run under documented budgets and have regression fixtures for found bugs.
+**Exit gate:** checker detects known corruption without modifying the volume; fuzzing has documented budgets and regression fixtures for discovered bugs.
 
-### P4 — Persistent namespace and ordinary file operations
+### P4 — Persistent namespace and ordinary file operations — NOT STARTED (5%)
 
 - [ ] Specify persistent object metadata, directory entries, root directory, file lengths, and block ownership.
 - [ ] Implement create/open/read/write/truncate/rename/delete and directory enumeration.
-- [ ] Define path normalization, name encoding, case sensitivity, timestamps, permission semantics, and error behavior.
-- [ ] Make metadata and data updates transactional and recoverable; prevent leaks, double allocation, and stale references.
-- [ ] Test empty files, large files, fragmented files, directory growth, disk-full behavior, rename/delete edge cases, and reopen persistence.
+- [ ] Define path normalization, name encoding, case sensitivity, timestamps, permissions, and error behavior.
+- [ ] Make data and metadata updates transactional and recoverable; prevent leaks, double allocation, and stale references.
+- [ ] Test empty, large, and fragmented files; directory growth; disk-full behavior; rename/delete edge cases; and persistence after reopen.
 
-**Exit gate:** an automated test can create nested directories, write and verify bytes, rename/delete files, close/reopen the volume, and verify the resulting namespace and contents after every operation.
+**Exit gate:** automated tests create nested directories, write and verify bytes, rename/delete files, close and reopen the volume, and verify namespace and contents after every operation and injected failure.
 
-### P5 — Safe USB discovery and formatting
+### P5 — Safe USB discovery and formatting — NOT STARTED (5%)
 
-This milestone must not start destructive hardware testing until P0–P4 acceptance gates relevant to integrity have passed.
+Do not begin destructive hardware testing until the integrity gates in P1–P4 are satisfied.
 
 - [ ] Implement read-only device discovery per OS: stable identity, removable status, capacity, logical sector size, partition layout, and mounted/system-volume status.
-- [ ] Separate discovery from opening and writing. Never infer that a path is a USB device solely from its name.
-- [ ] Refuse ambiguous targets, system/boot disks, mounted volumes, unsupported geometry, and devices whose identity/capacity changed after selection.
-- [ ] Use OS-supported exclusive access/locking where available and fail closed when safe exclusion cannot be established.
-- [ ] Add a dry-run plan that displays exact device identity, capacity, partition impact, and every destructive action.
-- [ ] Require explicit target confirmation immediately before formatting; never provide an implicit default target.
-- [ ] Keep image formatting as the default developer workflow. Do not add an easy-to-misuse raw format command before these safeguards exist.
+- [ ] Separate discovery from opening and writing. Never infer that a path is USB solely from its name.
+- [ ] Refuse ambiguous targets, system/boot disks, mounted volumes, unsupported geometry, and devices whose identity or capacity changed after selection.
+- [ ] Use OS-supported exclusive access/locking and fail closed if safe exclusion cannot be established.
+- [ ] Add a dry-run plan showing exact identity, capacity, partition impact, and destructive actions.
+- [ ] Require explicit target confirmation immediately before formatting; never choose a default target.
+- [ ] Keep image formatting as the developer default; do not expose an easy-to-misuse raw format command before safeguards exist.
 
-**Exit gate:** automated tests prove all refusal cases using mocked device metadata; only then test on a dedicated, expendable USB drive. Record before/after device identity, geometry, format/open/reopen, disconnect/reconnect, and integrity checks. Never use a system disk or valuable drive.
+**Exit gate:** automated tests prove refusal cases using mocked device metadata; only then test on a dedicated, expendable USB drive. Record device identity, geometry, format/open/reopen, disconnect/reconnect, and integrity results. Never test on a system disk or valuable drive.
 
-### P6 — Make OpenFS browseable through OS integration
+### P6 — OS integration — NOT STARTED (0%)
 
-- [ ] Choose and document the Windows integration route and its privilege, signing, install, and failure requirements.
-- [ ] Implement the adapter against stable core interfaces; translate file operations and errors without putting Windows assumptions in the on-disk format.
+- [ ] Choose and document the Windows integration route, privileges, signing, installation, and failure requirements.
+- [ ] Implement an adapter over stable core APIs and translate file operations/errors without adding OS assumptions to the on-disk format.
 - [ ] Define safe mount/unmount, flush, exclusive access, device removal, and dirty-volume behavior.
-- [ ] Implement Linux access/mount support as a separate adapter with its own tests and documentation.
-- [ ] Add ArchiaOS VFS/block-device adapter after the core contract is stable.
-- [ ] Verify ARM64 builds and tests for supported targets.
+- [ ] Implement Linux access/mount support as a separate adapter with dedicated tests and documentation.
+- [ ] Add ArchiaOS VFS/block-device integration after the core contract stabilizes.
+- [ ] Verify ARM64 builds/tests for supported targets.
 
-**Exit gate:** on each claimed OS, a user can mount/access a test OpenFS volume, create and edit files through normal file APIs, unmount cleanly, reopen, and verify contents. Documentation must distinguish read-only from read/write support.
+**Exit gate:** on every claimed OS, a user can access a test volume, create/edit files through normal file APIs, unmount cleanly, reopen, and verify contents. Documentation must distinguish read-only from read/write support.
 
-### P7 — Release hardening and compatibility
+### P7 — Release hardening and compatibility — NOT STARTED (0%)
 
-- [ ] Define a versioned format compatibility policy, upgrade rules, and explicit no-implicit-migration behavior.
+- [ ] Define format-version compatibility, upgrade rules, and explicit no-implicit-migration behavior.
 - [ ] Run long stress tests, fuzzing, corruption and power-loss simulations, and performance benchmarks.
-- [ ] Review concurrency, locking, resource limits, path handling, and all unsafe-code policy exceptions (prefer no unsafe in the portable core).
+- [ ] Review concurrency, locking, resource limits, path handling, and the no-unsafe policy for the portable core.
 - [ ] Add reproducible release builds and a platform/device compatibility matrix.
 - [ ] Publish known limitations and recovery guidance before calling the format stable.
 
-**Exit gate:** all required CI and integrity gates green, documented USB hardware matrix passed, no known data-loss blocker, and a release checklist signed off.
+**Exit gate:** required CI and integrity gates are green, the documented USB hardware matrix passes, no known data-loss blocker remains, and a release checklist is signed off.
 
 ## Immediate execution order
 
-1. Finish the P0 cross-module review of format boundaries and document any remaining invariants. The V2 minimum geometry and invalid/overflow input cases now have a dedicated regression test.
-2. Audit V2 journal/checkpoint geometry and expand the crash-cut matrix, including persisted-byte reopen at each failure point.
-3. Integrate journal durability with allocator/metadata updates only after recovery ordering is demonstrated.
-4. Complete persistent namespace/file operations and ownership validation.
-5. Build safe read-only USB discovery and refusal tests.
-6. Add the explicit destructive formatter only after safeguards and recovery pass.
-7. Integrate OS adapters and validate a dedicated physical USB drive.
+1. Complete a targeted static review of V2 journal commit/replay/checkpoint ordering and enumerate untested crash boundaries.
+2. Add the smallest useful persisted-byte crash/reopen regression tests; inspect the diff and rely on GitHub Actions for execution evidence.
+3. Fix demonstrated recovery defects before expanding journal scope.
+4. Build the read-only checker and corruption corpus.
+5. Define persistent object ownership and transaction boundaries, then implement durable namespace/file operations.
+6. Add safe read-only USB discovery and refusal tests.
+7. Add explicit destructive formatting only after integrity and safety gates pass.
+8. Integrate OS adapters and validate on a dedicated expendable USB drive.
 
-This order is intentionally USB-first at the product level, but integrity-first at the implementation level. A working raw block writer is not a usable filesystem and must never be marketed as one.
+This is USB-first at the product level but integrity-first at the implementation level. A raw block writer is not a usable filesystem and must never be marketed as one.
+
+## Reporting rules
+
+For each progress update, report separately:
+- implementation and static inspection;
+- tests added versus tests actually executed;
+- passing GitHub Actions runs and the exact commit they validate;
+- behavior proven versus assumptions and unverified hardware behavior;
+- weighted overall estimate, phase estimates, changed files, and commits.
+
+Never describe historical CI as current for a different commit, never mark a phase complete without its exit gate, and never modify `main`.
