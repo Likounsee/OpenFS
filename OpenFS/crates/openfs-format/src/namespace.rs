@@ -46,6 +46,45 @@ impl Namespace {
         self.root_id
     }
 
+    /// Rebuild an in-memory namespace from decoded persistent records.
+    ///
+    /// The root record must be present, but—as on disk—it must not have a directory
+    /// entry. Duplicate object IDs and duplicate (parent, name) keys are rejected;
+    /// the complete graph is validated before the namespace is returned.
+    /// This is a reconstruction primitive, not a disk scanner or persistence layer.
+    pub fn from_records(
+        root_id: ObjectId,
+        records: impl IntoIterator<Item = MetadataRecord>,
+        entries: impl IntoIterator<Item = DirectoryEntry>,
+    ) -> Result<Self> {
+        ObjectId::new(root_id.0)?;
+        let mut objects = BTreeMap::new();
+        for record in records {
+            record
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid metadata record during namespace reconstruction"))?;
+            if objects.insert(record.id, record).is_some() {
+                return Err(Error::Corrupt("duplicate object ID in metadata inventory"));
+            }
+        }
+
+        let mut names = BTreeMap::new();
+        for entry in entries {
+            entry
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid directory entry during namespace reconstruction"))?;
+            let key = (ObjectId::new(entry.parent_id)?, entry.name.clone());
+            if names.insert(key, entry).is_some() {
+                return Err(Error::Corrupt("duplicate directory name in metadata inventory"));
+            }
+        }
+
+        let namespace = Self { root_id, objects, names };
+        namespace.validate()?;
+        Ok(namespace)
+    }
+
+
     pub fn object(&self, id: ObjectId) -> Option<&MetadataRecord> {
         self.objects.get(&id)
     }
@@ -614,6 +653,46 @@ mod tests {
             Err(Error::Corrupt(_))
         ));
         assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn reconstructs_namespace_from_decoded_record_inventories() {
+        let root = record(1, 0, ObjectKind::Directory);
+        let folder = record(2, 1, ObjectKind::Directory);
+        let file = record(3, 2, ObjectKind::File);
+        let ns = Namespace::from_records(
+            ObjectId(1),
+            [root.clone(), folder.clone(), file.clone()],
+            [
+                entry(1, 2, "docs", ObjectKind::Directory),
+                entry(2, 3, "readme.txt", ObjectKind::File),
+            ],
+        ).unwrap();
+        assert_eq!(ns.object_count(), 3);
+        assert_eq!(ns.entry_count(), 2);
+        assert_eq!(ns.resolve_path("/docs/readme.txt").unwrap(), ObjectId(3));
+        assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/docs/readme.txt");
+    }
+
+    #[test]
+    fn reconstruction_rejects_duplicate_records_names_and_broken_graphs() {
+        let root = record(1, 0, ObjectKind::Directory);
+        assert!(matches!(
+            Namespace::from_records(ObjectId(1), [root.clone(), root.clone()], []),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            Namespace::from_records(
+                ObjectId(1),
+                [root.clone(), record(2, 1, ObjectKind::File), record(3, 1, ObjectKind::File)],
+                [entry(1, 2, "same", ObjectKind::File), entry(1, 3, "same", ObjectKind::File)],
+            ),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            Namespace::from_records(ObjectId(1), [root, record(2, 99, ObjectKind::File)], []),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
