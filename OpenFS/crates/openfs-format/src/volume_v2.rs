@@ -1683,6 +1683,86 @@ mod tests {
     }
 
     #[test]
+    fn v2_later_bitmap_segment_read_failures_preserve_allocator_state() {
+        for block_size in [4096_u32, 8192] {
+            let path = image_path(&format!("later-bitmap-read-failure-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 65_537).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let layout = volume.volume.layout;
+                let bits_per_block = u64::from(block_size) * 8;
+                assert!(layout.bitmap_blocks >= 2);
+
+                // Consume every data block represented by the first bitmap segment.
+                let first_end = bits_per_block.min(layout.backup_superblock);
+                let mut bitmap = vec![0_u8; block_size as usize];
+                device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+                for block in layout.data_start..first_end {
+                    let bit = block;
+                    bitmap[(bit / 8) as usize] |= 1 << (bit % 8);
+                }
+                device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
+                device.flush().unwrap();
+
+                let mut volume = open_volume_v2(&mut device).unwrap();
+                let initial_checkpoint = volume.journal.checkpoint();
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at: 1,
+                };
+                assert!(matches!(
+                    volume.allocate_block(&mut failing),
+                    Err(Error::Io(_))
+                ));
+                assert_eq!(
+                    volume.journal.checkpoint(),
+                    initial_checkpoint,
+                    "failure reading a later bitmap segment must not advance the journal (block size {block_size})"
+                );
+                let mut device = failing.inner;
+                drop(volume);
+
+                let mut recovered = open_volume_v2(&mut device).unwrap();
+                let later_block = recovered.allocate_block(&mut device).unwrap();
+                assert!(later_block >= bits_per_block);
+                let checkpoint_after_allocate = recovered.journal.checkpoint();
+
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at: 0,
+                };
+                assert!(matches!(
+                    recovered.free_block(&mut failing, later_block),
+                    Err(Error::Io(_))
+                ));
+                assert_eq!(
+                    recovered.journal.checkpoint(),
+                    checkpoint_after_allocate,
+                    "failed later-segment free must not advance the journal (block size {block_size})"
+                );
+                let mut device = failing.inner;
+                drop(recovered);
+
+                let mut recovered = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    recovered.allocate_block(&mut device).unwrap(),
+                    later_block + 1,
+                    "failed free must preserve the later-segment allocation (block size {block_size})"
+                );
+                recovered.free_block(&mut device, later_block).unwrap();
+                assert_eq!(
+                    recovered.allocate_block(&mut device).unwrap(),
+                    later_block,
+                    "later-segment block must be reusable after a successful free (block size {block_size})"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
