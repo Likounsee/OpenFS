@@ -816,7 +816,12 @@ mod tests {
     fn v2_rejects_invalid_superblock_headers_and_geometry() {
         let cases: [(&str, usize, &[u8], &'static str); 2] = [
             ("bad-magic", 0, b"BADMAGIC", "bad v2 superblock magic"),
-            ("bad-header-size", 10, &[0x30, 0x00], "unexpected v2 superblock header size"),
+            (
+                "bad-header-size",
+                10,
+                &[0x30, 0x00],
+                "unexpected v2 superblock header size",
+            ),
         ];
 
         for (label, offset, replacement, expected) in cases {
@@ -872,7 +877,9 @@ mod tests {
             device.flush().unwrap();
             assert!(matches!(
                 open_volume_v2(&mut device),
-                Err(Error::Corrupt("v2 superblock geometry does not match device geometry"))
+                Err(Error::Corrupt(
+                    "v2 superblock geometry does not match device geometry"
+                ))
             ));
         }
         fs::remove_file(path).unwrap();
