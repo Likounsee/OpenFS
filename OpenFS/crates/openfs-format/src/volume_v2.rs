@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn v2_format_open_allocate_free_roundtrips_supported_block_sizes() {
-        for block_size in [4096_u32, 8192, 65_536] {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("block-size-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 32).unwrap();
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn v2_layout_bitmap_boundaries_keep_regions_disjoint() {
-        for block_size in [4096_u32, 8192, 65_536] {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
             for total_blocks in [
                 12,
