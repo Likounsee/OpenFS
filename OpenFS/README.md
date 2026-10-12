@@ -4,11 +4,12 @@ This directory is the Rust project root. The root-level repository README remain
 
 ## Current workspace
 
-- openfs-core: shared errors and checked block-range validation.
-- openfs-block: file-backed image device; bounded block reads/writes, explicit sync, safe create-by-default behavior with a separately named destructive truncate API, and a test-support feature for one-shot read/write/flush failure injection and a mixed-state torn-write model (not a simulation of physical-device firmware).
-- openfs-format: initial 4096-byte, little-endian superblock encoding/decoding draft with CRC32C.
+- `openfs-core`: shared errors and checked block-range validation.
+- `openfs-block`: file-backed image device; bounded block reads/writes, explicit sync, safe create-by-default behavior with a separately named destructive truncate API, and test-support for one-shot read/write/flush failure injection and a mixed-state torn-write model (not a simulation of physical-device firmware).
+- `openfs-format`: explicit little-endian superblock encoding/decoding with CRC32C; experimental V1 and V2 volume layouts; V2 allocation bitmap validation and journaled block allocation/free; persistent journal/checkpoint encoding, commit/replay, and recovery paths; initial metadata and directory-entry/namespace primitives.
+- `openfs-tool`: workspace utility crate; its capabilities should not be confused with a safe physical-device formatter.
 
-The format and public APIs are early drafts and may change before the first stable format release. No file/directory namespace, allocator, transaction journal, recovery engine, mount adapter, or repair utility exists yet.
+The V1 and V2 layouts are separate experimental formats. V2 journals allocator bitmap mutations, but the journal is not yet a general transaction layer for persistent file and directory metadata. There is no complete durable create/read/write/rename/delete workflow, no accepted read-only checker or repair utility, and no OS mount adapter. This is not yet a usable end-user filesystem and must not be used with valuable data.
 
 ## Toolchain and commands
 
@@ -17,6 +18,8 @@ Use the Rust stable toolchain from rust-toolchain.toml. Run commands here:
     cargo fmt --all -- --check
     cargo test --workspace
     cargo clippy --workspace --all-targets -- -D warnings
+
+The repository-root GitHub Actions workflow runs formatting, workspace tests, and Clippy on Linux and Windows. Check the exact commit's Actions results before treating a change as validated; the presence of a workflow or a previous green commit is not evidence that the latest commit passed.
 
 ## Engineering conventions
 
@@ -27,5 +30,6 @@ Use the Rust stable toolchain from rust-toolchain.toml. Run commands here:
 - Keep the core platform-neutral and safe Rust by default.
 - Add tests for invalid sizes, ranges, truncated/malformed input, persistence and I/O failure behavior.
 - Do not claim durability beyond the actual flush contract or measured hardware behavior.
+- Keep hardware formatting unavailable until device discovery, target confirmation, mounted/system-device exclusion, and integrity/recovery gates are implemented and validated.
 
 See docs/ARCHITECTURE.md, docs/FORMAT_SPEC.md, docs/RECOVERY_DESIGN.md, docs/SECURITY_MODEL.md, and docs/ROADMAP.md.
