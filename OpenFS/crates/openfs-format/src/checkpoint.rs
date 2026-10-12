@@ -209,7 +209,10 @@ mod tests {
         let mut bytes = sample().encode().unwrap();
         bytes[68] = 1;
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalCheckpoint::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample().encode().unwrap();
         bytes[24] ^= 1;
