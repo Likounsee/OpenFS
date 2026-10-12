@@ -15,6 +15,16 @@ pub struct AllocationStats {
     pub free_data_blocks: u64,
 }
 
+/// Read-only fragmentation summary for free space in the V2 data region.
+///
+/// A free extent is a consecutive run of free data blocks within one bitmap segment,
+/// matching the current allocator's single-bitmap-block transaction limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FreeExtentStats {
+    pub free_extent_count: u64,
+    pub largest_free_extent_blocks: u64,
+}
+
 /// Detailed result of comparing persistent block ownership with the allocation bitmap.
 ///
 /// Orphaned blocks are marked allocated but absent from the supplied ownership inventory.
@@ -253,6 +263,86 @@ impl OpenedVolumeV2 {
             }],
         )?;
         Ok(start)
+    }
+
+    /// Return every currently free data block in ascending block-number order.
+    ///
+    /// This is a read-only allocator inventory, not a promise that all listed blocks can be
+    /// allocated together: each journaled batch must fit within one bitmap segment.
+    pub fn free_data_block_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<Vec<u64>> {
+        validate_device(self, device)?;
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut free = Vec::new();
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    free.push(block);
+                }
+            }
+        }
+        Ok(free)
+    }
+
+    /// Measure free-space fragmentation without modifying the volume.
+    ///
+    /// Extents are counted independently per bitmap segment because allocation transactions
+    /// cannot currently update multiple bitmap home blocks atomically.
+    pub fn free_extent_stats<D: BlockDevice>(&self, device: &mut D) -> Result<FreeExtentStats> {
+        validate_device(self, device)?;
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut stats = FreeExtentStats::default();
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let mut run_len = 0_u64;
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    run_len += 1;
+                } else if run_len != 0 {
+                    stats.free_extent_count += 1;
+                    stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+                    run_len = 0;
+                }
+            }
+            if run_len != 0 {
+                stats.free_extent_count += 1;
+                stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+            }
+        }
+        Ok(stats)
     }
 
     /// Return every currently allocated data block in ascending block-number order.
