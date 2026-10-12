@@ -1278,8 +1278,8 @@ mod tests {
                     let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
                     let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
-                    let bitmap_block = volume.volume.layout.bitmap_start
-                        + corrupted_block / bits_per_bitmap_block;
+                    let bitmap_block =
+                        volume.volume.layout.bitmap_start + corrupted_block / bits_per_bitmap_block;
                     let local = corrupted_block % bits_per_bitmap_block;
                     let mut bitmap = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(bitmap_block, &mut bitmap).unwrap();
