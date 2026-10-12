@@ -671,6 +671,44 @@ mod tests {
         }
     }
 
+    /// Persists only a prefix of one selected block write, then reports an I/O error.
+    /// This models a torn block at the software boundary, not physical flash behavior.
+    struct TearWriteAt<D> {
+        inner: D,
+        operation: usize,
+        tear_at: usize,
+        prefix_bytes: usize,
+    }
+    impl<D> TearWriteAt<D> {
+        fn new(inner: D, tear_at: usize, prefix_bytes: usize) -> Self {
+            Self { inner, operation: 0, tear_at, prefix_bytes }
+        }
+        fn into_inner(self) -> D { self.inner }
+    }
+    impl<D: BlockDevice> BlockDevice for TearWriteAt<D> {
+        fn block_size(&self) -> u32 { self.inner.block_size() }
+        fn block_count(&self) -> u64 { self.inner.block_count() }
+        fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
+            self.inner.read_blocks(first, output)
+        }
+        fn write_blocks(&mut self, first: u64, input: &[u8]) -> Result<()> {
+            let current = self.operation;
+            self.operation += 1;
+            if current == self.tear_at {
+                if input.is_empty() || self.prefix_bytes >= input.len() {
+                    return Err(Error::InvalidInput("invalid test torn-write prefix"));
+                }
+                let mut mixed = vec![0; input.len()];
+                self.inner.read_blocks(first, &mut mixed)?;
+                mixed[..self.prefix_bytes].copy_from_slice(&input[..self.prefix_bytes]);
+                self.inner.write_blocks(first, &mixed)?;
+                return Err(Error::Io(std::io::Error::other("injected torn journal write")));
+            }
+            self.inner.write_blocks(first, input)
+        }
+        fn flush(&mut self) -> Result<()> { self.inner.flush() }
+    }
+
     fn update(byte: u8) -> RedoUpdate {
         RedoUpdate {
             target_block: HOME,
@@ -730,6 +768,41 @@ mod tests {
         let reopened = open_journal(&mut device, REGION).unwrap();
         assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
         assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+    }
+
+    #[test]
+    fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        // Writes 0..3 are begin/update records; write 4 is the commit record.
+        // Tear the commit record after its first 64 bytes so its checksum is invalid.
+        let mut failing = TearWriteAt::new(device.clone(), 4, 64);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        let reopened = open_journal(&mut recovered, REGION)
+            .expect("a malformed terminal commit must not make the old state unusable");
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
+        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
+    }
+
+    #[test]
+    fn torn_home_write_is_repaired_from_durable_redo_record() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        // Begin + two redo chunks, flush, commit, flush; operation 6 is home write.
+        let mut failing = TearWriteAt::new(device.clone(), 6, 257);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        let reopened = open_journal(&mut recovered, REGION)
+            .expect("durable redo should repair a torn home-block write");
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
     }
 
     #[test]
