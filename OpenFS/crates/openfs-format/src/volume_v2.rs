@@ -575,4 +575,37 @@ mod tests {
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
     }
+
+    #[test]
+    fn v2_layout_pins_minimum_geometry_and_rejects_invalid_or_overflowing_inputs() {
+        let minimum = VolumeLayoutV2::calculate(4096, 12).unwrap();
+        assert_eq!(minimum.bitmap_start, 1);
+        assert_eq!(minimum.bitmap_blocks, 1);
+        assert_eq!(minimum.journal.checkpoint_a, 2);
+        assert_eq!(minimum.journal.checkpoint_b, 3);
+        assert_eq!(minimum.journal.ring_start, 4);
+        assert_eq!(minimum.journal.ring_blocks, 4);
+        assert_eq!(minimum.data_start, 8);
+        assert_eq!(minimum.backup_superblock, 11);
+        assert_eq!(minimum.data_blocks(), 3);
+
+        for block_size in [0, 512, 2048, 4097, 131_072] {
+            assert!(
+                matches!(
+                    VolumeLayoutV2::calculate(block_size, 256),
+                    Err(Error::InvalidInput(_))
+                ),
+                "unexpectedly accepted v2 block size {block_size}"
+            );
+        }
+
+        assert!(matches!(
+            VolumeLayoutV2::calculate(4096, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(matches!(
+            VolumeLayoutV2::calculate(4096, 12),
+            Ok(layout) if layout.data_blocks() > 0
+        ));
+    }
 }
