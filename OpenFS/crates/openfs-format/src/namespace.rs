@@ -170,6 +170,14 @@ impl Namespace {
             ))
             .cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        if old_entry.object_id != object_id.0
+            || old_entry.parent_id != record.parent_id
+            || old_entry.kind != record.kind
+        {
+            return Err(Error::Corrupt(
+                "directory entry disagrees with object metadata",
+            ));
+        }
         let mut updated_entry = old_entry.clone();
         updated_entry.parent_id = new_parent_id.0;
         updated_entry.name = new_name.to_owned();
