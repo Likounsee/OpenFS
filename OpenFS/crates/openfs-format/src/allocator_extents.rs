@@ -857,15 +857,134 @@ impl OpenedVolumeV2 {
     ) -> Result<AllocationOwnershipReport> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
-        let mut owned = Vec::new();
+        let mut owned_ranges = Vec::new();
         for (map, logical_blocks) in extent_maps {
-            owned.extend(map.validated_physical_block_inventory(
+            owned_ranges.extend(map.validated_physical_ranges(
                 *logical_blocks,
                 layout.data_start,
                 layout.backup_superblock,
             )?);
         }
-        self.allocation_ownership_report(device, &owned)
+        owned_ranges.sort_unstable();
+        if owned_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+            return Err(Error::Corrupt(
+                "a data block is referenced by multiple owners",
+            ));
+        }
+        self.allocation_ownership_range_report(device, &owned_ranges)
+    }
+
+    /// Compare physical owner ranges against the bitmap without expanding each range to
+    /// one entry per block. The ranges must be sorted, non-overlapping, and in the data region.
+    fn allocation_ownership_range_report<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        owned_ranges: &[(u64, u64)],
+    ) -> Result<AllocationOwnershipReport> {
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        if owned_ranges.iter().any(|(start, end)| {
+            start >= end || *start < layout.data_start || *end > layout.backup_superblock
+        }) || owned_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0)
+        {
+            return Err(Error::Corrupt("invalid or overlapping physical owner ranges"));
+        }
+
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut range_index = 0_usize;
+        let mut report = AllocationOwnershipReport::default();
+
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let first_byte =
+                usize::try_from((start - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                end.checked_sub(base)
+                    .and_then(|value| value.checked_add(7))
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+                let byte_base = base
+                    .checked_add(
+                        u64::try_from(byte_index)
+                            .map_err(|_| Error::ArithmeticOverflow)?
+                            .checked_mul(8)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    )
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let byte_end = byte_base.checked_add(8).ok_or(Error::ArithmeticOverflow)?;
+                let first_valid = start.saturating_sub(byte_base).min(8);
+                let end_valid = end.saturating_sub(byte_base).min(8);
+                let lower_mask = u8::MAX << first_valid;
+                let data_upper_mask = if end_valid == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << end_valid) - 1
+                };
+                let data_mask = lower_mask & data_upper_mask;
+
+                while range_index < owned_ranges.len()
+                    && owned_ranges[range_index].1 <= byte_base
+                {
+                    range_index += 1;
+                }
+                let mut owner_mask = 0_u8;
+                let mut candidate = range_index;
+                while candidate < owned_ranges.len()
+                    && owned_ranges[candidate].0 < byte_end
+                {
+                    let (range_start, range_end) = owned_ranges[candidate];
+                    let overlap_start = range_start.max(byte_base);
+                    let overlap_end = range_end.min(byte_end);
+                    if overlap_start < overlap_end {
+                        let low = u32::try_from(overlap_start - byte_base)
+                            .map_err(|_| Error::ArithmeticOverflow)?;
+                        let high = u32::try_from(overlap_end - byte_base)
+                            .map_err(|_| Error::ArithmeticOverflow)?;
+                        let low_mask = u8::MAX << low;
+                        let high_mask = if high == 8 {
+                            u8::MAX
+                        } else {
+                            (1_u8 << high) - 1
+                        };
+                        owner_mask |= low_mask & high_mask;
+                    }
+                    candidate += 1;
+                }
+
+                let mut orphaned = *byte & data_mask & !owner_mask;
+                while orphaned != 0 {
+                    let bit = u64::from(orphaned.trailing_zeros());
+                    report.record_orphan(
+                        byte_base.checked_add(bit).ok_or(Error::ArithmeticOverflow)?,
+                    )?;
+                    orphaned &= orphaned - 1;
+                }
+                let mut dangling = !*byte & data_mask & owner_mask;
+                while dangling != 0 {
+                    let bit = u64::from(dangling.trailing_zeros());
+                    report.record_dangling_reference(
+                        byte_base.checked_add(bit).ok_or(Error::ArithmeticOverflow)?,
+                    )?;
+                    dangling &= dangling - 1;
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// Validate physical ownership from a caller-discovered set of extent maps against the bitmap.
