@@ -376,20 +376,34 @@ impl OpenedVolumeV2 {
         count: u64,
     ) -> Result<u64> {
         validate_device(self, device)?;
-        if count == 0 {
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        if count == 0 || count > bits_per_block {
             return Err(Error::InvalidInput(
-                "contiguous extent length must be nonzero",
+                "contiguous extent length must fit within one bitmap block",
             ));
         }
         let start = self
             .find_contiguous_free_blocks(device, count)?
             .ok_or(Error::InvalidInput("no contiguous free data extent"))?;
-        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let end = start.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
+        if start / bits_per_block != (end - 1) / bits_per_block {
+            return Err(Error::Corrupt(
+                "contiguous allocation crosses an allocation bitmap segment",
+            ));
+        }
         let bitmap_block = self.volume.layout.bitmap_start + start / bits_per_block;
+        let base = (start / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
-        for block in start..start + count {
-            let local = block % bits_per_block;
+        for block in start..end {
+            let local = block - base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                return Err(Error::Corrupt("contiguous extent changed during allocation"));
+            }
+        }
+        for block in start..end {
+            let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             bitmap[byte] |= 1_u8 << (local % 8);
         }
@@ -1047,6 +1061,10 @@ mod allocation_bitmap_report_tests {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume =
                     format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                assert!(matches!(
+                    volume.allocate_contiguous_blocks(&mut device, u64::from(block_size) * 8 + 1),
+                    Err(Error::InvalidInput(_))
+                ));
                 let start = volume.allocate_contiguous_blocks(&mut device, 5).unwrap();
                 let before = volume.allocation_stats(&mut device).unwrap();
                 assert_eq!(before.allocated_data_blocks, 5);
