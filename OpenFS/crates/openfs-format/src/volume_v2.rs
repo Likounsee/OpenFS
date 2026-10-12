@@ -529,7 +529,7 @@ mod tests {
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
                 let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-                let original_layout = volume.volume.layout.clone();
+                let original_layout = volume.volume.layout;
 
                 // Every layout field is public, so guard every field against
                 // post-validation changes before allocator I/O can occur.
