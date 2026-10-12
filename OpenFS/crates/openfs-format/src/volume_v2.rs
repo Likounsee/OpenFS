@@ -1641,13 +1641,17 @@ mod tests {
 
                 // Mark every data block allocated except the final legal data block.
                 // Keep the on-disk reserved/padding bits produced by the formatter.
-                for block in layout.data_start..last_data {
-                    let bitmap_index = block / bits_per_block;
-                    let local = block % bits_per_block;
+                for bitmap_index in 0..layout.bitmap_blocks {
                     let bitmap_block = layout.bitmap_start + bitmap_index;
+                    let bitmap_base = bitmap_index * bits_per_block;
+                    let first = layout.data_start.max(bitmap_base);
+                    let end = last_data.min(bitmap_base + bits_per_block);
                     let mut bitmap = vec![0_u8; block_size as usize];
                     device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                    bitmap[(local / 8) as usize] |= 1 << (local % 8);
+                    for block in first..end {
+                        let local = block - bitmap_base;
+                        bitmap[(local / 8) as usize] |= 1 << (local % 8);
+                    }
                     device.write_blocks(bitmap_block, &bitmap).unwrap();
                 }
                 let mut volume = open_volume_v2(&mut device).unwrap();
