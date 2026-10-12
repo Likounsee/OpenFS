@@ -44,16 +44,57 @@ pub struct AllocationBitmapReport {
 ///
 /// Orphaned blocks are marked allocated but absent from the supplied ownership inventory.
 /// Dangling references are present in the inventory but marked free in the bitmap.
+/// Maximum number of block numbers retained in each ownership-diagnostic sample.
+pub const OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT: usize = 64;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AllocationOwnershipReport {
+    /// Sample of allocated blocks absent from the supplied ownership inventory.
     pub orphaned_allocations: Vec<u64>,
+    /// Sample of referenced blocks marked free in the allocation bitmap.
     pub dangling_references: Vec<u64>,
+    /// Total orphaned allocated blocks, including entries beyond the sample.
+    pub orphaned_allocation_count: u64,
+    /// Total dangling references, including entries beyond the sample.
+    pub dangling_reference_count: u64,
+    /// True when additional orphaned block numbers were omitted from the sample.
+    pub orphaned_allocations_truncated: bool,
+    /// True when additional dangling block numbers were omitted from the sample.
+    pub dangling_references_truncated: bool,
 }
 
 impl AllocationOwnershipReport {
     /// Return true when every allocated data block has exactly one supplied owner.
+    ///
+    /// Consistency uses the total counts, not the bounded diagnostic samples.
     pub fn is_consistent(&self) -> bool {
-        self.orphaned_allocations.is_empty() && self.dangling_references.is_empty()
+        self.orphaned_allocation_count == 0 && self.dangling_reference_count == 0
+    }
+
+    fn record_orphan(&mut self, block: u64) -> Result<()> {
+        self.orphaned_allocation_count = self
+            .orphaned_allocation_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if self.orphaned_allocations.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
+            self.orphaned_allocations.push(block);
+        } else {
+            self.orphaned_allocations_truncated = true;
+        }
+        Ok(())
+    }
+
+    fn record_dangling_reference(&mut self, block: u64) -> Result<()> {
+        self.dangling_reference_count = self
+            .dangling_reference_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if self.dangling_references.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
+            self.dangling_references.push(block);
+        } else {
+            self.dangling_references_truncated = true;
+        }
+        Ok(())
     }
 }
 
@@ -528,9 +569,9 @@ impl OpenedVolumeV2 {
                 }
                 let referenced = owner_index < owned.len() && owned[owner_index] == block;
                 if allocated && !referenced {
-                    report.orphaned_allocations.push(block);
+                    report.record_orphan(block)?;
                 } else if referenced && !allocated {
-                    report.dangling_references.push(block);
+                    report.record_dangling_reference(block)?;
                 }
                 if referenced {
                     owner_index += 1;
