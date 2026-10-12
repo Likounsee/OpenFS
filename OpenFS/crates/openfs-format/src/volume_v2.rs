@@ -630,6 +630,38 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocation_keeps_bitmap_unchanged_when_commit_fails_before_durable_record() {
+        for fail_at in 0..4 {
+            let path = image_path(&format!("allocation-precommit-{fail_at}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let first = volume.volume.layout.data_start;
+                let mut failing = FailWriteAt {
+                    inner: device,
+                    write_index: 0,
+                    fail_at,
+                };
+                let mut volume = volume;
+                assert!(
+                    matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
+                    "expected injected failure at journal write {fail_at}"
+                );
+                device = failing.inner;
+                drop(volume);
+
+                let mut recovered = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    recovered.allocate_block(&mut device).unwrap(),
+                    first,
+                    "pre-commit failure at write {fail_at} must not consume the block"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_allocation_recovers_after_durable_commit_and_home_write_failure() {
         let path = image_path("allocation-recovery");
         let first;
