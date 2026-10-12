@@ -185,7 +185,10 @@ mod tests {
     fn rejects_bad_magic_version_checksum_and_reserved_bytes() {
         let mut bytes = sample().encode().unwrap();
         bytes[0] ^= 1;
-        assert!(matches!(JournalCheckpoint::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample().encode().unwrap();
         bytes[8..10].copy_from_slice(&(JOURNAL_CHECKPOINT_VERSION + 1).to_le_bytes());
@@ -198,7 +201,10 @@ mod tests {
         let mut bytes = sample().encode().unwrap();
         bytes[12] = 1;
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalCheckpoint::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample().encode().unwrap();
         bytes[68] = 1;
