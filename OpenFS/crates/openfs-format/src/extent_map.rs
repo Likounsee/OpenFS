@@ -209,6 +209,7 @@ impl ExtentMap {
 
     fn validate_ordering(&self) -> Result<()> {
         let mut previous_end = 0_u64;
+        let mut physical = Vec::with_capacity(self.extents.len());
         for (index, extent) in self.extents.iter().copied().enumerate() {
             validate_extent(extent)?;
             if index > 0 && extent.logical_start < previous_end {
@@ -217,6 +218,11 @@ impl ExtentMap {
                 ));
             }
             previous_end = extent.logical_end()?;
+            physical.push((extent.physical_start, extent.physical_end()?));
+        }
+        physical.sort_unstable();
+        if physical.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+            return Err(Error::InvalidInput("physical extents overlap"));
         }
         Ok(())
     }
@@ -319,22 +325,20 @@ mod tests {
             Err(Error::Corrupt(_))
         ));
 
-        let overlap = ExtentMap::new(vec![
-            Extent {
-                logical_start: 0,
-                physical_start: 100,
-                block_count: 4,
-            },
-            Extent {
-                logical_start: 4,
-                physical_start: 102,
-                block_count: 2,
-            },
-        ])
-        .unwrap();
         assert!(matches!(
-            overlap.validate(8, 10, 300),
-            Err(Error::Corrupt(_))
+            ExtentMap::new(vec![
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 4,
+                },
+                Extent {
+                    logical_start: 4,
+                    physical_start: 102,
+                    block_count: 2,
+                },
+            ]),
+            Err(Error::InvalidInput(_))
         ));
         assert!(matches!(
             sample().validate(6, 100, 201),
