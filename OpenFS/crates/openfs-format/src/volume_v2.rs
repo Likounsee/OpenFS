@@ -124,8 +124,10 @@ impl OpenedVolumeV2 {
             device.read_blocks(bitmap_block, &mut bitmap)?;
 
             let first_block = (bitmap_index * bits_per_block).max(self.volume.layout.data_start);
-            let end_block =
-                ((bitmap_index + 1) * bits_per_block).min(self.volume.layout.backup_superblock);
+            // Saturate the exclusive end: valid volume byte geometry does not imply
+            // that the bitmap's wider bit-index range fits in u64.
+            let end_block = (first_block.saturating_add(bits_per_block))
+                .min(self.volume.layout.backup_superblock);
             for block in first_block..end_block {
                 let local = block % bits_per_block;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -211,7 +213,7 @@ pub fn format_volume_v2<D: BlockDevice>(
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; block_size];
-        for block in first..first + bits_per_block {
+        for block in first..first.saturating_add(bits_per_block) {
             if block >= layout.total_blocks
                 || block < layout.data_start
                 || block == layout.backup_superblock
