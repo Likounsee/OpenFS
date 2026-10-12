@@ -238,6 +238,43 @@ impl OpenedVolumeV2 {
         Ok(start)
     }
 
+    /// Return every currently allocated data block in ascending block-number order.
+    ///
+    /// This is a bitmap inventory, not an ownership scan: it can enumerate allocations
+    /// but cannot determine whether a persistent object actually references each block.
+    /// The returned vector uses memory proportional to the number of allocated blocks.
+    pub fn allocated_data_block_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<Vec<u64>> {
+        validate_device(self, device)?;
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut allocated = Vec::new();
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout
+                .backup_superblock
+                .min(base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?);
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                    allocated.push(block);
+                }
+            }
+        }
+        Ok(allocated)
+    }
+
     /// Verify that the allocation bitmap exactly matches the caller's discovered ownership map.
     ///
     /// owned_data_blocks must contain every data block referenced by persistent metadata,
