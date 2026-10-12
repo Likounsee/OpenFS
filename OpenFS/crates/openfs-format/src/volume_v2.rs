@@ -1627,6 +1627,58 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocator_handles_last_data_block_after_bitmap_segment_boundary() {
+        for block_size in [4096_u32, 8192] {
+            let total_blocks = 65_537_u64;
+            let path = image_path(&format!("last-data-block-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, total_blocks).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let layout = volume.volume.layout;
+                assert!(layout.bitmap_blocks > 1);
+                let last_data = layout.backup_superblock - 1;
+                let bits_per_block = u64::from(block_size) * 8;
+
+                // Mark every data block allocated except the final legal data block.
+                // Keep the on-disk reserved/padding bits produced by the formatter.
+                for block in layout.data_start..last_data {
+                    let bitmap_index = block / bits_per_block;
+                    let local = block % bits_per_block;
+                    let bitmap_block = layout.bitmap_start + bitmap_index;
+                    let mut bitmap = vec![0_u8; block_size as usize];
+                    device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                    bitmap[(local / 8) as usize] |= 1 << (local % 8);
+                    device.write_blocks(bitmap_block, &bitmap).unwrap();
+                }
+                let mut volume = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    volume.allocate_block(&mut device).unwrap(),
+                    last_data,
+                    "allocator must return the final valid data block (block size {block_size})"
+                );
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
+                volume.free_block(&mut device, last_data).unwrap();
+                drop(volume);
+
+                let mut reopened = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    reopened.allocate_block(&mut device).unwrap(),
+                    last_data,
+                    "last data block must remain reusable after reopen (block size {block_size})"
+                );
+                assert!(matches!(
+                    reopened.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
