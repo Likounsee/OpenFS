@@ -484,6 +484,39 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocator_rejects_device_geometry_mismatch_without_mutation() {
+        let volume_path = image_path("geometry-volume");
+        let other_path = image_path("geometry-other");
+        {
+            let mut original = ImageDevice::create(&volume_path, 4096, 256).unwrap();
+            let mut volume =
+                format_volume_v2(&mut original, *b"openfs-v2-test!!", 0).unwrap();
+            let mut other = ImageDevice::create(&other_path, 4096, 257).unwrap();
+
+            assert!(matches!(
+                volume.allocate_block(&mut other),
+                Err(Error::InvalidInput(
+                    "device geometry does not match opened v2 volume"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_block(&mut other, volume.volume.layout.data_start),
+                Err(Error::InvalidInput(
+                    "device geometry does not match opened v2 volume"
+                ))
+            ));
+
+            let reopened = open_volume_v2(&mut original).unwrap();
+            assert_eq!(
+                reopened.volume.layout.data_start,
+                volume.volume.layout.data_start
+            );
+        }
+        fs::remove_file(volume_path).unwrap();
+        fs::remove_file(other_path).unwrap();
+    }
+
+    #[test]
     fn v2_allocator_exhaustion_and_reuse_preserve_data_region_bounds() {
         let path = image_path("allocator-exhaustion");
         {
