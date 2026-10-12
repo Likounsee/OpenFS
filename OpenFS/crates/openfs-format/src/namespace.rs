@@ -793,15 +793,35 @@ mod tests {
 
         assert_eq!(ns.path_of(ObjectId(1)).unwrap(), "/");
         assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/docs/report.txt");
-        assert_eq!(ns.resolve_path(&ns.path_of(ObjectId(3)).unwrap()).unwrap(), ObjectId(3));
+        assert_eq!(
+            ns.resolve_path(&ns.path_of(ObjectId(3)).unwrap()).unwrap(),
+            ObjectId(3)
+        );
 
         let first = ns.list_directory(ObjectId(1), None, 2).unwrap();
-        assert_eq!(first.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["a.txt", "b.txt"]);
-        let second = ns.list_directory(ObjectId(1), Some(&first[1].name), 2).unwrap();
-        assert_eq!(second.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["c.txt", "docs"]);
-        assert!(ns.list_directory(ObjectId(1), Some("docs"), 10).unwrap().is_empty());
-        assert!(matches!(ns.list_directory(ObjectId(1), None, 0), Err(Error::InvalidInput(_))));
-        assert!(matches!(ns.list_directory(ObjectId(3), None, 1), Err(Error::InvalidInput(_))));
+        assert_eq!(
+            first.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["a.txt", "b.txt"]
+        );
+        let second = ns
+            .list_directory(ObjectId(1), Some(&first[1].name), 2)
+            .unwrap();
+        assert_eq!(
+            second.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["c.txt", "docs"]
+        );
+        assert!(ns
+            .list_directory(ObjectId(1), Some("docs"), 10)
+            .unwrap()
+            .is_empty());
+        assert!(matches!(
+            ns.list_directory(ObjectId(1), None, 0),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ns.list_directory(ObjectId(3), None, 1),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
