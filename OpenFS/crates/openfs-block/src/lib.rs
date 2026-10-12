@@ -365,7 +365,7 @@ fn validate_block_size(block_size: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BlockDevice, ImageDevice};
+    use super::{BlockDevice, ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
     use std::path::PathBuf;
@@ -456,6 +456,71 @@ mod tests {
         assert!(matches!(
             device.read_blocks(0, &mut actual),
             Err(Error::Io(_))
+        ));
+    }
+
+    #[test]
+    fn raw_device_round_trip_preserves_existing_file_and_reopens() {
+        let image = TempImage::new();
+        {
+            let mut initial = ImageDevice::create(&image.0, 4096, 3).unwrap();
+            initial.write_blocks(0, &vec![0x37; 4096]).unwrap();
+            initial.flush().unwrap();
+        }
+
+        {
+            let mut raw = RawDevice::open(&image.0, 4096, 3).unwrap();
+            assert_eq!(raw.block_size(), 4096);
+            assert_eq!(raw.block_count(), 3);
+            raw.write_blocks(1, &vec![0xA9; 4096]).unwrap();
+            raw.flush().unwrap();
+        }
+
+        let mut reopened = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut first = vec![0; 4096];
+        let mut second = vec![0; 4096];
+        reopened.read_blocks(0, &mut first).unwrap();
+        reopened.read_blocks(1, &mut second).unwrap();
+        assert_eq!(first, vec![0x37; 4096]);
+        assert_eq!(second, vec![0xA9; 4096]);
+    }
+
+    #[test]
+    fn raw_device_rejects_wrong_geometry_without_modifying_file() {
+        let image = TempImage::new();
+        fs::write(&image.0, vec![0x5C; 8192]).unwrap();
+
+        assert!(matches!(
+            RawDevice::open(&image.0, 4096, 1),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            RawDevice::open(&image.0, 4096, 0),
+            Err(Error::InvalidInput(_))
+        ));
+
+        let data = fs::read(&image.0).unwrap();
+        assert_eq!(data, vec![0x5C; 8192]);
+    }
+
+    #[test]
+    fn raw_device_rejects_misaligned_and_out_of_range_access() {
+        let image = TempImage::new();
+        let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        drop(device);
+        let mut raw = RawDevice::open(&image.0, 4096, 2).unwrap();
+
+        assert!(matches!(
+            raw.read_blocks(0, &mut [0; 7]),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            raw.write_blocks(2, &[0xAA; 4096]),
+            Err(Error::OutOfBounds { .. })
+        ));
+        assert!(matches!(
+            raw.write_blocks(u64::MAX, &[0xAA; 4096]),
+            Err(Error::OutOfBounds { .. })
         ));
     }
 
