@@ -1144,8 +1144,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
-                let volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 assert_eq!(volume.volume.layout.bitmap_blocks, 2);
 
                 let bitmap_index = corrupted_block / bits_per_bitmap_block;
