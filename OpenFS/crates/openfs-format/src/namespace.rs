@@ -119,11 +119,13 @@ impl Namespace {
         let record = self
             .objects
             .get(&object_id)
+            .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         let old_parent_id = ObjectId::new(record.parent_id)?;
         let old_entry = self
             .names
             .get(&(old_parent_id, self.entry_name_for(old_parent_id, object_id)?))
+            .cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         let mut updated_entry = old_entry.clone();
         updated_entry.parent_id = new_parent_id.0;
@@ -187,6 +189,7 @@ impl Namespace {
         let record = self
             .objects
             .get(&object_id)
+            .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         if record.kind == ObjectKind::Directory
             && self.names.keys().any(|(parent_id, _)| *parent_id == object_id)
