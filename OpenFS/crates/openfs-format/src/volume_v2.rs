@@ -175,6 +175,13 @@ impl OpenedVolumeV2 {
                 "device geometry does not match opened v2 volume",
             ));
         }
+        let canonical =
+            VolumeLayoutV2::calculate(self.volume.block_size, self.volume.total_blocks)?;
+        if self.volume.layout != canonical {
+            return Err(Error::InvalidInput(
+                "v2 volume layout was modified after validation",
+            ));
+        }
         Ok(())
     }
 }
@@ -412,6 +419,31 @@ mod tests {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             let mut volume = open_volume_v2(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_allocator_rejects_mutated_public_layout_before_io() {
+        let path = image_path("mutated-layout");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            volume.volume.layout.data_start = 0;
+            assert!(matches!(
+                volume.allocate_block(&mut device),
+                Err(Error::InvalidInput(
+                    "v2 volume layout was modified after validation"
+                ))
+            ));
+            assert!(matches!(
+                volume.free_block(&mut device, 8),
+                Err(Error::InvalidInput(
+                    "v2 volume layout was modified after validation"
+                ))
+            ));
+            let reopened = open_volume_v2(&mut device).unwrap();
+            assert_eq!(reopened.volume.layout.data_start, 8);
         }
         fs::remove_file(path).unwrap();
     }
