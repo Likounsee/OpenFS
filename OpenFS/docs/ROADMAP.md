@@ -8,13 +8,13 @@ Percentages are planning estimates against acceptance criteria, not feature coun
 
 ## Current snapshot
 
-Code reviewed through `3203b1817b42915083ec81976547f24f56459aef`; documentation reconciled on `OpenFS` (2026-10-12).
+Code reviewed through `3cb9c884b278ee8c2ed85f1fd8f41d693e71a62e`; documentation reconciled on `OpenFS` (2026-10-12).
 
 | Workstream | Estimate | Evidence / limitation |
 | --- | ---: | --- |
-| P0 — engineering foundation and format safety | 90% | Rust workspace, bounded block I/O, explicit parsing, CRC checks, mirrored volume metadata, failure injection, image/reopen tests, v1 superblock golden bytes, and volume geometry invariants exist. The previous `original_sequence` test-scope issue and subsequent journal test corrections are followed by green Linux and Windows CI on HEAD `22f1655`. Remaining P0 work is a final cross-module format/safety review and any gaps found there; CI success does not establish hardware durability. |
+| P0 — engineering foundation and format safety | 90% | Rust workspace, bounded block I/O, explicit parsing, CRC checks, mirrored volume metadata, failure injection, image/reopen tests, v1 superblock golden bytes, and volume geometry invariants exist. The previous `original_sequence` test-scope issue and subsequent journal test corrections are followed by green Linux and Windows CI on code HEAD `3203b18`. A new regression test now rejects protected volume-control blocks overlapping the journal metadata region; its CI is pending. Remaining P0 work is the final cross-module format/safety review; CI success does not establish hardware durability. |
 | P1 — volume layout and allocation | 25% | Experimental V2 layout, reserved regions, bitmap validation, allocation/free, and disposable-file RawDevice coverage exist. Persistent namespace/file operations are not complete. |
-| P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. Linux and Windows CI passed on code commit `22f1655`; the new V2 geometry test is awaiting CI. Exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
+| P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. Linux and Windows CI passed on code commit `3203b18`; the additional protected-region overlap test is awaiting CI. Exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
 | P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, repair workflow, or parser fuzzing gate. |
 | P4 — persistent files and directories | 5% | Some metadata/namespace primitives exist, but no complete durable create/read/write/rename/delete path. |
 | P5 — safe removable-device workflow | 5% | Low-level RawDevice exists. There is no trustworthy device discovery, mounted/system-device exclusion, or safe end-user raw formatter. |
@@ -51,7 +51,9 @@ OpenFS is a new filesystem format. Formatting a drive erases the selected target
 - [x] Experimental volume formatting/open/reopen tests.
 - [x] Fix the `original_sequence` test-scope compile error and correct the torn-write test setup/assertions; Linux and Windows CI pass on HEAD `22f16555aa31f76328f942bc983bab44cdc442a8`.
 - [x] Add a v1 superblock golden-byte/checksum test and pin the volume layout's supported geometry, overflow, minimum-size and reserved-block invariants.
-- [ ] Complete a cross-module review of v1/v2 format boundaries, reserved regions and journal integration; the v1 layout still does not integrate the standalone journal.
+- [x] Document the distinct experimental V1/V2 layouts and the V2 journal's current allocator-only transaction scope in `docs/FORMAT_SPEC.md`.
+- [x] Reject protected volume-control blocks that overlap V2 journal checkpoint/ring metadata, with a regression test.
+- [ ] Complete the cross-module review of V1/V2 format boundaries, reserved regions, and crash/error behavior; V1 still does not integrate the journal.
 
 **Exit gate:** clean fmt, full workspace tests, and Clippy on Linux and Windows for the exact commit. No later milestone is called validated while this gate is red.
 
