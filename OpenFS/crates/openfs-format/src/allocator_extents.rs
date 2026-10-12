@@ -30,7 +30,9 @@ impl OpenedVolumeV2 {
         for index in first_bitmap..=last_bitmap {
             let base = index * bits_per_block;
             let start = layout.data_start.max(base);
-            let end = layout.backup_superblock.min(base.saturating_add(bits_per_block));
+            let end = layout
+                .backup_superblock
+                .min(base.saturating_add(bits_per_block));
             if end - start < count {
                 continue;
             }
@@ -75,11 +77,7 @@ impl OpenedVolumeV2 {
     ///
     /// Duplicate blocks, non-data blocks, blocks in different bitmap segments, and
     /// already-free blocks are rejected before any mutation is journaled.
-    pub fn free_blocks<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        blocks: &[u64],
-    ) -> Result<()> {
+    pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
         validate_device(self, device)?;
         if blocks.is_empty() {
             return Err(Error::InvalidInput("batch free list must not be empty"));
@@ -92,9 +90,10 @@ impl OpenedVolumeV2 {
         if sorted.len() != blocks.len() {
             return Err(Error::InvalidInput("batch free list contains duplicates"));
         }
-        if sorted.iter().any(|block| {
-            *block < layout.data_start || *block >= layout.backup_superblock
-        }) {
+        if sorted
+            .iter()
+            .any(|block| *block < layout.data_start || *block >= layout.backup_superblock)
+        {
             return Err(Error::InvalidInput("batch free contains a non-data block"));
         }
         let bitmap_index = sorted[0] / bits_per_block;
@@ -115,7 +114,9 @@ impl OpenedVolumeV2 {
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let mask = 1_u8 << (local % 8);
             if bitmap[byte] & mask == 0 {
-                return Err(Error::InvalidInput("batch free contains an already-free block"));
+                return Err(Error::InvalidInput(
+                    "batch free contains an already-free block",
+                ));
             }
         }
         for block in &sorted {
