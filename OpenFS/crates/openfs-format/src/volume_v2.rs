@@ -679,40 +679,46 @@ mod tests {
 
     #[test]
     fn v2_allocator_rejects_double_free_and_out_of_range_blocks() {
-        let path = image_path("invalid-free");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            let allocated = volume.allocate_block(&mut device).unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("invalid-free-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let allocated = volume.allocate_block(&mut device).unwrap();
+                let first_data_block = volume.volume.layout.data_start;
+                let backup_superblock = volume.volume.layout.backup_superblock;
 
-            volume.free_block(&mut device, allocated).unwrap();
-            assert!(matches!(
-                volume.free_block(&mut device, allocated),
-                Err(Error::InvalidInput("data block is already free"))
-            ));
-            assert!(matches!(
-                volume.free_block(&mut device, volume.volume.layout.backup_superblock),
-                Err(Error::InvalidInput(
-                    "cannot free a reserved or out-of-range block",
-                ))
-            ));
-            assert!(matches!(
-                volume.free_block(&mut device, u64::MAX),
-                Err(Error::InvalidInput(
-                    "cannot free a reserved or out-of-range block",
-                ))
-            ));
+                volume.free_block(&mut device, allocated).unwrap();
+                assert!(matches!(
+                    volume.free_block(&mut device, allocated),
+                    Err(Error::InvalidInput("data block is already free"))
+                ));
 
-            // Invalid free attempts must not damage the journal or bitmap.
-            let mut reopened = open_volume_v2(&mut device).unwrap();
-            assert_eq!(reopened.journal.checkpoint().checkpoint_sequence, 8);
-            assert_eq!(
-                reopened.allocate_block(&mut device).unwrap(),
-                allocated,
-                "invalid free attempts must not alter the freed block's bitmap state"
-            );
+                // Probe both sides of the legal allocation interval and integer limits.
+                for invalid in [0, first_data_block - 1, backup_superblock, u64::MAX] {
+                    assert!(
+                        matches!(
+                            volume.free_block(&mut device, invalid),
+                            Err(Error::InvalidInput(
+                                "cannot free a reserved or out-of-range block"
+                            ))
+                        ),
+                        "accepted invalid free of block {invalid} at block size {block_size}"
+                    );
+                }
+
+                // Invalid free attempts must not damage the journal or bitmap.
+                let mut reopened = open_volume_v2(&mut device).unwrap();
+                assert_eq!(reopened.journal.checkpoint().checkpoint_sequence, 8);
+                assert_eq!(
+                    reopened.allocate_block(&mut device).unwrap(),
+                    allocated,
+                    "invalid free attempts must not alter the freed block's bitmap state"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     struct FailWriteAt<D> {
