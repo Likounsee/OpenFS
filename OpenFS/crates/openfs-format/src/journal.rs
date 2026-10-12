@@ -172,9 +172,7 @@ pub fn plan_recovery(
         match record.kind {
             JournalRecordKind::Begin => {
                 if active.is_some() || record.transaction_id <= last_transaction_id {
-                    return Err(Error::Corrupt(
-                        "invalid or interleaved journal transaction",
-                    ));
+                    return Err(Error::Corrupt("invalid or interleaved journal transaction"));
                 }
                 last_transaction_id = record.transaction_id;
                 active = Some(CommittedTransaction {
@@ -298,8 +296,8 @@ fn get_u64(bytes: &[u8], offset: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind,
-        JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
+        plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
+        JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
     };
     use openfs_core::Error;
 
@@ -439,7 +437,6 @@ mod tests {
         assert_eq!(JournalRecord::decode(&bytes).unwrap(), valid_max);
     }
 
-
     fn record(
         kind: JournalRecordKind,
         sequence: u64,
@@ -515,10 +512,7 @@ mod tests {
             record(JournalRecordKind::Update, 2, 1, b"redo"),
             record(JournalRecordKind::Begin, 3, 2, b""),
         ];
-        assert!(matches!(
-            plan_recovery(&records, 0),
-            Err(Error::Corrupt(_))
-        ));
+        assert!(matches!(plan_recovery(&records, 0), Err(Error::Corrupt(_))));
     }
 
     #[test]
