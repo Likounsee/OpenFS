@@ -948,10 +948,14 @@ mod tests {
             let mut metadata_bytes = vec![0_u8; 4096];
             metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
             metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
             let mut directory_bytes = vec![0_u8; 4096];
             directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device
+                .write_blocks(directory_block, &directory_bytes)
+                .unwrap();
 
             let namespace = volume
                 .reconstruct_namespace(
