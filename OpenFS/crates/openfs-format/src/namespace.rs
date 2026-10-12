@@ -220,6 +220,36 @@ impl Namespace {
         Ok(())
     }
 
+    /// Update file length and extent-root metadata in memory.
+    ///
+    /// An empty file must have no extent root; directory records cannot be resized.
+    /// This does not allocate/free blocks or persist the updated metadata.
+    pub fn set_file_layout(
+        &mut self,
+        object_id: ObjectId,
+        size: u64,
+        extent_root_block: Option<u64>,
+    ) -> Result<()> {
+        let current = self
+            .objects
+            .get(&object_id)
+            .cloned()
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        if current.kind != ObjectKind::File {
+            return Err(Error::InvalidInput("only files have a file layout"));
+        }
+        let mut updated = current;
+        updated.size = size;
+        updated.extent_root_block = extent_root_block;
+        updated.generation = updated
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        updated.encode()?;
+        self.objects.insert(object_id, updated);
+        Ok(())
+    }
+
     /// Remove an object from the in-memory namespace.
     ///
     /// Directories must be empty. The root cannot be removed. This changes only
@@ -514,6 +544,36 @@ mod tests {
         ));
         assert_eq!(ns.lookup(ObjectId(3), "after.txt").unwrap().object_id, 4);
         assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 3);
+    }
+
+    #[test]
+    fn updates_file_layout_and_rejects_invalid_transitions_atomically() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "file.bin", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+        ns.set_file_layout(ObjectId(2), 8192, Some(42)).unwrap();
+        assert_eq!(ns.object(ObjectId(2)).unwrap().size, 8192);
+        assert_eq!(ns.object(ObjectId(2)).unwrap().extent_root_block, Some(42));
+        assert_eq!(ns.object(ObjectId(2)).unwrap().generation, 2);
+
+        ns.set_file_layout(ObjectId(2), 0, None).unwrap();
+        assert_eq!(ns.object(ObjectId(2)).unwrap().size, 0);
+        assert_eq!(ns.object(ObjectId(2)).unwrap().extent_root_block, None);
+        assert_eq!(ns.object(ObjectId(2)).unwrap().generation, 3);
+
+        assert!(matches!(
+            ns.set_file_layout(ObjectId(2), 0, Some(42)),
+            Err(Error::InvalidInput(_))
+        ));
+        assert_eq!(ns.object(ObjectId(2)).unwrap().size, 0);
+        assert_eq!(ns.object(ObjectId(2)).unwrap().generation, 3);
+        assert!(matches!(
+            ns.set_file_layout(ObjectId(1), 1, Some(9)),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
