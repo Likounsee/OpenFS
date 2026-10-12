@@ -742,6 +742,29 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_primary_or_backup_superblock_mismatch() {
+        for (label, block) in [("primary", 0_u64), ("backup", 255_u64)] {
+            let path = image_path(&format!("superblock-mismatch-{label}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+
+                let mut bytes = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(block, &mut bytes).unwrap();
+                bytes[32] ^= 0x01;
+                device.write_blocks(block, &bytes).unwrap();
+                device.flush().unwrap();
+
+                assert!(matches!(
+                    open_volume_v2(&mut device),
+                    Err(Error::Corrupt("primary and backup v2 superblocks disagree"))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
         for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
             let path = image_path(label);
