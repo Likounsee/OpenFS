@@ -295,6 +295,7 @@ mod tests {
 mod allocator_extents;
 mod checkpoint;
 mod directory_entry;
+mod extent_map;
 mod journal;
 mod journal_engine;
 mod metadata;
@@ -303,6 +304,7 @@ mod volume;
 mod volume_v2;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
+pub use extent_map::{Extent, ExtentMap};
 pub use journal::{
     plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
     JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
