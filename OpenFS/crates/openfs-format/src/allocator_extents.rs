@@ -17,10 +17,7 @@ pub struct AllocationStats {
 
 impl OpenedVolumeV2 {
     /// Return total, allocated, and free data-block counts from the current bitmap.
-    pub fn allocation_stats<D: BlockDevice>(
-        &self,
-        device: &mut D,
-    ) -> Result<AllocationStats> {
+    pub fn allocation_stats<D: BlockDevice>(&self, device: &mut D) -> Result<AllocationStats> {
         let free = self.free_data_block_count(device)?;
         let total = self.volume.layout.data_blocks();
         let allocated = total.checked_sub(free).ok_or(Error::Corrupt(
@@ -149,13 +146,15 @@ impl OpenedVolumeV2 {
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             bitmap[byte] &= !(1_u8 << (local % 8));
         }
-        self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        ).map(|_| ())
+        self.journal
+            .commit(
+                device,
+                &[RedoUpdate {
+                    target_block: bitmap_block,
+                    contents: bitmap,
+                }],
+            )
+            .map(|_| ())
     }
 
     /// Find the first free contiguous extent wholly contained in one bitmap block.
