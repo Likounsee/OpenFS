@@ -267,15 +267,11 @@ impl OpenedVolumeV2 {
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte = usize::try_from(first_local / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                end_local
-                    .checked_add(7)
-                    .ok_or(Error::ArithmeticOverflow)?
-                    / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             for byte_index in first_byte..end_byte {
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
