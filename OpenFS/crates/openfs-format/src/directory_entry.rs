@@ -24,6 +24,21 @@ pub struct DirectoryEntry {
     pub name: String,
 }
 
+/// Decode a packed inventory of fixed-width directory entries.
+///
+/// The byte slice must contain complete records only. Every entry is individually
+/// checked for checksum, UTF-8, reserved-byte, ID, and name validity. This does not
+/// infer the on-disk location or ordering of a directory index.
+pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
+    if bytes.len() % DIRECTORY_ENTRY_SIZE != 0 {
+        return Err(Error::InvalidInput("directory inventory is not record-aligned"));
+    }
+    bytes
+        .chunks_exact(DIRECTORY_ENTRY_SIZE)
+        .map(DirectoryEntry::decode)
+        .collect()
+}
+
 impl DirectoryEntry {
     pub fn encode(&self) -> Result<[u8; DIRECTORY_ENTRY_SIZE]> {
         validate_name(&self.name).map_err(Error::InvalidInput)?;
@@ -141,6 +156,22 @@ mod tests {
             kind: ObjectKind::File,
             name: "notes-é.txt".to_owned(),
         }
+    }
+
+    #[test]
+    fn decodes_packed_directory_inventory_and_rejects_partial_records() {
+        let first = sample();
+        let mut second = sample();
+        second.object_id = 43;
+        second.name = "second".to_owned();
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&second.encode().unwrap());
+        assert_eq!(super::decode_directory_entries(&packed).unwrap(), vec![first, second]);
+        packed.push(0);
+        assert!(matches!(
+            super::decode_directory_entries(&packed),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
