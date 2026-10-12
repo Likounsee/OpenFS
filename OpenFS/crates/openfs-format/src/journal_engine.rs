@@ -1,0 +1,500 @@
+//! Persistent single-writer write-ahead journal over an explicitly reserved block region.
+//!
+//! The caller must reserve this region in the volume layout. This engine is not yet
+//! wired into the v1 formatter or allocator; open_journal must run before mutations.
+
+use openfs_block::BlockDevice;
+use openfs_core::{Error, Result};
+use crate::{plan_recovery, JournalCheckpoint, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE};
+
+const UPDATE_CHUNK_HEADER_SIZE: usize = 12;
+const MIN_RING_BLOCKS: u64 = 4;
+
+/// Explicit location of checkpoint copies and the bounded one-block-per-record ring.
+/// After a durable checkpoint, a new epoch starts at ring slot zero. Old slots may
+/// retain records whose sequence is already covered by the checkpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JournalRegion {
+    pub checkpoint_a: u64,
+    pub checkpoint_b: u64,
+    pub ring_start: u64,
+    pub ring_blocks: u64,
+}
+
+impl JournalRegion {
+    fn validate<D: BlockDevice>(&self, device: &D) -> Result<()> {
+        let total = device.block_count();
+        if self.ring_blocks < MIN_RING_BLOCKS {
+            return Err(Error::InvalidInput("journal ring must contain at least four blocks"));
+        }
+        if self.checkpoint_a >= total || self.checkpoint_b >= total || self.checkpoint_a == self.checkpoint_b {
+            return Err(Error::InvalidInput("journal checkpoint blocks are invalid or overlap"));
+        }
+        if self.ring_start >= total || self.ring_blocks > total - self.ring_start {
+            return Err(Error::InvalidInput("journal ring lies outside the device"));
+        }
+        let ring_end = self.ring_start.checked_add(self.ring_blocks).ok_or(Error::ArithmeticOverflow)?;
+        if (self.checkpoint_a >= self.ring_start && self.checkpoint_a < ring_end)
+            || (self.checkpoint_b >= self.ring_start && self.checkpoint_b < ring_end)
+        {
+            return Err(Error::InvalidInput("checkpoint blocks must not overlap the journal ring"));
+        }
+        let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        if block_size < JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE {
+            return Err(Error::InvalidInput("device block is too small for journal records"));
+        }
+        Ok(())
+    }
+
+    fn contains_journal_block(&self, block: u64) -> bool {
+        block == self.checkpoint_a || block == self.checkpoint_b
+            || (block >= self.ring_start && block - self.ring_start < self.ring_blocks)
+    }
+}
+
+/// A full home-block redo image. The target must be outside the journal region.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedoUpdate {
+    pub target_block: u64,
+    pub contents: Vec<u8>,
+}
+
+/// Open, recovered, single-writer journal state. Any I/O error during commit poisons
+/// this instance; drop it and reopen before attempting another mutation.
+#[derive(Debug, Clone)]
+pub struct PersistentJournal {
+    region: JournalRegion,
+    checkpoint: JournalCheckpoint,
+    active_checkpoint_copy: u8,
+    recovery_required: bool,
+}
+
+/// Initialize a reserved journal region. Destructive; only call while formatting.
+pub fn format_journal<D: BlockDevice>(device: &mut D, region: JournalRegion) -> Result<()> {
+    region.validate(device)?;
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let zero = vec![0_u8; block_size];
+    for slot in 0..region.ring_blocks {
+        device.write_blocks(region.ring_start + slot, &zero)?;
+    }
+    device.flush()?;
+    let first = JournalCheckpoint {
+        generation: 1, checkpoint_sequence: 0, next_sequence: 1,
+        next_transaction_id: 1, head_block: 0, tail_block: 0,
+    };
+    let second = JournalCheckpoint { generation: 2, ..first };
+    write_checkpoint_block(device, region.checkpoint_a, &first)?;
+    write_checkpoint_block(device, region.checkpoint_b, &second)?;
+    device.flush()
+}
+
+/// Open and recover before exposing writable journal state. A malformed terminal append
+/// is ignored only when no later valid post-checkpoint record follows it.
+pub fn open_journal<D: BlockDevice>(device: &mut D, region: JournalRegion) -> Result<PersistentJournal> {
+    region.validate(device)?;
+    let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
+    validate_checkpoint_geometry(&checkpoint, region)?;
+    let scanned = scan_uncheckpointed_records(device, region, checkpoint.checkpoint_sequence)?;
+
+    if !scanned.records.is_empty() {
+        let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
+        let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Validate all committed redo images before applying the first home write.
+        let mut validated = Vec::with_capacity(plan.len());
+        for transaction in &plan {
+            let updates = decode_redo_updates(&transaction.updates, block_size)?;
+            for update in &updates {
+                validate_home_target(device, region, update.target_block, update.contents.len())?;
+            }
+            validated.push(updates);
+        }
+        for updates in &validated {
+            for update in updates {
+                device.write_blocks(update.target_block, &update.contents)?;
+            }
+        }
+        if validated.iter().any(|updates| !updates.is_empty()) {
+            device.flush()?;
+        }
+
+        let highest_sequence = scanned.records.last().unwrap().sequence;
+        let highest_transaction = scanned.records.iter().map(|record| record.transaction_id).max().unwrap();
+        checkpoint.checkpoint_sequence = highest_sequence;
+        checkpoint.next_sequence = highest_sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.next_transaction_id = highest_transaction.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.head_block = 0;
+        checkpoint.tail_block = 0;
+        checkpoint.generation = checkpoint.generation.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        let next_copy = 1 - active_copy;
+        let target = checkpoint_block_number(region, next_copy);
+        write_checkpoint_block(device, target, &checkpoint)?;
+        device.flush()?;
+        return Ok(PersistentJournal {
+            region, checkpoint, active_checkpoint_copy: next_copy, recovery_required: false,
+        });
+    }
+
+    Ok(PersistentJournal { region, checkpoint, active_checkpoint_copy: active_copy, recovery_required: false })
+}
+
+impl PersistentJournal {
+    pub fn checkpoint(&self) -> JournalCheckpoint { self.checkpoint }
+
+    /// Append, durably commit, apply, flush home blocks, then persist the checkpoint.
+    pub fn commit<D: BlockDevice>(&mut self, device: &mut D, updates: &[RedoUpdate]) -> Result<u64> {
+        if self.recovery_required {
+            return Err(Error::InvalidInput("journal requires recovery after a previous I/O error"));
+        }
+        if updates.is_empty() {
+            return Err(Error::InvalidInput("journal transaction must contain redo updates"));
+        }
+        self.region.validate(device)?;
+        let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        for update in updates {
+            if update.contents.len() != block_size {
+                return Err(Error::InvalidInput("redo image must be exactly one device block"));
+            }
+            validate_home_target(device, self.region, update.target_block, block_size)?;
+        }
+
+        let transaction_id = self.checkpoint.next_transaction_id;
+        let mut sequence = self.checkpoint.next_sequence;
+        let mut records = Vec::new();
+        records.push(JournalRecord { kind: JournalRecordKind::Begin, sequence, transaction_id, payload: Vec::new() });
+        sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        for update in updates {
+            for payload in encode_redo_chunks(update, block_size)? {
+                records.push(JournalRecord { kind: JournalRecordKind::Update, sequence, transaction_id, payload });
+                sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            }
+        }
+        let commit_sequence = sequence;
+        records.push(JournalRecord { kind: JournalRecordKind::Commit, sequence, transaction_id, payload: Vec::new() });
+        sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+
+        if u64::try_from(records.len()).map_err(|_| Error::ArithmeticOverflow)? > self.region.ring_blocks {
+            return Err(Error::InvalidInput("transaction does not fit in the bounded journal ring"));
+        }
+        let encoded = records.iter().map(|record| record.encode_block(block_size)).collect::<Result<Vec<_>>>()?;
+
+        // From here on persistence may be uncertain after any error.
+        self.recovery_required = true;
+        for (slot, block) in encoded.iter().take(encoded.len() - 1).enumerate() {
+            device.write_blocks(self.region.ring_start + slot as u64, block)?;
+        }
+        device.flush()?;
+        let commit_slot = encoded.len() - 1;
+        device.write_blocks(self.region.ring_start + commit_slot as u64, &encoded[commit_slot])?;
+        device.flush()?;
+
+        for update in updates {
+            device.write_blocks(update.target_block, &update.contents)?;
+        }
+        device.flush()?;
+
+        let mut checkpoint = self.checkpoint;
+        checkpoint.generation = checkpoint.generation.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.checkpoint_sequence = commit_sequence;
+        checkpoint.next_sequence = sequence;
+        checkpoint.next_transaction_id = transaction_id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.head_block = 0;
+        checkpoint.tail_block = 0;
+        let next_copy = 1 - self.active_checkpoint_copy;
+        write_checkpoint_block(device, checkpoint_block_number(self.region, next_copy), &checkpoint)?;
+        device.flush()?;
+
+        self.checkpoint = checkpoint;
+        self.active_checkpoint_copy = next_copy;
+        self.recovery_required = false;
+        Ok(transaction_id)
+    }
+}
+
+struct ScannedRecords { records: Vec<JournalRecord> }
+
+fn scan_uncheckpointed_records<D: BlockDevice>(
+    device: &mut D, region: JournalRegion, checkpoint_sequence: u64,
+) -> Result<ScannedRecords> {
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut newer = Vec::<(u64, JournalRecord)>::new();
+    let mut malformed = Vec::new();
+    for slot in 0..region.ring_blocks {
+        let mut block = vec![0_u8; block_size];
+        device.read_blocks(region.ring_start + slot, &mut block)?;
+        if block.iter().all(|byte| *byte == 0) { continue; }
+        match JournalRecord::decode_block(&block) {
+            Ok(record) if record.sequence <= checkpoint_sequence => {}
+            Ok(record) => newer.push((slot, record)),
+            Err(_) => malformed.push(slot),
+        }
+    }
+    newer.sort_by_key(|(_, record)| record.sequence);
+    if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
+        if malformed.iter().any(|slot| slot < last_slot) {
+            return Err(Error::Corrupt("malformed journal block appears before a later valid record"));
+        }
+    }
+    for (index, (slot, _)) in newer.iter().enumerate() {
+        if *slot != index as u64 {
+            return Err(Error::Corrupt("post-checkpoint journal records are not contiguous from ring start"));
+        }
+    }
+    Ok(ScannedRecords { records: newer.into_iter().map(|(_, record)| record).collect() })
+}
+
+fn read_checkpoint_pair<D: BlockDevice>(
+    device: &mut D, region: JournalRegion,
+) -> Result<(JournalCheckpoint, u8)> {
+    let first = read_checkpoint_block(device, region.checkpoint_a);
+    let second = read_checkpoint_block(device, region.checkpoint_b);
+    if matches!(first, Err(Error::Io(_))) { return first.map(|c| (c, 0)); }
+    if matches!(second, Err(Error::Io(_))) { return second.map(|c| (c, 1)); }
+    match (first, second) {
+        (Ok(a), Ok(b)) if a.generation == b.generation && a != b =>
+            Err(Error::Corrupt("checkpoint copies conflict at the same generation")),
+        (Ok(a), Ok(b)) if a.generation >= b.generation => Ok((a, 0)),
+        (Ok(_), Ok(b)) => Ok((b, 1)),
+        (Ok(a), Err(_)) => Ok((a, 0)),
+        (Err(_), Ok(b)) => Ok((b, 1)),
+        (Err(_), Err(_)) => Err(Error::Corrupt("both journal checkpoint copies are invalid")),
+    }
+}
+
+fn validate_checkpoint_geometry(checkpoint: &JournalCheckpoint, region: JournalRegion) -> Result<()> {
+    if checkpoint.head_block >= region.ring_blocks || checkpoint.tail_block >= region.ring_blocks {
+        return Err(Error::Corrupt("checkpoint ring position is out of bounds"));
+    }
+    if checkpoint.head_block != 0 || checkpoint.tail_block != 0 {
+        return Err(Error::Corrupt("unsupported non-zero checkpoint ring position"));
+    }
+    Ok(())
+}
+
+fn checkpoint_block_number(region: JournalRegion, copy: u8) -> u64 {
+    if copy == 0 { region.checkpoint_a } else { region.checkpoint_b }
+}
+
+fn read_checkpoint_block<D: BlockDevice>(device: &mut D, block_number: u64) -> Result<JournalCheckpoint> {
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut block = vec![0_u8; block_size];
+    device.read_blocks(block_number, &mut block)?;
+    if block[crate::JOURNAL_CHECKPOINT_SIZE..].iter().any(|byte| *byte != 0) {
+        return Err(Error::Corrupt("checkpoint block padding must be zero"));
+    }
+    JournalCheckpoint::decode(&block[..crate::JOURNAL_CHECKPOINT_SIZE])
+}
+
+fn write_checkpoint_block<D: BlockDevice>(
+    device: &mut D, block_number: u64, checkpoint: &JournalCheckpoint,
+) -> Result<()> {
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let encoded = checkpoint.encode()?;
+    let mut block = vec![0_u8; block_size];
+    block[..encoded.len()].copy_from_slice(&encoded);
+    device.write_blocks(block_number, &block)
+}
+
+fn validate_home_target<D: BlockDevice>(
+    device: &D, region: JournalRegion, target: u64, contents_len: usize,
+) -> Result<()> {
+    if target >= device.block_count() {
+        return Err(Error::InvalidInput("redo target lies outside the device"));
+    }
+    if region.contains_journal_block(target) {
+        return Err(Error::InvalidInput("redo target overlaps the journal region"));
+    }
+    if contents_len != device.block_size() as usize {
+        return Err(Error::InvalidInput("redo image has incorrect block size"));
+    }
+    Ok(())
+}
+
+fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<u8>>> {
+    let chunk_size = block_size.checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let count = update.contents.len().checked_add(chunk_size - 1).ok_or(Error::ArithmeticOverflow)? / chunk_size;
+    let count_u16 = u16::try_from(count).map_err(|_| Error::InvalidInput("too many redo chunks"))?;
+    let mut chunks = Vec::with_capacity(count);
+    for index in 0..count {
+        let start = index * chunk_size;
+        let end = update.contents.len().min(start + chunk_size);
+        let mut payload = vec![0; UPDATE_CHUNK_HEADER_SIZE + end - start];
+        payload[..8].copy_from_slice(&update.target_block.to_le_bytes());
+        payload[8..10].copy_from_slice(&(index as u16).to_le_bytes());
+        payload[10..12].copy_from_slice(&count_u16.to_le_bytes());
+        payload[12..].copy_from_slice(&update.contents[start..end]);
+        chunks.push(payload);
+    }
+    Ok(chunks)
+}
+
+fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<RedoUpdate>> {
+    let chunk_size = block_size.checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let expected_count = block_size.checked_add(chunk_size - 1).ok_or(Error::ArithmeticOverflow)? / chunk_size;
+    let expected_count_u16 = u16::try_from(expected_count).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut updates = Vec::new();
+    let mut target_active = None;
+    let mut active_count = 0_u16;
+    let mut current = Vec::with_capacity(block_size);
+    for payload in payloads {
+        if payload.len() < UPDATE_CHUNK_HEADER_SIZE {
+            return Err(Error::Corrupt("redo chunk header is truncated"));
+        }
+        let target = u64::from_le_bytes(payload[..8].try_into().unwrap());
+        let index = u16::from_le_bytes([payload[8], payload[9]]);
+        let count = u16::from_le_bytes([payload[10], payload[11]]);
+        if count != expected_count_u16 || index >= count {
+            return Err(Error::Corrupt("redo chunk index or count is invalid"));
+        }
+        let expected_len = if usize::from(index) + 1 < expected_count {
+            chunk_size
+        } else {
+            block_size - chunk_size * (expected_count - 1)
+        };
+        if payload.len() != UPDATE_CHUNK_HEADER_SIZE + expected_len {
+            return Err(Error::Corrupt("redo chunk has invalid data length"));
+        }
+        if index == 0 {
+            if target_active.is_some() {
+                return Err(Error::Corrupt("redo image ended before all chunks arrived"));
+            }
+            target_active = Some(target);
+            active_count = count;
+            current.clear();
+        } else if target_active != Some(target) || active_count != count
+            || usize::from(index) != current.len() / chunk_size
+        {
+            return Err(Error::Corrupt("redo chunks are out of order or target-mismatched"));
+        }
+        current.extend_from_slice(&payload[UPDATE_CHUNK_HEADER_SIZE..]);
+        if index + 1 == count {
+            if current.len() != block_size {
+                return Err(Error::Corrupt("redo image has incorrect reconstructed size"));
+            }
+            updates.push(RedoUpdate { target_block: target, contents: current.clone() });
+            target_active = None;
+            active_count = 0;
+            current.clear();
+        }
+    }
+    if target_active.is_some() {
+        return Err(Error::Corrupt("redo image is missing one or more chunks"));
+    }
+    Ok(updates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_journal, open_journal, JournalRegion, RedoUpdate};
+    use openfs_block::BlockDevice;
+    use openfs_core::{Error, Result};
+    use std::sync::{Arc, Mutex};
+
+    const BS: u32 = 4096;
+    const COUNT: u64 = 32;
+    const REGION: JournalRegion = JournalRegion { checkpoint_a: 1, checkpoint_b: 2, ring_start: 3, ring_blocks: 8 };
+    const HOME: u64 = 20;
+
+    #[derive(Clone)]
+    struct MemoryDevice { bytes: Arc<Mutex<Vec<u8>>> }
+    impl MemoryDevice {
+        fn new() -> Self { Self { bytes: Arc::new(Mutex::new(vec![0; BS as usize * COUNT as usize])) } }
+    }
+    impl BlockDevice for MemoryDevice {
+        fn block_size(&self) -> u32 { BS }
+        fn block_count(&self) -> u64 { COUNT }
+        fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
+            let start = first as usize * BS as usize;
+            output.copy_from_slice(&self.bytes.lock().unwrap()[start..start + output.len()]);
+            Ok(())
+        }
+        fn write_blocks(&mut self, first: u64, input: &[u8]) -> Result<()> {
+            let start = first as usize * BS as usize;
+            self.bytes.lock().unwrap()[start..start + input.len()].copy_from_slice(input);
+            Ok(())
+        }
+        fn flush(&mut self) -> Result<()> { Ok(()) }
+    }
+
+    struct FailAt<D> { inner: D, operation: usize, fail_at: usize }
+    impl<D> FailAt<D> {
+        fn new(inner: D, fail_at: usize) -> Self { Self { inner, operation: 0, fail_at } }
+        fn into_inner(self) -> D { self.inner }
+        fn check(&mut self) -> Result<()> {
+            let current = self.operation;
+            self.operation += 1;
+            if current == self.fail_at { return Err(Error::Io(std::io::Error::other("injected journal I/O failure"))); }
+            Ok(())
+        }
+    }
+    impl<D: BlockDevice> BlockDevice for FailAt<D> {
+        fn block_size(&self) -> u32 { self.inner.block_size() }
+        fn block_count(&self) -> u64 { self.inner.block_count() }
+        fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
+            self.check()?; self.inner.read_blocks(first, output)
+        }
+        fn write_blocks(&mut self, first: u64, input: &[u8]) -> Result<()> {
+            self.check()?; self.inner.write_blocks(first, input)
+        }
+        fn flush(&mut self) -> Result<()> { self.check()?; self.inner.flush() }
+    }
+
+    fn update(byte: u8) -> RedoUpdate { RedoUpdate { target_block: HOME, contents: vec![byte; BS as usize] } }
+    fn read_home(device: &mut MemoryDevice) -> Vec<u8> {
+        let mut bytes = vec![0; BS as usize]; device.read_blocks(HOME, &mut bytes).unwrap(); bytes
+    }
+    fn formatted() -> MemoryDevice {
+        let mut device = MemoryDevice::new();
+        format_journal(&mut device, REGION).unwrap();
+        device.write_blocks(HOME, &vec![0x11; BS as usize]).unwrap();
+        device.flush().unwrap();
+        device
+    }
+
+    #[test]
+    fn commit_and_reopen_preserve_home_data_and_checkpoint() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(journal.commit(&mut device, &[update(0xA5)]).unwrap(), 1);
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+        let reopened = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+    }
+
+    #[test]
+    fn replays_durable_commit_if_home_write_fails() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(journal.commit(&mut failing, &[update(0xA5)]), Err(Error::Io(_))));
+        let mut device = failing.into_inner();
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+        let reopened = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+    }
+
+    #[test]
+    fn ignores_uncommitted_transaction_after_commit_write_failure() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut failing = FailAt::new(device.clone(), 4);
+        assert!(matches!(journal.commit(&mut failing, &[update(0xA5)]), Err(Error::Io(_))));
+        let mut device = failing.into_inner();
+        let reopened = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+    }
+
+    #[test]
+    fn rejects_journal_targets_and_ring_exhaustion() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let bad = RedoUpdate { target_block: REGION.ring_start, contents: vec![0; BS as usize] };
+        assert!(matches!(journal.commit(&mut device, &[bad]), Err(Error::InvalidInput(_))));
+        assert!(matches!(journal.commit(&mut device, &[update(1); 4]), Err(Error::InvalidInput(_))));
+    }
+}
