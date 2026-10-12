@@ -1165,8 +1165,8 @@ mod tests {
                 );
 
                 for block in 0..total_blocks {
-                    let should_be_reserved = block < layout.data_start
-                        || block == layout.backup_superblock;
+                    let should_be_reserved =
+                        block < layout.data_start || block == layout.backup_superblock;
                     assert_eq!(
                         layout.is_reserved(block),
                         should_be_reserved,
