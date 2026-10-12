@@ -984,10 +984,7 @@ mod allocation_bitmap_report_tests {
                 );
                 assert_eq!(
                     volume
-                        .find_best_fit_free_extent(
-                            &mut device,
-                            volume.volume.layout.data_blocks(),
-                        )
+                        .find_best_fit_free_extent(&mut device, volume.volume.layout.data_blocks(),)
                         .unwrap(),
                     None,
                     "best-fit must report no suitable extent for block_size={block_size}"
