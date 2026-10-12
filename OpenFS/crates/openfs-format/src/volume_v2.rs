@@ -514,6 +514,46 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_reserved_bitmap_corruption_replayed_from_journal() {
+        let path = image_path("reserved-bitmap-replay");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let bitmap_block = volume.volume.layout.bitmap_start;
+            let mut bitmap = vec![0_u8; device.block_size() as usize];
+            device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+            bitmap[0] &= !1; // Mark primary-superblock block zero as free.
+
+            let mut failing = FailWriteAt {
+                inner: device,
+                write_index: 0,
+                fail_at: 4, // Fail after the commit record is durable, at the home write.
+            };
+            let mut volume = volume;
+            assert!(matches!(
+                volume.journal.commit(
+                    &mut failing,
+                    &[crate::RedoUpdate {
+                        target_block: bitmap_block,
+                        contents: bitmap,
+                    }],
+                ),
+                Err(Error::Io(_))
+            ));
+            device = failing.inner;
+            drop(volume);
+
+            assert!(matches!(
+                open_volume_v2(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
         let path = image_path("free-recovery");
         let first;
