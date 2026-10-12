@@ -1299,30 +1299,33 @@ mod tests {
 
     #[test]
     fn v2_minimum_volume_exhausts_and_reuses_only_data_blocks() {
-        let path = image_path("minimum-volume-exhaustion");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 12).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
-            let layout = volume.volume.layout;
-            assert_eq!(layout.data_blocks(), 3);
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("minimum-volume-exhaustion-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let layout = volume.volume.layout;
+                assert_eq!(layout.data_blocks(), 3);
 
-            let allocated: Vec<_> = (0..layout.data_blocks())
-                .map(|_| volume.allocate_block(&mut device).unwrap())
-                .collect();
-            assert_eq!(allocated, vec![8, 9, 10]);
-            assert!(matches!(
-                volume.allocate_block(&mut device),
-                Err(Error::InvalidInput("volume has no free data blocks"))
-            ));
+                let allocated: Vec<_> = (0..layout.data_blocks())
+                    .map(|_| volume.allocate_block(&mut device).unwrap())
+                    .collect();
+                assert_eq!(allocated, vec![8, 9, 10]);
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
 
-            volume.free_block(&mut device, allocated[1]).unwrap();
-            assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated[1]);
-            assert!(matches!(
-                volume.allocate_block(&mut device),
-                Err(Error::InvalidInput("volume has no free data blocks"))
-            ));
+                volume.free_block(&mut device, allocated[1]).unwrap();
+                assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated[1]);
+                assert!(matches!(
+                    volume.allocate_block(&mut device),
+                    Err(Error::InvalidInput("volume has no free data blocks"))
+                ));
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
