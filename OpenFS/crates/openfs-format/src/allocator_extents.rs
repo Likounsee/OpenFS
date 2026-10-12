@@ -914,43 +914,74 @@ impl OpenedVolumeV2 {
             return Err(Error::Corrupt("metadata references a non-data block"));
         }
 
+        // Merge the sorted ownership inventory with allocated bitmap bits. Iterating only set
+        // bits avoids a per-data-block scan on mostly empty volumes while preserving ascending,
+        // deterministic diagnostics.
         let bits_per_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut owner_index = 0_usize;
         let mut report = AllocationOwnershipReport::default();
         for bitmap_index in first_bitmap..=last_bitmap {
-            let base = bitmap_index * bits_per_block;
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
-            let end = layout
-                .backup_superblock
-                .min(base.saturating_add(bits_per_block));
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-            for block in start..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                let allocated = bitmap[byte] & (1_u8 << (local % 8)) != 0;
-                if owner_index < owned.len() && owned[owner_index] < block {
-                    return Err(Error::Corrupt(
-                        "ownership map contains an unscanned data block",
-                    ));
-                }
-                let referenced = owner_index < owned.len() && owned[owner_index] == block;
-                if allocated && !referenced {
-                    report.record_orphan(block)?;
-                } else if referenced && !allocated {
-                    report.record_dangling_reference(block)?;
-                }
-                if referenced {
-                    owner_index += 1;
+            let first_byte =
+                usize::try_from((start - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                end.checked_sub(base)
+                    .and_then(|value| value.checked_add(7))
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+                let byte_base = base
+                    .checked_add(
+                        u64::try_from(byte_index)
+                            .map_err(|_| Error::ArithmeticOverflow)?
+                            .checked_mul(8)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    )
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid = start.saturating_sub(byte_base).min(8);
+                let end_valid = end.saturating_sub(byte_base).min(8);
+                let lower_mask = u8::MAX << first_valid;
+                let upper_mask = if end_valid == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << end_valid) - 1
+                };
+                let mut allocated_bits = *byte & lower_mask & upper_mask;
+                while allocated_bits != 0 {
+                    let bit = u64::from(allocated_bits.trailing_zeros());
+                    let block = byte_base
+                        .checked_add(bit)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    while owner_index < owned.len() && owned[owner_index] < block {
+                        report.record_dangling_reference(owned[owner_index])?;
+                        owner_index += 1;
+                    }
+                    if owner_index < owned.len() && owned[owner_index] == block {
+                        owner_index += 1;
+                    } else {
+                        report.record_orphan(block)?;
+                    }
+                    allocated_bits &= allocated_bits - 1;
                 }
             }
         }
-        if owner_index != owned.len() {
-            return Err(Error::Corrupt(
-                "ownership map contains an unscanned data block",
-            ));
+        while owner_index < owned.len() {
+            report.record_dangling_reference(owned[owner_index])?;
+            owner_index += 1;
         }
         Ok(report)
     }
