@@ -452,10 +452,7 @@ mod tests {
                     layout.journal.ring_start + layout.journal.ring_blocks
                 );
                 assert!(layout.data_start < layout.backup_superblock);
-                assert_eq!(
-                    layout.data_blocks(),
-                    total_blocks - layout.data_start - 1
-                );
+                assert_eq!(layout.data_blocks(), total_blocks - layout.data_start - 1);
                 assert_eq!(layout.backup_superblock, total_blocks - 1);
             }
         }
