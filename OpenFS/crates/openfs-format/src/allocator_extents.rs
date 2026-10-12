@@ -239,6 +239,10 @@ impl OpenedVolumeV2 {
     }
 
     /// Check reserved and padding bits in the allocation bitmap without repairing it.
+    ///
+    /// The scan is byte-oriented: it verifies only bits outside the usable data region,
+    /// instead of iterating over every individual block. The running time is therefore
+    /// proportional to bitmap bytes, including for large volumes.
     pub fn validate_allocation_bitmap<D: BlockDevice>(&self, device: &mut D) -> Result<()> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
@@ -247,26 +251,38 @@ impl OpenedVolumeV2 {
             let base = index
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
+            let end = base
+                .checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let data_start = layout.data_start.max(base);
+            let data_end = layout.backup_superblock.min(end);
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
-            for local in 0..bits_per_block {
-                let block = base.checked_add(local).ok_or(Error::ArithmeticOverflow)?;
-                let reserved = block == 0
-                    || (block >= layout.bitmap_start
-                        && block < layout.bitmap_start + layout.bitmap_blocks)
-                    || block == layout.journal.checkpoint_a
-                    || block == layout.journal.checkpoint_b
-                    || (block >= layout.journal.ring_start
-                        && block - layout.journal.ring_start < layout.journal.ring_blocks)
-                    || block == layout.backup_superblock
-                    || block >= layout.total_blocks;
-                if reserved {
-                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                    if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                        return Err(Error::Corrupt(
-                            "v2 bitmap marks a reserved or padding block free",
-                        ));
+
+            // Every bit outside [data_start, data_end) must be set. Build the
+            // required mask byte-by-byte, so valid data bits are not constrained.
+            let first_data_bit = data_start - base;
+            let end_data_bit = data_end - base;
+            let first_data_byte = usize::try_from(first_data_bit / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_data_byte = usize::try_from(end_data_bit.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, byte) in bitmap.iter().enumerate() {
+                let mut data_mask = 0_u8;
+                if byte_index >= first_data_byte && byte_index < end_data_byte {
+                    data_mask = u8::MAX;
+                    if byte_index == first_data_byte {
+                        data_mask &= u8::MAX << (first_data_bit % 8);
                     }
+                    if byte_index + 1 == end_data_byte && end_data_bit % 8 != 0 {
+                        data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
+                    }
+                }
+                let required_reserved_mask = !data_mask;
+                if byte & required_reserved_mask != required_reserved_mask {
+                    return Err(Error::Corrupt(
+                        "v2 bitmap marks a reserved or padding block free",
+                    ));
                 }
             }
         }
