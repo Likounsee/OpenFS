@@ -8,11 +8,11 @@ Percentages are planning estimates against acceptance criteria, not feature coun
 
 ## Current snapshot
 
-HEAD reviewed: `ad9f6e61253ab2b2648de8f8285b2e37a77fed65`.
+HEAD reviewed: `22f16555aa31f76328f942bc983bab44cdc442a8` (2026-10-12).
 
 | Workstream | Estimate | Evidence / limitation |
 | --- | ---: | --- |
-| P0 — engineering foundation and format safety | 70% | Rust workspace, CI, bounded block I/O, explicit parsing, CRC checks, mirrored volume metadata, failure injection, and image/reopen tests exist. Current HEAD's Linux and Windows CI both fail to compile a journal test because `original_sequence` is referenced in the wrong test scope. Fix this before treating later recovery work as validated. |
+| P0 — engineering foundation and format safety | 90% | Rust workspace, bounded block I/O, explicit parsing, CRC checks, mirrored volume metadata, failure injection, image/reopen tests, v1 superblock golden bytes, and volume geometry invariants exist. The previous `original_sequence` test-scope issue and subsequent journal test corrections are followed by green Linux and Windows CI on HEAD `22f1655`. Remaining P0 work is a final cross-module format/safety review and any gaps found there; CI success does not establish hardware durability. |
 | P1 — volume layout and allocation | 25% | Experimental V2 layout, reserved regions, bitmap validation, allocation/free, and disposable-file RawDevice coverage exist. Persistent namespace/file operations are not complete. |
 | P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. The latest tests do not currently compile; exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
 | P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, repair workflow, or parser fuzzing gate. |
@@ -21,7 +21,7 @@ HEAD reviewed: `ad9f6e61253ab2b2648de8f8285b2e37a77fed65`.
 | P6 — OS integration | 0% | No Windows mount adapter or Linux userspace/kernel integration; no ArchiaOS adapter. |
 | P7 — compatibility, hardening and release | 0% | No release-grade compatibility matrix or hardware acceptance suite. |
 
-The current weighted planning estimate is approximately **18%** (weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%). This is not a claim that OpenFS can already be used on a USB drive. It cannot yet.
+The current weighted planning estimate is approximately **20%** (weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%; phase estimates above are rounded planning estimates, not release readiness). This is not a claim that OpenFS can already be used on a USB drive. It cannot yet.
 
 ## Product definition and scope
 
@@ -49,9 +49,9 @@ OpenFS is a new filesystem format. Formatting a drive erases the selected target
 - [x] Explicit on-disk parsing, CRC checks, and malformed-input tests.
 - [x] Disposable image backend and refusal to overwrite by default.
 - [x] Experimental volume formatting/open/reopen tests.
-- [ ] Fix the current `original_sequence` test-scope compile error; require both OS CI jobs green on the exact branch HEAD.
-- [ ] Add golden on-disk fixtures and review field, checksum, reserved-byte, and versioning policy.
-- [ ] Make geometry and reserved-region constraints explicit and tested.
+- [x] Fix the `original_sequence` test-scope compile error and correct the torn-write test setup/assertions; Linux and Windows CI pass on HEAD `22f16555aa31f76328f942bc983bab44cdc442a8`.
+- [x] Add a v1 superblock golden-byte/checksum test and pin the volume layout's supported geometry, overflow, minimum-size and reserved-block invariants.
+- [ ] Complete a cross-module review of v1/v2 format boundaries, reserved regions and journal integration; the v1 layout still does not integrate the standalone journal.
 
 **Exit gate:** clean fmt, full workspace tests, and Clippy on Linux and Windows for the exact commit. No later milestone is called validated while this gate is red.
 
@@ -131,10 +131,10 @@ This milestone must not start destructive hardware testing until P0–P4 accepta
 
 ## Immediate execution order
 
-1. Fix the failing `original_sequence` test scope and get Linux + Windows CI green.
-2. Validate the torn-write tests' operation indices and recovery assertions; do not weaken assertions merely to make CI pass.
-3. Audit V2 journal/checkpoint geometry and expand the crash-cut matrix.
-4. Complete persistent namespace/file operations.
+1. Finish the P0 cross-module review of format boundaries and document any remaining invariants.
+2. Audit V2 journal/checkpoint geometry and expand the crash-cut matrix, including persisted-byte reopen at each failure point.
+3. Integrate journal durability with allocator/metadata updates only after recovery ordering is demonstrated.
+4. Complete persistent namespace/file operations and ownership validation.
 5. Build safe read-only USB discovery and refusal tests.
 6. Add the explicit destructive formatter only after safeguards and recovery pass.
 7. Integrate OS adapters and validate a dedicated physical USB drive.
