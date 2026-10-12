@@ -296,7 +296,10 @@ mod metadata;
 mod namespace;
 mod volume;
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
-pub use journal::{JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION};
+pub use journal::{
+    JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE,
+    JOURNAL_VERSION,
+};
 pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};

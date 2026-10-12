@@ -131,7 +131,9 @@ fn validate_record(record: &JournalRecord) -> Result<()> {
         return Err(Error::InvalidInput("journal transaction ID must be non-zero"));
     }
     if record.payload.len() > JOURNAL_MAX_PAYLOAD_SIZE {
-        return Err(Error::InvalidInput("journal payload exceeds the supported limit"));
+        return Err(Error::InvalidInput(
+            "journal payload exceeds the supported limit",
+        ));
     }
     if record.kind != JournalRecordKind::Update && !record.payload.is_empty() {
         return Err(Error::InvalidInput(
