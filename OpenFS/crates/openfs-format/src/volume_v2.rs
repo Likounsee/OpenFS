@@ -789,27 +789,32 @@ mod tests {
 
     #[test]
     fn v2_rejects_nonzero_reserved_superblock_bytes_with_valid_checksum() {
-        let path = image_path("superblock-reserved-byte");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+        for (label, offset) in [
+            ("superblock-reserved-header-byte", 48_usize),
+            ("superblock-reserved-tail-byte", 4092_usize),
+        ] {
+            let path = image_path(label);
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
 
-            for block in [0_u64, 255] {
-                let mut bytes = vec![0_u8; device.block_size() as usize];
-                device.read_blocks(block, &mut bytes).unwrap();
-                bytes[48] = 1;
-                let checksum = crate::crc32c(&bytes[..4088]);
-                bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
-                device.write_blocks(block, &bytes).unwrap();
+                for block in [0_u64, 255] {
+                    let mut bytes = vec![0_u8; device.block_size() as usize];
+                    device.read_blocks(block, &mut bytes).unwrap();
+                    bytes[offset] = 1;
+                    let checksum = crate::crc32c(&bytes[..4088]);
+                    bytes[4088..4092].copy_from_slice(&checksum.to_le_bytes());
+                    device.write_blocks(block, &bytes).unwrap();
+                }
+                device.flush().unwrap();
+
+                assert!(matches!(
+                    open_volume_v2(&mut device),
+                    Err(Error::Corrupt("reserved v2 superblock bytes must be zero"))
+                ));
             }
-            device.flush().unwrap();
-
-            assert!(matches!(
-                open_volume_v2(&mut device),
-                Err(Error::Corrupt("reserved v2 superblock bytes must be zero"))
-            ));
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
