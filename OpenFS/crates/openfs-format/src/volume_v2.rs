@@ -1266,18 +1266,21 @@ mod tests {
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let layout = VolumeLayoutV2::calculate(block_size, 12).unwrap();
-            let reserved_blocks = (0..layout.total_blocks)
+            let mut corruptions = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
+                .map(|block| ("reserved", block))
                 .collect::<Vec<_>>();
-            for reserved in reserved_blocks {
-                let path = image_path(&format!("reserved-replay-{block_size}-{reserved}"));
+            // Include the first padding bit in the same durable-replay matrix.
+            corruptions.push(("padding", layout.total_blocks));
+            for (kind, corrupted_block) in corruptions {
+                let path = image_path(&format!("{kind}-replay-{block_size}-{corrupted_block}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
                     let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
-                    let bitmap_block =
-                        volume.volume.layout.bitmap_start + reserved / bits_per_bitmap_block;
-                    let local = reserved % bits_per_bitmap_block;
+                    let bitmap_block = volume.volume.layout.bitmap_start
+                        + corrupted_block / bits_per_bitmap_block;
+                    let local = corrupted_block % bits_per_bitmap_block;
                     let mut bitmap = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(bitmap_block, &mut bitmap).unwrap();
                     bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
@@ -1308,7 +1311,7 @@ mod tests {
                                 "v2 bitmap marks a reserved or padding block free"
                             ))
                         ),
-                        "replay accepted reserved block {reserved} as free for block size {block_size}"
+                        "replay accepted {kind} bit {corrupted_block} as free for block size {block_size}"
                     );
                 }
                 fs::remove_file(path).unwrap();
