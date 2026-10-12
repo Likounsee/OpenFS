@@ -290,11 +290,13 @@ mod tests {
     }
 }
 
+mod checkpoint;
 mod directory_entry;
 mod journal;
 mod metadata;
 mod namespace;
 mod volume;
+pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use journal::{
     JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE, JOURNAL_MAX_PAYLOAD_SIZE,
