@@ -561,12 +561,27 @@ mod tests {
                 ));
 
                 let reopened = open_volume_v2(&mut device).unwrap();
-                assert_eq!(reopened.volume.layout.total_blocks, original_layout.total_blocks);
-                assert_eq!(reopened.volume.layout.block_size, original_layout.block_size);
-                assert_eq!(reopened.volume.layout.bitmap_start, original_layout.bitmap_start);
-                assert_eq!(reopened.volume.layout.bitmap_blocks, original_layout.bitmap_blocks);
+                assert_eq!(
+                    reopened.volume.layout.total_blocks,
+                    original_layout.total_blocks
+                );
+                assert_eq!(
+                    reopened.volume.layout.block_size,
+                    original_layout.block_size
+                );
+                assert_eq!(
+                    reopened.volume.layout.bitmap_start,
+                    original_layout.bitmap_start
+                );
+                assert_eq!(
+                    reopened.volume.layout.bitmap_blocks,
+                    original_layout.bitmap_blocks
+                );
                 assert_eq!(reopened.volume.layout.journal, original_layout.journal);
-                assert_eq!(reopened.volume.layout.data_start, original_layout.data_start);
+                assert_eq!(
+                    reopened.volume.layout.data_start,
+                    original_layout.data_start
+                );
                 assert_eq!(
                     reopened.volume.layout.backup_superblock,
                     original_layout.backup_superblock
