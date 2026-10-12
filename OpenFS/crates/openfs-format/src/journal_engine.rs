@@ -131,8 +131,13 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
     protected_blocks: &[u64],
 ) -> Result<PersistentJournal> {
     region.validate(device)?;
-    if protected_blocks.iter().any(|block| *block >= device.block_count()) {
-        return Err(Error::InvalidInput("protected journal target lies outside the device"));
+    if protected_blocks
+        .iter()
+        .any(|block| *block >= device.block_count())
+    {
+        return Err(Error::InvalidInput(
+            "protected journal target lies outside the device",
+        ));
     }
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
     validate_checkpoint_geometry(&checkpoint, region)?;

@@ -4,8 +4,7 @@
 //! redo ring before the data region, and journals allocator bitmap changes.
 
 use crate::{
-    crc32c, format_journal, JournalRegion, PersistentJournal, RedoUpdate,
-    SUPERBLOCK_SIZE,
+    crc32c, format_journal, JournalRegion, PersistentJournal, RedoUpdate, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
