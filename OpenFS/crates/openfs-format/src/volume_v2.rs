@@ -856,8 +856,7 @@ mod tests {
             let path = image_path(&format!("bitmap-read-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let initial_checkpoint = volume.journal.checkpoint();
 
                 let mut failing = FailReadAt {
@@ -865,7 +864,10 @@ mod tests {
                     read_index: 0,
                     fail_at: 0,
                 };
-                assert!(matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))));
+                assert!(matches!(
+                    volume.allocate_block(&mut failing),
+                    Err(Error::Io(_))
+                ));
                 assert_eq!(
                     volume.journal.checkpoint(),
                     initial_checkpoint,
