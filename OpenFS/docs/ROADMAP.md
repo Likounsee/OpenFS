@@ -100,13 +100,15 @@ A supported Windows PC must identify a removable device, show stable identity an
 
 **Exit gate:** crash-cut matrix passes on disposable images in Linux and Windows CI; recovery is repeatable and never silently accepts ambiguous/corrupt state. Physical hardware claims require separate hardware testing.
 
-### P3 — Read-only checker and hostile-input testing — IN PROGRESS (10%)
+### P3 — Read-only checker and hostile-input testing — IN PROGRESS (25%)
 
-- [x] Implement the first read-only checker pass for mirrored superblocks, canonical layout, bitmap reserved/padding invariants, and allocation totals (`check_volume_v2`). It deliberately does not replay the journal or validate journal records.
-- [ ] Extend the checker to validate journal checkpoint/ring records and later namespace ownership.
+- [x] Implement a read-only V2 checker for mirrored superblocks, canonical layout, bitmap reserved/padding invariants, and allocation totals (`check_volume_v2`).
+- [x] Validate checkpoint-copy fallback, checkpoint sequence invariants, journal record framing/order, and report pending records/committed transactions without replay or writes.
+- [x] Add `openfs check-image <path> <block-size>` for read-only V2 image inspection, including a regression proving image bytes remain unchanged.
+- [ ] Extend integrity checking to persistent object ownership and namespace relationships.
 - [ ] Add bounded fuzz targets for disk parsers, metadata, and directory/name parsing.
 - [ ] Keep repair separate from checking; repair must be explicit and must describe proposed changes before writing.
-- [ ] Add corrupt, truncated, oversized, and inconsistent image fixtures to CI.
+- [ ] Expand the corruption corpus and CI fixtures beyond current bitmap, superblock, checkpoint, and journal-framing regressions.
 
 **Exit gate:** checker detects known corruption without modifying the volume; fuzzing has documented budgets and regression fixtures for discovered bugs.
 
