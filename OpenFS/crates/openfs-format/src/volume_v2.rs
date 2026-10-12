@@ -2558,7 +2558,10 @@ mod tests {
             let orphan_report = volume
                 .extent_map_ownership_report(&mut device, &[(&first_map, 2)])
                 .unwrap();
-            assert_eq!(orphan_report.orphaned_allocations, vec![blocks[2], blocks[3]]);
+            assert_eq!(
+                orphan_report.orphaned_allocations,
+                vec![blocks[2], blocks[3]]
+            );
             assert!(orphan_report.dangling_references.is_empty());
             assert!(!orphan_report.is_consistent());
 
