@@ -64,7 +64,9 @@ pub struct MetadataRecord {
 /// not assume where the inventory is stored on a volume.
 pub fn decode_metadata_records(bytes: &[u8]) -> Result<Vec<MetadataRecord>> {
     if bytes.len() % METADATA_RECORD_SIZE != 0 {
-        return Err(Error::InvalidInput("metadata inventory is not record-aligned"));
+        return Err(Error::InvalidInput(
+            "metadata inventory is not record-aligned",
+        ));
     }
     bytes
         .chunks_exact(METADATA_RECORD_SIZE)
@@ -206,7 +208,10 @@ mod tests {
         second.parent_id = 1;
         let mut packed = first.encode().unwrap().to_vec();
         packed.extend_from_slice(&second.encode().unwrap());
-        assert_eq!(super::decode_metadata_records(&packed).unwrap(), vec![first, second]);
+        assert_eq!(
+            super::decode_metadata_records(&packed).unwrap(),
+            vec![first, second]
+        );
         packed.push(0);
         assert!(matches!(
             super::decode_metadata_records(&packed),
