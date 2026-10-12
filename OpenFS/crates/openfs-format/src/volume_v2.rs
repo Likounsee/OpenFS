@@ -780,6 +780,41 @@ mod tests {
         }
     }
 
+    struct FailReadAt<D> {
+        inner: D,
+        read_index: usize,
+        fail_at: usize,
+    }
+
+    impl<D: openfs_block::BlockDevice> openfs_block::BlockDevice for FailReadAt<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            let index = self.read_index;
+            self.read_index += 1;
+            if index == self.fail_at {
+                return Err(Error::Io(std::io::Error::other(
+                    "injected allocator bitmap-read failure",
+                )));
+            }
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            self.inner.flush()
+        }
+    }
+
     struct FailWriteAt<D> {
         inner: D,
         write_index: usize,
@@ -812,6 +847,68 @@ mod tests {
 
         fn flush(&mut self) -> openfs_core::Result<()> {
             self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn v2_bitmap_read_failures_do_not_mutate_allocator_state() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("bitmap-read-failure-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let initial_checkpoint = volume.journal.checkpoint();
+
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at: 0,
+                };
+                assert!(matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))));
+                assert_eq!(
+                    volume.journal.checkpoint(),
+                    initial_checkpoint,
+                    "failed bitmap read must not advance journal state (block size {block_size})"
+                );
+                let mut device = failing.inner;
+                drop(volume);
+
+                let mut volume = open_volume_v2(&mut device).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+                let checkpoint_after_allocate = volume.journal.checkpoint();
+
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at: 0,
+                };
+                assert!(matches!(
+                    volume.free_block(&mut failing, first),
+                    Err(Error::Io(_))
+                ));
+                assert_eq!(
+                    volume.journal.checkpoint(),
+                    checkpoint_after_allocate,
+                    "failed free bitmap read must not advance journal state (block size {block_size})"
+                );
+                let mut device = failing.inner;
+                drop(volume);
+
+                let mut volume = open_volume_v2(&mut device).unwrap();
+                assert_eq!(
+                    volume.allocate_block(&mut device).unwrap(),
+                    first + 1,
+                    "failed free must preserve the existing allocation (block size {block_size})"
+                );
+                volume.free_block(&mut device, first).unwrap();
+                assert_eq!(
+                    volume.allocate_block(&mut device).unwrap(),
+                    first,
+                    "block must be reusable after a later successful free (block size {block_size})"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
     }
 
