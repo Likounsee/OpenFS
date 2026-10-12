@@ -261,6 +261,89 @@ impl BlockDevice for ImageDevice {
     }
 }
 
+/// An explicitly opened existing device or volume, without create/truncate semantics.
+///
+/// The caller must supply the logical block size and count from a trusted source.
+/// This does not discover hardware geometry, lock a volume against other writers, or
+/// make formatting safe by itself. Never point it at a device containing data you
+/// need: writes are raw and can destroy partition tables or existing filesystems.
+/// Regular files are accepted only when their length exactly matches the declared geometry.
+pub struct RawDevice {
+    file: File,
+    block_size: u32,
+    block_count: u64,
+}
+
+impl RawDevice {
+    /// Open an existing path read/write without creating or truncating it.
+    ///
+    /// For regular files, the declared geometry must exactly match the current file
+    /// length. Device nodes may report no meaningful length, so their block count is
+    /// supplied explicitly by the caller.
+    pub fn open(
+        path: impl AsRef<Path>,
+        block_size: u32,
+        block_count: u64,
+    ) -> Result<Self> {
+        validate_block_size(block_size)?;
+        if block_count == 0 {
+            return Err(Error::InvalidInput("raw device must contain at least one block"));
+        }
+        let expected_length = u64::from(block_size)
+            .checked_mul(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let file = OpenOptions::new().read(true).write(true).open(path)?;
+        let metadata = file.metadata()?;
+        if metadata.is_file() && metadata.len() != expected_length {
+            return Err(Error::InvalidInput(
+                "regular-file length does not match declared raw-device geometry",
+            ));
+        }
+        Ok(Self { file, block_size, block_count })
+    }
+
+    fn validate_buffer(&self, first_block: u64, length: usize) -> Result<()> {
+        let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        if length == 0 || length % block_size != 0 {
+            return Err(Error::InvalidInput(
+                "buffer length must be a non-zero multiple of block size",
+            ));
+        }
+        let count = u64::try_from(length / block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        check_block_range(first_block, count, self.block_count)?;
+        Ok(())
+    }
+
+    fn byte_offset(&self, first_block: u64) -> Result<u64> {
+        first_block.checked_mul(u64::from(self.block_size)).ok_or(Error::ArithmeticOverflow)
+    }
+}
+
+impl BlockDevice for RawDevice {
+    fn block_size(&self) -> u32 { self.block_size }
+
+    fn block_count(&self) -> u64 { self.block_count }
+
+    fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
+        self.validate_buffer(first_block, output.len())?;
+        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file.read_exact(output)?;
+        Ok(())
+    }
+
+    fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
+        self.validate_buffer(first_block, input.len())?;
+        self.file.seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
+        self.file.write_all(input)?;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        self.file.sync_all()?;
+        Ok(())
+    }
+}
+
 fn validate_block_size(block_size: u32) -> Result<()> {
     if !(MIN_BLOCK_SIZE..=MAX_BLOCK_SIZE).contains(&block_size) || !block_size.is_power_of_two() {
         return Err(Error::InvalidInput(
