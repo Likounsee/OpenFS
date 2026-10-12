@@ -445,6 +445,29 @@ impl OpenedVolumeV2 {
         Ok(extents)
     }
 
+    /// Find the smallest free extent that can satisfy a requested contiguous allocation.
+    ///
+    /// Ties are resolved by choosing the lower starting block. The result is only a
+    /// placement hint: it does not reserve blocks, and callers must still allocate atomically.
+    pub fn find_best_fit_free_extent<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        count: u64,
+    ) -> Result<Option<FreeExtent>> {
+        validate_device(self, device)?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        if count == 0 || count > bits_per_block {
+            return Err(Error::InvalidInput(
+                "best-fit extent length must fit within one bitmap block",
+            ));
+        }
+        Ok(self
+            .free_extent_inventory(device)?
+            .into_iter()
+            .filter(|extent| extent.block_count >= count)
+            .min_by_key(|extent| (extent.block_count, extent.start_block)))
+    }
+
     /// Measure free-space fragmentation without modifying the volume.
     ///
     /// Extents are counted independently per bitmap segment because allocation transactions
@@ -942,6 +965,37 @@ mod allocation_bitmap_report_tests {
                     ],
                     "block_size={block_size}"
                 );
+                assert_eq!(
+                    volume.find_best_fit_free_extent(&mut device, 3).unwrap(),
+                    Some(FreeExtent {
+                        start_block: allocated[2],
+                        block_count: 3,
+                    }),
+                    "best-fit should choose the exact-sized hole for block_size={block_size}"
+                );
+                assert_eq!(
+                    volume.find_best_fit_free_extent(&mut device, 4).unwrap(),
+                    Some(FreeExtent {
+                        start_block: allocated[8] + 1,
+                        block_count: volume.volume.layout.backup_superblock
+                            - (allocated[8] + 1),
+                    }),
+                    "best-fit should choose the smallest extent that fits for block_size={block_size}"
+                );
+                assert_eq!(
+                    volume
+                        .find_best_fit_free_extent(
+                            &mut device,
+                            volume.volume.layout.data_blocks(),
+                        )
+                        .unwrap(),
+                    None,
+                    "best-fit must report no suitable extent for block_size={block_size}"
+                );
+                assert!(matches!(
+                    volume.find_best_fit_free_extent(&mut device, 0),
+                    Err(Error::InvalidInput(_))
+                ));
                 let fragmentation = volume.free_extent_stats(&mut device).unwrap();
                 assert_eq!(
                     fragmentation.free_extent_count,
@@ -1071,6 +1125,12 @@ mod allocation_bitmap_report_tests {
             ));
             assert!(matches!(
                 volume.free_extent_stats(&mut device),
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
+            ));
+            assert!(matches!(
+                volume.find_best_fit_free_extent(&mut device, 1),
                 Err(Error::Corrupt(
                     "v2 bitmap marks a reserved or padding block free"
                 ))
