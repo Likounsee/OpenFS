@@ -347,21 +347,52 @@ impl OpenedVolumeV2 {
             let end = layout
                 .backup_superblock
                 .min(base.saturating_add(bits_per_block));
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte = usize::try_from(first_local / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             let mut run_start = start;
             let mut run_len = 0_u64;
-            for block in start..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                    if run_len == 0 {
+            let mut previous_free = None;
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
+            {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                while free_bits != 0 {
+                    let bit = u64::from(free_bits.trailing_zeros());
+                    let block = base
+                        .checked_add(byte_start)
+                        .and_then(|value| value.checked_add(bit))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if previous_free.and_then(|previous: u64| previous.checked_add(1))
+                        == Some(block)
+                    {
+                        run_len = run_len.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                    } else {
                         run_start = block;
+                        run_len = 1;
                     }
-                    run_len += 1;
-                    if run_len == count {
+                    if run_len >= count {
                         return Ok(Some(run_start));
                     }
-                } else {
-                    run_len = 0;
+                    previous_free = Some(block);
+                    free_bits &= free_bits - 1;
                 }
             }
         }
@@ -485,39 +516,85 @@ impl OpenedVolumeV2 {
     /// extents are snapshots only; they are not reservations, and the current journal limits
     /// atomic allocation to a single bitmap segment.
     pub fn free_extent_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<FreeExtent>> {
-        let free = self.free_data_block_inventory(device)?;
-        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        validate_device(self, device)?;
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut extents = Vec::new();
-        let mut current: Option<FreeExtent> = None;
-        for block in free {
-            match current {
-                Some(mut extent)
-                    if extent.start_block.checked_add(extent.block_count) == Some(block)
-                        && extent.start_block / bits_per_block == block / bits_per_block =>
-                {
-                    extent.block_count = extent
-                        .block_count
-                        .checked_add(1)
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte = usize::try_from(first_local / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut current: Option<FreeExtent> = None;
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
+            {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                while free_bits != 0 {
+                    let bit = u64::from(free_bits.trailing_zeros());
+                    let block = base
+                        .checked_add(byte_start)
+                        .and_then(|value| value.checked_add(bit))
                         .ok_or(Error::ArithmeticOverflow)?;
-                    current = Some(extent);
-                }
-                Some(extent) => {
-                    extents.push(extent);
-                    current = Some(FreeExtent {
-                        start_block: block,
-                        block_count: 1,
-                    });
-                }
-                None => {
-                    current = Some(FreeExtent {
-                        start_block: block,
-                        block_count: 1,
-                    });
+                    match current {
+                        Some(mut extent)
+                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
+                        {
+                            extent.block_count = extent
+                                .block_count
+                                .checked_add(1)
+                                .ok_or(Error::ArithmeticOverflow)?;
+                            current = Some(extent);
+                        }
+                        Some(extent) => {
+                            extents.push(extent);
+                            current = Some(FreeExtent {
+                                start_block: block,
+                                block_count: 1,
+                            });
+                        }
+                        None => {
+                            current = Some(FreeExtent {
+                                start_block: block,
+                                block_count: 1,
+                            });
+                        }
+                    }
+                    free_bits &= free_bits - 1;
                 }
             }
-        }
-        if let Some(extent) = current {
-            extents.push(extent);
+            if let Some(extent) = current {
+                extents.push(extent);
+            }
         }
         Ok(extents)
     }
