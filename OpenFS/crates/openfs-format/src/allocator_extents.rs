@@ -567,7 +567,8 @@ impl OpenedVolumeV2 {
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
                         Some(mut extent)
-                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
+                            if extent.start_block.checked_add(extent.block_count)
+                                == Some(block) =>
                         {
                             extent.block_count = extent
                                 .block_count
@@ -1223,13 +1224,12 @@ mod allocation_bitmap_report_tests {
 
             let extents = volume.free_extent_inventory(&mut device).unwrap();
             assert!(extents.iter().all(|extent| extent.block_count > 0));
-            assert!(extents.windows(2).all(|pair| {
-                pair[0].start_block + pair[0].block_count <= pair[1].start_block
-            }));
+            assert!(extents
+                .windows(2)
+                .all(|pair| { pair[0].start_block + pair[0].block_count <= pair[1].start_block }));
             assert!(extents.iter().all(|extent| {
                 extent.start_block / (u64::from(4096_u32) * 8)
-                    == (extent.start_block + extent.block_count - 1)
-                        / (u64::from(4096_u32) * 8)
+                    == (extent.start_block + extent.block_count - 1) / (u64::from(4096_u32) * 8)
             }));
             assert_eq!(isolated, data_start + 3);
         }
