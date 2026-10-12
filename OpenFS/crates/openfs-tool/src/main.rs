@@ -131,7 +131,10 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
         "Journal checkpoint sequence: {}",
         report.journal_checkpoint_sequence
     );
-    println!("Pending journal records: {}", report.pending_journal_records);
+    println!(
+        "Pending journal records: {}",
+        report.pending_journal_records
+    );
     println!(
         "Recoverable committed transactions: {}",
         report.recoverable_transactions
