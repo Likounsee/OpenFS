@@ -290,9 +290,14 @@ mod tests {
         .unwrap();
         assert_eq!(map.extents().len(), 1);
         assert_eq!(map.extents()[0].block_count, 5);
-        assert!(matches!(map.push_coalescing(Extent {
-            logical_start: 4, physical_start: 80, block_count: 1
-        }), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            map.push_coalescing(Extent {
+                logical_start: 4,
+                physical_start: 80,
+                block_count: 1
+            }),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
@@ -309,7 +314,10 @@ mod tests {
         let checksum_offset = bytes.len() - 4;
         let checksum = crate::crc32c(&bytes[..checksum_offset]);
         bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
-        assert!(matches!(ExtentMap::decode_block(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let overlap = ExtentMap::new(vec![
             Extent {
