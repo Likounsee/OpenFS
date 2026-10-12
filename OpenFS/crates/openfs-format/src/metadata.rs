@@ -57,6 +57,21 @@ pub struct MetadataRecord {
     pub generation: u32,
 }
 
+/// Decode a packed inventory of fixed-width metadata records.
+///
+/// The input must end exactly on a record boundary. This helper validates each
+/// record's magic, version, reserved bytes, checksum, and semantic fields; it does
+/// not assume where the inventory is stored on a volume.
+pub fn decode_metadata_records(bytes: &[u8]) -> Result<Vec<MetadataRecord>> {
+    if bytes.len() % METADATA_RECORD_SIZE != 0 {
+        return Err(Error::InvalidInput("metadata inventory is not record-aligned"));
+    }
+    bytes
+        .chunks_exact(METADATA_RECORD_SIZE)
+        .map(MetadataRecord::decode)
+        .collect()
+}
+
 impl MetadataRecord {
     pub fn encode(&self) -> Result<[u8; METADATA_RECORD_SIZE]> {
         ObjectId::new(self.id.0)?;
@@ -181,6 +196,22 @@ mod tests {
             extent_root_block: Some(17),
             generation: 3,
         }
+    }
+
+    #[test]
+    fn decodes_packed_metadata_inventory_and_rejects_partial_records() {
+        let first = file();
+        let mut second = file();
+        second.id = ObjectId(43);
+        second.parent_id = 1;
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&second.encode().unwrap());
+        assert_eq!(super::decode_metadata_records(&packed).unwrap(), vec![first, second]);
+        packed.push(0);
+        assert!(matches!(
+            super::decode_metadata_records(&packed),
+            Err(Error::InvalidInput(_))
+        ));
     }
 
     #[test]
