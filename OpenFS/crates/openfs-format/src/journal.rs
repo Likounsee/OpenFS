@@ -285,7 +285,10 @@ mod tests {
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[14] = 1;
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
@@ -293,7 +296,10 @@ mod tests {
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[12..14].copy_from_slice(&99_u16.to_le_bytes());
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
 
         let mut bytes = sample(JournalRecordKind::Begin, b"").encode().unwrap();
         bytes[16..24].copy_from_slice(&0_u64.to_le_bytes());
@@ -340,6 +346,9 @@ mod tests {
         bytes[32..36].copy_from_slice(&1_u32.to_le_bytes());
         bytes.push(b'x');
         refresh_checksum(&mut bytes);
-        assert!(matches!(JournalRecord::decode(&bytes), Err(Error::InvalidInput(_))));
+        assert!(matches!(
+            JournalRecord::decode(&bytes),
+            Err(Error::InvalidInput(_))
+        ));
     }
 }
