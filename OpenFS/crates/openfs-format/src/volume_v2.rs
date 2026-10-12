@@ -2068,13 +2068,15 @@ mod tests {
             let path = image_path(&format!("batch-roundtrip-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let initial = volume.allocation_stats(&mut device).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
                 assert_eq!(blocks.len(), 4);
                 assert_eq!(
-                    volume.allocation_stats(&mut device).unwrap().free_data_blocks,
+                    volume
+                        .allocation_stats(&mut device)
+                        .unwrap()
+                        .free_data_blocks,
                     initial.free_data_blocks - 4
                 );
                 volume.free_blocks(&mut device, &blocks).unwrap();
