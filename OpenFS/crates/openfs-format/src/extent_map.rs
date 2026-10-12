@@ -572,22 +572,20 @@ mod tests {
             Err(Error::Corrupt(_))
         ));
 
-        let overlapping = ExtentMap::new(vec![
-            Extent {
-                logical_start: 0,
-                physical_start: 100,
-                block_count: 3,
-            },
-            Extent {
-                logical_start: 4,
-                physical_start: 102,
-                block_count: 2,
-            },
-        ])
-        .unwrap();
         assert!(matches!(
-            overlapping.validated_physical_block_inventory(6, 80, 300),
-            Err(Error::Corrupt(_))
+            ExtentMap::new(vec![
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 4,
+                    physical_start: 102,
+                    block_count: 2,
+                },
+            ]),
+            Err(Error::InvalidInput(_))
         ));
     }
 
