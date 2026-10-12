@@ -79,11 +79,7 @@ impl ExtentMap {
     ///
     /// The data start is inclusive and total_blocks is exclusive. This prevents extents
     /// from aliasing superblocks, journal/checkpoint blocks, or addresses past EOF.
-    pub fn validate_physical_bounds(
-        &self,
-        data_start_block: u64,
-        total_blocks: u64,
-    ) -> Result<()> {
+    pub fn validate_physical_bounds(&self, data_start_block: u64, total_blocks: u64) -> Result<()> {
         if data_start_block >= total_blocks {
             return Err(Error::InvalidInput("data region bounds are invalid"));
         }
