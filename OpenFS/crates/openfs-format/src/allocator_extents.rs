@@ -259,9 +259,10 @@ impl OpenedVolumeV2 {
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
-            let end = layout
-                .backup_superblock
-                .min(base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             for block in start..end {
