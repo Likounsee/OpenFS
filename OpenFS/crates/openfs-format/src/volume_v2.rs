@@ -414,6 +414,35 @@ mod tests {
     }
 
     #[test]
+    fn v2_allocator_rejects_double_free_and_out_of_range_blocks() {
+        let path = image_path("invalid-free");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let allocated = volume.allocate_block(&mut device).unwrap();
+
+            volume.free_block(&mut device, allocated).unwrap();
+            assert!(matches!(
+                volume.free_block(&mut device, allocated),
+                Err(Error::InvalidInput("data block is already free"))
+            ));
+            assert!(matches!(
+                volume.free_block(&mut device, volume.volume.layout.backup_superblock),
+                Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+            ));
+            assert!(matches!(
+                volume.free_block(&mut device, u64::MAX),
+                Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+            ));
+
+            // Invalid free attempts must not damage the journal or bitmap.
+            let reopened = open_volume_v2(&mut device).unwrap();
+            assert_eq!(reopened.journal.checkpoint().checkpoint_sequence, 8);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
     }
