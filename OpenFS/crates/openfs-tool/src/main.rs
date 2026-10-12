@@ -132,7 +132,6 @@ fn print_usage() {
     eprintln!("create-image refuses to overwrite an existing file.");
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{create_image, inspect_image, BLOCK_SIZE};
