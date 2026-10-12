@@ -74,7 +74,7 @@ impl Namespace {
                 .lookup(current, component)
                 .ok_or(Error::InvalidInput("path component does not exist"))?;
             let next = ObjectId::new(entry.object_id)?;
-            if next != self.root_id && self.objects.get(&next).is_none() {
+            if next != self.root_id && !self.objects.contains_key(&next) {
                 return Err(Error::Corrupt("directory entry points to a missing object"));
             }
             current = next;
