@@ -1953,7 +1953,10 @@ mod tests {
             ));
             assert_eq!(volume.journal.checkpoint(), before);
             let first = volume.volume.layout.data_start;
-            assert_eq!(volume.allocate_contiguous_blocks(&mut device, 3).unwrap(), first);
+            assert_eq!(
+                volume.allocate_contiguous_blocks(&mut device, 3).unwrap(),
+                first
+            );
             assert_eq!(
                 volume.find_contiguous_free_blocks(&mut device, 3).unwrap(),
                 Some(first + 3)
