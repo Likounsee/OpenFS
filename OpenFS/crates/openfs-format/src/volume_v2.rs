@@ -725,7 +725,8 @@ mod tests {
             let path = image_path(&format!("block-size-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 32).unwrap();
-                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 assert_eq!(second, first + 1);
