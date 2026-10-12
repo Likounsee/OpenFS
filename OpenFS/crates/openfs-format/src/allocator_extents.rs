@@ -970,7 +970,9 @@ impl OpenedVolumeV2 {
                 while orphaned != 0 {
                     let bit = u64::from(orphaned.trailing_zeros());
                     report.record_orphan(
-                        byte_base.checked_add(bit).ok_or(Error::ArithmeticOverflow)?,
+                        byte_base
+                            .checked_add(bit)
+                            .ok_or(Error::ArithmeticOverflow)?,
                     )?;
                     orphaned &= orphaned - 1;
                 }
