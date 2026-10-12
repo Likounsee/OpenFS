@@ -306,7 +306,7 @@ mod namespace;
 mod volume;
 mod volume_v2;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
-pub use directory_entry::{DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
+pub use directory_entry::{decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES};
 pub use extent_map::{Extent, ExtentMap};
 pub use journal::{
     plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
@@ -315,7 +315,7 @@ pub use journal::{
 pub use journal_engine::{
     format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
 };
-pub use metadata::{MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
+pub use metadata::{decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE};
 pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
 pub use volume_v2::{
