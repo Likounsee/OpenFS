@@ -499,8 +499,7 @@ impl OpenedVolumeV2 {
                 "best-fit extent crosses an allocation bitmap segment",
             ));
         }
-        let bitmap_block =
-            self.volume.layout.bitmap_start + extent.start_block / bits_per_block;
+        let bitmap_block = self.volume.layout.bitmap_start + extent.start_block / bits_per_block;
         let base = (extent.start_block / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
@@ -508,9 +507,7 @@ impl OpenedVolumeV2 {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                return Err(Error::Corrupt(
-                    "best-fit extent changed during allocation",
-                ));
+                return Err(Error::Corrupt("best-fit extent changed during allocation"));
             }
         }
         for block in extent.start_block..end {
