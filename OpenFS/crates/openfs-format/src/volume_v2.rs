@@ -132,8 +132,8 @@ impl OpenedVolumeV2 {
                 .min(self.volume.layout.backup_superblock);
             let local_start = first_block - bitmap_base;
             let local_end = end_block - bitmap_base;
-            let first_byte = usize::try_from(local_start / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
             for byte_index in first_byte..end_byte {
@@ -225,7 +225,9 @@ impl OpenedVolumeV2 {
                     valid_mask &= (1_u8 << (local_end % 8)) - 1;
                 }
                 let free_bits = (!bitmap[byte_index] & valid_mask).count_ones() as u64;
-                free = free.checked_add(free_bits).ok_or(Error::ArithmeticOverflow)?;
+                free = free
+                    .checked_add(free_bits)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
         }
         Ok(free)
