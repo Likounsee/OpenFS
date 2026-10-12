@@ -302,6 +302,31 @@ impl OpenedVolumeV2 {
         Ok(allocated)
     }
 
+    /// Validate physical ownership from a caller-discovered set of extent maps against the bitmap.
+    ///
+    /// Each tuple contains an extent map and the owning file's logical block count. Every map
+    /// is checked for logical bounds, physical data-region bounds, and internal physical overlap.
+    /// Blocks are then combined and compared with the allocation bitmap, detecting cross-file
+    /// aliasing, dangling references, and allocated blocks with no discovered owner. This does
+    /// not discover or decode persistent metadata; callers must supply every live file map.
+    pub fn validate_extent_map_ownership<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        extent_maps: &[(&crate::ExtentMap, u64)],
+    ) -> Result<()> {
+        validate_device(self, device)?;
+        let layout = self.volume.layout;
+        let mut owned = Vec::new();
+        for (map, logical_blocks) in extent_maps {
+            owned.extend(map.validated_physical_block_inventory(
+                *logical_blocks,
+                layout.data_start,
+                layout.backup_superblock,
+            )?);
+        }
+        self.validate_allocation_ownership(device, &owned)
+    }
+
     /// Verify that the allocation bitmap exactly matches the caller's discovered ownership map.
     ///
     /// owned_data_blocks must contain every data block referenced by persistent metadata,
