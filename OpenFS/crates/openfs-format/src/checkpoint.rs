@@ -216,7 +216,10 @@ mod tests {
 
         let mut bytes = sample().encode().unwrap();
         bytes[24] ^= 1;
-        assert!(matches!(JournalCheckpoint::decode(&bytes), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
