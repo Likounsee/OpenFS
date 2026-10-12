@@ -446,6 +446,68 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
+    struct FailWriteAt<D> {
+        inner: D,
+        write_index: usize,
+        fail_at: usize,
+    }
+
+    impl<D: openfs_block::BlockDevice> openfs_block::BlockDevice for FailWriteAt<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            let index = self.write_index;
+            self.write_index += 1;
+            if index == self.fail_at {
+                return Err(Error::Io(std::io::Error::other("injected allocator home-write failure")));
+            }
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn v2_allocation_recovers_after_durable_commit_and_home_write_failure() {
+        let path = image_path("allocation-recovery");
+        let first;
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            first = volume.volume.layout.data_start;
+            let mut failing = FailWriteAt {
+                inner: device,
+                write_index: 0,
+                fail_at: 4,
+            };
+            let mut volume = volume;
+            assert!(matches!(
+                volume.allocate_block(&mut failing),
+                Err(Error::Io(_))
+            ));
+            device = failing.inner;
+            drop(volume);
+
+            let mut recovered = open_volume_v2(&mut device).unwrap();
+            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
+            recovered.free_block(&mut device, first).unwrap();
+            assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn v2_layout_rejects_too_small_volumes() {
         assert!(VolumeLayoutV2::calculate(4096, 11).is_err());
