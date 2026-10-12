@@ -15,6 +15,23 @@ pub struct AllocationStats {
     pub free_data_blocks: u64,
 }
 
+/// Detailed result of comparing persistent block ownership with the allocation bitmap.
+///
+/// Orphaned blocks are marked allocated but absent from the supplied ownership inventory.
+/// Dangling references are present in the inventory but marked free in the bitmap.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AllocationOwnershipReport {
+    pub orphaned_allocations: Vec<u64>,
+    pub dangling_references: Vec<u64>,
+}
+
+impl AllocationOwnershipReport {
+    /// Return true when every allocated data block has exactly one supplied owner.
+    pub fn is_consistent(&self) -> bool {
+        self.orphaned_allocations.is_empty() && self.dangling_references.is_empty()
+    }
+}
+
 impl OpenedVolumeV2 {
     /// Return total, allocated, and free data-block counts from the current bitmap.
     pub fn allocation_stats<D: BlockDevice>(&self, device: &mut D) -> Result<AllocationStats> {
@@ -302,18 +319,18 @@ impl OpenedVolumeV2 {
         Ok(allocated)
     }
 
-    /// Validate physical ownership from a caller-discovered set of extent maps against the bitmap.
+    /// Return detailed bitmap/ownership mismatches for a caller-discovered set of extent maps.
     ///
     /// Each tuple contains an extent map and the owning file's logical block count. Every map
     /// is checked for logical bounds, physical data-region bounds, and internal physical overlap.
-    /// Blocks are then combined and compared with the allocation bitmap, detecting cross-file
-    /// aliasing, dangling references, and allocated blocks with no discovered owner. This does
-    /// not discover or decode persistent metadata; callers must supply every live file map.
-    pub fn validate_extent_map_ownership<D: BlockDevice>(
+    /// The combined inventory is compared with the bitmap. Duplicate owners and invalid block
+    /// addresses are rejected; ordinary orphan/dangling mismatches are returned for diagnostics.
+    /// This does not discover or decode persistent metadata; callers must supply every live map.
+    pub fn extent_map_ownership_report<D: BlockDevice>(
         &self,
         device: &mut D,
         extent_maps: &[(&crate::ExtentMap, u64)],
-    ) -> Result<()> {
+    ) -> Result<AllocationOwnershipReport> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
         let mut owned = Vec::new();
@@ -324,20 +341,38 @@ impl OpenedVolumeV2 {
                 layout.backup_superblock,
             )?);
         }
-        self.validate_allocation_ownership(device, &owned)
+        self.allocation_ownership_report(device, &owned)
     }
 
-    /// Verify that the allocation bitmap exactly matches the caller's discovered ownership map.
+    /// Validate physical ownership from a caller-discovered set of extent maps against the bitmap.
     ///
-    /// owned_data_blocks must contain every data block referenced by persistent metadata,
-    /// with each block listed once. This detects both orphaned allocations (bitmap set but no
-    /// owner) and dangling ownership references (owner points to a free block). It does not
-    /// discover metadata itself; the persistent namespace scanner must supply that inventory.
-    pub fn validate_allocation_ownership<D: BlockDevice>(
+    /// Returns corruption when any allocated block lacks an owner or any owner references a free
+    /// block. Use extent_map_ownership_report when diagnostics should list the mismatched blocks.
+    pub fn validate_extent_map_ownership<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        extent_maps: &[(&crate::ExtentMap, u64)],
+    ) -> Result<()> {
+        let report = self.extent_map_ownership_report(device, extent_maps)?;
+        if report.is_consistent() {
+            Ok(())
+        } else {
+            Err(Error::Corrupt(
+                "allocation bitmap and extent-map ownership disagree",
+            ))
+        }
+    }
+
+    /// Return orphaned allocations and dangling ownership references for diagnostics.
+    ///
+    /// owned_data_blocks must list each discovered owner block exactly once. Duplicate
+    /// entries and addresses outside the allocatable data region are malformed ownership input
+    /// and return an error. Bitmap reserved/padding corruption is also rejected.
+    pub fn allocation_ownership_report<D: BlockDevice>(
         &self,
         device: &mut D,
         owned_data_blocks: &[u64],
-    ) -> Result<()> {
+    ) -> Result<AllocationOwnershipReport> {
         validate_device(self, device)?;
         self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
@@ -359,6 +394,7 @@ impl OpenedVolumeV2 {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut owner_index = 0_usize;
+        let mut report = AllocationOwnershipReport::default();
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index * bits_per_block;
             let start = layout.data_start.max(base);
@@ -377,10 +413,10 @@ impl OpenedVolumeV2 {
                     ));
                 }
                 let referenced = owner_index < owned.len() && owned[owner_index] == block;
-                if allocated != referenced {
-                    return Err(Error::Corrupt(
-                        "allocation bitmap and persistent block ownership disagree",
-                    ));
+                if allocated && !referenced {
+                    report.orphaned_allocations.push(block);
+                } else if referenced && !allocated {
+                    report.dangling_references.push(block);
                 }
                 if referenced {
                     owner_index += 1;
@@ -392,7 +428,25 @@ impl OpenedVolumeV2 {
                 "ownership map contains an unscanned data block",
             ));
         }
-        Ok(())
+        Ok(report)
+    }
+
+    /// Verify that the allocation bitmap exactly matches the caller's discovered ownership map.
+    ///
+    /// This convenience API fails when the detailed ownership report contains any mismatch.
+    pub fn validate_allocation_ownership<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        owned_data_blocks: &[u64],
+    ) -> Result<()> {
+        let report = self.allocation_ownership_report(device, owned_data_blocks)?;
+        if report.is_consistent() {
+            Ok(())
+        } else {
+            Err(Error::Corrupt(
+                "allocation bitmap and persistent block ownership disagree",
+            ))
+        }
     }
     /// Check reserved and padding bits in the allocation bitmap without repairing it.
     ///
