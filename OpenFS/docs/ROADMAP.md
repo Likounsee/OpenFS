@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-12  
 Authoritative branch: `OpenFS`  
-Planning baseline: `48e41393992d9b7bc3ad85e3afc374d5e1226dfc`  
+Planning baseline: `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`  
 Primary product goal: a user can safely format a standard USB flash drive as OpenFS, then create, read, write, rename, and delete files through a supported operating system.
 
 OpenFS defines its own filesystem format. It is **not** an NTFS implementation and must not claim NTFS compatibility. Formatting a device is destructive. Image-backed tests do not establish physical-device durability or safe USB handling.
@@ -15,7 +15,8 @@ The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, 
 
 ## Current snapshot
 
-- Current branch head at review: `48e41393992d9b7bc3ad85e3afc374d5e1226dfc`.
+- Current branch head at review: `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`.
+- GitHub Actions run [38236874023](https://github.com/Likounsee/OpenFS/actions/runs/38236874023) passed for this exact commit on Linux and Windows, including formatting, workspace tests, and Clippy.
 - GitHub Actions for that commit report Linux and Windows jobs successful for formatting, workspace tests, and Clippy.
 - Recent regressions cover allocator exhaustion/reuse, bitmap segment boundaries, layout tampering, reserved/padding bitmap corruption, device-geometry mismatches, allocator failure recovery, V2 superblock validation, and golden-byte/CRC32C fixtures.
 - The V2 layout specification documents geometry formulas, minimum layout, reserved bitmap bits, and disjoint regions.
@@ -23,12 +24,12 @@ The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, 
 - Metadata codecs, directory-entry primitives, and an in-memory namespace exist, but a complete durable file/namespace workflow does not.
 - No accepted read-only volume checker, parser fuzzing gate, safe physical-device discovery/formatter, or OS mount adapter is present in the current roadmap scope.
 
-The current weighted planning estimate is **20%**. This is a roadmap estimate, not a claim that OpenFS is ready to use on a USB drive. It is not yet a complete end-user filesystem.
+The weighted planning estimate is **28%** (10% P0 + 10.5% P1 + 6% P2 + 1% P4 + 0.5% P5). This is a roadmap estimate, not a claim that OpenFS is ready to use on a USB drive. It is not yet a complete end-user filesystem.
 
 | Workstream | Estimate | Evidence and remaining limitation |
 | --- | ---: | --- |
 | P0 — engineering foundation and format safety | 100% | Baseline gate documented as passed: Linux/Windows formatting, workspace tests, and Clippy on the recorded code commit. This is not physical-device or production validation. |
-| P1 — volume layout and allocation | 60% | V2 layout, bitmap bounds, reserved-region checks, allocation/free, exhaustion/reuse, reopen persistence, malformed-superblock checks, geometry validation, and failure/recovery regressions exist. Ownership validation for persistent objects and broader corruption coverage remain. |
+| P1 — volume layout and allocation | 70% | V2 layout, bitmap bounds, reserved-region checks, allocation/free, exhaustion/reuse, reopen persistence, malformed-superblock checks, geometry validation, and failure/recovery regressions exist. Ownership validation for persistent objects and broader corruption coverage remain. |
 | P2 — journal and crash recovery | 30% | Journal encoding, commit/replay/checkpoint paths, and selected torn-write/failure tests exist. Exhaustive crash-cut and flush-order guarantees are not established. |
 | P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, explicit repair workflow, or parser fuzzing CI gate. |
 | P4 — persistent files and directories | 5% | Some metadata and namespace primitives exist; complete durable create/read/write/rename/delete is missing. |
@@ -67,7 +68,7 @@ A supported Windows PC must identify a removable device, show stable identity an
 
 **Exit gate:** baseline formatting, workspace tests, and Clippy passed on Linux and Windows on the recorded baseline commit. P0 completion means the engineering baseline is trustworthy enough to continue; it does **not** establish production readiness, general transaction safety, or physical USB durability. Reopen P0 if a concrete integrity/security defect is discovered.
 
-### P1 — Dependable volume layout and allocator — IN PROGRESS (60%)
+### P1 — Dependable volume layout and allocator — IN PROGRESS (70%)
 
 - [x] Specify V2 layout, primary/mirror metadata, bitmap, journal, reserved regions, alignment, limits, and version compatibility.
 - [x] Test allocation/free, exhaustion, reserved-block rejection, double-free behavior, reopen persistence, and reuse.
@@ -75,7 +76,8 @@ A supported Windows PC must identify a removable device, show stable identity an
 - [x] Validate superblock checksums, reserved bytes, supported versions, block geometry, and mismatched device geometry.
 - [x] Cover selected allocator failures and repeated recovery.
 - [ ] Verify every allocated block has exactly one valid owner once persistent objects exist.
-- [ ] Expand corruption coverage and verify format/open/allocate/free/reopen across all supported block sizes in CI.
+- [ ] Expand corruption coverage across additional malformed bitmap/layout cases.
+- [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed).
 
 **Exit gate:** deterministic format/open/allocate/free/reopen tests, stable golden fixtures, malformed-layout rejection, and explicit ownership invariants when persistent objects are implemented.
 
