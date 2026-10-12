@@ -825,6 +825,48 @@ mod tests {
     }
 
     #[test]
+    fn namespace_remains_valid_across_insert_move_resize_and_remove() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "folder", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        assert!(ns.validate().is_ok());
+
+        ns.insert(
+            entry(2, 3, "inside.bin", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+        assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/folder/inside.bin");
+        assert!(ns.validate().is_ok());
+
+        ns.rename(ObjectId(3), ObjectId(1), "outside.bin").unwrap();
+        assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/outside.bin");
+        assert!(ns.validate().is_ok());
+
+        assert!(matches!(
+            ns.rename(ObjectId(2), ObjectId(2), "cycle"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert_eq!(ns.path_of(ObjectId(2)).unwrap(), "/folder");
+        assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/outside.bin");
+        assert!(ns.validate().is_ok());
+
+        ns.set_file_layout(ObjectId(3), 8192, Some(77)).unwrap();
+        assert!(ns.validate().is_ok());
+        let removed = ns.remove(ObjectId(3)).unwrap();
+        assert_eq!(removed.size, 8192);
+        assert!(ns.validate().is_ok());
+
+        ns.remove(ObjectId(2)).unwrap();
+        assert_eq!(ns.object_count(), 1);
+        assert_eq!(ns.entry_count(), 0);
+        assert!(ns.validate().is_ok());
+    }
+
+    #[test]
     fn names_are_case_sensitive_and_children_are_sorted() {
         let mut ns = Namespace::new(ObjectId(1)).unwrap();
         for (id, name) in [(2, "zeta"), (3, "Alpha"), (4, "alpha")] {
