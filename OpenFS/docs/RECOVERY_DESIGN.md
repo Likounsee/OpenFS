@@ -1,6 +1,6 @@
 # Recovery and journal design
 
-**Status: protocol contract draft; only the record codec exists. No WAL writer, transaction engine, replay, checkpoint, or crash recovery is implemented.**
+**Status: experimental low-level journal engine implemented; not yet integrated into the v1 volume layout or allocator.** The record codec, bounded block-framed ring, dual checkpoints, serialized commit path, redo replay, and basic I/O-failure tests exist. Volume formatting still does not reserve this region, and the filesystem must not claim end-to-end crash consistency.
 
 ## Compatibility decision
 
@@ -78,12 +78,12 @@ Use deterministic failure injection and reopen a fresh device handle after each 
 - Verify every indeterminate I/O outcome blocks further mutations until recovery.
 - Once persistent namespace operations exist, repeat these cuts for create, unlink, rename, and allocation/free transitions, comparing object identities as well as path names.
 
-## Prerequisites before implementing the writer
+## Remaining integration prerequisites
 
-1. Extend the volume-format contract with a versioned, bounded journal region and checkpoint metadata; do not repurpose reserved-zero fields silently.
-2. Add golden fixtures for the chosen Rust format and explicitly reject legacy C v1.6 images.
-3. Define the block-framing/append mechanism, wrap-around rules, checkpoint encoding, and exact treatment of torn terminal records.
-4. Implement and test the single-writer WAL/replay engine against the contract above.
-5. Only then integrate persistent metadata and namespace mutations.
+1. Extend the experimental volume-format contract with a versioned, bounded journal region and checkpoint metadata; do not repurpose reserved-zero superblock bytes silently. Bump the on-disk format version before reserving blocks that v1 treated as data.
+2. Add golden image fixtures for the revised layout and explicitly reject older draft images unless a migration is implemented.
+3. Integrate the low-level engine's reserved region into `VolumeLayout`, format/open validation, and the allocation bitmap so the allocator cannot return journal blocks.
+4. Expand crash-cut tests to cover torn checkpoint writes, each home-block write in a multi-block transaction, replay interrupted during application, and repeated recovery against reopened file-backed images.
+5. Only then integrate persistent metadata and namespace mutations. The engine currently uses a bounded epoch ring that reuses slots only after a durable checkpoint; it is not a mount implementation.
 
 No current Rust code claims crash consistency.
