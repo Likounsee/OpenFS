@@ -8,12 +8,12 @@ Percentages are planning estimates against acceptance criteria, not feature coun
 
 ## Current snapshot
 
-P1 allocator regression coverage added on `db44f54d714d5d030257ee3853aae4f1f0e39324`; CI for this newest commit is pending. P0's exit-gate evidence remains green on `fd4d40a874b5e06f3b4037a1e358a3fda8aa6439`. Documentation reconciled on `OpenFS` (2026-10-12).
+P1 allocator exhaustion/reuse coverage passed Linux and Windows CI on `db44f54d714d5d030257ee3853aae4f1f0e39324`. Additional layout-tampering hardening is now on `ec4bd0092985827019fc7866910e47516e2a688e`; its CI is pending. P0's exit-gate evidence remains green on `fd4d40a874b5e06f3b4037a1e358a3fda8aa6439`. Documentation reconciled on `OpenFS` (2026-10-12).
 
 | Workstream | Estimate | Evidence / limitation |
 | --- | ---: | --- |
 | P0 — engineering foundation and format safety | 100% | Cross-module review completed for the current V1/V2 boundary, reserved regions, journal replay, bitmap invariants, and error paths. Linux and Windows formatting, full workspace tests, and Clippy pass on exact code commit `fd4d40a`. Regression coverage includes protected journal-region overlap and reserved-bitmap corruption replay. This closes P0's engineering baseline gate; it does not establish physical-device durability or production readiness. |
-| P1 — volume layout and allocation | 30% | Experimental V2 layout, reserved regions, bitmap validation, journaled allocation/free, disposable-image coverage, and a new minimum-volume exhaustion/reuse regression test exist. Latest regression CI is pending. Persistent namespace/file operations and broader geometry/corruption coverage remain incomplete. |
+| P1 — volume layout and allocation | 35% | Experimental V2 layout, reserved regions, bitmap validation, journaled allocation/free, disposable-image coverage, and minimum-volume exhaustion/reuse regression coverage exist; that test passed Linux and Windows CI on `db44f54d`. Allocator entry points now also reject a modified public layout before I/O (`ec4bd009`, CI pending). Persistent namespace/file operations and broader geometry/corruption coverage remain incomplete. |
 | P2 — journal and crash recovery | 30% | Journal encoding and V2 commit/replay/checkpoint paths plus torn-write tests exist. Linux and Windows CI pass on code commit `fd4d40a`; protected-region overlap and reserved-bitmap replay regressions are covered. Exhaustive crash-cut, flush-order, and real-device guarantees are not established. |
 | P3 — checker, corruption testing, fuzzing | 0% | No accepted read-only checker, repair workflow, or parser fuzzing gate. |
 | P4 — persistent files and directories | 5% | Some metadata/namespace primitives exist, but no complete durable create/read/write/rename/delete path. |
