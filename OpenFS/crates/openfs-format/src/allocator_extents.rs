@@ -560,8 +560,12 @@ impl OpenedVolumeV2 {
         let bits_per_block = u64::from(layout.block_size) * 8;
         let mut report = AllocationBitmapReport::default();
         for index in 0..layout.bitmap_blocks {
-            let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
-            let end = base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+            let base = index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let end = base
+                .checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let data_start = layout.data_start.max(base);
             let data_end = layout.backup_superblock.min(end);
             let mut bitmap = vec![0_u8; layout.block_size as usize];
@@ -604,8 +608,8 @@ impl OpenedVolumeV2 {
                 }
             }
         }
-        report.truncated = report.invalid_free_block_count
-            > report.first_invalid_free_blocks.len() as u64;
+        report.truncated =
+            report.invalid_free_block_count > report.first_invalid_free_blocks.len() as u64;
         Ok(report)
     }
 
@@ -642,7 +646,6 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolumeV2, device: &D) -> Resul
     Ok(())
 }
 
-
 #[cfg(test)]
 mod allocation_bitmap_report_tests {
     use super::*;
@@ -652,8 +655,14 @@ mod allocation_bitmap_report_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn image_path(label: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        std::env::temp_dir().join(format!("openfs-bitmap-report-{label}-{}-{nonce}.img", std::process::id()))
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "openfs-bitmap-report-{label}-{}-{nonce}.img",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -664,7 +673,9 @@ mod allocation_bitmap_report_tests {
             let volume = crate::format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let layout = volume.volume.layout;
             let mut bitmap = vec![0_u8; 4096];
-            device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+            device
+                .read_blocks(layout.bitmap_start, &mut bitmap)
+                .unwrap();
             for block in [0_u64, layout.backup_superblock, 300] {
                 bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
             }
@@ -676,7 +687,9 @@ mod allocation_bitmap_report_tests {
             assert!(!report.truncated);
             assert!(matches!(
                 volume.validate_allocation_bitmap(&mut device),
-                Err(Error::Corrupt("v2 bitmap marks a reserved or padding block free"))
+                Err(Error::Corrupt(
+                    "v2 bitmap marks a reserved or padding block free"
+                ))
             ));
         }
         fs::remove_file(path).unwrap();
@@ -689,16 +702,23 @@ mod allocation_bitmap_report_tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let mut bitmap = vec![0_u8; 4096];
-            device.read_blocks(volume.volume.layout.bitmap_start, &mut bitmap).unwrap();
+            device
+                .read_blocks(volume.volume.layout.bitmap_start, &mut bitmap)
+                .unwrap();
             for block in 256_u64..336 {
                 bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
             }
-            device.write_blocks(volume.volume.layout.bitmap_start, &bitmap).unwrap();
+            device
+                .write_blocks(volume.volume.layout.bitmap_start, &bitmap)
+                .unwrap();
 
             let report = volume.allocation_bitmap_report(&mut device).unwrap();
             assert_eq!(report.invalid_free_block_count, 80);
             assert_eq!(report.first_invalid_free_blocks.len(), 64);
-            assert_eq!(report.first_invalid_free_blocks, (256_u64..320).collect::<Vec<_>>());
+            assert_eq!(
+                report.first_invalid_free_blocks,
+                (256_u64..320).collect::<Vec<_>>()
+            );
             assert!(report.truncated);
         }
         fs::remove_file(path).unwrap();
