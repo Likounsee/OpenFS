@@ -189,6 +189,23 @@ impl ExtentMap {
             .flat_map(|extent| extent.physical_start..extent.physical_start + extent.block_count)
     }
 
+    /// Return a validated, ascending inventory of physical data blocks owned by this map.
+    ///
+    /// Unlike `physical_blocks`, this checks logical length, volume bounds, and physical
+    /// overlap before producing the inventory. The result can be combined with inventories
+    /// from other objects and passed to the allocator's ownership consistency validator.
+    pub fn validated_physical_block_inventory(
+        &self,
+        logical_block_count: u64,
+        data_start: u64,
+        data_end: u64,
+    ) -> Result<Vec<u64>> {
+        self.validate(logical_block_count, data_start, data_end)?;
+        let mut blocks: Vec<u64> = self.physical_blocks().collect();
+        blocks.sort_unstable();
+        Ok(blocks)
+    }
+
     /// Remove a logical block range and return the physical runs that became unreferenced.
     ///
     /// The operation is atomic in memory: validation or arithmetic errors leave the map
@@ -525,6 +542,53 @@ mod tests {
             map.physical_blocks().collect::<Vec<_>>(),
             vec![100, 101, 102, 200, 201]
         );
+    }
+
+    #[test]
+    fn validated_physical_inventory_is_sorted_and_rejects_invalid_ownership() {
+        let map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 200,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 3,
+                physical_start: 100,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+        assert_eq!(
+            map.validated_physical_block_inventory(5, 80, 300).unwrap(),
+            vec![100, 101, 200, 201]
+        );
+        assert!(matches!(
+            map.validated_physical_block_inventory(4, 80, 300),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            map.validated_physical_block_inventory(5, 150, 300),
+            Err(Error::Corrupt(_))
+        ));
+
+        let overlapping = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 102,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+        assert!(matches!(
+            overlapping.validated_physical_block_inventory(6, 80, 300),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
