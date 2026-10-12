@@ -164,7 +164,7 @@ impl Namespace {
         }
         Ok(self
             .children(parent_id)
-            .filter(|entry| after_name.is_none_or(|cursor| entry.name.as_str() > cursor))
+            .filter(|entry| after_name.map_or(true, |cursor| entry.name.as_str() > cursor))
             .take(limit)
             .cloned()
             .collect())
