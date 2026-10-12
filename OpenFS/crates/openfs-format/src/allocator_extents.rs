@@ -272,7 +272,12 @@ impl OpenedVolumeV2 {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for byte_index in first_byte..end_byte {
+            for (byte_index, bitmap_byte) in bitmap
+                .iter()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -285,7 +290,7 @@ impl OpenedVolumeV2 {
                 } else {
                     (1_u8 << valid_bits) - 1
                 };
-                let mut bits = bitmap[byte_index] & lower_mask & upper_mask;
+                let mut bits = *bitmap_byte & lower_mask & upper_mask;
                 while bits != 0 {
                     let bit = u64::from(bits.trailing_zeros());
                     allocated.push(
