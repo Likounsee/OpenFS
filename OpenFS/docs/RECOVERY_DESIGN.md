@@ -31,7 +31,7 @@ This codec is not itself a durable log protocol. The future writer must either e
 
 ## Transaction and recovery contract to implement
 
-The initial implementation should use a **single serialized writer**. Parallel transactions and lock-free journal reservation are explicitly out of scope until the single-writer protocol is tested.
+The initial implementation should use a **single serialized writer**. Parallel transactions and lock-free journal reservation are explicitly out of scope until the single-writer protocol is tested. `PersistentJournal` is intentionally non-`Clone` so an opened writer state cannot be duplicated in memory; callers must also ensure only one journal handle is opened for a given region at a time.
 
 ### Commit path
 

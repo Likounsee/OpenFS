@@ -79,7 +79,8 @@ pub struct RedoUpdate {
 
 /// Open, recovered, single-writer journal state. Any I/O error during commit poisons
 /// this instance; drop it and reopen before attempting another mutation.
-#[derive(Debug, Clone)]
+/// Deliberately not `Clone`: duplicated writer state could reuse transaction IDs and ring slots.
+#[derive(Debug)]
 pub struct PersistentJournal {
     region: JournalRegion,
     checkpoint: JournalCheckpoint,
