@@ -100,6 +100,76 @@ impl Namespace {
             .map(|(_, entry)| entry)
     }
 
+    /// Return a canonical absolute path for an object.
+    ///
+    /// Every parent edge is checked while walking to root; malformed parent chains
+    /// and cycles are reported as corruption rather than looping indefinitely.
+    pub fn path_of(&self, object_id: ObjectId) -> Result<String> {
+        if !self.objects.contains_key(&object_id) {
+            return Err(Error::InvalidInput("object does not exist"));
+        }
+        if object_id == self.root_id {
+            return Ok("/".to_owned());
+        }
+
+        let mut current = object_id;
+        let mut components = Vec::new();
+        while current != self.root_id {
+            if components.len() >= self.objects.len() {
+                return Err(Error::Corrupt("namespace parent chain contains a cycle"));
+            }
+            let record = self
+                .objects
+                .get(&current)
+                .ok_or(Error::Corrupt("path object metadata is missing"))?;
+            let parent_id = ObjectId::new(record.parent_id)
+                .map_err(|_| Error::Corrupt("non-root object has no parent"))?;
+            let name = self.entry_name_for(parent_id, current)?;
+            let entry = self
+                .names
+                .get(&(parent_id, name.clone()))
+                .ok_or(Error::Corrupt("path directory entry is missing"))?;
+            if entry.parent_id != parent_id.0
+                || entry.object_id != current.0
+                || entry.kind != record.kind
+            {
+                return Err(Error::Corrupt("path entry disagrees with object metadata"));
+            }
+            components.push(name);
+            current = parent_id;
+        }
+        components.reverse();
+        Ok(format!("/{}", components.join("/")))
+    }
+
+    /// Return one deterministic page of directory entries after an optional name cursor.
+    ///
+    /// The cursor is exclusive, so callers can continue with the last returned name
+    /// without duplicates. This is an in-memory listing API, not a disk-backed iterator.
+    pub fn list_directory(
+        &self,
+        parent_id: ObjectId,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        if limit == 0 {
+            return Err(Error::InvalidInput("directory page limit must be nonzero"));
+        }
+        let parent = self
+            .objects
+            .get(&parent_id)
+            .ok_or(Error::InvalidInput("directory does not exist"))?;
+        if parent.kind != ObjectKind::Directory {
+            return Err(Error::InvalidInput("object is not a directory"));
+        }
+        Ok(self
+            .children(parent_id)
+            .filter(|entry| after_name.is_none_or(|cursor| entry.name.as_str() > cursor))
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
     /// Add a new object and its parent/name edge after validating both records.
     ///
     /// This is an in-memory operation only. The future persistent layer must perform
@@ -698,6 +768,40 @@ mod tests {
         bad.kind = ObjectKind::Directory;
         ns.names.insert((ObjectId(1), "file.txt".to_owned()), bad);
         assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn paths_round_trip_and_paginated_directory_listing_has_no_duplicates() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "docs", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 3, "report.txt", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+        for (id, name) in [(4, "a.txt"), (5, "b.txt"), (6, "c.txt")] {
+            ns.insert(
+                entry(1, id, name, ObjectKind::File),
+                record(id, 1, ObjectKind::File),
+            )
+            .unwrap();
+        }
+
+        assert_eq!(ns.path_of(ObjectId(1)).unwrap(), "/");
+        assert_eq!(ns.path_of(ObjectId(3)).unwrap(), "/docs/report.txt");
+        assert_eq!(ns.resolve_path(&ns.path_of(ObjectId(3)).unwrap()).unwrap(), ObjectId(3));
+
+        let first = ns.list_directory(ObjectId(1), None, 2).unwrap();
+        assert_eq!(first.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["a.txt", "b.txt"]);
+        let second = ns.list_directory(ObjectId(1), Some(&first[1].name), 2).unwrap();
+        assert_eq!(second.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["c.txt", "docs"]);
+        assert!(ns.list_directory(ObjectId(1), Some("docs"), 10).unwrap().is_empty());
+        assert!(matches!(ns.list_directory(ObjectId(1), None, 0), Err(Error::InvalidInput(_))));
+        assert!(matches!(ns.list_directory(ObjectId(3), None, 1), Err(Error::InvalidInput(_))));
     }
 
     #[test]
