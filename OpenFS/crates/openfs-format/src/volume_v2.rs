@@ -115,24 +115,32 @@ impl OpenedVolumeV2 {
         self.validate_device(device)?;
         let block_size = self.volume.block_size as usize;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        for block in self.volume.layout.data_start..self.volume.layout.backup_superblock {
-            let bitmap_index = block / bits_per_block;
-            let local = block % bits_per_block;
+        let first_bitmap = self.volume.layout.data_start / bits_per_block;
+        let last_data_block = self.volume.layout.backup_superblock - 1;
+        let last_bitmap = last_data_block / bits_per_block;
+        for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
             let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(bitmap_block, &mut bitmap)?;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte] & mask == 0 {
-                bitmap[byte] |= mask;
-                self.journal.commit(
-                    device,
-                    &[RedoUpdate {
-                        target_block: bitmap_block,
-                        contents: bitmap,
-                    }],
-                )?;
-                return Ok(block);
+
+            let first_block = (bitmap_index * bits_per_block).max(self.volume.layout.data_start);
+            let end_block = ((bitmap_index + 1) * bits_per_block)
+                .min(self.volume.layout.backup_superblock);
+            for block in first_block..end_block {
+                let local = block % bits_per_block;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let mask = 1_u8 << (local % 8);
+                if bitmap[byte] & mask == 0 {
+                    bitmap[byte] |= mask;
+                    self.journal.commit(
+                        device,
+                        &[RedoUpdate {
+                            target_block: bitmap_block,
+                            contents: bitmap,
+                        }],
+                    )?;
+                    return Ok(block);
+                }
             }
         }
         Err(Error::InvalidInput("volume has no free data blocks"))
