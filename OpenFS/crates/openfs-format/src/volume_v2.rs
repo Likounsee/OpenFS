@@ -1104,7 +1104,11 @@ mod tests {
     fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
-            for (label, bit) in [("reserved-bit", 0_u64), ("padding-bit", 256_u64)] {
+            for (label, bit) in [
+                ("reserved-bit", 0_u64),
+                ("first-padding-bit", 256_u64),
+                ("last-padding-bit", bits_per_bitmap_block - 1),
+            ] {
                 let path = image_path(&format!("{label}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
@@ -1464,17 +1468,29 @@ mod tests {
                     .map(|_| volume.allocate_block(&mut device).unwrap())
                     .collect();
                 assert_eq!(allocated, vec![8, 9, 10]);
+                let checkpoint_when_full = volume.journal.checkpoint().checkpoint_sequence;
                 assert!(matches!(
                     volume.allocate_block(&mut device),
                     Err(Error::InvalidInput("volume has no free data blocks"))
                 ));
+                assert_eq!(
+                    volume.journal.checkpoint().checkpoint_sequence,
+                    checkpoint_when_full,
+                    "failed allocation on a full volume must not commit a journal transaction"
+                );
 
                 volume.free_block(&mut device, allocated[1]).unwrap();
                 assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated[1]);
+                let checkpoint_when_full_again = volume.journal.checkpoint().checkpoint_sequence;
                 assert!(matches!(
                     volume.allocate_block(&mut device),
                     Err(Error::InvalidInput("volume has no free data blocks"))
                 ));
+                assert_eq!(
+                    volume.journal.checkpoint().checkpoint_sequence,
+                    checkpoint_when_full_again,
+                    "repeated exhaustion must not mutate journal state"
+                );
             }
             fs::remove_file(path).unwrap();
         }
