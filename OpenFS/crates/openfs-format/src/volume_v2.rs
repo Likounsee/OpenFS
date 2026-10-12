@@ -367,7 +367,7 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayoutV2) -> R
 mod tests {
     use super::{format_volume_v2, open_volume_v2, VolumeLayoutV2};
     use crate::open_volume;
-    use openfs_block::{ImageDevice, RawDevice};
+    use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
