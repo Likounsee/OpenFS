@@ -2531,6 +2531,50 @@ mod tests {
     }
 
     #[test]
+    fn v2_free_inventory_and_fragmentation_stats_track_allocations_and_holes() {
+        let path = image_path("free-inventory-fragmentation");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let layout = volume.volume.layout;
+            let initial_free = volume.free_data_block_inventory(&mut device).unwrap();
+            assert_eq!(initial_free.len() as u64, layout.data_blocks());
+            assert_eq!(initial_free.first(), Some(&layout.data_start));
+            assert_eq!(initial_free.last(), Some(&(layout.backup_superblock - 1)));
+            let initial_fragments = volume.free_extent_stats(&mut device).unwrap();
+            assert_eq!(initial_fragments.free_extent_count, 1);
+            assert_eq!(
+                initial_fragments.largest_free_extent_blocks,
+                layout.data_blocks()
+            );
+
+            let blocks = volume.allocate_blocks(&mut device, 3).unwrap();
+            let free_after = volume.free_data_block_inventory(&mut device).unwrap();
+            assert_eq!(free_after.len() as u64, layout.data_blocks() - 3);
+            assert!(!free_after.contains(&blocks[0]));
+            assert!(!free_after.contains(&blocks[1]));
+            assert!(!free_after.contains(&blocks[2]));
+            let fragmented = volume.free_extent_stats(&mut device).unwrap();
+            assert_eq!(fragmented.free_extent_count, 1);
+            assert_eq!(
+                fragmented.largest_free_extent_blocks,
+                layout.data_blocks() - 3
+            );
+
+            volume.free_blocks(&mut device, &[blocks[1]]).unwrap();
+            let holes = volume.free_data_block_inventory(&mut device).unwrap();
+            assert!(holes.contains(&blocks[1]));
+            let split = volume.free_extent_stats(&mut device).unwrap();
+            assert_eq!(split.free_extent_count, 2);
+            assert_eq!(
+                split.largest_free_extent_blocks,
+                layout.data_blocks() - 3
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_extent_map_ownership_bridge_checks_bitmap_and_cross_file_aliases() {
         let path = image_path("extent-map-ownership-bridge");
         {
