@@ -150,6 +150,63 @@ impl OpenedVolumeV2 {
         Err(Error::InvalidInput("volume has no free data blocks"))
     }
 
+    /// Query whether a valid data-region block is allocated.
+    ///
+    /// Reserved blocks are intentionally not accepted: this reports allocation state
+    /// only for blocks that callers may own as file or directory data.
+    pub fn is_data_block_allocated<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        block: u64,
+    ) -> Result<bool> {
+        self.validate_device(device)?;
+        if block < self.volume.layout.data_start || block >= self.volume.layout.backup_superblock {
+            return Err(Error::InvalidInput(
+                "allocation query requires an in-range data block",
+            ));
+        }
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let bitmap_block = self.volume.layout.bitmap_start + block / bits_per_block;
+        let local = block % bits_per_block;
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+        let mask = 1_u8 << (local % 8);
+        Ok(bitmap[byte] & mask != 0)
+    }
+
+    /// Count currently free blocks in the usable data region.
+    ///
+    /// This is a read-only snapshot; callers must not use it as a reservation because
+    /// another allocator operation may consume a free block immediately afterward.
+    pub fn free_data_block_count<D: BlockDevice>(&self, device: &mut D) -> Result<u64> {
+        self.validate_device(device)?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let first_bitmap = self.volume.layout.data_start / bits_per_block;
+        let last_data_block = self.volume.layout.backup_superblock - 1;
+        let last_bitmap = last_data_block / bits_per_block;
+        let mut free = 0_u64;
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
+            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let bitmap_base = bitmap_index * bits_per_block;
+            let first_block = bitmap_base.max(self.volume.layout.data_start);
+            let end_block = bitmap_base
+                .saturating_add(bits_per_block)
+                .min(self.volume.layout.backup_superblock);
+            for block in first_block..end_block {
+                let local = block % bits_per_block;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let mask = 1_u8 << (local % 8);
+                if bitmap[byte] & mask == 0 {
+                    free = free.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                }
+            }
+        }
+        Ok(free)
+    }
+
     /// Free a data block through the journal; reserved and already-free blocks are rejected.
     pub fn free_block<D: BlockDevice>(&mut self, device: &mut D, block: u64) -> Result<()> {
         self.validate_device(device)?;
