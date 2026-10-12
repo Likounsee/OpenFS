@@ -1132,6 +1132,47 @@ mod tests {
     }
 
     #[test]
+    fn v2_rejects_backup_and_padding_corruption_in_later_bitmap_segment() {
+        // 32,770 blocks at 4 KiB require two bitmap blocks. The backup
+        // superblock is the final in-range bit; the next bit is padding.
+        let total_blocks = 32_770_u64;
+        let bits_per_bitmap_block = 4096_u64 * 8;
+        for (label, corrupted_block) in [
+            ("backup-superblock", total_blocks - 1),
+            ("padding-after-backup", total_blocks),
+        ] {
+            let path = image_path(label);
+            {
+                let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
+                let volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                assert_eq!(volume.volume.layout.bitmap_blocks, 2);
+
+                let bitmap_index = corrupted_block / bits_per_bitmap_block;
+                let local = corrupted_block % bits_per_bitmap_block;
+                assert_eq!(bitmap_index, 1);
+                let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
+                let mut bitmap = vec![0_u8; device.block_size() as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                bitmap[(local / 8) as usize] &= !(1_u8 << (local % 8));
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+                device.flush().unwrap();
+
+                assert!(
+                    matches!(
+                        open_volume_v2(&mut device),
+                        Err(Error::Corrupt(
+                            "v2 bitmap marks a reserved or padding block free"
+                        ))
+                    ),
+                    "accepted {label} corruption in second bitmap segment"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_rejects_each_reserved_block_marked_free() {
         let reserved_blocks = (0..256_u64)
             .filter(|block| {
