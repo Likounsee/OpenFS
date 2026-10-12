@@ -1576,13 +1576,19 @@ mod allocation_bitmap_report_tests {
                     ],
                     "orphaned allocated blocks must be ordered for block_size={block_size}"
                 );
-                assert_eq!(report.orphaned_allocation_count, 7, "block_size={block_size}");
+                assert_eq!(
+                    report.orphaned_allocation_count, 7,
+                    "block_size={block_size}"
+                );
                 assert_eq!(
                     report.dangling_references,
                     vec![allocated[4]],
                     "a reference to a freed block must be reported for block_size={block_size}"
                 );
-                assert_eq!(report.dangling_reference_count, 1, "block_size={block_size}");
+                assert_eq!(
+                    report.dangling_reference_count, 1,
+                    "block_size={block_size}"
+                );
                 assert!(!report.is_consistent());
             }
             fs::remove_file(path).unwrap();
