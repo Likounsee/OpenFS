@@ -255,7 +255,9 @@ impl OpenedVolumeV2 {
         let mut owned = owned_data_blocks.to_vec();
         owned.sort_unstable();
         if owned.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(Error::Corrupt("a data block is referenced by multiple owners"));
+            return Err(Error::Corrupt(
+                "a data block is referenced by multiple owners",
+            ));
         }
         if owned
             .iter()
@@ -271,13 +273,20 @@ impl OpenedVolumeV2 {
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index * bits_per_block;
             let start = layout.data_start.max(base);
-            let end = layout.backup_superblock.min(base.saturating_add(bits_per_block));
+            let end = layout
+                .backup_superblock
+                .min(base.saturating_add(bits_per_block));
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             for block in start..end {
                 let local = block - base;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
                 let allocated = bitmap[byte] & (1_u8 << (local % 8)) != 0;
+                if owner_index < owned.len() && owned[owner_index] < block {
+                    return Err(Error::Corrupt(
+                "ownership map contains an unscanned data block",
+            ));
+                }
                 let referenced = owner_index < owned.len() && owned[owner_index] == block;
                 if allocated != referenced {
                     return Err(Error::Corrupt(
