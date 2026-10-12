@@ -601,7 +601,7 @@ mod tests {
             record(3, 2, ObjectKind::File),
         )
         .unwrap();
-        assert_eq!(ns.validate(), Ok(()));
+        assert!(ns.validate().is_ok());
 
         ns.objects
             .insert(ObjectId(99), record(99, 1, ObjectKind::File));
@@ -616,7 +616,7 @@ mod tests {
             record(2, 1, ObjectKind::File),
         )
         .unwrap();
-        assert_eq!(ns.validate(), Ok(()));
+        assert!(ns.validate().is_ok());
 
         let mut bad = entry(1, 2, "file.txt", ObjectKind::File);
         bad.kind = ObjectKind::Directory;
