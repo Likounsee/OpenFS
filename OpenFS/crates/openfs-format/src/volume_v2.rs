@@ -2495,8 +2495,7 @@ mod tests {
             let path = image_path(&format!("allocated-block-inventory-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 assert!(volume
                     .allocated_data_block_inventory(&mut device)
                     .unwrap()
