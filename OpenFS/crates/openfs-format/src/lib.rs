@@ -290,6 +290,7 @@ mod tests {
     }
 }
 
+mod allocator_extents;
 mod checkpoint;
 mod directory_entry;
 mod journal;
