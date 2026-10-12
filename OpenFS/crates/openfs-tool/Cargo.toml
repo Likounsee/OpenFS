@@ -1,0 +1,17 @@
+[package]
+name = "openfs-tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "openfs"
+path = "src/main.rs"
+
+[dependencies]
+openfs-block = { path = "../openfs-block" }
+openfs-format = { path = "../openfs-format" }
+
+[lints]
+workspace = true

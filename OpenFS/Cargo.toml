@@ -4,6 +4,7 @@ members = [
     "crates/openfs-core",
     "crates/openfs-block",
     "crates/openfs-format",
+    "crates/openfs-tool",
 ]
 
 [workspace.package]
