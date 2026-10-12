@@ -435,6 +435,30 @@ mod tests {
     }
 
     #[test]
+    fn v2_format_open_allocate_free_roundtrips_supported_block_sizes() {
+        for block_size in [4096_u32, 8192, 65_536] {
+            let path = image_path(&format!("block-size-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 32).unwrap();
+                let mut volume =
+                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(second, first + 1);
+                volume.free_block(&mut device, first).unwrap();
+                device.flush().unwrap();
+                drop(volume);
+
+                let mut volume = open_volume_v2(&mut device).unwrap();
+                assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
+                assert_eq!(volume.allocate_block(&mut device).unwrap(), second + 1);
+                device.flush().unwrap();
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn v2_journals_allocator_updates_across_reopen_and_keeps_v1_separate() {
         let path = image_path("roundtrip");
         let first;
