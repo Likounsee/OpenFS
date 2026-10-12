@@ -342,8 +342,8 @@ pub fn check_volume_v2<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckRepo
         let end = layout
             .backup_superblock
             .min(base.saturating_add(bits_per_bitmap_block));
-        let first_byte = usize::try_from((first - base) / 8)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let first_byte =
+            usize::try_from((first - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let end_byte = usize::try_from((end - base).saturating_add(7) / 8)
             .map_err(|_| Error::ArithmeticOverflow)?;
         for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
@@ -2122,8 +2122,7 @@ mod tests {
                 let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                    let volume =
-                        format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                    let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                     volume.validate_allocation_bitmap(&mut device).unwrap();
 
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
@@ -2195,7 +2194,10 @@ mod tests {
             assert_eq!(after_allocate.block_size, 4096);
             assert_eq!(after_allocate.total_blocks, 512);
             assert_eq!(after_allocate.allocated_data_blocks, 3);
-            assert_eq!(after_allocate.free_data_blocks, initial.free_data_blocks - 3);
+            assert_eq!(
+                after_allocate.free_data_blocks,
+                initial.free_data_blocks - 3
+            );
             assert_eq!(
                 after_allocate.allocated_data_blocks + after_allocate.free_data_blocks,
                 after_allocate.data_blocks
