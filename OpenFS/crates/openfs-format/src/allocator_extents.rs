@@ -1545,4 +1545,48 @@ mod allocation_bitmap_report_tests {
         }
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn ownership_report_merges_bitmap_set_bits_and_dangling_owners_across_sizes() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("ownership-bit-scan-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let allocated = volume.allocate_blocks(&mut device, 11).unwrap();
+                volume.free_blocks(&mut device, &[allocated[4]]).unwrap();
+
+                let report = volume
+                    .allocation_ownership_report(
+                        &mut device,
+                        &[allocated[0], allocated[2], allocated[4], allocated[7]],
+                    )
+                    .unwrap();
+
+                assert_eq!(
+                    report.orphaned_allocations,
+                    vec![
+                        allocated[1],
+                        allocated[3],
+                        allocated[5],
+                        allocated[6],
+                        allocated[8],
+                        allocated[9],
+                        allocated[10],
+                    ],
+                    "orphaned allocated blocks must be ordered for block_size={block_size}"
+                );
+                assert_eq!(report.orphaned_allocation_count, 7, "block_size={block_size}");
+                assert_eq!(
+                    report.dangling_references,
+                    vec![allocated[4]],
+                    "a reference to a freed block must be reported for block_size={block_size}"
+                );
+                assert_eq!(report.dangling_reference_count, 1, "block_size={block_size}");
+                assert!(!report.is_consistent());
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
