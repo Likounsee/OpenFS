@@ -4,6 +4,7 @@ use openfs_core::{Error, Result};
 
 pub use allocator_extents::{
     AllocationBitmapReport, AllocationOwnershipReport, AllocationStats, FreeExtentStats,
+    OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT,
 };
 
 /// Size of the initial fixed superblock record.
