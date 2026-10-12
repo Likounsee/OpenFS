@@ -1099,8 +1099,9 @@ mod allocation_bitmap_report_tests {
                     "best-fit allocation should account for all committed blocks"
                 );
                 let after_best_fit = volume.allocated_data_block_inventory(&mut device).unwrap();
-                assert!((allocated[2]..allocated[2] + 3)
-                    .all(|block| after_best_fit.contains(&block)));
+                assert!(
+                    (allocated[2]..allocated[2] + 3).all(|block| after_best_fit.contains(&block))
+                );
                 assert!(matches!(
                     volume.allocate_best_fit_contiguous_blocks(&mut device, 0),
                     Err(Error::InvalidInput(_))
@@ -1112,7 +1113,6 @@ mod allocation_bitmap_report_tests {
                     ),
                     Err(Error::InvalidInput("no contiguous free data extent"))
                 ));
-
             }
             fs::remove_file(path).unwrap();
         }
