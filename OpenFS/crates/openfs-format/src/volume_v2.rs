@@ -874,8 +874,16 @@ mod tests {
         fs::remove_file(path).unwrap();
 
         for (label, offset, encoded) in [
-            ("invalid-block-size", 12_usize, 3000_u32.to_le_bytes().to_vec()),
-            ("invalid-block-count", 16_usize, 1_u64.to_le_bytes().to_vec()),
+            (
+                "invalid-block-size",
+                12_usize,
+                3000_u32.to_le_bytes().to_vec(),
+            ),
+            (
+                "invalid-block-count",
+                16_usize,
+                1_u64.to_le_bytes().to_vec(),
+            ),
         ] {
             let path = image_path(label);
             {
