@@ -4,8 +4,10 @@
 //! redo ring before the data region, and journals allocator bitmap changes.
 
 use crate::{
-    crc32c, format_journal, plan_recovery, JournalCheckpoint, JournalRecord, JournalRegion,
-    PersistentJournal, RedoUpdate, JOURNAL_CHECKPOINT_SIZE, SUPERBLOCK_SIZE,
+    crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
+    DirectoryEntry, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord, Namespace,
+    ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE, JOURNAL_CHECKPOINT_SIZE,
+    METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -266,6 +268,108 @@ impl OpenedVolumeV2 {
             }],
         )?;
         Ok(())
+    }
+
+    /// Read a caller-located, packed metadata inventory from allocated data blocks.
+    ///
+    /// The blocks are supplied in stream order and must contain exactly enough blocks
+    /// for the requested fixed-width records. The final block may have unused bytes;
+    /// only the requested record bytes are decoded. The disk format does not yet assign
+    /// a canonical metadata-inventory region.
+    pub fn read_metadata_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        blocks: &[u64],
+        record_count: usize,
+    ) -> Result<Vec<MetadataRecord>> {
+        let bytes = self.read_packed_inventory(device, blocks, record_count, METADATA_RECORD_SIZE)?;
+        decode_metadata_records(&bytes)
+    }
+
+    /// Read a caller-located packed directory-entry inventory from allocated data blocks.
+    ///
+    /// The block list is in stream order and must be exactly sized for the requested
+    /// number of entries. This validates block ownership state and record framing, but
+    /// does not imply that a persistent directory index or region allocator exists.
+    pub fn read_directory_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        blocks: &[u64],
+        entry_count: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        let bytes = self.read_packed_inventory(device, blocks, entry_count, DIRECTORY_ENTRY_SIZE)?;
+        decode_directory_entries(&bytes)
+    }
+
+    /// Reconstruct a validated namespace from caller-located on-disk record streams.
+    ///
+    /// Metadata and directory streams must occupy disjoint allocated data blocks. This
+    /// is the first disk-backed reconstruction path, but the caller still supplies the
+    /// inventory block locations; no automatic metadata discovery is performed.
+    pub fn reconstruct_namespace<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        root_id: ObjectId,
+        metadata_blocks: &[u64],
+        metadata_count: usize,
+        directory_blocks: &[u64],
+        directory_entry_count: usize,
+    ) -> Result<Namespace> {
+        let mut claimed = std::collections::BTreeSet::new();
+        for block in metadata_blocks.iter().chain(directory_blocks.iter()) {
+            if !claimed.insert(*block) {
+                return Err(Error::Corrupt(
+                    "metadata and directory inventories share a physical block",
+                ));
+            }
+        }
+        let records = self.read_metadata_inventory(device, metadata_blocks, metadata_count)?;
+        let entries = self.read_directory_inventory(device, directory_blocks, directory_entry_count)?;
+        Namespace::from_records(root_id, records, entries)
+    }
+
+    fn read_packed_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        blocks: &[u64],
+        record_count: usize,
+        record_size: usize,
+    ) -> Result<Vec<u8>> {
+        self.validate_device(device)?;
+        let required_bytes = record_count
+            .checked_mul(record_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let required_blocks = required_bytes
+            .checked_add(block_size - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / block_size;
+        if blocks.len() != required_blocks {
+            return Err(Error::InvalidInput(
+                "inventory block list does not match its record count",
+            ));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut packed = Vec::with_capacity(required_blocks * block_size);
+        for block in blocks {
+            if !seen.insert(*block) {
+                return Err(Error::Corrupt("inventory repeats a physical block"));
+            }
+            if *block < self.volume.layout.data_start
+                || *block >= self.volume.layout.backup_superblock
+            {
+                return Err(Error::Corrupt("inventory block is outside the data region"));
+            }
+            if !self.is_data_block_allocated(device, *block)? {
+                return Err(Error::Corrupt("inventory block is marked free in the bitmap"));
+            }
+            let mut bytes = vec![0_u8; block_size];
+            device.read_blocks(*block, &mut bytes)?;
+            packed.extend_from_slice(&bytes);
+        }
+        packed.truncate(required_bytes);
+        Ok(packed)
     }
 
     fn validate_device<D: BlockDevice>(&self, device: &D) -> Result<()> {
@@ -691,6 +795,81 @@ mod tests {
             "openfs-v2-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn reads_persistent_record_inventories_and_reconstructs_namespace() {
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
+
+        let path = image_path("persistent-namespace-reconstruction");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let directory_block = volume.allocate_block(&mut device).unwrap();
+
+            let root = MetadataRecord {
+                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
+                flags: 0, size: 0, extent_root_block: None, generation: 1,
+            };
+            let file = MetadataRecord {
+                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
+                flags: 0, size: 12, extent_root_block: None, generation: 1,
+            };
+            let entry = DirectoryEntry {
+                parent_id: 1, object_id: 2, kind: ObjectKind::File,
+                name: "hello.txt".to_owned(),
+            };
+            let mut metadata_bytes = vec![0_u8; 4096];
+            metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+            metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            let mut directory_bytes = vec![0_u8; 4096];
+            directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device.flush().unwrap();
+
+            let namespace = volume.reconstruct_namespace(
+                &mut device, ObjectId(1), &[metadata_block], 2, &[directory_block], 1,
+            ).unwrap();
+            assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(namespace.object_count(), 2);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn persistent_inventory_reader_rejects_free_duplicate_and_aliased_blocks() {
+        let path = image_path("persistent-inventory-invalid-blocks");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let allocated = volume.allocate_block(&mut device).unwrap();
+            let free = allocated + 1;
+            assert!(matches!(
+                volume.read_metadata_inventory(&mut device, &[free], 1),
+                Err(Error::Corrupt("inventory block is marked free in the bitmap"))
+            ));
+            assert!(matches!(
+                volume.read_metadata_inventory(&mut device, &[allocated, allocated], 2),
+                Err(Error::Corrupt("inventory repeats a physical block"))
+            ));
+            assert!(matches!(
+                volume.reconstruct_namespace(
+                    &mut device, crate::ObjectId(1), &[allocated], 1, &[allocated], 1,
+                ),
+                Err(Error::Corrupt("metadata and directory inventories share a physical block"))
+            ));
+            assert!(matches!(
+                volume.read_metadata_inventory(&mut device, &[0], 1),
+                Err(Error::Corrupt("inventory block is outside the data region"))
+            ));
+            assert!(matches!(
+                volume.read_metadata_inventory(&mut device, &[], 1),
+                Err(Error::InvalidInput("inventory block list does not match its record count"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
