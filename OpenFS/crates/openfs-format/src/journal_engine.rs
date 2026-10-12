@@ -774,6 +774,7 @@ mod tests {
     fn ignores_uncommitted_transaction_after_commit_write_failure() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
+        let original_sequence = journal.checkpoint().checkpoint_sequence;
         let mut failing = FailAt::new(device.clone(), 4);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
@@ -789,7 +790,6 @@ mod tests {
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        let original_sequence = journal.checkpoint().checkpoint_sequence;
         // One block redo is encoded as multiple chunks; the commit record follows them.
         // Tear the final record write after its first 64 bytes so its checksum is invalid.
         let mut failing = TearWriteAt::new(device.clone(), 4, 64);
