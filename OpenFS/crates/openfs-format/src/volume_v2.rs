@@ -4,7 +4,7 @@
 //! redo ring before the data region, and journals allocator bitmap changes.
 
 use crate::{
-    crc32c, format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
+    crc32c, format_journal, JournalRegion, PersistentJournal, RedoUpdate,
     SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
@@ -240,7 +240,11 @@ pub fn open_volume_v2<D: BlockDevice>(device: &mut D) -> Result<OpenedVolumeV2> 
     }
     let layout = VolumeLayoutV2::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
-    let journal = open_journal(device, layout.journal)?;
+    let journal = crate::journal_engine::open_journal_protected(
+        device,
+        layout.journal,
+        &[0, layout.backup_superblock],
+    )?;
     Ok(OpenedVolumeV2 {
         volume: VolumeV2 {
             block_size,

@@ -86,6 +86,7 @@ pub struct PersistentJournal {
     checkpoint: JournalCheckpoint,
     active_checkpoint_copy: u8,
     recovery_required: bool,
+    protected_blocks: Vec<u64>,
 }
 
 /// Initialize a reserved journal region. Destructive; only call while formatting.
@@ -120,7 +121,19 @@ pub fn open_journal<D: BlockDevice>(
     device: &mut D,
     region: JournalRegion,
 ) -> Result<PersistentJournal> {
+    open_journal_protected(device, region, &[])
+}
+
+/// Open a journal while prohibiting replay into volume-control blocks.
+pub(crate) fn open_journal_protected<D: BlockDevice>(
+    device: &mut D,
+    region: JournalRegion,
+    protected_blocks: &[u64],
+) -> Result<PersistentJournal> {
     region.validate(device)?;
+    if protected_blocks.iter().any(|block| *block >= device.block_count()) {
+        return Err(Error::InvalidInput("protected journal target lies outside the device"));
+    }
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
     validate_checkpoint_geometry(&checkpoint, region)?;
     let scanned = scan_uncheckpointed_records(device, region, checkpoint.checkpoint_sequence)?;
@@ -136,6 +149,7 @@ pub fn open_journal<D: BlockDevice>(
             let updates = decode_redo_updates(&transaction.updates, block_size)?;
             for update in &updates {
                 validate_home_target(device, region, update.target_block, update.contents.len())?;
+                validate_protected_target(protected_blocks, update.target_block)?;
             }
             validated.push(updates);
         }
@@ -177,6 +191,7 @@ pub fn open_journal<D: BlockDevice>(
             checkpoint,
             active_checkpoint_copy: next_copy,
             recovery_required: false,
+            protected_blocks: protected_blocks.to_vec(),
         });
     }
 
@@ -185,6 +200,7 @@ pub fn open_journal<D: BlockDevice>(
         checkpoint,
         active_checkpoint_copy: active_copy,
         recovery_required: false,
+        protected_blocks: protected_blocks.to_vec(),
     })
 }
 
@@ -219,6 +235,7 @@ impl PersistentJournal {
                 ));
             }
             validate_home_target(device, self.region, update.target_block, block_size)?;
+            validate_protected_target(&self.protected_blocks, update.target_block)?;
         }
 
         let transaction_id = self.checkpoint.next_transaction_id;
@@ -443,6 +460,15 @@ fn validate_home_target<D: BlockDevice>(
     }
     if contents_len != device.block_size() as usize {
         return Err(Error::InvalidInput("redo image has incorrect block size"));
+    }
+    Ok(())
+}
+
+fn validate_protected_target(protected_blocks: &[u64], target: u64) -> Result<()> {
+    if protected_blocks.contains(&target) {
+        return Err(Error::InvalidInput(
+            "redo target overlaps a protected volume-control block",
+        ));
     }
     Ok(())
 }
@@ -718,6 +744,28 @@ mod tests {
             journal.commit(&mut device, &many),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn protected_open_rejects_volume_control_targets_before_writing() {
+        let mut device = formatted();
+        let original = {
+            let mut bytes = vec![0; BS as usize];
+            device.read_blocks(0, &mut bytes).unwrap();
+            bytes
+        };
+        let mut journal = super::open_journal_protected(&mut device, REGION, &[0]).unwrap();
+        let bad = RedoUpdate {
+            target_block: 0,
+            contents: vec![0xCC; BS as usize],
+        };
+        assert!(matches!(
+            journal.commit(&mut device, &[bad]),
+            Err(Error::InvalidInput(_))
+        ));
+        let mut after = vec![0; BS as usize];
+        device.read_blocks(0, &mut after).unwrap();
+        assert_eq!(after, original);
     }
 
     #[test]
