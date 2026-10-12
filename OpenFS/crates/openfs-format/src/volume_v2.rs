@@ -578,15 +578,16 @@ mod tests {
         let path = image_path("allocator-bitmap-boundary");
         {
             let bits_per_bitmap_block = 4096_u64 * 8;
-            let mut device =
-                ImageDevice::create(&path, 4096, bits_per_bitmap_block + 12).unwrap();
+            let mut device = ImageDevice::create(&path, 4096, bits_per_bitmap_block + 12).unwrap();
             let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let layout = volume.volume.layout;
             assert_eq!(layout.bitmap_blocks, 2);
 
             // Occupy every data block represented by the first bitmap block.
             let mut bitmap = vec![0_u8; device.block_size() as usize];
-            device.read_blocks(layout.bitmap_start, &mut bitmap).unwrap();
+            device
+                .read_blocks(layout.bitmap_start, &mut bitmap)
+                .unwrap();
             for block in layout.data_start..bits_per_bitmap_block {
                 let local = block % bits_per_bitmap_block;
                 bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
