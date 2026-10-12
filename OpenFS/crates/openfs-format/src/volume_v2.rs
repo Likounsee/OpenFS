@@ -1011,8 +1011,7 @@ mod tests {
             let path = image_path(&format!("free-precommit-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume =
-                    format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
 
                 let mut failing = FailWriteAt {
