@@ -2047,13 +2047,12 @@ mod tests {
             &encoded[..48],
             &[
                 79, 80, 69, 78, 70, 83, 0, 0, 2, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
-                7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 118, 50, 45, 116, 101, 115,
-                116, 33, 33
+                7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48, 48, 48, 49
             ]
         );
         assert_eq!(
             u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
-            0x0936_7ef8
+            0x2951_902d
         );
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
@@ -2100,7 +2099,7 @@ mod tests {
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             assert!(matches!(
-                open_volume(&mut device),
+                crate::open_legacy_volume(&mut device),
                 Err(Error::UnsupportedVersion(2))
             ));
             let mut volume = open_volume(&mut device).unwrap();
