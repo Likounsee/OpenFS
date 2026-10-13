@@ -967,6 +967,13 @@ impl OpenedVolume {
         for (start, end) in ranges {
             for block in start..end {
                 let bitmap_index = block / bits_per_block;
+                if !cached_bitmaps.contains_key(&bitmap_index)
+                    && cached_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
+                {
+                    // A highly fragmented file can touch many bitmap pages. Keep this
+                    // validation path bounded in memory just like inventory readers.
+                    cached_bitmaps.clear();
+                }
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     cached_bitmaps.entry(bitmap_index)
                 {
@@ -1551,6 +1558,78 @@ mod tests {
                 .unwrap());
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn discovery_fails_closed_for_corrupt_descriptors_at_every_block_size() {
+        use crate::{ObjectId, PersistentInventoryDescriptor, INVENTORY_DESCRIPTOR_MAGIC};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for corruption in ["checksum", "reserved", "padding", "version"] {
+                let path = image_path(&format!(
+                    "descriptor-corruption-{corruption}-{block_size}"
+                ));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 64).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                    let descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![],
+                        metadata_record_count: 0,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    };
+                    let mut encoded = descriptor.encode(block_size as usize).unwrap();
+                    match corruption {
+                        "checksum" => encoded[48] ^= 0x40,
+                        "reserved" => encoded[36] = 1,
+                        "padding" => {
+                            let last = encoded.len() - 1;
+                            encoded[last] = 1;
+                            encoded[40..44].fill(0);
+                            let checksum = crate::crc32c(&encoded);
+                            encoded[40..44].copy_from_slice(&checksum.to_le_bytes());
+                        }
+                        "version" => encoded[8..10].copy_from_slice(&2_u16.to_le_bytes()),
+                        _ => unreachable!("test cases are fixed"),
+                    }
+                    assert!(encoded.starts_with(INVENTORY_DESCRIPTOR_MAGIC));
+                    device.write_blocks(descriptor_block, &encoded).unwrap();
+                    let free_before = volume.free_data_block_count(&mut device).unwrap();
+
+                    let result = volume.discover_persistent_inventory(&mut device);
+                    match corruption {
+                        "checksum" => assert!(matches!(
+                            result,
+                            Err(Error::Corrupt("inventory descriptor CRC32C mismatch"))
+                        )),
+                        "reserved" => assert!(matches!(
+                            result,
+                            Err(Error::Corrupt(
+                                "inventory descriptor reserved bytes must be zero"
+                            ))
+                        )),
+                        "padding" => assert!(matches!(
+                            result,
+                            Err(Error::Corrupt("inventory descriptor padding must be zero"))
+                        )),
+                        "version" => assert!(matches!(result, Err(Error::UnsupportedVersion(2)))),
+                        _ => unreachable!("test cases are fixed"),
+                    }
+                    assert_eq!(
+                        volume.free_data_block_count(&mut device).unwrap(),
+                        free_before,
+                        "discovery must not mutate allocation state"
+                    );
+                    assert!(volume
+                        .is_data_block_allocated(&mut device, descriptor_block)
+                        .unwrap());
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
     }
 
     #[test]
