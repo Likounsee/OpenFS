@@ -9,9 +9,7 @@ use std::collections::BTreeMap;
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
-use crate::{
-    AllocationOwnershipReport, Extent, ExtentMap, Namespace, ObjectId, OpenedVolumeV2,
-};
+use crate::{AllocationOwnershipReport, Extent, ExtentMap, Namespace, ObjectId, OpenedVolumeV2};
 
 /// Structured result of verifying caller-located persistent namespace inventories.
 ///
