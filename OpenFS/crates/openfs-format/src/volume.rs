@@ -393,7 +393,7 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
         let mut discovered = None;
-        let mut pending_blocks = Vec::with_capacity(INVENTORY_DISCOVERY_BATCH_BLOCKS);
+        let mut pending_blocks: Vec<u64> = Vec::with_capacity(INVENTORY_DISCOVERY_BATCH_BLOCKS);
         // Descriptor references often share bitmap pages. Keep only the pages actually
         // needed to validate a candidate descriptor's inventory references.
         let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
