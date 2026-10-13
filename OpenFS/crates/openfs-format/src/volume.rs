@@ -1,7 +1,7 @@
-//! Version 2 volume layout with a reserved persistent journal.
+//! Canonical OpenFS volume layout with a persistent journal.
 //!
-//! Version 1 remains unchanged. current format reserves two checkpoint blocks and a four-block
-//! redo ring before the data region, and journals allocator bitmap changes.
+//! The format reserves two checkpoint blocks and a bounded redo ring before the data region.
+//! Allocator bitmap changes are journaled; durable namespace mutations remain a separate gate.
 
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
@@ -14,7 +14,7 @@ use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
 const MAGIC: &[u8; 8] = b"OPENFS\0\0";
-const VERSION: u16 = 2;
+const FORMAT_VERSION: u16 = 2;
 const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
 const JOURNAL_RING_BLOCKS: u64 = 4;
@@ -843,8 +843,7 @@ impl OpenedVolume {
                 "device geometry does not match opened current volume",
             ));
         }
-        let canonical =
-            VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
+        let canonical = VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
         if self.volume.layout != canonical {
             return Err(Error::InvalidInput(
                 "current volume layout was modified after validation",
@@ -895,7 +894,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     if primary != backup {
         return Err(Error::Corrupt("primary and backup current superblocks disagree"));
     }
-    let (block_size, total_blocks, _features, _uuid) = decode_superblock_current(&primary)?;
+    let (block_size, total_blocks, _features, _uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "current superblock geometry does not match device geometry",
@@ -1058,7 +1057,8 @@ pub fn format_volume<D: BlockDevice>(
     features: u64,
 ) -> Result<OpenedVolume> {
     let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
-    let encoded = encode_superblock_current(layout.block_size, layout.total_blocks, features, uuid)?;
+    let encoded =
+        encode_superblock(layout.block_size, layout.total_blocks, features, uuid)?;
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
@@ -1102,7 +1102,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     if primary != backup {
         return Err(Error::Corrupt("primary and backup current superblocks disagree"));
     }
-    let (block_size, total_blocks, features, uuid) = decode_superblock_current(&primary)?;
+    let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "current superblock geometry does not match device geometry",
@@ -1130,7 +1130,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     })
 }
 
-fn encode_superblock_current(
+fn encode_superblock(
     block_size: u32,
     total_blocks: u64,
     features: u64,
@@ -1144,7 +1144,7 @@ fn encode_superblock_current(
         .ok_or(Error::ArithmeticOverflow)?;
     let mut bytes = [0_u8; SUPERBLOCK_SIZE];
     bytes[..8].copy_from_slice(MAGIC);
-    bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
+    bytes[8..10].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
     bytes[10..12].copy_from_slice(&HEADER_SIZE.to_le_bytes());
     bytes[12..16].copy_from_slice(&block_size.to_le_bytes());
     bytes[16..24].copy_from_slice(&total_blocks.to_le_bytes());
@@ -1155,12 +1155,12 @@ fn encode_superblock_current(
     Ok(bytes)
 }
 
-fn decode_superblock_current(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u8; 16])> {
+fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u8; 16])> {
     if &bytes[..8] != MAGIC {
         return Err(Error::Corrupt("bad current superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION {
+    if version != FORMAT_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
@@ -1240,7 +1240,7 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        check_volume, decode_superblock_current, encode_superblock_current, format_volume,
+        check_volume, decode_superblock, encode_superblock, format_volume,
         open_volume, VolumeLayout,
     };
     use crate::{open_volume, Extent, ExtentMap};
@@ -1355,9 +1355,7 @@ mod tests {
 
     #[test]
     fn refuses_to_publish_when_existing_allocations_have_no_owner() {
-        use crate::{
-            MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
-        };
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         let path = image_path("orphan-allocation-blocks-publication");
         {
@@ -1375,9 +1373,10 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
@@ -2046,7 +2045,7 @@ mod tests {
     fn current_superblock_has_stable_golden_bytes_and_checksum() {
         let uuid = *b"openfs-current-test!!";
         let features = 0x0102_0304_0506_0708;
-        let encoded = encode_superblock_current(4096, 256, features, uuid).unwrap();
+        let encoded = encode_superblock(4096, 256, features, uuid).unwrap();
 
         assert_eq!(
             &encoded[..48],
@@ -2063,7 +2062,7 @@ mod tests {
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
         assert_eq!(
-            decode_superblock_current(&encoded).unwrap(),
+            decode_superblock(&encoded).unwrap(),
             (4096, 256, features, uuid)
         );
     }
@@ -3716,10 +3715,7 @@ mod tests {
             device.read_blocks(0, &mut primary).unwrap();
             primary[100] ^= 1;
             device.write_blocks(0, &primary).unwrap();
-            assert!(matches!(
-                check_volume(&mut device),
-                Err(Error::Corrupt(_))
-            ));
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
         }
         fs::remove_file(path).unwrap();
     }
