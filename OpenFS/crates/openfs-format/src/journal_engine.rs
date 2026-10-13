@@ -153,6 +153,25 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
 
     if !scanned.records.is_empty() {
         let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
+        // Preflight every counter before replay: a counter overflow must never leave
+        // home blocks modified while recovery cannot publish its checkpoint.
+        let highest_sequence = scanned.records.last().unwrap().sequence;
+        let next_sequence = highest_sequence
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let highest_transaction = scanned
+            .records
+            .iter()
+            .map(|record| record.transaction_id)
+            .max()
+            .unwrap();
+        let next_transaction_id = highest_transaction
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let next_generation = checkpoint
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
 
@@ -175,26 +194,12 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             device.flush()?;
         }
 
-        let highest_sequence = scanned.records.last().unwrap().sequence;
-        let highest_transaction = scanned
-            .records
-            .iter()
-            .map(|record| record.transaction_id)
-            .max()
-            .unwrap();
         checkpoint.checkpoint_sequence = highest_sequence;
-        checkpoint.next_sequence = highest_sequence
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
-        checkpoint.next_transaction_id = highest_transaction
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.next_sequence = next_sequence;
+        checkpoint.next_transaction_id = next_transaction_id;
         checkpoint.head_block = 0;
         checkpoint.tail_block = 0;
-        checkpoint.generation = checkpoint
-            .generation
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.generation = next_generation;
         let next_copy = 1 - active_copy;
         let target = checkpoint_block_number(region, next_copy);
         write_checkpoint_block(device, target, &checkpoint)?;
@@ -288,6 +293,16 @@ impl PersistentJournal {
                 "transaction does not fit in the bounded journal ring",
             ));
         }
+        // Preflight counters before the first persistent write. Overflow after a
+        // durable COMMIT would otherwise strand recovery before checkpoint publication.
+        let next_transaction_id = transaction_id
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let next_generation = self
+            .checkpoint
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         let encoded = records
             .iter()
             .map(|record| record.encode_block(block_size))
@@ -312,15 +327,10 @@ impl PersistentJournal {
         device.flush()?;
 
         let mut checkpoint = self.checkpoint;
-        checkpoint.generation = checkpoint
-            .generation
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.generation = next_generation;
         checkpoint.checkpoint_sequence = commit_sequence;
         checkpoint.next_sequence = sequence;
-        checkpoint.next_transaction_id = transaction_id
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        checkpoint.next_transaction_id = next_transaction_id;
         checkpoint.head_block = 0;
         checkpoint.tail_block = 0;
         let next_copy = 1 - self.active_checkpoint_copy;
@@ -754,6 +764,69 @@ mod tests {
         device.write_blocks(HOME, &vec![0x11; BS as usize]).unwrap();
         device.flush().unwrap();
         device
+    }
+
+    #[test]
+    fn counter_overflow_is_rejected_before_any_persistent_write() {
+        for overflow in ["transaction id", "checkpoint generation"] {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            match overflow {
+                "transaction id" => journal.checkpoint.next_transaction_id = u64::MAX,
+                "checkpoint generation" => journal.checkpoint.generation = u64::MAX,
+                _ => unreachable!("test cases are fixed"),
+            }
+
+            // The first attempted I/O fails. ArithmeticOverflow must win, proving
+            // overflow was detected before the journal touched persistent storage.
+            let mut failing = FailAt::new(device.clone(), 0);
+            assert!(matches!(
+                journal.commit(&mut failing, &[update(0xA5)]),
+                Err(Error::ArithmeticOverflow)
+            ));
+            let mut persisted = failing.into_inner();
+            assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
+            let reopened = open_journal(&mut persisted, REGION).unwrap();
+            assert_eq!(reopened.checkpoint().checkpoint_sequence, 0);
+            assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
+        }
+    }
+
+    #[test]
+    fn recovery_counter_overflow_is_rejected_before_replaying_home_blocks() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+
+        // Leave a durable COMMIT but fail the first home write.
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
+
+        let exhausted = crate::JournalCheckpoint {
+            generation: u64::MAX,
+            checkpoint_sequence: 0,
+            next_sequence: 1,
+            next_transaction_id: 1,
+            head_block: 0,
+            tail_block: 0,
+        };
+        super::write_checkpoint_block(&mut recovered, REGION.checkpoint_a, &exhausted).unwrap();
+        super::write_checkpoint_block(&mut recovered, REGION.checkpoint_b, &exhausted).unwrap();
+        recovered.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut recovered, REGION),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(
+            read_home(&mut recovered),
+            vec![0x11; BS as usize],
+            "recovery modified home data before detecting checkpoint generation overflow"
+        );
     }
 
     #[test]
