@@ -221,7 +221,9 @@ impl OpenedVolume {
                 }
             }
             if selection_changed {
-                continue;
+                return Err(Error::Corrupt(
+                    "batch allocation candidates changed during allocation",
+                ));
             }
             // Staged descriptors left by interrupted publication must be scrubbed
             // before this allocation becomes visible in the bitmap.
