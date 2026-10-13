@@ -1059,8 +1059,7 @@ pub fn format_volume<D: BlockDevice>(
     features: u64,
 ) -> Result<OpenedVolume> {
     let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
-    let encoded =
-        encode_superblock(layout.block_size, layout.total_blocks, features, uuid)?;
+    let encoded = encode_superblock(layout.block_size, layout.total_blocks, features, uuid)?;
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
@@ -1141,7 +1140,9 @@ fn encode_superblock(
     uuid: [u8; 16],
 ) -> Result<[u8; SUPERBLOCK_SIZE]> {
     if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
-        return Err(Error::InvalidInput("invalid filesystem superblock geometry"));
+        return Err(Error::InvalidInput(
+            "invalid filesystem superblock geometry",
+        ));
     }
     u64::from(block_size)
         .checked_mul(total_blocks)
@@ -1168,7 +1169,9 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
-        return Err(Error::Corrupt("unexpected filesystem superblock header size"));
+        return Err(Error::Corrupt(
+            "unexpected filesystem superblock header size",
+        ));
     }
     let stored = u32::from_le_bytes(
         bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
@@ -2703,7 +2706,12 @@ mod tests {
     #[test]
     fn current_rejects_invalid_superblock_headers_and_geometry() {
         let cases: [(&str, usize, &[u8], &'static str); 2] = [
-            ("bad-magic", 0, b"BADMAGIC", "bad filesystem superblock magic"),
+            (
+                "bad-magic",
+                0,
+                b"BADMAGIC",
+                "bad filesystem superblock magic",
+            ),
             (
                 "bad-header-size",
                 10,
