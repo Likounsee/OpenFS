@@ -3164,9 +3164,11 @@ mod tests {
                         );
                         assert_eq!(free_after, free_before);
                     } else {
-                        let (block, decoded) = found.unwrap_or_else(|| panic!(
-                            "committed descriptor was lost after flush failure (block size {block_size}, flush {fail_at})"
-                        ));
+                        let (block, decoded) = found.unwrap_or_else(|| {
+                            panic!(
+                                "committed descriptor was lost after flush failure (block size {block_size}, flush {fail_at})"
+                            )
+                        });
                         assert_eq!(decoded, descriptor);
                         assert!(recovered
                             .is_data_block_allocated(&mut device, block)
@@ -3212,7 +3214,9 @@ mod tests {
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&root.encode().unwrap());
-                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    device
+                        .write_blocks(metadata_block, &metadata_bytes)
+                        .unwrap();
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
                         metadata_blocks: vec![metadata_block],
@@ -3246,7 +3250,10 @@ mod tests {
                     let mut bytes = vec![0; block_size as usize];
                     device.read_blocks(reused, &mut bytes).unwrap();
                     assert!(!bytes.starts_with(INVENTORY_DESCRIPTOR_MAGIC));
-                    assert!(recovered.discover_persistent_inventory(&mut device).unwrap().is_none());
+                    assert!(recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none());
                 }
                 fs::remove_file(path).unwrap();
             }
