@@ -1535,12 +1535,12 @@ mod tests {
             };
             let mut encoded = descriptor.encode(4096).unwrap();
             // Keep the self-identifying magic intact but invalidate the descriptor CRC.
-            encoded[crate::INVENTORY_DESCRIPTOR_MAGIC.len()] ^= 0x40;
+            encoded[48] ^= 0x40;
             device.write_blocks(descriptor_block, &encoded).unwrap();
 
             assert!(matches!(
                 volume.discover_persistent_inventory(&mut device),
-                Err(Error::UnsupportedVersion(_)) | Err(Error::Corrupt(_))
+                Err(Error::Corrupt("inventory descriptor CRC32C mismatch"))
             ), "a corrupt allocated descriptor must not be silently ignored");
             assert!(volume
                 .is_data_block_allocated(&mut device, descriptor_block)
