@@ -94,6 +94,14 @@ impl Namespace {
         self.objects.get(&id)
     }
 
+    /// Iterate all metadata records in ascending object-ID order.
+    ///
+    /// This exposes a deterministic read-only inventory for disk validation and
+    /// consistency tools without allowing callers to mutate the namespace indexes.
+    pub fn objects(&self) -> impl Iterator<Item = &MetadataRecord> {
+        self.objects.values()
+    }
+
     /// Find a child by exact, case-sensitive name.
     pub fn lookup(&self, parent_id: ObjectId, name: &str) -> Option<&DirectoryEntry> {
         self.names.get(&(parent_id, name.to_owned()))
