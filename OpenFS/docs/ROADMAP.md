@@ -30,7 +30,11 @@ A test being present is not proof it ran; a green CI run is not proof of physica
 
 ## Progress model
 
-The phase percentages estimate progress toward the explicit acceptance gates below, not lines of code or feature count. Each phase has a fixed weight and its percentage is estimated from weighted exit criteria. Global progress is the sum of phase percentage multiplied by phase weight, rounded to the nearest whole percent. Recalculate after each substantive milestone; do not average phase percentages equally.
+The phase percentages estimate progress toward the explicit acceptance gates below, not lines of code or feature count. Each phase has a fixed weight. The initial estimates are provisional until the per-task scoring ledger below is applied; the ledger is the source of truth for subsequent updates. Global progress is the sum of each phase's weight multiplied by its earned phase fraction, divided by the sum of all phase weights, then rounded to the nearest whole percentage point. Do not average phase percentages equally.
+
+**Units and rounding:** phase weights are percentage points of the project and sum to 100. Inside each phase, task weights are normalized points and sum to 100. A task earns between zero and its full task weight; its earned points are based on the strongest evidence actually available for its acceptance criteria, not on the number of files or tests. Phase progress = earned task points / 100 × 100%. Calculate with full precision and round only the displayed phase and global results to the nearest whole percent (0.5 rounds upward). A displayed integer is not a claim of measurement precision; retain the earned-point ledger to make changes reproducible.
+
+**Evidence credit rule:** for each task, score each stated acceptance criterion once, then sum its weighted criterion contributions. A criterion with no implementation earns 0%; code present but not reachable from the intended path earns at most 25%; integrated behavior without a relevant regression test earns at most 50%; a regression test added but not confirmed executed earns at most 60%; a test confirmed executed locally or in a run earns at most 75%; exact-SHA relevant CI success earns at most 90%; 100% is reserved for all task acceptance criteria being met with evidence appropriate to the claim. These are ceilings, not automatic awards. If a task has several criteria, score them separately and weight by their stated importance. Do not award the same criterion again under another task. For a cross-cutting test, credit it to the task whose behavior it exercises, not again to a generic testing task. Record test-added, test-executed, CI-validated, and physical-device-validated as separate evidence fields.
 
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
@@ -38,7 +42,7 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | P1 Format, layout and allocator | 15% | 82% | Strong image-backed layout/allocator coverage; descriptor publication and ownership recovery remain incomplete |
 | P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
 | P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
-| P4 Persistent namespace and file I/O | 20% | 24% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
+| P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
 | P5 Safe device discovery and formatting | 10% | 5% | Raw-device backend exists but not discovery, exclusive ownership, target confirmation or safe end-user formatting |
 | P6 OS integration | 10% | 0% | No Rust mount/VFS adapter found |
 | P7 Release, compatibility and operational hardening | 5% | 3% | Some docs and CI exist; release gates and hardware/compatibility evidence do not |
@@ -205,7 +209,7 @@ Incomplete:
 **Exit gate:** checker covers every reachable persistent object, reports known corruption, never mutates, and malformed input is fuzzed within a documented budget. Repair remains opt-in and separate from checking.
 
 ## P4 — Durable namespace, files and directories
-**Status: Partially implemented, read-only only — 24%. Weight: 20%.**
+**Status: Partially implemented, read-only only — 21%. Weight: 20%.**
 
 Implemented:
 - Fixed-width checksummed metadata records and directory entries.
@@ -316,3 +320,134 @@ Every development update must report:
 - Whether the evidence is image-backed, host-device-backed, or physical-hardware-backed.
 
 Never mark a phase complete while its exit gate is false. Never report the latest successful CI for a different SHA as validation of a new change. Do not modify the main branch or OpenFS-old as part of this roadmap.
+
+
+## Reproducible task-weight ledger (source of truth for percentages)
+
+The ledger assigns 100 normalized points within every phase. “Weight” is task importance within its phase; “earned” is the current evidence-based estimate, not a claim that all task acceptance criteria pass. Task IDs refer to the numbered tasks in the phase sections above. Where a phase's narrative includes extra cross-cutting work, it is included in the closest task and must not be scored a second time.
+
+| Phase/task | Task weight / 100 | Earned points | Current evidence and reason for credit |
+| --- | ---: | ---: | --- |
+| P0.1 Workspace, crate boundaries and error model | 25 | 25 | Workspace manifests and public crate sources exist; the architecture builds in the tested workspace. |
+| P0.2 Bounded block I/O and device abstractions | 20 | 20 | `openfs-core` and `openfs-block`; image/raw-file device and fault-injection implementations. |
+| P0.3 Format encoding and geometry validation | 20 | 20 | `openfs-format/src/lib.rs`, `volume.rs`; format/open and malformed geometry tests. |
+| P0.4 Non-destructive development image behavior | 15 | 15 | `openfs-tool/src/main.rs`; overwrite-refusal and size-boundary tests. |
+| P0.5 Cross-platform baseline CI | 10 | 10 | Exact-SHA Linux and Windows formatting, workspace tests and Clippy pass in run 38379103899. |
+| P0.6 Contributor safety/evidence contract | 10 | 10 | Existing development docs and this roadmap's explicit evidence policy; reopen if a concrete gap is found. |
+| **P0 total** | **100** | **100** | **100%** |
+| P1.1 Format geometry, superblocks and reserved areas | 20 | 18 | Format/open validation and layout tests exist; golden fixtures and stable format policy remain missing. |
+| P1.2 Allocation/free and persistence across reopen | 20 | 19 | Allocation/free APIs and reopen tests in `volume.rs`; broader crash-cut coverage remains incomplete. |
+| P1.3 Cross-structure block ownership | 15 | 11 | Inventory/extent ownership validation exists; whole-volume canonical-root traversal and all ownership transitions do not. |
+| P1.4 Persistent descriptor publication/recovery | 20 | 15 | Discovery, ambiguity rejection and failed-write orphan test exist; safe repair/replacement protocol is absent. |
+| P1.5 Scalable metadata locator | 15 | 12 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
+| P1.6 Golden images and format compatibility policy | 10 | 7 | Compatibility notes exist; fixtures, version-negotiation tests and conversion are absent. |
+| **P1 total** | **100** | **82** | **82%** |
+| P2.1 Journal state machine and error/poison contract | 15 | 10 | Redo/checkpoint sequencing and protected-target validation exist; no general transaction API/error contract. |
+| P2.2 Write/tear fault-injection harness | 20 | 14 | Fail/tear device wrappers and multiple prefix tests exist; exhaustive write/flush cut matrix is absent. |
+| P2.3 Replay, checkpoint and idempotence | 20 | 12 | Selected torn commit/home/checkpoint and repeated recovery tests exist; coverage is not exhaustive. |
+| P2.4 Transaction capacity and journal expansion design | 20 | 0 | Four-block ring remains bounded; no general capacity design or implementation. |
+| P2.5 Atomic namespace/file transactions | 20 | 0 | Persistent create/write/rename/delete are not implemented. |
+| P2.6 Process/OS/power-loss durability contract | 5 | 4 | Documentation distinguishes software tests from hardware durability; physical evidence is absent. |
+| **P2 total** | **100** | **40** | **40%** |
+| P3.1 Read-only structural volume check | 20 | 12 | `check_volume` and CLI check exist; only the covered corruption cases are evidenced. |
+| P3.2 Full persistent object traversal | 20 | 8 | Inventory-based verification exists, but canonical root discovery/full-volume traversal is blocked. |
+| P3.3 Stable diagnostics and machine-readable report | 15 | 5 | Reports/errors identify some anomalies; stable diagnostic-code contract is not complete. |
+| P3.4 Bounded parser fuzz targets and corpus | 15 | 0 | No Rust fuzz target/CI budget was found in the audited tree. |
+| P3.5 Explicit repair plan/apply protocol | 15 | 0 | No repair utility or dry-run/apply protocol found. |
+| P3.6 Data-checksum policy and validation | 10 | 5 | The limitation is documented; no general persistent file-data checksum scheme is implemented. |
+| P3.7 Corruption regression coverage | 5 | 5 | Multiple format, bitmap, journal, descriptor and namespace corruption regressions exist; coverage remains bounded to those cases. |
+| **P3 total** | **100** | **35** | **35%** |
+| P4.1 Canonical metadata root/locator | 10 | 4 | Persistent descriptor and discovery are a starting point, not a canonical scalable root/index. |
+| P4.2 Read-only reconstruction from disk | 10 | 5 | Descriptor-driven inventory reads and namespace reconstruction exist; no durable mount lifecycle. |
+| P4.3 Durable create/mkdir | 15 | 0 | In-memory namespace insertion is not durable creation. |
+| P4.4 Durable write/truncate | 20 | 0 | File range/content reads exist; persistent writes and truncation do not. |
+| P4.5 Durable rename/unlink/rmdir | 15 | 0 | In-memory namespace operations exist; persistent mutations do not. |
+| P4.6 Directory growth and large inventory support | 10 | 0 | No durable directory-growth path found. |
+| P4.7 Defined namespace/path semantics | 10 | 5 | In-memory path, rename, remove and case-sensitivity tests exist; durable semantics are not integrated. |
+| P4.8 Public file API and error mapping | 5 | 5 | Read APIs and shared errors exist, but no complete durable mutation API. Credit is limited to the read/API portion. |
+| P4.9 Persistent end-to-end mutation tests | 5 | 2 | Image-backed reconstruction/read tests exist, but create-write-close-reopen-read mutation tests cannot pass before mutation exists. |
+| **P4 total** | **100** | **21** | **21%** |
+| P5.1 Read-only device discovery/identity | 20 | 2 | Raw-file backend exists; OS-level removable-device identity/discovery is absent. |
+| P5.2 Exclusive access and system-volume refusal | 20 | 0 | No implementation found. |
+| P5.3 Destructive-operation dry run | 15 | 0 | No implementation found. |
+| P5.4 Explicit confirmation and identity revalidation | 15 | 0 | No implementation found. |
+| P5.5 Mocked safety/refusal tests | 15 | 0 | No discovery/refusal workflow to test. |
+| P5.6 Dedicated physical-device validation | 15 | 3 | Hardware test requirements are documented, but no hardware execution evidence exists; documentation alone receives only minimal planning credit. |
+| **P5 total** | **100** | **5** | **5%** |
+| P6.1 First OS adapter selection and contract | 15 | 0 | No Rust mount/VFS adapter found. |
+| P6.2 Stable core-to-OS operation mapping | 20 | 0 | Blocked by persistent mutation API. |
+| P6.3 Mount/unmount and in-flight operation lifecycle | 15 | 0 | No adapter lifecycle found. |
+| P6.4 Windows normal-file-API integration | 20 | 0 | No Windows adapter found. |
+| P6.5 Linux adapter and integration tests | 15 | 0 | No Linux adapter found. |
+| P6.6 ArchiaOS integration | 10 | 0 | No Rust ArchiaOS VFS/block integration found. |
+| P6.7 ARM64 target evidence | 5 | 0 | No target/runner validation evidence found. |
+| **P6 total** | **100** | **0** | **0%** |
+| P7.1 Format version/feature policy | 15 | 3 | Compatibility constraints are documented; no frozen release contract/golden fixture suite. |
+| P7.2 Safe conversion/migration | 10 | 0 | No converter found; remains conditional on whether migration is in scope. |
+| P7.3 Stress, scale and resource-limit tests | 20 | 0 | No dedicated stress/scale release gate found. |
+| P7.4 Fuzz/sanitizer evidence for Rust | 15 | 0 | No Rust fuzz/sanitizer CI found. |
+| P7.5 Performance benchmarks | 15 | 0 | No benchmark gate found. |
+| P7.6 Security review and threat-model validation | 15 | 0 | Requirements are listed, but no completed review evidence found. |
+| P7.7 Reproducible release/support/recovery artifacts | 10 | 0 | No release-grade evidence found. |
+| **P7 total** | **100** | **3** | **3%** |
+
+### Recalculation
+
+The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points are respectively 100, 82, 40, 35, 21, 5, 0 and 3.
+
+`Global = (10×100 + 15×82 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 38.65` percent, rounded to **39%**.
+
+The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are still absent. The global displayed value remains 39% after rounding, but the unrounded weighted value is 38.65%. P1 remains 82% only as a weighted implementation-progress estimate; its exit gate is still blocked and it must not be called complete.
+
+## Evidence register for implemented work
+
+These references are intended to make important claims quickly auditable without repeating every link in every task. Paths are relative to the repository root.
+
+| Claim | Source/API and representative tests | Change/CI evidence | Limits |
+| --- | --- | --- | --- |
+| Format and geometry | `OpenFS/crates/openfs-format/src/lib.rs` (`Superblock::encode/decode`); `volume.rs` (`VolumeLayout::calculate`, `format_volume`, `open_volume`, `check_volume`) | Rust CI run [38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899), exact tested SHA `44efa42408258247fdcb99890799f19b8e9c482f` | CI proves the configured automated suite only; not physical-device durability. |
+| Allocation, descriptor discovery and failed-publication behavior | `volume.rs`: `allocate_block`, `free_block`, `publish_persistent_inventory`, `discover_persistent_inventory`; tests `discovers_unique_persistent_inventory_descriptor`, `failed_descriptor_write_leaves_detectable_orphan_and_never_publishes_partial_state`, `refuses_to_publish_when_existing_allocations_have_no_owner` | Descriptor failure regression commit [1a7d2ea](https://github.com/Likounsee/OpenFS/commit/1a7d2ea32cd21a4c6674914b4945a2ea878aa258); roadmap evidence previously recorded in [ce36ced](https://github.com/Likounsee/OpenFS/commit/ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c); CI run 38375058616 passed Linux/Windows for code SHA 1a7d2ea | Detects and refuses unresolved orphan ownership; does not automatically recover it. |
+| Journal/checkpoint recovery | `OpenFS/crates/openfs-format/src/journal_engine.rs`: `PersistentJournal::commit`, `validate_checkpoint_geometry`; tests `replays_durable_commit_if_home_write_fails`, `torn_home_write_is_repaired_from_durable_redo_record`, `torn_checkpoint_write_recovers_from_durable_redo_for_multiple_prefixes`, `open_rejects_persisted_checkpoint_sequence_gap` | Checkpoint validation commit [16957d1](https://github.com/Likounsee/OpenFS/commit/16957d1efcb182dbf38c15e4f58646343ff8a688); torn checkpoint regression [8b74985](https://github.com/Likounsee/OpenFS/commit/8b7498584554138ce9e0c516d750ebf3db5f0e2f); journal reuse after recovery [d43132f](https://github.com/Likounsee/OpenFS/commit/d43132fda7dd6c5efed6d3cea5347b6d9ab30c95); run [38374720525](https://github.com/Likounsee/OpenFS/actions/runs/38374720525) passed Linux/Windows for its tested SHA | Selected crash cuts and allocator-focused use only; not a general namespace transaction protocol. |
+| In-memory namespace and path invariants | `OpenFS/crates/openfs-format/src/namespace.rs`: `Namespace::from_records`, `resolve_path`, `insert`, `rename`, `remove`, `validate`; tests for duplicate names, rename/move, removal, generation overflow, traversal and index consistency | Latest Rust CI run 38379103899 tests the full workspace at exact SHA 44efa42408258247fdcb99890799f19b8e9c482f | In-memory correctness does not prove durable namespace mutations. |
+| Read paths and read-only checker | `volume.rs`: `read_file_range`, `read_file_contents`, `read_path_range`, `check_volume`; CLI `OpenFS/crates/openfs-tool/src/main.rs`: `check_image`; test `checks_current_image_without_modifying_it` | Latest Rust CI run 38379103899 passed on exact SHA 44efa42408258247fdcb99890799f19b8e9c482f | Does not provide whole-volume repair, durable write/truncate or mount integration. |
+| Cross-platform CI contract | `.github/workflows/ci.yml`: formatting, `cargo test --workspace`, Clippy with warnings denied on Linux and Windows | [Run 38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899), SHA `44efa42408258247fdcb99890799f19b8e9c482f`, both jobs success | No fuzzing, sanitizer, benchmark, mounted OS integration or physical hardware job. |
+
+Evidence vocabulary is mandatory: **Implemented** means code/API exists; **Integrated** means connected to the intended end-to-end path; **Test added** means a matching test exists in source; **Test executed** means a recorded runner actually ran it; **CI validated** means the relevant job succeeded on the exact cited SHA; **Non vérifié** means evidence does not cover the claim; **Bloqué** means a safety prerequisite or unresolved defect prevents progression. For historical commits whose exact run cannot be retrieved, treat the run reference above as historical recorded evidence and do not extrapolate its result to later SHAs.
+
+## Dependency matrix (P1–P7)
+
+| Blocked phase/task | Required dependency | Technical reason | Objective unblock condition and proof | Phases unblocked |
+| --- | --- | --- | --- | --- |
+| P1.3–P1.4 ownership and descriptor lifecycle | P2.1 transaction state machine plus explicit descriptor/root ownership invariants | Allocation can commit before descriptor publication; failed publication can leave a detectable allocated orphan, and replacement cannot safely choose between old/new descriptors without a commit point. | Written state machine and on-disk ownership contract; injected failure at each write/flush boundary; reopen yields one unambiguous committed descriptor and no unexplained allocation. | P4 durable root and mutations; P3 full traversal. |
+| P2.2–P2.5 transaction/recovery | P2.1 error/commit contract and P1 protected layout | A journal with a bounded ring and selected recovery tests cannot safely provide multi-object atomicity until capacity, replay and uncertain-I/O behavior are specified. | Crash-cut matrix for every journal/flush/checkpoint/replay boundary; repeat replay; compare persisted bytes and require old-or-new state only; prove writes are refused after indeterminate recovery. | P4 mutations; later P6 adapter. |
+| P4.1–P4.2 canonical root and reconstruction | P1 descriptor lifecycle plus P2 commit protocol | Reads currently depend on inventory/descriptor structures and cannot establish a durable, scalable root locator under mutation. | Versioned root/index discoverable without caller-supplied lists; reopen reconstructs identical graph; malformed pointers fail closed; large/sparse image test. | P3 whole-volume verifier; P4 durable mutations; P6 API adapter planning. |
+| P4.3–P4.6 durable file/namespace operations | P4.1 root, P2 atomic transaction semantics, P1 ownership/allocation contract | Create/write/truncate/rename/delete must update object records, directory entries, extent maps and allocation ownership atomically. | For each operation, injected failure at each persistent step; reopen is old or new complete state; checker finds no alias, dangling pointer or leak. | P3 full traversal; P6 OS integration. |
+| P3.2–P3.5 full verification/repair | P4.1 root and defined ownership/reference model; checker remains read-only | Without a canonical root, a full traversal cannot find all objects. Repair before reliable diagnostics and ownership reconstruction risks making corruption worse. | Read-only scan covers every reachable object; deterministic diagnostics and byte-for-byte image preservation; repairs, if later added, require explicit preview/apply and post-check. | P5 safety confidence; P7 release gate. |
+| P5.1–P5.5 safe discovery/format | P4 durable API for useful use; OS-specific identity/partition APIs and destructive safety policy | A raw path is not proof of a removable USB identity; writing can overwrite system/partition data. | Mocked tests refuse mounted/system/ambiguous/changed devices; revalidate stable identity and geometry immediately before confirmation and first write. | Physical test stage and P7 operational release, not core image development. |
+| P6.1–P6.6 OS integration | P4 durable APIs and error semantics; P2 flush/uncertain-I/O contract; P3 diagnostics for failure handling | OS callbacks need stable semantics for file operations, flush, shutdown, errors and failed recovery. | Normal OS file API integration tests for create/read/write/rename/delete, clean unmount/remount and byte verification on the claimed OS. | P7 release qualification for that OS. |
+| P7.1–P7.7 compatibility and release | P1 format/version contract, P2 recovery evidence, P3 checker, P4 functional API, P5/P6 claimed platform validation | A release cannot promise compatibility, data safety or platform support from source presence or image-only unit tests. | Versioned golden images; compatibility/rejection tests; stress/fuzz results; recovery guide; supported-platform matrix; no unresolved data-loss blocker. | Public/production release. |
+
+The dependencies are gates, not a requirement to stop all parallel work: tests, fuzz harness design, diagnostics design, OS-adapter research and mocked discovery can proceed in parallel as long as they do not expose unsafe mutation or claim unsupported behavior.
+
+## First usable filesystem milestones
+
+These milestones are acceptance gates, not assertions that the milestone has already been reached.
+
+| Milestone | Status at this audit | Acceptance criteria | Required evidence |
+| --- | --- | --- | --- |
+| **A — Format and recovery reliability** | **Partially achieved; not complete** | Format/reopen images; allocate/free/reopen without leaks; reject corrupt layouts; recover deterministically at every covered interruption. | Image-backed regression suite, exact-SHA Linux/Windows CI, exhaustive persisted-byte crash-cut matrix. |
+| **B — First persistent file** | **Not achieved; blocked** | Create file, write known bytes, close/reopen, read identical bytes; ownership checker finds no leaks/aliases. | End-to-end image test with injected failure at each commit boundary and reopen verification. |
+| **C — Complete namespace operations** | **Not achieved; blocked** | mkdir, empty/fragmented files, rename, truncate and delete; no-space and interruption behavior is coherent. | Persistent operation tests, crash matrix, checker pass after every scenario. |
+| **D — Verification and reliability** | **Partially achieved; incomplete** | Traverse all persistent objects, stable diagnostics, malformed-image corpus, bounded fuzzing; repairs explicit and never silent. | Read-only image preservation, deterministic reports, fuzz corpus/regression fixtures, separate repair dry-run/apply tests if repair is implemented. |
+| **E — OS integration and normal use** | **Not achieved; blocked** | Stable persistent API and first OS adapter; ordinary OS file APIs; clean unmount/remount with bytes preserved. | Integration test against real OS filesystem APIs on every claimed platform. |
+| **F — Physical device and publication** | **Not achieved; blocked** | Safe removable-device identity, refuse system/mounted/ambiguous targets, explicit confirmation, dedicated disposable USB test, support/compatibility matrix. | Mocked refusal tests plus recorded hardware test on dedicated media; never infer physical durability from image tests. |
+
+## Final consistency checks for roadmap maintenance
+
+Before changing any percentage or status in a future update:
+1. Confirm branch and exact HEAD; inspect the task's current source, tests and workflow.
+2. Update the earned points only for acceptance criteria whose evidence changed; keep the task weight fixed unless the scope changes and the reason is documented.
+3. Recompute every phase as earned points / 100 and the global value using phase weights; never edit the displayed total by intuition.
+4. Verify every cited CI run's `head_sha` matches the claim. A later documentation-only CI pass validates that revision's configured checks, not physical behavior or a different code SHA.
+5. Verify dependency gates and milestone status against the actual implementation, not just task completion percentages.
+6. Review the diff and ensure this roadmap-only mission did not change filesystem source, tests, scripts or workflow code.
