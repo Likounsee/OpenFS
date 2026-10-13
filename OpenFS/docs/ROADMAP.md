@@ -145,10 +145,11 @@ Implemented:
 - Journaled bitmap allocation changes and layout/bitmap corruption tests.
 - Persistent metadata/directory codecs, extent-map page codec and ownership verifier foundations.
 - Persistent inventory descriptor publication/discovery, bounded batched reads and fail-closed handling for malformed, duplicated or unallocated references.
-- Latest code test for a failed descriptor home write leaves a detectable orphan and prevents publication over unresolved ownership anomalies, across all five block sizes. Rust CI run 38375058616 passed Linux and Windows formatting, workspace tests and Clippy. Latest HEAD CI run 38375379163 also passed both jobs.
+- Descriptor publication now stages the encoded descriptor in a free data block and flushes it before journaling the allocation bitmap. The bitmap commit is the visibility point: discovery scans allocated blocks, so an uncommitted staged descriptor remains invisible after reopen. The fault-injection test fails each journal/home/checkpoint write position across all five supported block sizes and verifies recovery to either the old state or the complete descriptor. A follow-up assertion allocates the abandoned staging block and verifies its stale descriptor magic is cleared before reuse.
+- Exact implementation/test evidence: commit `deb859d627666b41d49416b328cb898e90952f00`; Rust CI run [38427342653](https://github.com/Likounsee/OpenFS/actions/runs/38427342653) passed formatting, workspace tests and Clippy on both Linux and Windows.
 
 Open blockers:
-- Descriptor allocation and descriptor block publication are not atomic. A failure can leave an allocated orphan; current behavior detects and refuses to proceed rather than repairing it.
+- The initial descriptor publication now has an explicit visibility point and recovers old-or-complete state for the tested journal write failures. Flush failures and torn-prefix writes are not yet covered by this descriptor-specific matrix, and the protocol does not solve general multi-object transactions.
 - Safe descriptor replacement is absent; overwriting/duplicating descriptors is not a supported update protocol.
 - Discovery scans the whole data region and is not suitable as a final scalable metadata locator.
 - Ownership checking depends on the current inventory representation; no full durable namespace mutation path uses it yet.
