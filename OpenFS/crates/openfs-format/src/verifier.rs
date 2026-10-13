@@ -34,6 +34,16 @@ pub struct PersistentInventoryReport {
     pub descriptor_block: Option<u64>,
 }
 
+/// Inputs describing one persistent inventory and the optional descriptor that owns it.
+struct InventorySources<'a> {
+    root_id: ObjectId,
+    metadata_blocks: &'a [u64],
+    metadata_record_count: usize,
+    directory_blocks: &'a [u64],
+    directory_entry_count: usize,
+    descriptor_block: Option<u64>,
+}
+
 impl PersistentInventoryReport {
     /// True only when structural validation succeeded and every data block has one owner.
     pub fn is_consistent(&self) -> bool {
@@ -65,15 +75,16 @@ impl OpenedVolumeV2 {
         directory_blocks: &[u64],
         directory_entry_count: usize,
     ) -> Result<PersistentInventoryReport> {
-        self.verify_persistent_inventory_with_extra_blocks(
+        self.verify_persistent_inventory_with_sources(
             device,
-            root_id,
-            metadata_blocks,
-            metadata_record_count,
-            directory_blocks,
-            directory_entry_count,
-            &[],
-            None,
+            InventorySources {
+                root_id,
+                metadata_blocks,
+                metadata_record_count,
+                directory_blocks,
+                directory_entry_count,
+                descriptor_block: None,
+            },
         )
     }
 
@@ -87,37 +98,32 @@ impl OpenedVolumeV2 {
         else {
             return Ok(None);
         };
-        let report = self.verify_persistent_inventory_with_extra_blocks(
+        let report = self.verify_persistent_inventory_with_sources(
             device,
-            descriptor.root_id,
-            &descriptor.metadata_blocks,
-            descriptor.metadata_record_count,
-            &descriptor.directory_blocks,
-            descriptor.directory_entry_count,
-            &[descriptor_block],
-            Some(descriptor_block),
+            InventorySources {
+                root_id: descriptor.root_id,
+                metadata_blocks: &descriptor.metadata_blocks,
+                metadata_record_count: descriptor.metadata_record_count,
+                directory_blocks: &descriptor.directory_blocks,
+                directory_entry_count: descriptor.directory_entry_count,
+                descriptor_block: Some(descriptor_block),
+            },
         )?;
         Ok(Some(report))
     }
 
-    fn verify_persistent_inventory_with_extra_blocks<D: BlockDevice>(
+    fn verify_persistent_inventory_with_sources<D: BlockDevice>(
         &self,
         device: &mut D,
-        root_id: ObjectId,
-        metadata_blocks: &[u64],
-        metadata_record_count: usize,
-        directory_blocks: &[u64],
-        directory_entry_count: usize,
-        extra_owned_blocks: &[u64],
-        descriptor_block: Option<u64>,
+        sources: InventorySources<'_>,
     ) -> Result<PersistentInventoryReport> {
         let namespace = self.reconstruct_namespace(
             device,
-            root_id,
-            metadata_blocks,
-            metadata_record_count,
-            directory_blocks,
-            directory_entry_count,
+            sources.root_id,
+            sources.metadata_blocks,
+            sources.metadata_record_count,
+            sources.directory_blocks,
+            sources.directory_entry_count,
         )?;
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
 
@@ -127,10 +133,11 @@ impl OpenedVolumeV2 {
         // remains one range in the bitmap reconciliation rather than expanding all blocks.
         let mut index_extents = Vec::new();
         let mut logical_cursor = 0_u64;
-        for block in metadata_blocks
+        for block in sources
+            .metadata_blocks
             .iter()
-            .chain(directory_blocks.iter())
-            .chain(extra_owned_blocks.iter())
+            .chain(sources.directory_blocks.iter())
+            .chain(sources.descriptor_block.iter())
         {
             index_extents.push(Extent {
                 logical_start: logical_cursor,
@@ -175,10 +182,10 @@ impl OpenedVolumeV2 {
             namespace,
             extent_maps,
             allocation,
-            metadata_record_count,
-            directory_entry_count,
+            metadata_record_count: sources.metadata_record_count,
+            directory_entry_count: sources.directory_entry_count,
             owner_map_count: owned_maps.len(),
-            descriptor_block,
+            descriptor_block: sources.descriptor_block,
         })
     }
 }
