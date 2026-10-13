@@ -2213,7 +2213,9 @@ mod tests {
                     .expect("committed descriptor must be discoverable after journal recovery");
                 assert_eq!(discovered.1, descriptor);
                 assert!(
-                    volume.is_data_block_allocated(&mut device, discovered.0).unwrap(),
+                    volume
+                        .is_data_block_allocated(&mut device, discovered.0)
+                        .unwrap(),
                     "recovered descriptor block must be allocated at block size {block_size}"
                 );
             }
