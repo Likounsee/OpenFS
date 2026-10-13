@@ -805,15 +805,15 @@ mod tests {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
 
-        // Let the COMMIT and home write succeed, but fail before checkpoint publication.
-        // This leaves a committed, uncheckpointed transaction in the ring.
-        let mut failing = FailAt::new(device.clone(), 8);
+        // Fail the first home write after COMMIT is durable. This leaves a committed,
+        // uncheckpointed transaction while preserving the old home image.
+        let mut failing = FailAt::new(device.clone(), 6);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
         ));
         let mut recovered = failing.into_inner();
-        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
 
         // Damage BEGIN while later valid UPDATE/COMMIT records remain. Unlike a malformed
         // terminal append, this is not a safely ignorable tail and must fail closed.
@@ -827,8 +827,9 @@ mod tests {
                 "malformed journal block appears before a later valid record"
             ))
         ));
-        // Opening is read-only until the entire recovery plan validates; HOME is untouched.
-        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+        // Recovery must validate the ring before replay; malformed history cannot
+        // trigger a partial home-block update.
+        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
     }
 
     #[test]
