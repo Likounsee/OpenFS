@@ -1577,6 +1577,43 @@ mod tests {
         }
     }
 
+    struct FailNthFlush<D> {
+        inner: D,
+        armed: bool,
+        flushes_before_failure: usize,
+    }
+
+    impl<D: BlockDevice> BlockDevice for FailNthFlush<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            if self.armed {
+                if self.flushes_before_failure == 0 {
+                    self.armed = false;
+                    return Err(Error::Io(std::io::Error::other(
+                        "injected inventory journal commit flush failure",
+                    )));
+                }
+                self.flushes_before_failure -= 1;
+            }
+            self.inner.flush()
+        }
+    }
+
     #[test]
     fn discovery_fails_closed_on_corrupt_allocated_descriptor() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
@@ -2100,6 +2137,84 @@ mod tests {
                         .unwrap()
                         .is_none(),
                     "failed publication must remain undiscoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn publication_journal_commit_flush_failure_recovers_committed_inventory() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("inventory-journal-commit-flush-{block_size}"));
+            let metadata_block;
+            let free_before;
+            let descriptor = {
+                let raw = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut device = FailNthFlush {
+                    inner: raw,
+                    armed: false,
+                    flushes_before_failure: 2,
+                };
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0_u8; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                free_before = volume.free_data_block_count(&mut device).unwrap();
+                // Publication flushes the staged descriptor first, then the journal's
+                // begin/update records. Fail the next flush, after the commit record write.
+                device.armed = true;
+                assert!(
+                    matches!(
+                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::Io(_))
+                    ),
+                    "injected journal commit flush must report an I/O error at block size {block_size}"
+                );
+                descriptor
+            };
+
+            // The image backend exposes writes made before the injected flush error.
+            // Reopening must replay the committed redo record, so the reported error has
+            // an uncertain outcome: the descriptor can legitimately become visible.
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before - 1,
+                    "journal recovery must apply the committed descriptor allocation at block size {block_size}"
+                );
+                let discovered = volume
+                    .discover_persistent_inventory(&mut device)
+                    .unwrap()
+                    .expect("committed descriptor must be discoverable after journal recovery");
+                assert_eq!(discovered.1, descriptor);
+                assert!(
+                    volume.is_data_block_allocated(&mut device, discovered.0).unwrap(),
+                    "recovered descriptor block must be allocated at block size {block_size}"
                 );
             }
             fs::remove_file(path).unwrap();
