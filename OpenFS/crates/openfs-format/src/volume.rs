@@ -161,6 +161,17 @@ impl OpenedVolume {
                     let bit = u64::from(available.trailing_zeros());
                     let local = byte_start + bit;
                     let block = bitmap_base + local;
+                    // A failed descriptor publication may have staged descriptor bytes in
+                    // a still-free block. Clear that reserved magic before exposing the
+                    // block as a different allocation, otherwise discovery could mistake
+                    // stale bytes for a live descriptor.
+                    let mut existing = vec![0_u8; block_size];
+                    device.read_blocks(block, &mut existing)?;
+                    if existing.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                        existing.fill(0);
+                        device.write_blocks(block, &existing)?;
+                        device.flush()?;
+                    }
                     *byte |= 1_u8 << bit;
                     self.journal.commit(
                         device,
@@ -357,9 +368,12 @@ impl OpenedVolume {
             ));
         }
 
-        // Reserve the descriptor block and publish its contents in the same journal
-        // transaction. A separate allocate_block() followed by a descriptor write could
-        // leave an unowned allocation if the process or device failed between the two.
+        // Prepare the descriptor in a free block and flush it before committing the
+        // allocation bit. Discovery scans allocated blocks only, so the bitmap journal
+        // commit is the visibility point: after recovery, either the block is still free
+        // (and the staged bytes are ignored) or it is allocated with durable descriptor data.
+        // A later allocation clears stale descriptor magic before reusing an uncommitted
+        // staging block, preventing it from becoming a false positive.
         let layout = self.volume.layout;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
@@ -381,8 +395,9 @@ impl OpenedVolume {
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut candidate = None;
             for (byte_index, byte) in bitmap
-                .iter_mut()
+                .iter()
                 .enumerate()
                 .take(end_byte)
                 .skip(first_byte)
@@ -397,37 +412,33 @@ impl OpenedVolume {
                 }
                 let available = !*byte & valid_mask;
                 if available != 0 {
-                    let bit = u64::from(available.trailing_zeros());
-                    let local = byte_start + bit;
-                    let descriptor_block = bitmap_base + local;
-                    if claimed.contains(&descriptor_block) {
-                        return Err(Error::Corrupt(
-                            "allocator selected a block already owned by the inventory",
-                        ));
-                    }
-                    *byte |= 1_u8 << bit;
-                    selected = Some((descriptor_block, bitmap_block, bitmap));
+                    candidate = Some((byte_index, available.trailing_zeros()));
                     break;
                 }
             }
-            if selected.is_some() {
+            if let Some((byte_index, bit)) = candidate {
+                let local = (byte_index as u64) * 8 + u64::from(bit);
+                let descriptor_block = bitmap_base + local;
+                if claimed.contains(&descriptor_block) {
+                    return Err(Error::Corrupt(
+                        "allocator selected a block already owned by the inventory",
+                    ));
+                }
+                bitmap[byte_index] |= 1_u8 << bit;
+                selected = Some((descriptor_block, bitmap_block, bitmap));
                 break;
             }
         }
         let (descriptor_block, bitmap_block, bitmap) =
             selected.ok_or(Error::InvalidInput("volume has no free data blocks"))?;
+        device.write_blocks(descriptor_block, &encoded)?;
+        device.flush()?;
         self.journal.commit(
             device,
-            &[
-                RedoUpdate {
-                    target_block: bitmap_block,
-                    contents: bitmap,
-                },
-                RedoUpdate {
-                    target_block: descriptor_block,
-                    contents: encoded,
-                },
-            ],
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
         )?;
         Ok(descriptor_block)
     }
@@ -1783,7 +1794,7 @@ mod tests {
                     let mut recovered = open_volume(&mut device).unwrap();
                     let discovered = recovered.discover_persistent_inventory(&mut device).unwrap();
                     let free_after = recovered.free_data_block_count(&mut device).unwrap();
-                    if fail_at <= 3 {
+                    if fail_at <= 4 {
                         assert!(
                             discovered.is_none(),
                             "uncommitted descriptor must remain invisible (block size {block_size}, write {fail_at})"
