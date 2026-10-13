@@ -350,12 +350,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_overlapping_or_mis_sized_inventory_lists() {
-        let mut value = sample();
-        value.directory_blocks[0] = value.metadata_blocks[0];
-        assert!(matches!(value.encode(4096), Err(Error::InvalidInput(_))));
-        let mut value = sample();
-        value.metadata_blocks.clear();
-        assert!(matches!(value.encode(4096), Err(Error::InvalidInput(_))));
+    fn rejects_overlapping_or_mis_sized_inventory_lists_at_every_block_size() {
+        for block_size in [4096_usize, 8192, 16_384, 32_768, 65_536] {
+            let valid = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![20],
+                metadata_record_count: 1,
+                directory_blocks: vec![21],
+                directory_entry_count: 1,
+            };
+            assert!(valid.encode(block_size).is_ok());
+
+            let mut overlapping = valid.clone();
+            overlapping.directory_blocks[0] = overlapping.metadata_blocks[0];
+            assert!(
+                matches!(overlapping.encode(block_size), Err(Error::InvalidInput(_))),
+                "overlapping inventory lists were accepted at block size {block_size}"
+            );
+
+            let mut mis_sized = valid;
+            mis_sized.metadata_blocks.clear();
+            assert!(
+                matches!(mis_sized.encode(block_size), Err(Error::InvalidInput(_))),
+                "mis-sized inventory list was accepted at block size {block_size}"
+            );
+        }
     }
 }
