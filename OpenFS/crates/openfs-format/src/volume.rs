@@ -1689,7 +1689,9 @@ mod tests {
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&root.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
