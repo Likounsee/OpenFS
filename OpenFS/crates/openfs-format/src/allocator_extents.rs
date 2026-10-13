@@ -456,10 +456,6 @@ impl OpenedVolume {
         let base = (start / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
-        // Match the single- and batch-block allocators: stale staged descriptor bytes
-        // must be durable-cleared before these free blocks become allocated.
-        let selected: Vec<u64> = (start..end).collect();
-        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
         for block in start..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -469,6 +465,10 @@ impl OpenedVolume {
                 ));
             }
         }
+        // Validate the entire reservation before touching block contents. If the bitmap
+        // changed since the free-run scan, fail without clearing a block that is now owned.
+        let selected: Vec<u64> = (start..end).collect();
+        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
         for block in start..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
