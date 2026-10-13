@@ -301,6 +301,7 @@ mod directory_entry;
 mod extent_map;
 mod journal;
 mod journal_engine;
+mod inventory_descriptor;
 mod metadata;
 mod namespace;
 mod verifier;
@@ -315,6 +316,7 @@ pub use journal::{
     plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
     JOURNAL_MAX_PAYLOAD_SIZE, JOURNAL_VERSION,
 };
+pub use inventory_descriptor::{PersistentInventoryDescriptor, INVENTORY_DESCRIPTOR_MAGIC};
 pub use journal_engine::{
     format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
 };
