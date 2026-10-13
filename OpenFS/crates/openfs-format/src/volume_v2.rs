@@ -443,28 +443,44 @@ impl OpenedVolumeV2 {
         let requested = u64::try_from(length).map_err(|_| Error::ArithmeticOverflow)?;
         let read_len = usize::try_from((record.size - offset).min(requested))
             .map_err(|_| Error::ArithmeticOverflow)?;
-        let end = offset.checked_add(read_len as u64).ok_or(Error::ArithmeticOverflow)?;
+        let end = offset
+            .checked_add(read_len as u64)
+            .ok_or(Error::ArithmeticOverflow)?;
         let block_size = u64::from(self.volume.block_size);
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
         let map = extent_maps.get(&object_id);
         if record.extent_root_block.is_some() && map.is_none() {
-            return Err(Error::Corrupt("file extent map is missing from loaded inventory"));
+            return Err(Error::Corrupt(
+                "file extent map is missing from loaded inventory",
+            ));
         }
         if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
-            return Err(Error::Corrupt("file has extents without a persistent extent-map root"));
+            return Err(Error::Corrupt(
+                "file has extents without a persistent extent-map root",
+            ));
         }
 
         let mut output = vec![0_u8; read_len];
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
         for logical in first_logical..=last_logical {
-            let block_start = logical.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
+            let block_start = logical
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
             let copy_start = offset.max(block_start);
-            let copy_end = end.min(block_start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?);
-            let destination_start = usize::try_from(copy_start - offset).map_err(|_| Error::ArithmeticOverflow)?;
-            let destination_end = usize::try_from(copy_end - offset).map_err(|_| Error::ArithmeticOverflow)?;
-            let within_start = usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
-            let within_end = usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let copy_end = end.min(
+                block_start
+                    .checked_add(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let destination_start =
+                usize::try_from(copy_start - offset).map_err(|_| Error::ArithmeticOverflow)?;
+            let destination_end =
+                usize::try_from(copy_end - offset).map_err(|_| Error::ArithmeticOverflow)?;
+            let within_start =
+                usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let within_end =
+                usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
 
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
                 if physical < self.volume.layout.data_start
@@ -1169,15 +1185,28 @@ mod tests {
             let first_data = volume.allocate_block(&mut device).unwrap();
             let second_data = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
-                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                flags: 0, size: 0, extent_root_block: None, generation: 1,
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
             let file = MetadataRecord {
-                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 12_000, extent_root_block: Some(extent_root), generation: 1,
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 12_000,
+                extent_root_block: Some(extent_root),
+                generation: 1,
             };
             let entry = DirectoryEntry {
-                parent_id: 1, object_id: 2, kind: ObjectKind::File, name: "sparse.bin".into(),
+                parent_id: 1,
+                object_id: 2,
+                kind: ObjectKind::File,
+                name: "sparse.bin".into(),
             };
             let mut metadata = vec![0; 4096];
             metadata[..80].copy_from_slice(&root.encode().unwrap());
@@ -1189,15 +1218,37 @@ mod tests {
             device.write_blocks(first_data, &vec![0xA5; 4096]).unwrap();
             device.write_blocks(second_data, &vec![0x5A; 4096]).unwrap();
             let map = ExtentMap::new(vec![
-                Extent { logical_start: 0, physical_start: first_data, block_count: 1 },
-                Extent { logical_start: 2, physical_start: second_data, block_count: 1 },
-            ]).unwrap();
-            device.write_blocks(extent_root, &map.encode_block(4096).unwrap()).unwrap();
-            let namespace = volume.reconstruct_namespace(
-                &mut device, ObjectId(1), &[metadata_block], 2, &[directory_block], 1,
-            ).unwrap();
-            let maps = volume.read_namespace_extent_maps(&mut device, &namespace).unwrap();
-            let full = volume.read_file_contents(&mut device, &namespace, &maps, ObjectId(2)).unwrap();
+                Extent {
+                    logical_start: 0,
+                    physical_start: first_data,
+                    block_count: 1,
+                },
+                Extent {
+                    logical_start: 2,
+                    physical_start: second_data,
+                    block_count: 1,
+                },
+            ])
+            .unwrap();
+            device
+                .write_blocks(extent_root, &map.encode_block(4096).unwrap())
+                .unwrap();
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                )
+                .unwrap();
+            let maps = volume
+                .read_namespace_extent_maps(&mut device, &namespace)
+                .unwrap();
+            let full = volume
+                .read_file_contents(&mut device, &namespace, &maps, ObjectId(2))
+                .unwrap();
             assert_eq!(&full[..4096], &vec![0xA5; 4096]);
             assert!(full[4096..8192].iter().all(|byte| *byte == 0));
             assert_eq!(&full[8192..], &vec![0x5A; 3808]);
@@ -1225,15 +1276,28 @@ mod tests {
             let extent_root = volume.allocate_block(&mut device).unwrap();
             let data_block = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
-                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                flags: 0, size: 0, extent_root_block: None, generation: 1,
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
             let file = MetadataRecord {
-                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 4096, extent_root_block: Some(extent_root), generation: 1,
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 4096,
+                extent_root_block: Some(extent_root),
+                generation: 1,
             };
             let entry = DirectoryEntry {
-                parent_id: 1, object_id: 2, kind: ObjectKind::File, name: "data.bin".into(),
+                parent_id: 1,
+                object_id: 2,
+                kind: ObjectKind::File,
+                name: "data.bin".into(),
             };
             let mut metadata = vec![0; 4096];
             metadata[..80].copy_from_slice(&root.encode().unwrap());
@@ -1243,8 +1307,13 @@ mod tests {
             directory[..128].copy_from_slice(&entry.encode().unwrap());
             device.write_blocks(directory_block, &directory).unwrap();
             let map = ExtentMap::new(vec![
-                Extent { logical_start: 0, physical_start: data_block, block_count: 1 },
-            ]).unwrap();
+                Extent {
+                    logical_start: 0,
+                    physical_start: data_block,
+                    block_count: 1,
+                },
+            ])
+            .unwrap();
             device.write_blocks(extent_root, &map.encode_block(4096).unwrap()).unwrap();
             device.write_blocks(data_block, &vec![0xCD; 4096]).unwrap();
             let namespace = volume.reconstruct_namespace(
@@ -1260,8 +1329,17 @@ mod tests {
                 Err(Error::InvalidInput("file object does not exist"))
             ));
             assert!(matches!(
-                volume.read_file_range(&mut device, &namespace, &BTreeMap::new(), ObjectId(2), 0, 8),
-                Err(Error::Corrupt("file extent map is missing from loaded inventory"))
+                volume.read_file_range(
+                    &mut device,
+                    &namespace,
+                    &BTreeMap::new(),
+                    ObjectId(2),
+                    0,
+                    8
+                ),
+                Err(Error::Corrupt(
+                    "file extent map is missing from loaded inventory"
+                ))
             ));
             volume.free_block(&mut device, data_block).unwrap();
             assert!(matches!(
