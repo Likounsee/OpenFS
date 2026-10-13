@@ -42,7 +42,11 @@ impl PersistentInventoryDescriptor {
                 .to_le_bytes(),
         );
         let mut cursor = HEADER_SIZE;
-        for block in self.metadata_blocks.iter().chain(self.directory_blocks.iter()) {
+        for block in self
+            .metadata_blocks
+            .iter()
+            .chain(self.directory_blocks.iter())
+        {
             bytes[cursor..cursor + 8].copy_from_slice(&block.to_le_bytes());
             cursor += 8;
         }
@@ -67,14 +71,22 @@ impl PersistentInventoryDescriptor {
             return Err(Error::UnsupportedVersion(version));
         }
         if u16::from_le_bytes([bytes[10], bytes[11]]) as usize != HEADER_SIZE {
-            return Err(Error::Corrupt("unexpected inventory descriptor header size"));
+            return Err(Error::Corrupt(
+                "unexpected inventory descriptor header size",
+            ));
         }
         if bytes[36..40].iter().any(|byte| *byte != 0)
             || bytes[44..48].iter().any(|byte| *byte != 0)
         {
-            return Err(Error::Corrupt("inventory descriptor reserved bytes must be zero"));
+            return Err(Error::Corrupt(
+                "inventory descriptor reserved bytes must be zero",
+            ));
         }
-        let stored = u32::from_le_bytes(bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].try_into().unwrap());
+        let stored = u32::from_le_bytes(
+            bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
+                .try_into()
+                .unwrap(),
+        );
         let mut checksum_input = bytes.to_vec();
         checksum_input[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].fill(0);
         if stored != crc32c(&checksum_input) {
@@ -82,15 +94,29 @@ impl PersistentInventoryDescriptor {
         }
         let root_id = ObjectId::new(u128::from_le_bytes(bytes[12..28].try_into().unwrap()))
             .map_err(|_| Error::Corrupt("inventory descriptor root ID is zero"))?;
-        let metadata_record_count = u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize;
-        let directory_entry_count = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
-        let metadata_blocks_len = bytes_needed(metadata_record_count, crate::METADATA_RECORD_SIZE, bytes.len())?;
-        let directory_blocks_len = bytes_needed(directory_entry_count, crate::DIRECTORY_ENTRY_SIZE, bytes.len())?;
+        let metadata_record_count =
+            u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize;
+        let directory_entry_count =
+            u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+        let metadata_blocks_len = bytes_needed(
+            metadata_record_count,
+            crate::METADATA_RECORD_SIZE,
+            bytes.len(),
+        )?;
+        let directory_blocks_len = bytes_needed(
+            directory_entry_count,
+            crate::DIRECTORY_ENTRY_SIZE,
+            bytes.len(),
+        )?;
         let required_blocks = metadata_blocks_len
             .checked_add(directory_blocks_len)
             .ok_or(Error::ArithmeticOverflow)?;
         let used_end = HEADER_SIZE
-            .checked_add(required_blocks.checked_mul(8).ok_or(Error::ArithmeticOverflow)?)
+            .checked_add(
+                required_blocks
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
             .ok_or(Error::ArithmeticOverflow)?;
         if used_end > bytes.len() {
             return Err(Error::Corrupt(
@@ -233,7 +259,10 @@ mod tests {
             input
         });
         corrupt[40..44].copy_from_slice(&checksum.to_le_bytes());
-        assert!(matches!(PersistentInventoryDescriptor::decode(&corrupt), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&corrupt),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
