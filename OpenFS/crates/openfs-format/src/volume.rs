@@ -19,6 +19,7 @@ const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
 const JOURNAL_RING_BLOCKS: u64 = 4;
 const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
+const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 
 /// On-disk regions for format canonical. The journal occupies six consecutive blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,47 +356,74 @@ impl OpenedVolume {
     ) -> Result<Option<(u64, PersistentInventoryDescriptor)>> {
         self.validate_device(device)?;
         let allocated = self.allocated_data_block_inventory(device)?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
         let mut discovered = None;
-        let mut block_bytes = vec![0_u8; self.volume.block_size as usize];
-        for block in allocated {
-            device.read_blocks(block, &mut block_bytes)?;
-            if block_bytes.get(..INVENTORY_DESCRIPTOR_MAGIC.len())
-                != Some(INVENTORY_DESCRIPTOR_MAGIC.as_slice())
+        let mut cursor = 0;
+
+        // Read adjacent allocated blocks together to avoid one device operation per block.
+        // Bound each read so a long allocated run never requires an unbounded buffer.
+        while cursor < allocated.len() {
+            let first_block = allocated[cursor];
+            let mut end = cursor + 1;
+            while end < allocated.len()
+                && end - cursor < INVENTORY_DISCOVERY_BATCH_BLOCKS
+                && allocated[end - 1].checked_add(1) == Some(allocated[end])
             {
-                continue;
+                end += 1;
             }
-            let descriptor = PersistentInventoryDescriptor::decode(&block_bytes)?;
-            if descriptor.metadata_blocks.contains(&block)
-                || descriptor.directory_blocks.contains(&block)
-            {
-                return Err(Error::Corrupt(
-                    "inventory descriptor aliases one of its inventory blocks",
-                ));
-            }
-            for inventory_block in descriptor
-                .metadata_blocks
-                .iter()
-                .chain(descriptor.directory_blocks.iter())
-            {
-                if *inventory_block < self.volume.layout.data_start
-                    || *inventory_block >= self.volume.layout.backup_superblock
+
+            let block_count = end - cursor;
+            let byte_count = block_count
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut batch = vec![0_u8; byte_count];
+            device.read_blocks(first_block, &mut batch)?;
+
+            for (offset, block) in allocated[cursor..end].iter().copied().enumerate() {
+                let byte_start = offset
+                    .checked_mul(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let block_bytes = &batch[byte_start..byte_start + block_size];
+                if block_bytes.get(..INVENTORY_DESCRIPTOR_MAGIC.len())
+                    != Some(INVENTORY_DESCRIPTOR_MAGIC.as_slice())
+                {
+                    continue;
+                }
+                let descriptor = PersistentInventoryDescriptor::decode(block_bytes)?;
+                if descriptor.metadata_blocks.contains(&block)
+                    || descriptor.directory_blocks.contains(&block)
                 {
                     return Err(Error::Corrupt(
-                        "inventory descriptor references a block outside the data region",
+                        "inventory descriptor aliases one of its inventory blocks",
                     ));
                 }
-                if !self.is_data_block_allocated(device, *inventory_block)? {
+                for inventory_block in descriptor
+                    .metadata_blocks
+                    .iter()
+                    .chain(descriptor.directory_blocks.iter())
+                {
+                    if *inventory_block < self.volume.layout.data_start
+                        || *inventory_block >= self.volume.layout.backup_superblock
+                    {
+                        return Err(Error::Corrupt(
+                            "inventory descriptor references a block outside the data region",
+                        ));
+                    }
+                    if !self.is_data_block_allocated(device, *inventory_block)? {
+                        return Err(Error::Corrupt(
+                            "inventory descriptor references a free inventory block",
+                        ));
+                    }
+                }
+                if discovered.is_some() {
                     return Err(Error::Corrupt(
-                        "inventory descriptor references a free inventory block",
+                        "multiple persistent inventory descriptors were discovered",
                     ));
                 }
+                discovered = Some((block, descriptor));
             }
-            if discovered.is_some() {
-                return Err(Error::Corrupt(
-                    "multiple persistent inventory descriptors were discovered",
-                ));
-            }
-            discovered = Some((block, descriptor));
+            cursor = end;
         }
         Ok(discovered)
     }
