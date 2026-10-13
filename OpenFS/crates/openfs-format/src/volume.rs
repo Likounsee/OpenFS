@@ -1503,6 +1503,53 @@ mod tests {
     }
 
     #[test]
+    fn discovery_fails_closed_on_corrupt_allocated_descriptor() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("corrupt-allocated-descriptor");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor_block = volume.allocate_block(&mut device).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut metadata_bytes = vec![0_u8; 4096];
+            metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let mut encoded = descriptor.encode(4096).unwrap();
+            // Keep the self-identifying magic intact but invalidate the descriptor CRC.
+            encoded[crate::INVENTORY_DESCRIPTOR_MAGIC.len()] ^= 0x40;
+            device.write_blocks(descriptor_block, &encoded).unwrap();
+
+            assert!(matches!(
+                volume.discover_persistent_inventory(&mut device),
+                Err(Error::UnsupportedVersion(_)) | Err(Error::Corrupt(_))
+            ), "a corrupt allocated descriptor must not be silently ignored");
+            assert!(volume
+                .is_data_block_allocated(&mut device, descriptor_block)
+                .unwrap());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn discovers_unique_persistent_inventory_descriptor() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
