@@ -336,8 +336,7 @@ impl OpenedVolumeV2 {
         &self,
         device: &mut D,
     ) -> Result<Option<(u64, Namespace)>> {
-        let Some((descriptor_block, descriptor)) =
-            self.discover_persistent_inventory(device)?
+        let Some((descriptor_block, descriptor)) = self.discover_persistent_inventory(device)?
         else {
             return Ok(None);
         };
