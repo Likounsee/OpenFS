@@ -1310,19 +1310,30 @@ mod allocation_bitmap_report_tests {
                     let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
-                        id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                        flags: 0, size: 0, extent_root_block: None, generation: 1,
+                        id: ObjectId(1),
+                        parent_id: 0,
+                        kind: ObjectKind::Directory,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
                     };
                     let mut metadata = vec![0_u8; block_size as usize];
-                    metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                    metadata[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&root.encode().unwrap());
                     device.write_blocks(metadata_block, &metadata).unwrap();
                     let descriptor = PersistentInventoryDescriptor {
-                        root_id: ObjectId(1), metadata_blocks: vec![metadata_block],
-                        metadata_record_count: 1, directory_blocks: vec![], directory_entry_count: 0,
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
                     };
                     let staged_block = volume.volume.layout.data_start + 1;
                     assert!(!volume.is_data_block_allocated(&mut device, staged_block).unwrap());
-                    device.write_blocks(staged_block, &descriptor.encode(block_size as usize).unwrap()).unwrap();
+                    device
+                        .write_blocks(staged_block, &descriptor.encode(block_size as usize).unwrap())
+                        .unwrap();
                     device.flush().unwrap();
 
                     let allocated = match allocation_kind {
@@ -1332,8 +1343,11 @@ mod allocation_bitmap_report_tests {
                     };
                     assert_eq!(allocated, vec![staged_block]);
                     assert!(volume.is_data_block_allocated(&mut device, staged_block).unwrap());
-                    assert_eq!(volume.discover_persistent_inventory(&mut device).unwrap(), None,
-                        "stale staged descriptor must not become discoverable after {allocation_kind} allocation at block size {block_size}");
+                    assert_eq!(
+                        volume.discover_persistent_inventory(&mut device).unwrap(),
+                        None,
+                        "stale staged descriptor must not become discoverable after {allocation_kind} allocation at block size {block_size}"
+                    );
                 }
                 fs::remove_file(path).unwrap();
             }
