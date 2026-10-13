@@ -2074,11 +2074,20 @@ mod tests {
     }
 
     #[test]
-    fn publication_flush_failure_keeps_descriptor_unallocated_and_retryable() {
+    fn publication_flush_failure_survives_reopen_and_remains_retryable() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let path = image_path(&format!("inventory-publication-flush-failure-{block_size}"));
+            let path = image_path(&format!("inventory-publication-flush-reopen-{block_size}"));
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let free_before;
+            let metadata_block;
             {
                 let raw = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut device = FailNextFlush {
@@ -2086,7 +2095,7 @@ mod tests {
                     fail_next_flush: false,
                 };
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
                     parent_id: 0,
@@ -2099,18 +2108,12 @@ mod tests {
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&root.encode().unwrap());
-                device
-                    .write_blocks(metadata_block, &metadata_bytes)
-                    .unwrap();
-
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
-                    root_id: ObjectId(1),
                     metadata_blocks: vec![metadata_block],
-                    metadata_record_count: 1,
-                    directory_blocks: vec![],
-                    directory_entry_count: 0,
+                    ..descriptor.clone()
                 };
-                let free_before = volume.free_data_block_count(&mut device).unwrap();
+                free_before = volume.free_data_block_count(&mut device).unwrap();
                 device.fail_next_flush = true;
 
                 assert!(
@@ -2126,13 +2129,30 @@ mod tests {
                     "failed staging flush must not commit descriptor allocation at block size {block_size}"
                 );
                 assert!(
-                    volume
-                        .discover_persistent_inventory(&mut device)
-                        .unwrap()
-                        .is_none(),
-                    "unallocated staged bytes must not be discoverable at block size {block_size}"
+                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    "unallocated staged bytes must not be discoverable before reopen at block size {block_size}"
+                );
+            }
+
+            // Reopen the image with a fresh device and recover the journal, rather than
+            // relying on the pre-failure in-memory volume state.
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before,
+                    "failed publication must leave the descriptor allocation free after reopen at block size {block_size}"
+                );
+                assert!(
+                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    "failed publication must remain undiscoverable after reopen at block size {block_size}"
                 );
 
+                let descriptor = PersistentInventoryDescriptor {
+                    metadata_blocks: vec![metadata_block],
+                    ..descriptor
+                };
                 let descriptor_block = volume
                     .publish_persistent_inventory(&mut device, &descriptor)
                     .unwrap();
