@@ -388,4 +388,37 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size() {
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("caller-inventory-alias-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                write_root_inventory(&mut device, metadata_block);
+
+                // The caller-located API must enforce the same physical ownership
+                // contract as descriptor-discovered verification, even if the
+                // directory inventory currently claims zero live entries.
+                assert!(
+                    matches!(
+                        volume.verify_persistent_inventory(
+                            &mut device,
+                            ObjectId(1),
+                            &[metadata_block],
+                            1,
+                            &[metadata_block],
+                            0,
+                        ),
+                        Err(openfs_core::Error::Corrupt(_))
+                    ),
+                    "metadata/directory block alias must fail closed at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
