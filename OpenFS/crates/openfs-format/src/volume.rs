@@ -2142,10 +2142,7 @@ mod tests {
                     "successful retry must consume exactly one descriptor block at block size {block_size}"
                 );
                 assert_eq!(
-                    volume
-                        .discover_persistent_inventory(&mut device)
-                        .unwrap()
-                        .map(|(block, discovered)| (block, discovered)),
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
                     Some((descriptor_block, descriptor)),
                     "successful retry must publish a discoverable descriptor at block size {block_size}"
                 );
