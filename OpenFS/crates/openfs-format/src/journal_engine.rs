@@ -849,6 +849,45 @@ mod tests {
     }
 
     #[test]
+    fn torn_checkpoint_write_recovers_from_durable_redo_for_multiple_prefixes() {
+        // The checkpoint is written only after the commit record and home block are
+        // durable. A torn checkpoint must therefore fall back to the older valid copy,
+        // replay the still-uncheckpointed transaction, and publish a fresh checkpoint.
+        // Tear the checkpoint block at several byte boundaries, including its final byte.
+        for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            // Writes 0..=3 are journal records, write 4 is the home block, and write 5
+            // is the checkpoint copy. Flushes do not count as writes in TearWriteAt.
+            let mut failing = TearWriteAt::new(device.clone(), 5, prefix_bytes);
+            assert!(matches!(
+                journal.commit(&mut failing, &[update(0xA5)]),
+                Err(Error::Io(_))
+            ));
+
+            let mut recovered = failing.into_inner();
+            let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
+                panic!("recovery failed after a {prefix_bytes}-byte checkpoint tear: {error:?}")
+            });
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                4,
+                "checkpoint sequence after a {prefix_bytes}-byte tear"
+            );
+            assert_eq!(
+                read_home(&mut recovered),
+                vec![0xA5; BS as usize],
+                "home image after a {prefix_bytes}-byte checkpoint tear"
+            );
+
+            // Recovery itself must be idempotent once the replacement checkpoint is durable.
+            let reopened_again = open_journal(&mut recovered, REGION).unwrap();
+            assert_eq!(reopened_again.checkpoint().checkpoint_sequence, 4);
+            assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+        }
+    }
+
+    #[test]
     fn rejects_journal_targets_and_ring_exhaustion() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
