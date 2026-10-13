@@ -273,14 +273,12 @@ impl OpenedVolume {
         Ok(())
     }
 
-    /// Publish the first persistent inventory descriptor.
+    /// Publish the first persistent inventory descriptor atomically with its allocation.
     ///
-    /// The descriptor is validated before its block is allocated. Allocation is journaled;
-    /// then the descriptor block is written and flushed. A crash between those operations
-    /// can leave one orphaned allocated block, but cannot expose a descriptor before the
-    /// allocation is committed. The verifier reports such an orphan. Existing descriptors
-    /// are never overwritten; safe replacement must coordinate metadata and ownership with
-    /// durable namespace mutations.
+    /// The descriptor block and its allocation bitmap bit are committed in one journal
+    /// transaction. Recovery therefore exposes either neither change or both changes.
+    /// Existing descriptors are never overwritten; safe replacement must coordinate metadata
+    /// and ownership with durable namespace mutations.
     pub fn publish_persistent_inventory<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -359,14 +357,78 @@ impl OpenedVolume {
             ));
         }
 
-        let descriptor_block = self.allocate_block(device)?;
-        if claimed.contains(&descriptor_block) {
-            return Err(Error::Corrupt(
-                "allocator selected a block already owned by the inventory",
-            ));
+        // Reserve the descriptor block and publish its contents in the same journal
+        // transaction. A separate allocate_block() followed by a descriptor write could
+        // leave an unowned allocation if the process or device failed between the two.
+        let layout = self.volume.layout;
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_bitmap_block;
+        let last_data_block = layout.backup_superblock - 1;
+        let last_bitmap = last_data_block / bits_per_bitmap_block;
+        let mut selected = None;
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let bitmap_block = layout.bitmap_start + bitmap_index;
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let bitmap_base = bitmap_index * bits_per_bitmap_block;
+            let first_block = bitmap_base.max(layout.data_start);
+            let end_block = bitmap_base
+                .saturating_add(bits_per_bitmap_block)
+                .min(layout.backup_superblock);
+            let local_start = first_block - bitmap_base;
+            let local_end = end_block - bitmap_base;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, byte) in bitmap
+                .iter_mut()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
+                let byte_start = (byte_index as u64) * 8;
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
+                }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let available = !*byte & valid_mask;
+                if available != 0 {
+                    let bit = u64::from(available.trailing_zeros());
+                    let local = byte_start + bit;
+                    let descriptor_block = bitmap_base + local;
+                    if claimed.contains(&descriptor_block) {
+                        return Err(Error::Corrupt(
+                            "allocator selected a block already owned by the inventory",
+                        ));
+                    }
+                    *byte |= 1_u8 << bit;
+                    selected = Some((descriptor_block, bitmap_block, bitmap));
+                    break;
+                }
+            }
+            if selected.is_some() {
+                break;
+            }
         }
-        device.write_blocks(descriptor_block, &encoded)?;
-        device.flush()?;
+        let (descriptor_block, bitmap_block, bitmap) =
+            selected.ok_or(Error::InvalidInput("volume has no free data blocks"))?;
+        self.journal.commit(
+            device,
+            &[
+                RedoUpdate {
+                    target_block: bitmap_block,
+                    contents: bitmap,
+                },
+                RedoUpdate {
+                    target_block: descriptor_block,
+                    contents: encoded,
+                },
+            ],
+        )?;
         Ok(descriptor_block)
     }
 
@@ -1668,80 +1730,83 @@ mod tests {
     }
 
     #[test]
-    fn failed_descriptor_write_leaves_detectable_orphan_and_never_publishes_partial_state() {
+    fn descriptor_publication_is_atomic_across_every_journal_write_failure() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
+        // With one-block redo images, the four-block ring holds begin, two updates,
+        // and commit. Fail each journal/home/checkpoint write and require reopen to
+        // expose either the old state or the complete descriptor plus its allocation.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let path = image_path(&format!("descriptor-write-failure-{block_size}"));
-            {
-                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let root = MetadataRecord {
-                    id: ObjectId(1),
-                    parent_id: 0,
-                    kind: ObjectKind::Directory,
-                    flags: 0,
-                    size: 0,
-                    extent_root_block: None,
-                    generation: 1,
-                };
-                let mut metadata_bytes = vec![0; block_size as usize];
-                metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&root.encode().unwrap());
-                device
-                    .write_blocks(metadata_block, &metadata_bytes)
-                    .unwrap();
+            for fail_at in 0..=6 {
+                let path = image_path(&format!("descriptor-atomic-{block_size}-{fail_at}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let metadata_block = volume.allocate_block(&mut device).unwrap();
+                    let root = MetadataRecord {
+                        id: ObjectId(1),
+                        parent_id: 0,
+                        kind: ObjectKind::Directory,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    };
+                    let mut metadata_bytes = vec![0; block_size as usize];
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&root.encode().unwrap());
+                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
 
-                let descriptor = PersistentInventoryDescriptor {
-                    root_id: ObjectId(1),
-                    metadata_blocks: vec![metadata_block],
-                    metadata_record_count: 1,
-                    directory_blocks: vec![],
-                    directory_entry_count: 0,
-                };
-                let free_before = volume.free_data_block_count(&mut device).unwrap();
-                let mut failing = FailWriteAt {
-                    inner: device,
-                    write_index: 0,
-                    // Allocation's journal transaction uses writes 0..=5. Fail the
-                    // following descriptor home-block write, after allocation is durable.
-                    fail_at: 6,
-                };
-                assert!(
-                    matches!(
-                        volume.publish_persistent_inventory(&mut failing, &descriptor),
-                        Err(Error::Io(_))
-                    ),
-                    "descriptor write should fail after durable allocation (block size {block_size})"
-                );
+                    let descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    };
+                    let free_before = volume.free_data_block_count(&mut device).unwrap();
+                    let mut failing = FailWriteAt {
+                        inner: device,
+                        write_index: 0,
+                        fail_at,
+                    };
+                    assert!(
+                        matches!(
+                            volume.publish_persistent_inventory(&mut failing, &descriptor),
+                            Err(Error::Io(_))
+                        ),
+                        "write {fail_at} should fail (block size {block_size})"
+                    );
 
-                let mut device = failing.inner;
-                drop(volume);
-                let mut recovered = open_volume(&mut device).unwrap();
-                assert_eq!(
-                    recovered.free_data_block_count(&mut device).unwrap(),
-                    free_before - 1,
-                    "the durable allocation must survive reopen (block size {block_size})"
-                );
-                assert!(
-                    recovered
-                        .discover_persistent_inventory(&mut device)
-                        .unwrap()
-                        .is_none(),
-                    "a failed descriptor write must not expose a descriptor (block size {block_size})"
-                );
-                assert!(
-                    matches!(
-                        recovered.publish_persistent_inventory(&mut device, &descriptor),
-                        Err(Error::InvalidInput(
-                            "persistent inventory has unresolved allocation ownership anomalies"
-                        ))
-                    ),
-                    "the orphan must be detected before another descriptor is published (block size {block_size})"
-                );
+                    let mut device = failing.inner;
+                    drop(volume);
+                    let mut recovered = open_volume(&mut device).unwrap();
+                    let discovered = recovered.discover_persistent_inventory(&mut device).unwrap();
+                    let free_after = recovered.free_data_block_count(&mut device).unwrap();
+                    if fail_at <= 3 {
+                        assert!(
+                            discovered.is_none(),
+                            "uncommitted descriptor must remain invisible (block size {block_size}, write {fail_at})"
+                        );
+                        assert_eq!(
+                            free_after, free_before,
+                            "uncommitted descriptor must not consume an allocation (block size {block_size}, write {fail_at})"
+                        );
+                    } else {
+                        assert_eq!(
+                            free_after,
+                            free_before - 1,
+                            "committed descriptor allocation must survive recovery (block size {block_size}, write {fail_at})"
+                        );
+                        let (descriptor_block, found) = discovered.unwrap_or_else(|| {
+                            panic!("committed descriptor missing after recovery (block size {block_size}, write {fail_at})")
+                        });
+                        assert_eq!(found, descriptor);
+                        assert!(recovered.is_data_block_allocated(&mut device, descriptor_block).unwrap());
+                    }
+                }
+                fs::remove_file(path).unwrap();
             }
-            fs::remove_file(path).unwrap();
         }
     }
 
