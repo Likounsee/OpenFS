@@ -983,6 +983,50 @@ mod tests {
     }
 
     #[test]
+    fn protected_recovery_validates_all_targets_before_replaying_any_update() {
+        let mut device = formatted();
+        let original_control = {
+            let mut bytes = vec![0; BS as usize];
+            device.read_blocks(0, &mut bytes).unwrap();
+            bytes
+        };
+
+        // The first redo target is valid, but the second targets protected block zero.
+        // Recovery must validate the whole committed transaction before writing HOME.
+        let updates = [
+            update(0xA5),
+            RedoUpdate {
+                target_block: 0,
+                contents: vec![0xCC; BS as usize],
+            },
+        ];
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        // Two full-block redo images occupy four UPDATE records: BEGIN and UPDATE
+        // writes are 0..=4, flush is 5, COMMIT write/flush are 6/7, HOME is 8.
+        let mut failing = FailAt::new(device.clone(), 8);
+        assert!(matches!(
+            journal.commit(&mut failing, &updates),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+
+        assert!(matches!(
+            super::open_journal_protected(&mut recovered, REGION, &[0]),
+            Err(Error::InvalidInput(
+                "redo target overlaps a protected volume-control block"
+            ))
+        ));
+        assert_eq!(
+            read_home(&mut recovered),
+            vec![0x11; BS as usize],
+            "recovery partially applied a transaction before validating all targets"
+        );
+        let mut control_after = vec![0; BS as usize];
+        recovered.read_blocks(0, &mut control_after).unwrap();
+        assert_eq!(control_after, original_control);
+    }
+
+    #[test]
     fn protected_recovery_rejects_durable_redo_to_volume_control_block() {
         let mut device = formatted();
         let original = {
