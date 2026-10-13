@@ -1262,9 +1262,7 @@ mod tests {
 
     #[test]
     fn discovers_unique_persistent_inventory_descriptor() {
-        use crate::{
-            MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
-        };
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         let path = image_path("inventory-descriptor-discovery");
         {
@@ -1281,9 +1279,10 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
@@ -1356,9 +1355,7 @@ mod tests {
 
     #[test]
     fn refuses_to_publish_when_existing_allocations_have_no_owner() {
-        use crate::{
-            MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
-        };
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         let path = image_path("orphan-allocation-blocks-publication");
         {
@@ -1376,9 +1373,10 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
