@@ -1,235 +1,318 @@
-# OpenFS roadmap — USB-first delivery plan
+# OpenFS roadmap — source-audited plan to a usable filesystem
 
-Last reviewed: 2026-10-12  
-Authoritative branch: `OpenFS`  
-Planning baseline: `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`  
-Primary product goal: a user can safely format a standard USB flash drive as OpenFS, then create, read, write, rename, and delete files through a supported operating system.
+Last source audit: 2026-10-13  
+Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS  
+Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
+Current OpenFS HEAD at audit start: ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c  
+Scope: roadmap and planning documents only; this revision does not change implementation code.
 
-OpenFS defines its own filesystem format. It is **not** an NTFS implementation and must not claim NTFS compatibility. Formatting a device is destructive. Image-backed tests do not establish physical-device durability or safe USB handling.
+## Executive assessment
 
-## How progress is measured
+OpenFS is currently a Rust filesystem-format and storage-engine prototype, not yet a mountable general-purpose filesystem. The Rust workspace has bounded block-device I/O, an experimental canonical layout, bitmap allocation, a bounded redo journal used for allocator changes, metadata/directory codecs, extent maps, an in-memory namespace, disk-backed inventory reconstruction, a persistent inventory descriptor, file-range reads over reconstructed metadata, and a read-only volume checker. It does not yet provide durable file or namespace mutation APIs, a mount/VFS adapter, safe USB discovery, or a repair utility.
 
-Percentages below are planning estimates against the acceptance gates, not code-line counts or release-readiness scores. A phase advances only when its listed evidence exists. Distinguish implementation, static inspection, tests added, tests executed, and behavior verified. Do not mark a phase complete because code merely exists.
+The historical C repository is materially more feature-complete: it contains persistent inode/file/directory/path operations, transactions, links, orphan lifecycle, CoW/refcounts, FSCK/scrub, access metadata, handles, locks/runtime lifecycle, tools and platform adapters. These are source-level capabilities, not a reason to copy the C implementation wholesale. The latest historical CI run inspected for this audit, run 38167327262 on legacy HEAD fdb5dee, passed GCC, Clang and ThreadSanitizer but failed the Windows test job because openfs-crash-cut timed out (50/51 tests passed). Legacy functionality must therefore be revalidated before any behavior is used as a parity target.
 
-The weighted estimate uses these phase weights: P0 10%, P1 15%, P2 20%, P3 10%, P4 20%, P5 10%, P6 10%, P7 5%.
+The first product milestone remains a safely formatted, disposable USB drive that can be used for ordinary file operations through a supported OS. That milestone is blocked by the absence of persistent namespace writes and an OS mount adapter. Formatting an image and reading caller-located metadata do not constitute a usable filesystem.
 
-## Current snapshot
+## Evidence and confidence rules
 
-- Repository architecture cleanup: there is now one active volume implementation in `crates/openfs-format/src/volume.rs`; public entry points use `format_volume`, `open_volume`, and `check_volume`. The parallel version-named module and obsolete standalone-layout integration tests were removed so the test suite targets the canonical journaled layout. Contributor/module guidance is in [DEVELOPMENT.md](DEVELOPMENT.md). The on-disk format identifier remains validated for fail-closed compatibility; it does not imply multiple active implementations.
+Use these evidence labels consistently:
 
-- Latest P1 journal-hardening follow-up makes `open_journal` reject a persisted checkpoint whose `next_sequence` is not exactly `checkpoint_sequence + 1`, matching the invariant already enforced by the read-only volume checker. Added `open_rejects_persisted_checkpoint_sequence_gap`, which writes validly encoded but inconsistent checkpoint copies to the image and checks that opening fails closed. Code commit: [16957d1e](https://github.com/Likounsee/OpenFS/commit/16957d1efcb182dbf38c15e4f58646343ff8a688). CI run [38374142476](https://github.com/Likounsee/OpenFS/actions/runs/38374142476) has passed formatting, workspace tests, and Clippy on Linux; Windows validation was still running when this note was written. P1 remains **91%** until both platforms finish successfully.
+- **Implemented**: source code exists and has a reachable API or command.
+- **Integrated**: the feature is wired into its intended end-to-end path, not just a standalone helper.
+- **Test added**: a regression exists in the repository.
+- **CI validated**: the exact commit has a successful relevant CI run.
+- **Unverified**: code/tests exist but no passing run for the exact revision was confirmed, or the behavior needs a different environment.
+- **Absent**: no implementation was found in the audited Rust tree.
+- **Blocked**: a required design or dependency prevents safe completion.
 
-- Latest P1 regression follow-up adds `rejects_ambiguous_multiple_persistent_inventory_descriptors`: it writes two individually valid descriptors to separate allocated blocks and asserts discovery fails closed with the explicit multiple-descriptors corruption error. The regression now runs at all five supported block sizes (4, 8, 16, 32, and 64 KiB), protecting against ambiguous persistent state rather than choosing an arbitrary copy. The test is committed on `OpenFS`; CI status has not yet appeared, so P1 remains **91%** until the new test is validated.
+A test being present is not proof it ran; a green CI run is not proof of physical-device durability or of untested crash cuts. Do not mark an item validated solely because it compiles, has a type/structure, or has a README entry. This audit used GitHub source trees, source files, documentation, workflow definitions, commits and Actions job results; it did not execute a local build or physical hardware test.
 
-- Latest P1 crash-cut regression adds `failed_descriptor_write_leaves_detectable_orphan_and_never_publishes_partial_state`. Across all five supported block sizes, it injects a descriptor home-write failure after the descriptor allocation has been durably journaled, reopens the volume, and checks that the allocation remains accounted for, no descriptor is discoverable, and a subsequent publication is refused while the ownership anomaly remains unresolved. Code commit: [1a7d2ea3](https://github.com/Likounsee/OpenFS/commit/1a7d2ea32cd21a4c6674914b4945a2ea878aa258). GitHub Actions run [38375058616](https://github.com/Likounsee/OpenFS/actions/runs/38375058616) passed formatting, workspace tests, and Clippy on both Linux and Windows. This validates fail-closed behavior, not atomic descriptor publication; orphan recovery and durable namespace mutations remain open. P1 remains **91%**.
+## Progress model
 
-- Latest P1 I/O follow-up bounds inventory reads to runs of at most 64 contiguous blocks, preserves caller-defined record order for fragmented inventories, and caches bitmap pages while validating inventory reads, descriptor discovery, and descriptor publication. Descriptor discovery now streams allocated set bits directly from bitmap pages instead of materializing a vector containing every allocated data block; candidate block numbers and each descriptor read batch are bounded to 64, while the scan still visits the full data region. Discovery regression coverage checks rejection of descriptors referencing freed metadata or directory-inventory blocks at all five supported block sizes. Formatting, workspace tests, and Clippy have not been executed in this environment, so this batch is not counted as newly CI-validated.
+The phase percentages estimate progress toward the explicit acceptance gates below, not lines of code or feature count. Each phase has a fixed weight and its percentage is estimated from weighted exit criteria. Global progress is the sum of phase percentage multiplied by phase weight, rounded to the nearest whole percent. Recalculate after each substantive milestone; do not average phase percentages equally.
 
-- Latest P1 batch strengthens `OpenedVolume::publish_persistent_inventory`: before allocating a descriptor block, it reconstructs and validates the proposed namespace, validates all referenced extent-map pages and physical ownership, and refuses to publish over orphaned allocations or dangling ownership references. A regression checks that invalid inventory is rejected without consuming a block. CI for code commit [06e13fe0](https://github.com/Likounsee/OpenFS/commit/06e13fe0b053f896cf1ee769f28870c57a4610e9) is running: [38361083979](https://github.com/Likounsee/OpenFS/actions/runs/38361083979). The descriptor and allocation are still not one atomic journal transaction: the current four-block ring cannot hold the two full-block redo images in a single transaction, so a crash between allocation and descriptor write can leave a detectable orphan. Remaining: safe descriptor replacement, journal-aware namespace/file mutations, broader crash-cut coverage, and scalable discovery beyond scanning allocated blocks.
+| Phase | Weight | Estimate | What the estimate means |
+| --- | ---: | ---: | --- |
+| P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
+| P1 Format, layout and allocator | 15% | 82% | Strong image-backed layout/allocator coverage; descriptor publication and ownership recovery remain incomplete |
+| P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
+| P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
+| P4 Persistent namespace and file I/O | 20% | 24% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
+| P5 Safe device discovery and formatting | 10% | 5% | Raw-device backend exists but not discovery, exclusive ownership, target confirmation or safe end-user formatting |
+| P6 OS integration | 10% | 0% | No Rust mount/VFS adapter found |
+| P7 Release, compatibility and operational hardening | 5% | 3% | Some docs and CI exist; release gates and hardware/compatibility evidence do not |
+| **Overall** | **100%** | **39%** | Weighted engineering progress, not percentage of a production-ready filesystem |
 
-- P1 end-to-end verification batch adds public `OpenedVolume::verify_persistent_inventory` and `PersistentInventoryReport`. It composes the existing disk-backed record readers, namespace graph validation, extent-map page decoding, and bitmap ownership reconciliation; inventory blocks and extent roots are included as owners, so index/data aliases are not misreported as leaks. Fatal structural/corruption errors remain `Err`, while bounded deterministic orphan/dangling diagnostics are returned in a successful report. Image-backed regressions cover a consistent root-only volume and a recoverable orphan allocation. This is a caller-located verifier, not automatic discovery: canonical layout still has no canonical inventory-region descriptor. CI must pass on the final commit before counting this batch as validated.
+The current estimates are deliberately lower than the older roadmap where the older numbers treated many unchecked checklist items as done. A phase can have high implementation progress and still fail its exit gate.
 
-- P1 persistent file-read batch adds `OpenedVolume::read_file_range`, `read_file_contents`, and `read_path_range`. Reads operate on reconstructed disk metadata and loaded extent maps, handle fragmented extents and sparse holes, clamp reads at EOF, reject directories/missing objects/missing maps, and recheck the bitmap immediately before exposing each physical block. Image-backed regressions cover whole-file and path-based range reads, sparse zero-fill, partial final blocks, EOF, invalid objects, and freed data extents. This is actual persistent data reading, but remains read-only and caller-located; it is not yet a persistent metadata discovery or mutation layer. CI must pass on the final commit before counting this batch as validated.
+Status meanings:
+- **Not implemented** — no usable implementation found.
+- **Partially implemented** — useful subset exists, but core behavior or integration is missing.
+- **Implemented, not validated** — implementation/tests exist but the relevant exact revision has no confirmed passing validation.
+- **Validated** — stated acceptance criteria passed in the cited automated or manual environment.
+- **Blocked** — dependent design, safety condition or prerequisite remains open.
+- **Replaced / deferred** — not part of the current implementation path; rationale is recorded.
 
-- P1 disk-backed reconstruction batch adds `OpenedVolume::read_metadata_inventory`, `read_directory_inventory`, and `reconstruct_namespace`. The caller supplies physical block lists and record counts; OpenFS reads the packed records from the image, checks exact block-count arithmetic, data-region bounds, allocation bitmap state, duplicates and cross-inventory aliases, decodes record checksums, then validates the complete namespace graph. Image-backed regressions cover nested path resolution and rejection of free, reserved, repeated, under-sized and aliased inventory blocks. Implementation: [88961fb3](https://github.com/Likounsee/OpenFS/commit/88961fb313132f4e575a4fdcae2cae9209ed1288). Namespace reconstruction also validates extent-map root pointers against data-region bounds and the persistent bitmap, rejects roots that alias inventory blocks, and exposes `validate_namespace_extent_roots` for standalone checking. It still does not decode extent-map pages. This remains caller-located: no canonical metadata region or automatic discovery exists. CI must pass on the final code/documentation commit before this batch is counted as validated.
+When reporting a task, state implementation status separately from test status and exact CI evidence. A CI pass applies only to the SHA shown by that run.
 
-- P1 extent-page reconstruction batch adds `Namespace::objects`, `OpenedVolume::read_extent_map`, and `read_namespace_extent_maps`. It decodes checksummed extent-map pages from the caller-located root blocks, validates each map against the file's byte size and the volume data region, verifies that roots and every referenced data block are allocated, and rejects a map that claims its own root, any namespace extent-map root, or physical data already owned by another file. The new image-backed tests cover successful load, freed-data rejection, and cross-file physical alias detection. This advances disk-backed ownership validation, but namespace inventories are still caller-located and this is not a durable read/write filesystem path. CI must pass on the final commit before counting this batch as validated.
+## Repository and CI baseline checked for this revision
 
-- P1 persistent-record preparation batch adds `decode_metadata_records` and `decode_directory_entries`: strict packed-byte decoders that reject partial records and validate each fixed-width record's checksum and semantic fields. `Namespace::from_records` rebuilds the in-memory namespace from decoded metadata and directory-entry inventories, rejects duplicate IDs/names, and validates root, parent, reachability, and graph consistency before returning. Regression tests cover successful nested reconstruction and malformed inventories. Commits: [a13bbc70](https://github.com/Likounsee/OpenFS/commit/a13bbc70e9cc41ad168636f3fccfaa3ec4e1f112), [412cad5d](https://github.com/Likounsee/OpenFS/commit/412cad5d84d7a1d14a07991119e7a642901c7221), [97cd8785](https://github.com/Likounsee/OpenFS/commit/97cd878591987a05c2f3dbc03181fb3d0c675464), [65ebdc51](https://github.com/Likounsee/OpenFS/commit/65ebdc51c458a4cc59fe1c782342b66efa711d0d). This is a reconstruction/codec layer only: no volume region is yet assigned to these inventories, so automatic on-disk discovery and ownership checking remain unimplemented. CI must pass on the final documentation commit before this batch is counted as validated.
+- OpenFS branch HEAD before this documentation change: ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c.
+- Latest Rust Actions run found: 38375379163 on ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c; Linux and Windows jobs both concluded success. Each job runs rustfmt check, cargo test --workspace and Clippy with warnings denied.
+- Previous code run 38375058616 on 1a7d2ea32cd21a4c6674914b4945a2ea878aa258 also passed both Linux and Windows.
+- Legacy HEAD inspected: fdb5dee16266d037c79438a5b20ebccceab3fa24. Its latest Actions run found, 38167327262, failed on Windows because openfs-crash-cut timed out; GCC, Clang and ThreadSanitizer jobs passed. The previous legacy run 38166246104 was successful on an earlier commit, not on current legacy HEAD.
+- The Rust CI currently covers formatting, workspace tests and Clippy on Linux and Windows. It does not currently show dedicated fuzzing, sanitizers, benchmarks, power-loss hardware testing, or mounted-filesystem integration.
+- No physical USB device was accessed. No local commands were run during this documentation-only audit. Current Rust CI evidence above is remote GitHub Actions evidence.
 
-- Namespace ownership follow-up adds `validated_extent_root_inventory(data_start, data_end)` and `extent_root_owner_count()`: decoded in-memory namespace records can now expose sorted extent-map root blocks, reject roots outside the allocatable region, and detect multiple objects claiming one root. `Namespace::validate()` also rejects duplicate extent-root ownership without requiring volume bounds. Tests cover ordering, bounds, duplicate roots, and owner counts. Code commits: [b5041bc6](https://github.com/Likounsee/OpenFS/commit/b5041bc66c34d9b036d40e26d48b8b11257568d0), [02d5480b](https://github.com/Likounsee/OpenFS/commit/02d5480b6ec535443db0e5d95a260bfebd099a69); README: [4c339020](https://github.com/Likounsee/OpenFS/commit/4c339020a78b5cf88069ac09f2351b748e7b24f1). This bridges in-memory metadata to ownership accounting but does not scan persistent metadata records from disk. CI must pass on the final roadmap commit before counting this batch as validated.
+## Source inventory and actual Rust capabilities
 
-- Latest P1 ownership-scan batch adds `ExtentMap::validated_physical_block_count`, which validates logical/physical bounds and aliases before reporting storage ownership, and coalesces adjacent physical ranges both within each extent map and across maps before comparing against bitmap bytes. This reduces the ownership scan's range work without expanding ranges into per-block vectors. Regression coverage now checks coalesced ranges across gaps, validated counts, and rejection of invalid bounds. Implementation commits: [f17f23f1](https://github.com/Likounsee/OpenFS/commit/f17f23f156e001ae3036cbd53c7bfe341643a723), [611193b8](https://github.com/Likounsee/OpenFS/commit/611193b8da8226d5997c6a09e1a1434f08ef7369); README: [a00d5ecd](https://github.com/Likounsee/OpenFS/commit/a00d5ecda4b7a53fe639db3c4c92818486322142). CI must pass on the final roadmap commit before this batch is counted as validated. Persistent owner discovery remains the largest P1 gap.
+Workspace modules are openfs-core, openfs-block, openfs-format and openfs-tool. Rust forbids unsafe code at workspace lint level. The core crate provides checked block-range arithmetic and shared errors. The block crate defines BlockDevice read/write/flush, image and raw-file backends, and deterministic operation/write-tear injection. The format crate owns the layout, superblock, bitmap allocator, journal/checkpoints, metadata/directory codecs, extent maps, inventory descriptor, namespace reconstruction and verification. The tool crate provides development image commands, including a read-only check command.
 
-- P1 follow-up now exposes validated physical extent ranges as sorted start/end pairs and compares those ranges directly with bitmap bytes for extent-map ownership reports. It no longer expands every referenced block into a per-block vector for this API; it still detects cross-map physical aliases, orphaned allocations, and references to freed blocks. Regression coverage checks physical-range sorting/bounds and fragmented ownership diagnostics across all five supported block sizes. Implementation commits: [163deb70](https://github.com/Likounsee/OpenFS/commit/163deb704edecced6e935c28aa42c572b5774cbb), [f8847374](https://github.com/Likounsee/OpenFS/commit/f884737408686bd319cf90be4a572c12257aeeed), [7e075c27](https://github.com/Likounsee/OpenFS/commit/7e075c27a0a4d076e7bbb3dce7af4dac6c3dbef3), [686876dc](https://github.com/Likounsee/OpenFS/commit/686876dcc4a8bb0b52ad36d858f13bd9459c110f). Rustfmt correction: [4e962e5f](https://github.com/Likounsee/OpenFS/commit/4e962e5faf978b830f3e335e7c4405add9af12a1); README: [672d405d](https://github.com/Likounsee/OpenFS/commit/672d405d4f229e02d2f82d858cb034ac13f4703f). CI must pass on the final documentation commit before this batch is considered validated. Persistent metadata discovery remains absent.
+Capabilities found in source:
+- Volume: format/open/check, canonical geometry, primary/mirror superblocks, allocation/free, allocation/free-space queries, persistent inventory discovery/publication, namespace reconstruction from supplied or discovered inventory, extent-map loading, file range/content/path reads.
+- Journal: bounded redo ring, checkpoint pair, sequence checks, protected home-target checks, replay and retry paths; current use is allocator metadata, not arbitrary multi-object filesystem transactions.
+- Metadata: fixed-width checksummed metadata and directory records; checksummed extent-map pages; namespace graph and path APIs in memory.
+- Verifier: persistent inventory/ownership consistency report for caller-located or descriptor-discovered records, including orphan/dangling diagnostics.
+- CLI: image-focused development tooling; not a mount service or safe destructive raw-device workflow.
 
-- P1 ownership-scan follow-up replaces the per-data-block comparison loop with a sorted merge between caller-supplied owner blocks and set bits in bitmap bytes. It still rejects duplicate/out-of-region owners, preserves ascending bounded orphan/dangling diagnostics, and records owner references to freed blocks as dangling. A regression covers orphan and dangling reports across all five supported block sizes. Implementation commit [cbd0d819](https://github.com/Likounsee/OpenFS/commit/cbd0d8198ff69d55fe2a7056801168da33ac29a8), regression commit [81477aed](https://github.com/Likounsee/OpenFS/commit/81477aeddef3a22b840c983304a0fa8c5bcbd3aa), README commit [e75efdcc](https://github.com/Likounsee/OpenFS/commit/e75efdcc6b51844696950f5b5a9ef2e59c7fcc67). CI for this batch must be confirmed on the final documentation commit before counting it as validated. This improves diagnostic scan cost but does not discover owners from persistent metadata.
+Critical capabilities not found in the Rust workspace:
+- Persistent create/write/truncate/rename/unlink/mkdir/rmdir and durable directory growth.
+- Canonical, bounded, scalable metadata region/index; descriptor discovery currently scans the data region.
+- Atomic transaction spanning namespace records, extent maps, allocation bitmap and data publication.
+- Automatic safe recovery/repair of orphaned allocation after interrupted descriptor publication.
+- Persistent inode generation/link-count lifecycle, symlinks/hard links, permissions/ACL/xattrs, timestamps and open-unlinked inode handling.
+- Mount/unmount, VFS integration, file handles, locking/concurrency control and OS adapters.
+- Full FSCK with repair, a standalone scrub command, fuzz targets and performance/load benchmarks.
+- USB identity discovery, partition/system-volume refusal, exclusive device ownership, and a user-confirmed formatter.
+- Stable format release policy, versioned golden images and a legacy image converter.
 
-- Latest batch streams `free_extent_inventory` directly from bitmap bytes, avoiding the intermediate vector of every free block, and changes `find_contiguous_free_blocks` to iterate free bits with byte masks instead of checking every block bit individually. Segment boundaries remain hard run boundaries. Regression coverage verifies fragmented runs, search across bitmap-byte boundaries, skipping allocated prefixes/gaps, sorted non-overlapping extent output, and the existing five-block-size allocator/free cases. The previous atomic contiguous-free batch passed Linux/Windows CI on commit `386a5b31c35a50312d7caa7e85ec419872e75586` (run [38306228478](https://github.com/Likounsee/OpenFS/actions/runs/38306228478)); CI for the current streaming/search batch is pending.
+## Comparison with OpenFS-old: preserve behavior, not the implementation
 
-- Previous batch optimizes read-only free-space queries: free-block inventory now scans bitmap bytes and extracts zero bits rather than testing every data block individually; fragmentation statistics detect free runs from byte-level masks and use checked run/count arithmetic. Tests compare free and allocated inventories, per-block allocation state, free counts, and fragmented-run results across all five supported block sizes. The prior bounded ownership diagnostics batch passed Linux/Windows CI on commit `74a0a79adadeb5c2cee7dc26b9d5ccb9f5e10cf8` (run [38302795167](https://github.com/Likounsee/OpenFS/actions/runs/38302795167)).
+The legacy source tree contains a C core with format, bitmap/allocator, inode allocation, inode, extent, file, directory, path, link, journal, transaction, mount, orphan, FSCK and repair, scrub, CoW, metadata CoW/root, xattr, ACL, time, file descriptors, file locks and runtime lifecycle modules. It has 50+ registered CTest cases in the current CMake configuration and adapter/tool code for Linux, Windows and ArchiaOS. The legacy test inventory includes file/directory/path operations, concurrency, crash cuts, journal failure paths, FSCK repair failures, orphan handling, checksums, links and transaction ordering. The current legacy Windows crash-cut timeout is a real validation issue, so do not equate test count with a fully green release.
 
-- Latest implementation batch adds namespace path reconstruction, cursor-based paginated directory listing, extent-map logical-length reporting and physical-bound validation, plus checked allocated-byte/logical-capacity reporting and file-byte-length validation for sparse extent maps. The latest extent-map commits are `02838ddba3e506b5ec7adf2158f3dbb67372aafd`, `0ae813c9a9018de18e0d0efbd1419891f2dd839a`, and boundary-test correction `ae9b98605a9776c0e280376c18fa73c87f45b945`. Tests were added but have not yet been observed passing in CI. It builds on `validate_allocation_ownership` (caller-supplied inventory), range removal/truncation, physical-block iteration, and atomic in-memory extent insertion. Latest code commits: namespace `76455e07f20af7cd1ae23c7f4b05132dfc2a9329`, extent bounds `a24e0b8654853d18d2fb2b77fccc90c5fa7a0960`; CI for both is in progress at the time of this snapshot. Persistent metadata discovery and atomic data/metadata/free transactions are still missing. The latest CI also exposed an MSRV violation in namespace pagination (`Option::is_none_or`, stable only since Rust 1.82 despite the 1.75 MSRV); this was replaced with `map_or` in commit `ec09b30c0fb858069ebf74ec0ddf31178199d6fe`.
-- GitHub Actions run [38248099907](https://github.com/Likounsee/OpenFS/actions/runs/38248099907) passed for code commit `e8fd769707f6fc24c5558f0bfee324ccfa1a072b` on Linux and Windows, including formatting, workspace tests, and Clippy. Commit `a33527496cf5bd21b819bebe7c44c22aff74539d` adds journal-replay coverage for padding corruption in the second bitmap segment and its CI passed on Linux and Windows. Commit `fa635c02ed3a27ea9ca3ede2735e1ee09f67f62d` expands replay checks to every reserved bitmap bit for all five supported block sizes; CI run [38248670346](https://github.com/Likounsee/OpenFS/actions/runs/38248670346) passed on Linux and Windows. Commit `0bbdb2a67429c51a2211182e18e57324e4a79e19` extends the replay matrix to padding bits across those five sizes, but CI runs [38249300853](https://github.com/Likounsee/OpenFS/actions/runs/38249300853) and [38249387504](https://github.com/Likounsee/OpenFS/actions/runs/38249387504) failed at formatting only. Commit `79213fb40a9fe0a482bb800da60c29efb9cba65d` applies the rustfmt-requested line wrap; run [38249481025](https://github.com/Likounsee/OpenFS/actions/runs/38249481025) passed on Linux and Windows after the formatting fix; the current branch CI is being rerun for the added bitmap-read failure matrix.
-- Recent regressions cover allocator exhaustion/reuse without journal advancement on failed allocation, every reserved-block free rejection, first and last bitmap padding bits across all five supported block sizes, later-segment reserved/padding corruption and journal replay (both reserved-bit and reserved-plus-padding replay matrices pass CI), layout tampering, device-geometry and arithmetic-overflow boundaries, canonical layout superblock validation, and golden-byte/CRC32C fixtures.
-- Implementation batch on `OpenFS`: added public canonical layout allocator APIs `is_data_block_allocated` and `free_data_block_count`, then optimized bitmap scans with byte-level `trailing_zeros`/`count_ones`. A new `allocated_data_block_inventory` API now returns the validated, ascending list of allocated data blocks for diagnostics; it deliberately does not claim object ownership discovery. Its reopen/free regression was added, and CI is pending. The subsequent allocator batches add `find_contiguous_free_blocks`, atomic `allocate_contiguous_blocks`, `allocate_blocks` for several non-contiguous blocks in one bitmap segment, `free_blocks` for atomic batch release, `allocation_stats`, and read-only `validate_allocation_bitmap`, with reopen/persistence and request-boundary regressions. Batch operations intentionally stay within one bitmap block because the current bounded journal commits one bitmap home-block image per transaction. Linux and Windows CI passed for code commit `1e2b3fcddbcd454da63adabb54262766bc70ab35`; Linux CI (formatting, workspace tests, and Clippy) passed for the newest batch-allocation code commit `22d8adc645dc4af55c55d707482c6f1e40ef1d7a`; Windows CI was still running at the time of this review. These capabilities are implemented, but P1's full ownership/corruption acceptance gate remains open. Commit `3b59965fffb73393670576c93e26d68a5b969c53` adds allocation/free bitmap-read failure injection; commit `c6f177930e7eaabe05bde68fd647826a2b7f9b9b` extends allocation and free recovery tests to checkpoint-write failures across all five supported block sizes, and its Linux/Windows CI passed. Commit `24f08fcde2688c73c9edd095747ef5c7343ab966` adds last-valid-data-block allocation/exhaustion/free/reopen coverage and its Linux/Windows CI passed. Commit `2666ab6238d0082af149cbccefd073941618a791` adds injected I/O failures while scanning and freeing in a later bitmap segment; its CI is pending.
-- Newest batch: `validate_allocation_bitmap` now checks reserved/padding bits byte-by-byte rather than iterating every bit; added public-API corruption regressions for reserved and out-of-volume padding bits across all five supported block sizes. Commits `79d44cd4c7f6946d2981d702f8f7a3e563117dae` and `d5636e3232e2b131b77e185d93f75ede31ca05db`; both CI runs were pending when this snapshot was written. Commit `9974f1db575e8e7e956ecec0b63977145366a897` adds a sparse-image regression for padding corruption in the second bitmap segment and verifies both the validator and allocated-block inventory reject it; CI is pending for this new commit. Commit `14827f4e9df58e3eb0b730817a8330166bcf3a3e` changes inventory enumeration from per-block scanning to byte-level set-bit iteration; commit `813a88984c230a56e409bec0c0470c25853e0991` extends the persistent inventory regression across all five supported block sizes. CI is pending for these latest changes.
-- P1 follow-up `validated_physical_block_inventory` on `ExtentMap` now validates logical length, physical data-region bounds, and physical non-overlap before returning a sorted block inventory suitable for combining into the allocator's caller-supplied ownership map. Commit `1a2d935682a01ef5f05da2768805a6e95c0cbc9c`; regression covers ordering, bounds, and overlapping physical extents. CI is pending for this addition.
-- P1 integration follow-up adds `OpenedVolume::validate_extent_map_ownership`: callers can provide each discovered file's extent map and logical block count, and OpenFS validates per-map logical/physical bounds, combines the block inventories, then compares them against the persistent allocation bitmap. This bridges extent-map validation to bitmap ownership checks and detects cross-file physical aliases, orphan allocations, and references to free/out-of-region blocks. It deliberately does not claim automatic persistent metadata discovery. Implementation commit `4f1a393c5dfc04bf9d6db8c2b86f8897283fa4da`; image-backed regression commit `a6204fb7d248ac94b7beeb587c354b36537a0804`; README update `5c766cd7e79fdcbe28af7f241bccdf6d9422897d`. CI for this batch has not yet been checked; do not count it as validated until Linux and Windows pass.
-- P1 diagnostic follow-up adds `AllocationOwnershipReport` and `allocation_ownership_report` / `extent_map_ownership_report`, returning exact orphaned-allocation and dangling-reference block numbers while preserving strict pass/fail APIs. Free-space diagnostics now also expose `free_data_block_inventory` and `free_extent_stats` (free-run count and largest free run, bounded by the current one-bitmap-block transaction design). Image-backed tests cover free inventory and fragmentation changes after allocation/free. Latest commits: ownership report `be5f51cbdf430e66e68fe2e26c9b6802f93e0563`, public export `a64ee829c89e407e00908eea741bff55e62d1340`, regression tests `202ffa6250dc05d35548323d869840f0b6aac9b3`, free-space implementation `21ddcd837bf0c0fb5ad51c0a29dec6944948a4b0`, export `e97960aa9d59c6ece464a17066606387869df69e`, tests `8d992c3832aa08a8f49f590678ce0c7a837a6199`, README `79fb025c960f416116fb2126270fede76bd23243`. Prior complete CI run `38300563410` passed on Linux and Windows for commit `04e11229731a7fbfdda625bf6e709586f9653971`; the newest free-space batch still requires its own CI run.
-- Latest P1 diagnostic batch adds `AllocationBitmapReport` and `allocation_bitmap_report`: the read-only scan reports the total number of free reserved/padding bits and a bounded sample of up to 64 offending block numbers, with an explicit truncation flag. The strict `validate_allocation_bitmap` keeps its existing error contract by delegating to the detailed report. Added exact-block and bounded-memory regression tests; implementation commit `9b6d386c9cebab52bb824b08e5f00f1ffa25b69f`, public export `60bba28ac52f773d51b307395fac8d306e94e933`, README `d85b7fa99d883f7169afee26006d5c6b090bc98c`. CI has not yet validated this batch; retain P1 at 85% until Linux and Windows pass.
-- Follow-up allocator batch extends `AllocationBitmapReport` with free/allocated usable-data counts computed in the same bitmap pass. `allocation_stats` now rejects reserved/padding corruption and verifies `free + allocated == data_blocks` before returning statistics. Added a regression covering batch allocation, partial free, report counts, and the public statistics API; README updated. Implementation/test commit `c9b4646faf467f193dfd6d3c31946df256415564`, README `dcb9a53a67676917279f9d71aa1b1167e49d5853`. The preceding batch CI is green; this follow-up's CI is pending.
+### Reimplement or adapt from legacy (in dependency order)
 
-- The canonical layout specification documents geometry formulas, minimum layout, reserved bitmap bits, and disjoint regions.
-- canonical layout journaling currently protects allocator bitmap changes; it is not yet a general transaction layer for persistent file and directory operations.
-- Metadata and directory-entry codecs, checksummed extent-map pages, and an in-memory namespace exist, but a complete durable file/namespace workflow does not.
-- The read-only canonical layout checker now validates mirrored superblocks, canonical geometry, bitmap invariants, checkpoint copies, journal record framing/order, and reports free/allocated counts plus pending/recoverable journal state. It deliberately does not replay or repair the journal, verify persistent object ownership, or certify namespace integrity. Parser fuzzing, safe physical-device discovery/formatter, and OS mount adapters remain absent.
+1. **Format contract and error boundaries** — compare the C v1.6 superblock/feature flags, primary+backup geometry, reserved regions, journal and metadata layout with the Rust draft. Rust intentionally defines a new incompatible format; reject legacy images clearly. Do not silently import the C v1.6 layout or call it compatible.
+2. **Transactional allocator/inode lifecycle** — reuse the legacy tests for allocation rollback, inode bitmap/generation reuse, exact ownership, overflow and disk-full cases as test-design references. Reimplement against Rust types and the new format.
+3. **File and extent semantics** — adapt tests and invariants for fragmented extents, sparse holes, EOF, partial blocks, truncate growth/shrink, zero-fill, overflow, freeing blocks only after references are removed, and failed I/O rollback. Rust currently has extent maps and read paths but no persistent writes/truncate.
+4. **Directory/path semantics** — adapt tests for nested paths, parent references, name limits, trailing slash, file-as-intermediate, rename collision, moving directories, non-empty directory removal and case sensitivity. Current Rust namespace APIs are in-memory and must not be treated as durable.
+5. **Transaction/crash matrix** — use legacy transaction, replay-idempotence, crash-cut, double-failure and namespace-crash tests as scenarios, not as proof the Rust journal already supports the same semantics. Specify every on-disk mutation and commit point before porting.
+6. **Checker/repair/scrub** — first implement a non-mutating whole-volume checker; only then design explicit, previewable repairs. Adapt FSCK diagnostics, exact block ownership/refcount reconciliation, bitmap tails, root/parent/link invariants and scrub read-error coverage.
+7. **Lifecycle/concurrency** — later adapt open handles, open-but-unlinked objects, orphan recovery, runtime admission/drain, lock ordering, file-range locks and concurrent namespace/file operations. These depend on durable mutation and a defined mount lifecycle.
+8. **Advanced optional features** — CoW/refcounts, clone/discard, metadata CoW/root, snapshots, ACLs, xattrs and links should follow durable baseline operations, and each must be independently specified and tested. Do not make these prerequisites for the first simple USB file workflow unless the format design requires them.
+9. **OS glue/tools** — port concepts from Linux/Windows/ArchiaOS adapters and format/fsck tools only after the Rust core API is stable. Keep OS-specific code out of openfs-format.
 
-The weighted planning estimate is **38%** (10% P0 + 13.5% P1 + 6% P2 + 2.5% P3 + 5.2% P4 + 0.5% P5; rounded to the nearest whole percent). P1 now has descriptor-driven discovery, namespace reconstruction, ownership reconciliation, and validated initial descriptor publication; safe descriptor replacement, durable namespace mutation, and broader crash-cut coverage remain open. This is a roadmap estimate, not a claim that OpenFS is ready to use on a USB drive. It is not yet a complete end-user filesystem.
+### Legacy hazards and compatibility rules
 
-| Workstream | Estimate | Evidence and remaining limitation |
-| --- | ---: | --- |
-| P0 — engineering foundation and format safety | 100% | Baseline gate documented as passed: Linux/Windows formatting, workspace tests, and Clippy on the recorded code commit. This is not physical-device or production validation. |
-| P1 — volume layout and allocation | 91% | canonical layout, bitmap bounds, reserved-region checks, single and atomic batch allocation/free, exhaustion/reuse, reopen persistence, allocation statistics, contiguous extent search/allocation, bitmap reserved/padding validation, malformed-superblock checks, failure/recovery regressions, checksummed inventory descriptors, bounded-batch allocated-block discovery, capped inventory-reference bitmap caches, descriptor-driven namespace reconstruction, extent-map page decoding, bitmap ownership reconciliation including the descriptor block, and validated initial descriptor publication with reopen/discovery regression coverage exist. Safe descriptor replacement and durable namespace/file mutation remain. |
-| P2 — journal and crash recovery | 30% | Journal encoding, commit/replay/checkpoint paths, and selected torn-write/failure tests exist. Exhaustive crash-cut and flush-order guarantees are not established. |
-| P3 — checker, corruption testing, fuzzing | 25% | Read-only checker validates mirrored superblocks, canonical geometry, reserved/padding bitmap invariants, both checkpoint copies with fallback, journal framing/sequence ordering, and counts pending records/committed transactions. A read-only `check-image` CLI entry point is added. Ownership checking, repair, and fuzzing remain missing; CI for the current batch is still running. |
-| P4 — persistent files and directories | 26% | Metadata/directory record codecs, checksummed block-sized extent maps, sparse lookup and logical-length reporting, coalescing, physical-block iteration, physical data-region bounds validation, atomic in-memory extent insertion, range removal/truncation returning physical runs, and an in-memory namespace with path resolution/reconstruction, cursor-based paginated listing, rename/move, file-layout updates, removal, and graph validation exist. Persistent metadata discovery, durable file I/O, and journal-atomic metadata/data/free updates remain. |
-| P5 — safe removable-device workflow | 5% | Raw-device primitives exist, but trusted device discovery, system/mounted-device exclusion, and safe end-user formatting are missing. |
-| P6 — OS integration | 0% | No Windows mount/access adapter, Linux integration, or ArchiaOS adapter. |
-| P7 — compatibility, hardening, release | 0% | No release-grade hardware matrix or complete compatibility and recovery acceptance suite. |
+- Legacy documentation has format-version drift (v1.3/v1.5 documents versus source declaring v1.6); treat source plus tests as evidence and resolve discrepancies before any parity claim.
+- Legacy C has a much broader feature surface, but C rollback, locking and lifecycle paths are complex and require fresh validation. The current Windows timeout is not to be ignored.
+- Rust format is a separate draft. No migration/conversion tool is present; future conversion must be explicit and tested against versioned golden fixtures.
+- NTFS is not an on-disk compatibility target. “NTFS-inspired” or feature comparison must not be described as NTFS mount compatibility.
 
-## Product scope and platform order
+## P0 — Engineering baseline and safe development contract
+**Status: Validated as a baseline only — 100%. Weight: 10%.**
 
-### First usable milestone: a disposable USB drive on Windows
+Implemented and validated:
+- Rust workspace and four-crate dependency direction.
+- Bounds-checked block I/O and shared errors.
+- Image/raw-file device abstractions and I/O fault injection.
+- Explicit superblock encoding/decoding, CRC and reserved-byte checks.
+- Linux/Windows CI for formatting, workspace tests and Clippy.
+- Image creation refuses overwrite unless the explicitly destructive API is selected.
 
-A supported Windows PC must identify a removable device, show stable identity and exact capacity, and format only the explicitly selected target after deliberate confirmation. The resulting volume must support ordinary file operations through a documented adapter. Initial hardware testing is limited to a dedicated, expendable test drive.
+Remaining rule: reopen this phase if a concrete integrity or safety defect is found. P0 completion is not production readiness.
 
-### Cross-platform direction
+**Exit criteria:** baseline CI green on both OS jobs for the exact SHA; no known untriaged baseline blocker; contributors know how to distinguish image tests from physical-device guarantees.
 
-- Keep the portable Rust core and on-disk format independent of OS-specific behavior.
-- Target Windows first for the first ordinary-desktop USB workflow; choose and document the adapter architecture before implementing it.
-- Implement Linux access as a separate adapter with its own safety and compatibility tests.
-- Integrate ArchiaOS only after core APIs stabilize, through its block-device and VFS interfaces.
-- Keep the portable core architecture-neutral; add ARM64 validation when supported host adapters and CI environments are available.
-- Do not assume another OS can read OpenFS without a compatible driver or adapter.
+## P1 — Canonical format, layout and allocator
+**Status: Partially implemented; recent CI validated — 82%. Weight: 15%.**
 
-## Milestones and acceptance gates
+Implemented:
+- Canonical layout calculation with checked geometry and supported block sizes from 4 KiB through 64 KiB.
+- Primary and backup superblocks; bitmap, checkpoint copies and four-block redo ring; reserved/padding bitmap validation.
+- Allocation/free, exhaustion, double-free rejection, reuse after reopen, free-space and free-extent queries, contiguous allocation/free helpers and fault injection.
+- Journaled bitmap allocation changes and layout/bitmap corruption tests.
+- Persistent metadata/directory codecs, extent-map page codec and ownership verifier foundations.
+- Persistent inventory descriptor publication/discovery, bounded batched reads and fail-closed handling for malformed, duplicated or unallocated references.
+- Latest code test for a failed descriptor home write leaves a detectable orphan and prevents publication over unresolved ownership anomalies, across all five block sizes. Rust CI run 38375058616 passed Linux and Windows formatting, workspace tests and Clippy. Latest HEAD CI run 38375379163 also passed both jobs.
 
-### P0 — Trustworthy engineering baseline — COMPLETE (baseline gate only)
+Open blockers:
+- Descriptor allocation and descriptor block publication are not atomic. A failure can leave an allocated orphan; current behavior detects and refuses to proceed rather than repairing it.
+- Safe descriptor replacement is absent; overwriting/duplicating descriptors is not a supported update protocol.
+- Discovery scans the whole data region and is not suitable as a final scalable metadata locator.
+- Ownership checking depends on the current inventory representation; no full durable namespace mutation path uses it yet.
+- Golden image fixtures and an explicit stable format release contract remain prerequisites before format freeze.
 
-- [x] Rust workspace and stable toolchain.
-- [x] Linux and Windows CI for formatting, workspace tests, and Clippy.
-- [x] Bounds-checked block I/O and shared error model.
-- [x] Explicit on-disk parsing, CRC checks, and malformed-input tests.
-- [x] Disposable image backend and refusal to overwrite by default.
-- [x] Experimental volume format/open/reopen tests.
-- [x] Document the distinct experimental legacy draft and canonical layouts and canonical layout's allocator-only transaction scope.
-- [x] Review legacy draft and canonical layout boundaries, reserved regions, journal replay, bitmap invariants, and error paths.
-- [x] Reject protected volume-control blocks overlapping canonical layout journal checkpoint/ring metadata.
+**Tasks and acceptance criteria**
+1. **P1.1 Format invariants — Implemented; validation ongoing.** Keep golden fixtures for each supported block size; malformed geometry, reserved bytes, version, backup mismatch, overflow and truncated image must fail closed without writes.
+2. **P1.2 Allocator invariants — Implemented; CI validated for recorded batches.** Every successful allocate/free must persist across reopen; no reserved/double-free/out-of-range allocation; exhaustion must not advance the checkpoint or corrupt prior allocations.
+3. **P1.3 Ownership contract — Partially implemented.** Define the owner of each metadata block, extent root and data block. Reject aliases, dangling references, allocated orphans and free referenced blocks. Add tests for every cross-inventory collision.
+4. **P1.4 Descriptor lifecycle — Partially implemented / blocked on transaction design.** Design a versioned descriptor/index publication protocol. Test failures at allocation commit, descriptor write prefixes, flush, reopen and repeated discovery. No replacement until a single unambiguous committed descriptor can be recovered.
+5. **P1.5 Metadata locator scalability — Not implemented.** Replace full-data-region scan with a canonical locator/index before scale claims; test descriptor discovery when metadata is sparse and near the end of large images.
+6. **P1.6 Format compatibility — Partially documented.** Add golden images and explicit version-change rules before writing durable namespace mutations.
 
-**Exit gate:** baseline formatting, workspace tests, and Clippy passed on Linux and Windows on the recorded baseline commit. P0 completion means the engineering baseline is trustworthy enough to continue; it does **not** establish production readiness, general transaction safety, or physical USB durability. Reopen P0 if a concrete integrity/security defect is discovered.
+**Exit gate:** deterministic format/open/allocate/free/reopen and corruption tests pass on Linux/Windows; descriptor lifecycle and ownership invariants have a safe recovery story; no unresolved known allocator/format corruption blocker. P1 must not be called complete while descriptor publication can leave unrecoverable ownership anomalies.
 
-### P1 — Dependable volume layout and allocator — IN PROGRESS (91%)
+## P2 — Transaction protocol and crash recovery
+**Status: Partially implemented — 40%. Weight: 20%.**
 
-- [x] Specify canonical layout, primary/mirror metadata, bitmap, journal, reserved regions, alignment, limits, and version compatibility.
-- [x] Test allocation/free, exhaustion, reserved-block rejection, double-free behavior, reopen persistence, and reuse.
-- [x] Cover bitmap-segment boundaries, reserved/padding bitmap corruption, and canonical-layout tampering.
-- [x] Validate superblock checksums, reserved bytes, supported versions, block geometry, and mismatched device geometry.
-- [x] Provide read-only allocation-state and free-space query APIs; use byte-level bitmap scanning for allocation and free-space counting rather than checking every data block individually (commits `9fd6b3a`, `a9a0607`; CI pending).
-- [x] Cover selected allocator failures and repeated recovery, including pre-commit failures and durable-commit/home-write failures across all five supported block sizes (Linux/Windows CI run `38247258586`).
-- [x] Check first and last bitmap padding bits across all supported block sizes, verify exhaustion does not advance the journal checkpoint, and exercise layout overflow boundaries for every supported block size (commits `dd01c9e` and `0509202`; CI links recorded in the snapshot above).
-- [x] Confirm in CI the replay regression rejects both backup-superblock and post-volume padding corruption in the second bitmap segment (commit `a33527496cf5bd21b819bebe7c44c22aff74539d`; run `38248538558` passed on Linux and Windows).
-- [x] Confirm in CI the replay matrix rejects every reserved bitmap bit across all five supported block sizes (commit `fa635c02ed3a27ea9ca3ede2735e1ee09f67f62d`; run `38248670346` passed on Linux and Windows).
-- [x] Confirm in CI the replay matrix rejects reserved bits and the first padding bit across all five supported block sizes (formatting correction `79213fb40a9fe0a482bb800da60c29efb9cba65d`; run `38249481025` passed on Linux and Windows).
-- [x] Expose read-only allocator state queries for a valid data block and total free data-block count; these are live bitmap reads, not reservations (`9fd6b3a`, integrated behavior test `dc063ed`; CI pending).
-- [x] Add ownership reconciliation for caller-located inventories and descriptor-discovered inventories; include the descriptor, inventory blocks, extent-map roots, and file extents, and report orphaned allocations and dangling references deterministically.
-- [x] Add validated initial descriptor publication, with journaled allocation and a flushed descriptor write; verify descriptor discovery and namespace reconstruction after reopen; detect interrupted publication as an orphan allocation.
-- [x] Batch reads of contiguous allocated blocks during descriptor discovery, with a fixed maximum batch size; candidate-block memory is bounded independently of total allocation count, and regressions cover descriptors beyond the first batch and among fragmented allocations (new sparse-case test awaits CI).
-- [ ] Add safe descriptor replacement without ambiguous copies; a larger or redesigned journal transaction is needed to atomically commit a full descriptor block and its bitmap allocation. Discovery still scans the entire data region; candidate batches are capped at 64 blocks and inventory-reference bitmap caches are capped at eight pages in discovery, publication, and ownership validation. Add an index or canonical metadata-region locator before attempting to avoid the full scan.
-- [x] Expand corruption coverage across malformed reserved/padding bitmap cases, allocation count consistency, and namespace lifecycle/index invariants (CI run `38302439267` passed on Linux and Windows).
-- [x] Scan free-block inventories and free-space fragmentation by bitmap byte masks, with cross-block-size inventory/fragmentation regressions (CI pending for the current batch).\n- [x] Expose a read-only free-extent inventory with segment-bounded runs, and cross-check its results against fragmentation statistics (implementation and regression tests added; current CI pending).
-- [x] Add deterministic best-fit free-extent selection with smallest-fit and no-fit regressions (implementation and tests added; current CI pending).
-- [x] Add atomic best-fit contiguous allocation with bitmap revalidation and journaled commit, plus allocation accounting/no-fit regressions (CI pending).
-- [x] Add atomic contiguous extent freeing and harden first-fit contiguous allocation with bitmap revalidation, checked ranges, and multi-size regressions (CI pending).
-- [x] Stream free-extent inventory directly from bitmap bytes and accelerate first-fit search by enumerating free bits; test fragmented ranges and byte-boundary runs (CI pending).
-- [x] Verify format/open/allocate/free/reopen across all five supported block sizes in CI (commit `baae2f1f2fab9dcdaece8106b4bb2ab55a2895b0`; Linux and Windows CI passed). The expanded allocator crash/failure matrix is also green on commit `f29b565af1d68d6f887c3d146934d29a55e79d6a`.
+Implemented:
+- Bounded single-writer redo journal, checkpoint copies, sequence and framing checks, protected home-target checks and recovery of committed allocator changes.
+- Tests for commit/reopen, failed home writes, ignored incomplete commit, torn terminal COMMIT, torn home writes, torn checkpoint writes across several byte prefixes, retryable recovery and repeated journal use after recovery.
+- Latest Rust CI confirms workspace tests and Clippy on Linux and Windows for the recorded SHA.
 
-**Exit gate:** deterministic format/open/allocate/free/reopen tests, stable golden fixtures, malformed-layout rejection, and explicit ownership invariants when persistent objects are implemented.
+Absent/incomplete:
+- General transactions spanning metadata records, directory entries, extent-map blocks and data blocks.
+- A formal public transaction API and a defined indeterminate-result/write-poisoning contract for every device error.
+- Full crash-cut matrix across all block sizes, all journal writes/flushes/checkpoint transitions and all namespace mutations.
+- Transaction capacity beyond the four-block ring. Do not solve this by silently allowing oversized transactions or overwriting uncheckpointed records.
+- Proof of physical-device durability; host flush semantics are only software ordering evidence.
 
-### P2 — Transaction durability and crash recovery — IN PROGRESS (30%)
+**Tasks and acceptance criteria**
+1. **P2.1 Normative state machine — Blocked on design.** Document BEGIN/redo/COMMIT/home writes/flush/checkpoint states, sequence overflow, journal-full behavior, and which errors make the live writer unusable until remount.
+2. **P2.2 Fault-injection harness — Partially implemented.** Fail or tear each write and flush in turn; preserve exact on-disk bytes; remount after each cut and compare every home block.
+3. **P2.3 Recovery correctness — Partially implemented.** Repeat replay and inject failures during replay/checkpoint. Committed transactions must be replayed completely and idempotently; uncommitted transactions must not be published.
+4. **P2.4 Capacity design — Not implemented.** Define bounded transaction size and preflight space. Consider multi-record redo or a larger/versioned journal only with a format revision and fixtures.
+5. **P2.5 Namespace transaction — Not implemented.** Atomic create/rename/delete must update namespace records, directory indexes, extent ownership and bitmap in a defined order. Crash outcomes must be exactly old or new state, not mixed state.
+6. **P2.6 Durability contract — Partially documented.** Distinguish process crash, OS crash, power loss and hardware that lies about flush; hardware guarantees require dedicated devices and test plans.
 
-- [ ] Review Begin/redo/commit, home-block writes, checkpoint ordering, and every flush boundary.
-- [ ] Inject failure before, during, and after journal, home-write, checkpoint, and flush operations.
-- [x] Cover torn terminal commit records and repair torn home-block writes at multiple byte-prefix cut points in the journal engine tests.
-- [ ] Extend torn-record and home-block crash cuts across all supported block sizes, not only whole-operation errors.
-- [ ] Reopen from persisted bytes after every simulated crash and assert allowed old/new states.
-- [ ] Test repeated recovery and idempotency, sequence wrap/overflow policy, malformed log lengths, and journal exhaustion.
-- [ ] Document what host-file and physical-device flushes do and do not guarantee.
-- [ ] Define the transaction contract before extending journaling from bitmap allocation to persistent metadata and file contents.
+**Exit gate:** persisted-byte crash-cut matrix is green on Linux and Windows; each mutation recovers to one permitted complete state; replay is idempotent; journal exhaustion and uncertain I/O fail closed. Only then expand the journal to general filesystem transactions.
 
-**Exit gate:** crash-cut matrix passes on disposable images in Linux and Windows CI; recovery is repeatable and never silently accepts ambiguous/corrupt state. Physical hardware claims require separate hardware testing.
+## P3 — Read-only verifier, corruption corpus and repair design
+**Status: Partially implemented — 35%. Weight: 10%.**
 
-### P3 — Read-only checker and hostile-input testing — IN PROGRESS (25%)
+Implemented:
+- check_volume validates superblocks, canonical layout, bitmap reserved/padding invariants, allocation totals and journal/checkpoint state without replay or modifying the image.
+- CLI check-image path and image-byte-preservation regression.
+- Persistent inventory verifier composes namespace reconstruction, extent maps and allocation ownership, with orphan/dangling reports when inventories are available.
 
-- [x] Implement a read-only canonical layout checker for mirrored superblocks, canonical layout, bitmap reserved/padding invariants, and allocation totals (`check_volume`).
-- [x] Validate checkpoint-copy fallback, checkpoint sequence invariants, journal record framing/order, and report pending records/committed transactions without replay or writes.
-- [x] Add `openfs check-image <path> <block-size>` for read-only canonical layout image inspection, including a regression proving image bytes remain unchanged.
-- [ ] Extend integrity checking to persistent object ownership and namespace relationships.
-- [ ] Add bounded fuzz targets for disk parsers, metadata, and directory/name parsing.
-- [ ] Keep repair separate from checking; repair must be explicit and must describe proposed changes before writing.
-- [ ] Expand the corruption corpus and CI fixtures beyond current bitmap, superblock, checkpoint, and journal-framing regressions.
+Incomplete:
+- Full whole-volume traversal from a canonical metadata root/locator is not yet possible for every image.
+- No standalone FSCK repair command; no explicit repair preview/plan/apply protocol.
+- No fuzz target, long-running malformed-input corpus or sanitizer/fuzz CI.
+- Current checker cannot prove data content checksums because the Rust format has no general persistent data checksum table.
+- Read-only check and writable open are distinct: check must never replay or repair silently.
 
-**Exit gate:** checker detects known corruption without modifying the volume; fuzzing has documented budgets and regression fixtures for discovered bugs.
+**Tasks and acceptance criteria**
+1. **P3.1 Read-only structural check — Partially validated.** Corrupt each superblock/checkpoint/bitmap/journal field and verify deterministic diagnostics, no writes and no panic.
+2. **P3.2 Full object traversal — Blocked by P4 metadata locator.** Validate every object, parent/reachability edge, directory record, extent map, allocated block and owner count from disk.
+3. **P3.3 Diagnostics contract — Not implemented.** Stable machine-readable codes, block/object identifiers, deterministic ordering and severity; avoid opaque error-only output for recoverable ownership anomalies.
+4. **P3.4 Fuzzing — Not implemented.** Add bounded fuzz targets for superblock, journal/checkpoint, metadata/directory codecs, extent-map and descriptor decoders. Keep discovered failures as regression fixtures.
+5. **P3.5 Repair planning — Not implemented.** Read-only scan first; explicit dry-run report, narrow repair set, backup/rollback policy and second verification pass before any repair write.
+6. **P3.6 Data integrity — Not implemented.** Decide whether the new format needs data checksums, then specify their on-disk coverage and transaction semantics before enabling them.
 
-### P4 — Persistent namespace and ordinary file operations — IN PROGRESS (22%)
+**Exit gate:** checker covers every reachable persistent object, reports known corruption, never mutates, and malformed input is fuzzed within a documented budget. Repair remains opt-in and separate from checking.
 
-- [x] Specify initial fixed-width object metadata and directory-entry codecs with explicit encoding and CRC validation.
-- [x] Add a checksummed block-sized extent-map page, sparse logical-block lookup, extent coalescing, logical/physical region validation, atomic in-memory insertion, physical-block iteration, range removal/truncation returning physical runs for release, checked allocated-byte/logical-capacity reporting, and validation against byte-sized file lengths (not yet connected to persistent file I/O).
-- [x] Implement an in-memory namespace with root creation, insertion, lookup, deterministic child enumeration, path resolution, rename/move, file-layout metadata updates, removal of files and empty directories, and index/reachability validation.
-- [ ] Persist root/object metadata and directory entries in canonical layout blocks with journaled publication.
-- [ ] Specify persistent object metadata, directory entries, root directory, file lengths, and block ownership.
-- [ ] Implement durable create/open/read/write/truncate/rename/delete and directory enumeration; current rename/remove are in-memory model operations only.
-- [ ] Define path normalization, name encoding, case sensitivity, timestamps, permissions, and error behavior.
-- [ ] Make data and metadata updates transactional and recoverable; prevent leaks, double allocation, and stale references.
-- [ ] Test empty, large, and fragmented files; directory growth; disk-full behavior; rename/delete edge cases; and persistence after reopen.
+## P4 — Durable namespace, files and directories
+**Status: Partially implemented, read-only only — 24%. Weight: 20%.**
 
-**Exit gate:** automated tests create nested directories, write and verify bytes, rename/delete files, close and reopen the volume, and verify namespace and contents after every operation and injected failure.
+Implemented:
+- Fixed-width checksummed metadata records and directory entries.
+- Checksummed extent-map pages, sparse logical mapping, extent coalescing, bounds/alias validation and physical range removal in memory.
+- In-memory namespace create/lookup/list/path/rename/remove validation.
+- Disk-backed inventory readers, descriptor-based discovery, namespace reconstruction, extent-map loading, and file range/content/path reads including fragmented extents, sparse zero-fill and EOF handling.
+- Tests for malformed records, graph inconsistencies, ownership aliases, free blocks and read failures. The Rust public surface does not currently expose persistent create/write/truncate/rename/delete.
 
-### P5 — Safe USB discovery and formatting — NOT STARTED (5%)
+Required design:
+- Choose the persistent metadata root/index and allocation/ownership model.
+- Specify directory storage and growth, file lengths, object IDs/generations, data initialization, sparse semantics, name normalization/case policy and error mapping.
+- Decide the supported first-release semantics before implementing optional POSIX/Windows features.
+- Keep data blocks and metadata publication transactionally consistent; do not release an old block before the new metadata no longer references it.
 
-Do not begin destructive hardware testing until the integrity gates in P1–P4 are satisfied.
+**Tasks and acceptance criteria**
+1. **P4.1 Canonical metadata locator/root — Not implemented.** Versioned root points to bounded metadata and directory structures; validate all pointers before use.
+2. **P4.2 Durable read-only mount model — Partially implemented.** Open from only on-disk roots without caller-supplied block lists; remount must reconstruct the same object graph.
+3. **P4.3 Durable create/mkdir — Not implemented.** Allocate IDs and blocks, publish parent entry and metadata atomically; failure/reopen must show either absent or complete object.
+4. **P4.4 Durable write/truncate — Not implemented.** Test empty/large/fragmented/sparse files, partial blocks, overwrite, grow/shrink, no-space and every I/O failure. Old data must remain readable or a documented committed new version must be complete.
+5. **P4.5 Durable rename/unlink/rmdir — Not implemented.** Test collisions, moving directories, non-empty directories, same-name cases, stale references, link counts when supported and crash cuts.
+6. **P4.6 Directory growth and large inventories — Not implemented.** Test capacity boundaries, pagination, bounded memory and no duplicate/lost entries.
+7. **P4.7 Semantics — Not implemented.** Specify path normalization, absolute/relative paths, trailing separators, case sensitivity, name encoding, timestamps, permissions and file type behavior.
+8. **P4.8 Read/write API and errors — Not implemented.** Provide explicit handles or safe APIs; distinguish EOF, no-space, corruption, unsupported operation and I/O failure.
+9. **P4.9 Persistent end-to-end tests — Not implemented.** Create nested trees, write known bytes, close/reopen, read, rename, delete, verify ownership, and inject failures after every durable step.
 
-- [ ] Implement read-only device discovery per OS: stable identity, removable status, capacity, logical sector size, partition layout, and mounted/system-volume status.
-- [ ] Separate discovery from opening and writing. Never infer that a path is USB solely from its name.
-- [ ] Refuse ambiguous targets, system/boot disks, mounted volumes, unsupported geometry, and devices whose identity or capacity changed after selection.
-- [ ] Use OS-supported exclusive access/locking and fail closed if safe exclusion cannot be established.
-- [ ] Add a dry-run plan showing exact identity, capacity, partition impact, and destructive actions.
-- [ ] Require explicit target confirmation immediately before formatting; never choose a default target.
-- [ ] Keep image formatting as the developer default; do not expose an easy-to-misuse raw format command before safeguards exist.
+**Exit gate:** image-backed create/read/write/truncate/rename/delete and directory operations survive reopen and injected crashes; checker reports no leaks, aliases or dangling references. No OS mount should precede this gate.
 
-**Exit gate:** automated tests prove refusal cases using mocked device metadata; only then test on a dedicated, expendable USB drive. Record device identity, geometry, format/open/reopen, disconnect/reconnect, and integrity results. Never test on a system disk or valuable drive.
+## P5 — Safe device discovery and destructive formatting
+**Status: Bare groundwork only — 5%. Weight: 10%.**
 
-### P6 — OS integration — NOT STARTED (0%)
+The raw-file device backend is real, but it does not establish that a path is a USB device or safely selected. Opening is non-destructive; later writes can overwrite partition tables and user data. There is no end-user raw-device formatter or safe discovery flow.
 
-- [ ] Choose and document the Windows integration route, privileges, signing, installation, and failure requirements.
-- [ ] Implement an adapter over stable core APIs and translate file operations/errors without adding OS assumptions to the on-disk format.
-- [ ] Define safe mount/unmount, flush, exclusive access, device removal, and dirty-volume behavior.
-- [ ] Implement Linux access/mount support as a separate adapter with dedicated tests and documentation.
-- [ ] Add ArchiaOS VFS/block-device integration after the core contract stabilizes.
-- [ ] Verify ARM64 builds/tests for supported targets.
+Tasks:
+1. **P5.1 Read-only discovery — Not implemented.** Per-OS identity, serial/device path, removable status, exact capacity, sector geometry, partition table and mounted/system-volume status.
+2. **P5.2 Exclusive ownership — Not implemented.** Acquire OS-supported exclusive access; reject mounted, busy, boot/system, ambiguous, unsupported or changed devices.
+3. **P5.3 Dry-run plan — Not implemented.** Show exact stable identity, capacity, partitions and every destructive action before any write.
+4. **P5.4 Explicit confirmation — Not implemented.** Revalidate identity/geometry immediately before format; no default target and no path-name heuristics.
+5. **P5.5 Mocked refusal tests — Not implemented.** Prove no writes occur for every unsafe/ambiguous condition.
+6. **P5.6 Hardware validation — Blocked.** Only after P1–P4 gates: dedicated expendable USB, disconnect/reconnect, format/open/reopen, read/write, flush, removal during I/O and checker pass. Never test on valuable or system disks.
 
-**Exit gate:** on every claimed OS, a user can access a test volume, create/edit files through normal file APIs, unmount cleanly, reopen, and verify contents. Documentation must distinguish read-only from read/write support.
+**Exit gate:** all unsafe target cases are refused, target identity is revalidated, and the dedicated hardware test record is reproducible. Image-only tests do not satisfy this gate.
 
-### P7 — Release hardening and compatibility — NOT STARTED (0%)
+## P6 — OS integration and normal file APIs
+**Status: Not implemented — 0%. Weight: 10%.**
 
-- [ ] Define format-version compatibility, upgrade rules, and explicit no-implicit-migration behavior.
-- [ ] Run long stress tests, fuzzing, corruption and power-loss simulations, and performance benchmarks.
-- [ ] Review concurrency, locking, resource limits, path handling, and the no-unsafe policy for the portable core.
-- [ ] Add reproducible release builds and a platform/device compatibility matrix.
-- [ ] Publish known limitations and recovery guidance before calling the format stable.
+No Rust mount/VFS or OS filesystem adapter was found in the current workspace. Legacy adapters are references only.
 
-**Exit gate:** required CI and integrity gates are green, the documented USB hardware matrix passes, no known data-loss blocker remains, and a release checklist is signed off.
+Tasks:
+1. **P6.1 Choose Windows route — Blocked by P4.** Document WinFsp or other chosen integration, privilege/signing/installer requirements, error mapping and failure modes.
+2. **P6.2 Adapter contract — Not implemented.** Map file operations, handles, flush, unmount and device removal to stable core APIs without OS assumptions in the format crate.
+3. **P6.3 Safe lifecycle — Not implemented.** Prevent unmount races, reject operations after shutdown starts, drain in-flight operations and report dirty/failed state.
+4. **P6.4 Windows integration — Not implemented.** Integration tests through normal OS APIs, not direct library calls alone.
+5. **P6.5 Linux adapter — Not implemented.** Separate mount/userspace adapter, permissions/error semantics and unmount tests.
+6. **P6.6 ArchiaOS VFS/block integration — Not implemented.** Port only after the portable contract stabilizes.
+7. **P6.7 ARM64 — Deferred.** Build/test where target and runner support are available; do not claim support from architecture-neutral source alone.
+
+**Exit gate:** users can create/edit/read/rename/delete files via normal OS APIs, unmount cleanly, remount and verify bytes on each claimed platform.
+
+## P7 — Release, compatibility and long-term reliability
+**Status: Planning only — 3%. Weight: 5%.**
+
+Tasks:
+1. **P7.1 Format version policy — Partially documented.** Define feature negotiation, incompatibility rejection, golden fixtures, migration rules and no implicit conversion. Rust draft is not compatible with legacy C v1.x.
+2. **P7.2 Upgrade/conversion — Not implemented / optional.** If conversion is added, use a separate read-only source and new target image, validate both, and never overwrite the only copy.
+3. **P7.3 Stress and resource limits — Not implemented.** Large-volume, fragmentation, many-file, near-full, repeated mount/unmount and sustained I/O tests.
+4. **P7.4 Fuzz/sanitizer matrix — Not implemented for Rust.** Add fuzzing, Miri where appropriate, sanitizer-equivalent checks and minimized regression cases.
+5. **P7.5 Benchmarks — Not implemented as a release gate.** Establish correctness-preserving baselines for sequential/random I/O, metadata operations, fragmented reads and checker throughput; avoid premature tuning.
+6. **P7.6 Security review — Not implemented.** Hostile image inputs, resource exhaustion, symlink/path traversal once supported, concurrent external modification and raw-device privilege boundaries.
+7. **P7.7 Release operations — Not implemented.** Reproducible builds, signed artifacts where appropriate, support matrix, known limitations, recovery guide and rollback/recovery instructions.
+
+**Exit gate:** all earlier exit gates pass, no known data-loss blocker remains, compatibility and recovery behavior are documented, and the supported OS/device matrix is validated.
+
+## Cross-cutting reliability requirements
+
+These requirements apply to every phase and must not be deferred to release:
+- Check all disk-derived lengths, offsets, counts and arithmetic for overflow and bounds before I/O or allocation.
+- Reject malformed, truncated, unsupported-version, checksum-invalid and ambiguous state without guessing or silently repairing.
+- Preserve the distinction between absent/uncommitted and committed/recoverable operations.
+- Test no-space and every I/O error path, including failed rollback and failed flush; if the state is uncertain, stop further writes until recovery.
+- Check ownership across bitmap, metadata records, directory entries, extent-map roots and data extents; no alias, dangling pointer or silent leak.
+- Every mutation needs a defined commit point and persisted-byte crash tests before it is considered durable.
+- Keep checker read-only and repair explicit, previewable and independently validated.
+- Do not claim multi-writer concurrency until locking, serialization and race tests exist.
+- Define data-checksum coverage or explicitly document that regular file contents are not checksummed by the current Rust format.
+- Distinguish process termination tests from OS crash, power-loss and physical-device tests.
+- Never claim NTFS compatibility or legacy OpenFS image compatibility without an implemented and tested conversion/driver path.
 
 ## Immediate execution order
 
-1. Complete a targeted static review of canonical layout journal commit/replay/checkpoint ordering and enumerate untested crash boundaries.
-2. Add the smallest useful persisted-byte crash/reopen regression tests; inspect the diff and rely on GitHub Actions for execution evidence.
-3. Fix demonstrated recovery defects before expanding journal scope.
-4. Build the read-only checker and corruption corpus.
-5. Define persistent object ownership and transaction boundaries, then implement durable namespace/file operations.
-6. Add safe read-only USB discovery and refusal tests.
-7. Add explicit destructive formatting only after integrity and safety gates pass.
-8. Integrate OS adapters and validate on a dedicated expendable USB drive.
+1. **P1/P2:** settle descriptor lifecycle and transaction capacity; do not add new persistent mutation APIs before a general commit/recovery contract exists.
+2. **P2:** expand persisted-byte crash cuts for every journal write, flush, checkpoint and replay failure, including repeated recovery; keep Linux/Windows CI green on exact SHAs.
+3. **P3:** finish read-only diagnostics and malformed-input corpus, then add bounded fuzz targets.
+4. **P4:** define a canonical metadata root/index and implement a minimal durable vertical slice: create file, write bytes, reopen, read bytes, check ownership. Add mkdir/rename/unlink only after this path is transactional.
+5. **P3/P4:** build whole-volume verification from the canonical root and add explicit repair design only after checker coverage.
+6. **P5:** build mocked read-only device discovery/refusal logic; destructive formatting remains unavailable until the data-integrity gates pass.
+7. **P6:** choose the Windows adapter and integrate only against the stable persistent API; then Linux and ArchiaOS.
+8. **P7:** add stress/fuzz/benchmark/release validation after correctness gates, not in place of them.
 
-This is USB-first at the product level but integrity-first at the implementation level. A raw block writer is not a usable filesystem and must never be marketed as one.
+## Required format for future progress reports
 
-## Reporting rules
+Every development update must report:
+- Current branch HEAD and exact code/documentation commit SHA.
+- Phase percentages and the weighted overall estimate using the formula above.
+- Implementation status versus integration status.
+- Tests added versus tests executed versus tests passed.
+- Exact GitHub Actions run URL and tested SHA for any CI claim.
+- Remaining blockers, including any failed or pending CI job.
+- Whether the evidence is image-backed, host-device-backed, or physical-hardware-backed.
 
-For each progress update, report separately:
-- implementation and static inspection;
-- tests added versus tests actually executed;
-- passing GitHub Actions runs and the exact commit they validate;
-- behavior proven versus assumptions and unverified hardware behavior;
-- weighted overall estimate, phase estimates, changed files, and commits.
-
-Never describe historical CI as current for a different commit, never mark a phase complete without its exit gate, and never modify `main`.
+Never mark a phase complete while its exit gate is false. Never report the latest successful CI for a different SHA as validation of a new change. Do not modify the main branch or OpenFS-old as part of this roadmap.
