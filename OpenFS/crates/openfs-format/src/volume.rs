@@ -1976,55 +1976,60 @@ mod tests {
     fn refuses_to_publish_when_existing_allocations_have_no_owner() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
-        let path = image_path("orphan-allocation-blocks-publication");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let orphan_block = volume.allocate_block(&mut device).unwrap();
-            let root = MetadataRecord {
-                id: ObjectId(1),
-                parent_id: 0,
-                kind: ObjectKind::Directory,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let mut metadata_bytes = vec![0; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
-            device
-                .write_blocks(metadata_block, &metadata_bytes)
-                .unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("orphan-allocation-publication-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let orphan_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
-            let descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![metadata_block],
-                metadata_record_count: 1,
-                directory_blocks: vec![],
-                directory_entry_count: 0,
-            };
-            let free_before = volume.free_data_block_count(&mut device).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let free_before = volume.free_data_block_count(&mut device).unwrap();
 
-            assert!(matches!(
-                volume.publish_persistent_inventory(&mut device, &descriptor),
-                Err(Error::InvalidInput(
-                    "persistent inventory has unresolved allocation ownership anomalies"
-                ))
-            ));
-            assert!(volume
-                .is_data_block_allocated(&mut device, orphan_block)
-                .unwrap());
-            assert_eq!(
-                volume.free_data_block_count(&mut device).unwrap(),
-                free_before
-            );
-            assert!(volume
-                .discover_persistent_inventory(&mut device)
-                .unwrap()
-                .is_none());
+                assert!(matches!(
+                    volume.publish_persistent_inventory(&mut device, &descriptor),
+                    Err(Error::InvalidInput(
+                        "persistent inventory has unresolved allocation ownership anomalies"
+                    ))
+                ), "publication must reject orphan blocks at block size {block_size}");
+                assert!(
+                    volume.is_data_block_allocated(&mut device, orphan_block).unwrap(),
+                    "failed publication must not free the orphan block at block size {block_size}"
+                );
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before,
+                    "failed publication must not consume a descriptor block at block size {block_size}"
+                );
+                assert!(
+                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    "failed publication must remain undiscoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
