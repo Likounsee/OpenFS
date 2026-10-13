@@ -62,7 +62,7 @@ impl VolumeLayout {
         let backup_superblock = total_blocks - 1;
         if data_start >= backup_superblock {
             return Err(Error::InvalidInput(
-                "volume has no data region after canonical reserved blocks",
+                "volume has no data region after reserved blocks",
             ));
         }
         Ok(Self {
@@ -2042,7 +2042,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_superblock_has_stable_golden_bytes_and_checksum() {
+    fn canonical_superblock_has_stable_golden_bytes_and_checksum() {
         let uuid = *b"openfs-test-0001";
         let features = 0x0102_0304_0506_0708;
         let encoded = encode_superblock(4096, 256, features, uuid).unwrap();
@@ -2068,7 +2068,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_format_open_allocate_free_roundtrips_supported_block_sizes() {
+    fn canonical_format_open_allocate_free_roundtrips_supported_block_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("block-size-{block_size}"));
             {
@@ -2091,7 +2091,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_journals_allocator_updates_across_reopen_and_keeps_v1_separate() {
+    fn canonical_journals_allocator_updates_across_reopen_and_keeps_legacy_separate() {
         let path = image_path("roundtrip");
         let first;
         {
@@ -2121,7 +2121,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_layout_bitmap_boundaries_keep_regions_disjoint() {
+    fn canonical_layout_bitmap_boundaries_keep_regions_disjoint() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
             for total_blocks in [
@@ -2156,7 +2156,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_rejects_mutated_public_layout_before_io() {
+    fn canonical_allocator_rejects_mutated_public_layout_before_io() {
         for mutation in 0..10 {
             let path = image_path(&format!("mutated-layout-{mutation}"));
             {
@@ -2240,7 +2240,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_rejects_device_geometry_mismatch_without_mutation() {
+    fn canonical_allocator_rejects_device_geometry_mismatch_without_mutation() {
         let volume_path = image_path("geometry-volume");
         let other_path = image_path("geometry-other");
         {
@@ -2289,7 +2289,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_exhaustion_and_reuse_preserve_data_region_bounds() {
+    fn canonical_allocator_exhaustion_and_reuse_preserve_data_region_bounds() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("allocator-exhaustion-{block_size}"));
             {
@@ -2331,7 +2331,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_advances_to_next_bitmap_segment() {
+    fn canonical_allocator_advances_to_next_bitmap_segment() {
         let bits_per_bitmap_block = 4096_u64 * 8;
         let path = image_path("allocator-bitmap-boundary");
         {
@@ -2370,7 +2370,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_rejects_double_free_and_out_of_range_blocks() {
+    fn canonical_allocator_rejects_double_free_and_out_of_range_blocks() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("invalid-free-{block_size}"));
             {
@@ -2484,7 +2484,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_bitmap_read_failures_do_not_mutate_allocator_state() {
+    fn canonical_bitmap_read_failures_do_not_mutate_allocator_state() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("bitmap-read-failure-{block_size}"));
             {
@@ -2548,7 +2548,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocation_keeps_bitmap_unchanged_when_commit_fails_before_durable_record() {
+    fn canonical_allocation_keeps_bitmap_unchanged_when_commit_fails_before_durable_record() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in 0..4 {
                 let path = image_path(&format!("allocation-precommit-{block_size}-{fail_at}"));
@@ -2581,7 +2581,7 @@ mod tests {
         }
     }
     #[test]
-    fn v2_allocation_recovers_after_durable_commit_and_home_write_failure() {
+    fn canonical_allocation_recovers_after_durable_commit_and_home_write_failure() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in [4, 5] {
                 let path = image_path(&format!("allocation-recovery-{block_size}-{fail_at}"));
@@ -2615,7 +2615,7 @@ mod tests {
         }
     }
     #[test]
-    fn v2_rejects_primary_or_backup_superblock_mismatch() {
+    fn canonical_rejects_primary_or_backup_superblock_mismatch() {
         for (label, block) in [("primary", 0_u64), ("backup", 255_u64)] {
             let path = image_path(&format!("superblock-mismatch-{label}"));
             {
@@ -2638,7 +2638,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_matching_superblocks_with_bad_checksum() {
+    fn canonical_rejects_matching_superblocks_with_bad_checksum() {
         let path = image_path("superblock-bad-checksum");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -2661,7 +2661,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_nonzero_reserved_superblock_bytes_with_valid_checksum() {
+    fn canonical_rejects_nonzero_reserved_superblock_bytes_with_valid_checksum() {
         for (label, offset) in [
             ("superblock-reserved-header-byte", 48_usize),
             ("superblock-reserved-tail-byte", 4092_usize),
@@ -2691,7 +2691,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_invalid_superblock_headers_and_geometry() {
+    fn canonical_rejects_invalid_superblock_headers_and_geometry() {
         let cases: [(&str, usize, &[u8], &'static str); 2] = [
             ("bad-magic", 0, b"BADMAGIC", "bad superblock magic"),
             (
@@ -2835,7 +2835,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_reserved_and_padding_bitmap_corruption_on_open() {
+    fn canonical_rejects_reserved_and_padding_bitmap_corruption_on_open() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
             for (label, bit) in [
@@ -2872,7 +2872,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_backup_and_padding_corruption_in_later_bitmap_segment() {
+    fn canonical_rejects_backup_and_padding_corruption_in_later_bitmap_segment() {
         // 32,770 blocks at 4 KiB require two bitmap blocks. The backup
         // superblock is the final in-range bit; the next bit is padding.
         let total_blocks = 32_770_u64;
@@ -2912,7 +2912,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_each_reserved_block_marked_free() {
+    fn canonical_rejects_each_reserved_block_marked_free() {
         let reserved_blocks = (0..256_u64)
             .filter(|block| {
                 VolumeLayout::calculate(4096, 256)
@@ -2957,7 +2957,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_reuses_freed_blocks_in_order_after_reopen() {
+    fn canonical_allocator_reuses_freed_blocks_in_order_after_reopen() {
         let path = image_path("allocator-reuse-order");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
@@ -2995,7 +2995,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_each_reserved_bitmap_corruption_replayed_from_journal() {
+    fn canonical_rejects_each_reserved_bitmap_corruption_replayed_from_journal() {
         // Exercise every reserved bit through durable journal replay, not just
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
@@ -3054,7 +3054,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_later_segment_reserved_and_padding_corruption_replayed_from_journal() {
+    fn canonical_rejects_later_segment_reserved_and_padding_corruption_replayed_from_journal() {
         let total_blocks = 4096_u64 * 8 + 2;
         let bits_per_bitmap_block = 4096_u64 * 8;
         // The same post-replay validation must reject both the backup-superblock
@@ -3111,7 +3111,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_free_keeps_allocation_when_commit_fails_before_durable_record() {
+    fn canonical_free_keeps_allocation_when_commit_fails_before_durable_record() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in 0..4 {
                 let path = image_path(&format!("free-precommit-{block_size}-{fail_at}"));
@@ -3151,7 +3151,7 @@ mod tests {
         }
     }
     #[test]
-    fn v2_free_recovers_after_durable_commit_and_home_write_failure() {
+    fn canonical_free_recovers_after_durable_commit_and_home_write_failure() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in [4, 5] {
                 let path = image_path(&format!("free-recovery-{block_size}-{fail_at}"));
@@ -3185,7 +3185,7 @@ mod tests {
         }
     }
     #[test]
-    fn v2_format_allocate_and_reopen_through_raw_device_backend() {
+    fn canonical_format_allocate_and_reopen_through_raw_device_backend() {
         let path = image_path("raw-device-roundtrip");
         {
             // A disposable regular file exercises RawDevice's exact-geometry path
@@ -3218,7 +3218,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_minimum_volume_exhausts_and_reuses_only_data_blocks() {
+    fn canonical_minimum_volume_exhausts_and_reuses_only_data_blocks() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("minimum-volume-exhaustion-{block_size}"));
             {
@@ -3260,7 +3260,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_handles_last_data_block_after_bitmap_segment_boundary() {
+    fn canonical_allocator_handles_last_data_block_after_bitmap_segment_boundary() {
         for block_size in [4096_u32, 8192] {
             let total_blocks = 65_537_u64;
             let path = image_path(&format!("last-data-block-{block_size}"));
@@ -3316,7 +3316,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_later_bitmap_segment_read_failures_preserve_allocator_state() {
+    fn canonical_later_bitmap_segment_read_failures_preserve_allocator_state() {
         for block_size in [4096_u32] {
             let path = image_path(&format!("later-bitmap-read-failure-{block_size}"));
             {
@@ -3398,7 +3398,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_queries_report_free_space_and_block_state() {
+    fn canonical_allocator_queries_report_free_space_and_block_state() {
         let path = image_path("allocator-state-queries");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -3437,7 +3437,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_contiguous_allocator_is_atomic_and_persistent() {
+    fn canonical_contiguous_allocator_is_atomic_and_persistent() {
         let path = image_path("contiguous-allocator");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -3487,7 +3487,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_contiguous_allocator_rejects_unrepresentable_extents_without_mutation() {
+    fn canonical_contiguous_allocator_rejects_unrepresentable_extents_without_mutation() {
         let path = image_path("contiguous-allocator-limits");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -3516,7 +3516,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_batch_allocator_and_free_are_atomic_and_persistent() {
+    fn canonical_batch_allocator_and_free_are_atomic_and_persistent() {
         let path = image_path("batch-allocator");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
@@ -3575,7 +3575,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_bitmap_validator_rejects_padding_corruption_in_second_segment() {
+    fn canonical_bitmap_validator_rejects_padding_corruption_in_second_segment() {
         // 4096-byte bitmap blocks cover 32768 volume blocks each. Keep the
         // image sparse so this regression exercises the second segment without
         // requiring a large physical test fixture.
@@ -3609,7 +3609,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_public_bitmap_validator_rejects_reserved_and_padding_corruption_for_all_sizes() {
+    fn canonical_public_bitmap_validator_rejects_reserved_and_padding_corruption_for_all_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for (label, corrupt_block) in [("reserved", 0_u64), ("padding", 300_u64)] {
                 let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
@@ -3641,7 +3641,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_batch_allocator_roundtrips_all_supported_block_sizes() {
+    fn canonical_batch_allocator_roundtrips_all_supported_block_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("batch-roundtrip-{block_size}"));
             {
@@ -3673,7 +3673,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_read_only_checker_reports_allocator_state_and_rejects_mirror_mismatch() {
+    fn canonical_read_only_checker_reports_allocator_state_and_rejects_mirror_mismatch() {
         let path = image_path("read-only-checker");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
@@ -3724,7 +3724,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_read_only_checker_validates_journal_copies_for_all_block_sizes() {
+    fn canonical_read_only_checker_validates_journal_copies_for_all_block_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("checker-journal-{block_size}"));
             {
@@ -3774,7 +3774,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_layout_regions_are_disjoint_across_supported_geometries() {
+    fn canonical_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
                 let layout = VolumeLayout::calculate(block_size, total_blocks).unwrap();
@@ -3808,7 +3808,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocator_persists_mixed_allocate_free_sequence_across_reopens() {
+    fn canonical_allocator_persists_mixed_allocate_free_sequence_across_reopens() {
         let path = image_path("mixed-allocation-reopen-sequence");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -3838,7 +3838,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocated_block_inventory_tracks_persistent_bitmap_state() {
+    fn canonical_allocated_block_inventory_tracks_persistent_bitmap_state() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("allocated-block-inventory-{block_size}"));
             {
@@ -3879,7 +3879,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_free_inventory_and_fragmentation_stats_track_allocations_and_holes() {
+    fn canonical_free_inventory_and_fragmentation_stats_track_allocations_and_holes() {
         let path = image_path("free-inventory-fragmentation");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -3920,7 +3920,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_range_based_ownership_report_handles_fragmentation_and_freed_references() {
+    fn canonical_range_based_ownership_report_handles_fragmentation_and_freed_references() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("range-ownership-{block_size}"));
             {
@@ -3965,7 +3965,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_extent_map_ownership_bridge_checks_bitmap_and_cross_file_aliases() {
+    fn canonical_extent_map_ownership_bridge_checks_bitmap_and_cross_file_aliases() {
         let path = image_path("extent-map-ownership-bridge");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -4057,7 +4057,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_ownership_report_bounds_large_orphan_and_dangling_samples() {
+    fn canonical_ownership_report_bounds_large_orphan_and_dangling_samples() {
         let path = image_path("bounded-ownership-report");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -4090,7 +4090,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_allocation_ownership_validator_detects_orphans_and_dangling_references() {
+    fn canonical_allocation_ownership_validator_detects_orphans_and_dangling_references() {
         let path = image_path("ownership-inventory");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -4127,12 +4127,12 @@ mod tests {
     }
 
     #[test]
-    fn v2_layout_rejects_too_small_volumes() {
+    fn canonical_layout_rejects_too_small_volumes() {
         assert!(VolumeLayout::calculate(4096, 11).is_err());
     }
 
     #[test]
-    fn v2_layout_pins_minimum_geometry_and_rejects_invalid_or_overflowing_inputs() {
+    fn canonical_layout_pins_minimum_geometry_and_rejects_invalid_or_overflowing_inputs() {
         let minimum = VolumeLayout::calculate(4096, 12).unwrap();
         assert_eq!(minimum.bitmap_start, 1);
         assert_eq!(minimum.bitmap_blocks, 1);
@@ -4150,7 +4150,7 @@ mod tests {
                     VolumeLayout::calculate(block_size, 256),
                     Err(Error::InvalidInput(_))
                 ),
-                "unexpectedly accepted canonical block size {block_size}"
+                "unexpectedly accepted block size {block_size}"
             );
         }
 
