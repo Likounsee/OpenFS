@@ -208,6 +208,17 @@ impl OpenedVolume {
             if selected.len() as u64 != count {
                 continue;
             }
+            // Refresh the bitmap before touching candidate contents. A second opener may
+            // have allocated one of these blocks since the initial free-space scan.
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let selection_changed = selected.iter().any(|block| {
+                let local = *block - base;
+                let byte = usize::try_from(local / 8).expect("bitmap index was already validated");
+                bitmap[byte] & (1_u8 << (local % 8)) != 0
+            });
+            if selection_changed {
+                continue;
+            }
             // Staged descriptors left by interrupted publication must be scrubbed
             // before this allocation becomes visible in the bitmap.
             clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
