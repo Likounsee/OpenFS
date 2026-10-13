@@ -880,7 +880,9 @@ mod tests {
 
         assert!(matches!(
             open_journal(&mut device, REGION),
-            Err(Error::Corrupt("journal checkpoint sequence counters disagree"))
+            Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree"
+            ))
         ));
     }
 
