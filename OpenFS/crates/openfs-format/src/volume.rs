@@ -1522,9 +1522,10 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
@@ -1538,10 +1539,13 @@ mod tests {
             encoded[48] ^= 0x40;
             device.write_blocks(descriptor_block, &encoded).unwrap();
 
-            assert!(matches!(
-                volume.discover_persistent_inventory(&mut device),
-                Err(Error::Corrupt("inventory descriptor CRC32C mismatch"))
-            ), "a corrupt allocated descriptor must not be silently ignored");
+            assert!(
+                matches!(
+                    volume.discover_persistent_inventory(&mut device),
+                    Err(Error::Corrupt("inventory descriptor CRC32C mismatch"))
+                ),
+                "a corrupt allocated descriptor must not be silently ignored"
+            );
             assert!(volume
                 .is_data_block_allocated(&mut device, descriptor_block)
                 .unwrap());
