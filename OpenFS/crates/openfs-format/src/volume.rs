@@ -360,6 +360,10 @@ impl OpenedVolume {
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut discovered = None;
         let mut cursor = 0;
+        // Descriptors can reference many blocks that share a bitmap page. Cache those
+        // pages during discovery instead of issuing one bitmap read per referenced block.
+        let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
 
         // Read adjacent allocated blocks together to avoid one device operation per block.
         // Bound each read so a long allocated run never requires an unbounded buffer.
@@ -410,7 +414,24 @@ impl OpenedVolume {
                             "inventory descriptor references a block outside the data region",
                         ));
                     }
-                    if !self.is_data_block_allocated(device, *inventory_block)? {
+                    let bitmap_index = *inventory_block / bits_per_bitmap_block;
+                    if let std::collections::btree_map::Entry::Vacant(entry) =
+                        allocation_bitmaps.entry(bitmap_index)
+                    {
+                        let mut bitmap = vec![0_u8; block_size];
+                        device.read_blocks(
+                            self.volume.layout.bitmap_start + bitmap_index,
+                            &mut bitmap,
+                        )?;
+                        entry.insert(bitmap);
+                    }
+                    let bitmap = allocation_bitmaps
+                        .get(&bitmap_index)
+                        .expect("bitmap page was cached");
+                    let local_bit = *inventory_block % bits_per_bitmap_block;
+                    let byte_index = usize::try_from(local_bit / 8)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    if bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                         return Err(Error::Corrupt(
                             "inventory descriptor references a free inventory block",
                         ));
