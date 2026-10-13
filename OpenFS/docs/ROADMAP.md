@@ -131,7 +131,8 @@ A supported Windows PC must identify a removable device, show stable identity an
 
 - [ ] Review Begin/redo/commit, home-block writes, checkpoint ordering, and every flush boundary.
 - [ ] Inject failure before, during, and after journal, home-write, checkpoint, and flush operations.
-- [ ] Cover torn records and torn home blocks, not only whole-operation errors.
+- [x] Cover torn terminal commit records and repair torn home-block writes at multiple byte-prefix cut points in the journal engine tests.
+- [ ] Extend torn-record and home-block crash cuts across all supported block sizes, not only whole-operation errors.
 - [ ] Reopen from persisted bytes after every simulated crash and assert allowed old/new states.
 - [ ] Test repeated recovery and idempotency, sequence wrap/overflow policy, malformed log lengths, and journal exhaustion.
 - [ ] Document what host-file and physical-device flushes do and do not guarantee.

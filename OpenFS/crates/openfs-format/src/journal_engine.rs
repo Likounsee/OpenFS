@@ -816,19 +816,31 @@ mod tests {
 
     #[test]
     fn torn_home_write_is_repaired_from_durable_redo_record() {
-        let mut device = formatted();
-        let mut journal = open_journal(&mut device, REGION).unwrap();
-        // Begin + redo chunks + commit are writes 0..=3; the home block is write 4.
-        let mut failing = TearWriteAt::new(device.clone(), 4, 257);
-        assert!(matches!(
-            journal.commit(&mut failing, &[update(0xA5)]),
-            Err(Error::Io(_))
-        ));
-        let mut recovered = failing.into_inner();
-        let reopened = open_journal(&mut recovered, REGION)
-            .expect("durable redo should repair a torn home-block write");
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
-        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+        // Exercise tears at the first byte, within the header-sized prefix, halfway
+        // through the block, and at the final byte before the write would be complete.
+        for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            // Begin + redo chunks + commit are writes 0..=3; the home block is write 4.
+            let mut failing = TearWriteAt::new(device.clone(), 4, prefix_bytes);
+            assert!(matches!(
+                journal.commit(&mut failing, &[update(0xA5)]),
+                Err(Error::Io(_))
+            ));
+            let mut recovered = failing.into_inner();
+            let reopened = open_journal(&mut recovered, REGION)
+                .expect("durable redo should repair a torn home-block write");
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                4,
+                "unexpected checkpoint after a {prefix_bytes}-byte home-write tear"
+            );
+            assert_eq!(
+                read_home(&mut recovered),
+                vec![0xA5; BS as usize],
+                "redo did not repair a {prefix_bytes}-byte home-write tear"
+            );
+        }
     }
 
     #[test]
