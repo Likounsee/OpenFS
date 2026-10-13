@@ -1525,19 +1525,11 @@ mod tests {
             self.inner.block_count()
         }
 
-        fn read_blocks(
-            &mut self,
-            first_block: u64,
-            output: &mut [u8],
-        ) -> openfs_core::Result<()> {
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
             self.inner.read_blocks(first_block, output)
         }
 
-        fn write_blocks(
-            &mut self,
-            first_block: u64,
-            input: &[u8],
-        ) -> openfs_core::Result<()> {
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
             self.inner.write_blocks(first_block, input)
         }
 
@@ -2093,8 +2085,7 @@ mod tests {
                     inner: raw,
                     fail_next_flush: false,
                 };
-                let mut volume =
-                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -2108,7 +2099,9 @@ mod tests {
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&root.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
