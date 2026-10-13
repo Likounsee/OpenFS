@@ -1794,9 +1794,7 @@ mod tests {
                     let discovered = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
-                    let free_after = recovered
-                        .free_data_block_count(&mut device)
-                        .unwrap();
+                    let free_after = recovered.free_data_block_count(&mut device).unwrap();
                     if fail_at <= 4 {
                         assert!(
                             discovered.is_none(),
@@ -3083,8 +3081,8 @@ mod tests {
             if index != self.fail_at {
                 return self.inner.write_blocks(first_block, input);
             }
-            let block_size = usize::try_from(self.inner.block_size())
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let block_size =
+                usize::try_from(self.inner.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
             if input.len() != block_size || self.prefix_bytes >= input.len() {
                 return Err(Error::InvalidInput(
                     "test tear must target one block with a shorter prefix",
