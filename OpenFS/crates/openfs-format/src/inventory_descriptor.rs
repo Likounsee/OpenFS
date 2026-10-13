@@ -6,7 +6,7 @@
 use crate::{crc32c, ObjectId};
 use openfs_core::{Error, Result};
 
-pub const INVENTORY_DESCRIPTOR_MAGIC: &[u8; 8] = b"OFSMINV\\0";
+pub const INVENTORY_DESCRIPTOR_MAGIC: &[u8; 8] = b"OFSMINV\0";
 const VERSION: u16 = 1;
 const HEADER_SIZE: usize = 48;
 const CHECKSUM_OFFSET: usize = 40;
