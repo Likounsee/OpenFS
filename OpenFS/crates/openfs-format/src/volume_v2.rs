@@ -271,6 +271,62 @@ impl OpenedVolumeV2 {
         Ok(())
     }
 
+    /// Publish the first persistent inventory descriptor.
+    ///
+    /// The descriptor block is allocated through the journal, then written and flushed.
+    /// Existing descriptors are never overwritten: callers must use an explicit future
+    /// replacement protocol once journal-aware namespace mutations are available. If the
+    /// process stops after allocation but before the descriptor is durable, the result is
+    /// an unreferenced allocated block that the verifier can report as an orphan.
+    pub fn publish_persistent_inventory<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        descriptor: &PersistentInventoryDescriptor,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        if self.discover_persistent_inventory(device)?.is_some() {
+            return Err(Error::InvalidInput(
+                "a persistent inventory descriptor already exists",
+            ));
+        }
+        let encoded = descriptor.encode(self.volume.block_size as usize)?;
+        let mut claimed = std::collections::BTreeSet::new();
+        for block in descriptor
+            .metadata_blocks
+            .iter()
+            .chain(descriptor.directory_blocks.iter())
+        {
+            if *block < self.volume.layout.data_start
+                || *block >= self.volume.layout.backup_superblock
+            {
+                return Err(Error::InvalidInput(
+                    "inventory descriptor references a block outside the data region",
+                ));
+            }
+            if !claimed.insert(*block) {
+                return Err(Error::InvalidInput(
+                    "inventory descriptor contains overlapping block lists",
+                ));
+            }
+            if !self.is_data_block_allocated(device, *block)? {
+                return Err(Error::InvalidInput(
+                    "inventory descriptor references a free inventory block",
+                ));
+            }
+        }
+        let descriptor_block = self.allocate_block(device)?;
+        if claimed.contains(&descriptor_block) {
+            // Should be impossible if the bitmap is internally consistent, but don't
+            // publish a self-referential descriptor if that invariant is ever violated.
+            return Err(Error::Corrupt(
+                "allocator returned a block already owned by the inventory",
+            ));
+        }
+        device.write_blocks(descriptor_block, &encoded)?;
+        device.flush()?;
+        Ok(descriptor_block)
+    }
+
     /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
     ///
     /// V2 has no fixed inventory region in its superblock, so this bounded-format discovery
