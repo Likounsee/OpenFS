@@ -6,9 +6,9 @@
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
     DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord,
-    Namespace, ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE,
-    JOURNAL_CHECKPOINT_SIZE, METADATA_RECORD_SIZE, PersistentInventoryDescriptor,
-    INVENTORY_DESCRIPTOR_MAGIC, SUPERBLOCK_SIZE,
+    Namespace, ObjectId, PersistentInventoryDescriptor, PersistentJournal, RedoUpdate,
+    DIRECTORY_ENTRY_SIZE, INVENTORY_DESCRIPTOR_MAGIC, JOURNAL_CHECKPOINT_SIZE,
+    METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -336,9 +336,7 @@ impl OpenedVolumeV2 {
         &self,
         device: &mut D,
     ) -> Result<Option<(u64, Namespace)>> {
-        let Some((descriptor_block, descriptor)) =
-            self.discover_persistent_inventory(device)?
-        else {
+        let Some((descriptor_block, descriptor)) = self.discover_persistent_inventory(device)? else {
             return Ok(None);
         };
         let namespace = self.reconstruct_namespace(
@@ -1209,9 +1207,10 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
@@ -1265,7 +1264,9 @@ mod tests {
 
             assert!(matches!(
                 volume.discover_persistent_inventory(&mut device),
-                Err(Error::Corrupt("multiple persistent inventory descriptors were discovered"))
+                Err(Error::Corrupt(
+                    "multiple persistent inventory descriptors were discovered"
+                ))
             ));
         }
         fs::remove_file(path).unwrap();
