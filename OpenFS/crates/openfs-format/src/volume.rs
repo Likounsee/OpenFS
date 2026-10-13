@@ -1566,6 +1566,43 @@ mod tests {
     }
 
     #[test]
+    fn discovers_late_descriptor_among_fragmented_allocated_blocks() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("inventory-descriptor-fragmented-discovery");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let allocated = volume.allocate_blocks(&mut device, 129).unwrap();
+
+            // Leave 65 allocated candidates separated by free blocks. The descriptor
+            // sits at the last candidate, beyond the first 64 candidate slots.
+            for index in (1..128).step_by(2) {
+                volume.free_block(&mut device, allocated[index]).unwrap();
+            }
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let descriptor_block = allocated[128];
+            device
+                .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                .unwrap();
+
+            let found = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.0, descriptor_block);
+            assert_eq!(found.1, descriptor);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn refuses_to_publish_invalid_inventory_without_consuming_a_block() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
