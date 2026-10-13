@@ -1576,7 +1576,7 @@ mod tests {
             let allocated = volume.allocate_blocks(&mut device, 129).unwrap();
 
             // Leave 65 allocated candidates separated by free blocks. The descriptor
-            // sits at the last candidate, beyond the first 64 candidate slots.
+            // sits at the last candidate, exercising sparse bitmap-bit enumeration.
             for index in (1..128).step_by(2) {
                 volume.free_block(&mut device, allocated[index]).unwrap();
             }
