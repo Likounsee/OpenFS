@@ -1311,6 +1311,22 @@ mod tests {
             assert_eq!(reconstructed.0, descriptor_block);
             assert_eq!(reconstructed.1.root_id(), ObjectId(1));
             assert_eq!(reconstructed.1.objects().count(), 1);
+
+            // The descriptor and namespace must remain discoverable after reopening the image.
+            drop(volume);
+            let reopened = open_volume(&mut device).unwrap();
+            let reopened_descriptor = reopened
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(reopened_descriptor.0, descriptor_block);
+            assert_eq!(reopened_descriptor.1, descriptor);
+            let reopened_namespace = reopened
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(reopened_namespace.0, descriptor_block);
+            assert_eq!(reopened_namespace.1.root_id(), ObjectId(1));
         }
         fs::remove_file(path).unwrap();
     }
@@ -2047,7 +2063,8 @@ mod tests {
             &encoded[..48],
             &[
                 79, 80, 69, 78, 70, 83, 0, 0, 2, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
-                7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48, 48, 48, 49
+                7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48,
+                48, 48, 49
             ]
         );
         assert_eq!(
