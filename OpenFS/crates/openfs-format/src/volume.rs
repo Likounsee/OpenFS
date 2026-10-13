@@ -2616,10 +2616,13 @@ mod tests {
                         &aliased.encode_block(block_size as usize).unwrap(),
                     )
                     .unwrap();
-                assert!(matches!(
-                    volume.read_namespace_extent_maps(&mut device, &namespace),
-                    Err(Error::Corrupt("file data aliases an extent-map root"))
-                ), "block size {block_size}");
+                assert!(
+                    matches!(
+                        volume.read_namespace_extent_maps(&mut device, &namespace),
+                        Err(Error::Corrupt("file data aliases an extent-map root"))
+                    ),
+                    "block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
