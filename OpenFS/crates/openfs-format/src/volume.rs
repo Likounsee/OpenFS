@@ -1249,8 +1249,8 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        check_volume, decode_superblock, encode_superblock, format_volume,
-        open_volume, VolumeLayout,
+        check_volume, decode_superblock, encode_superblock, format_volume, open_volume,
+        VolumeLayout,
     };
     use crate::{open_volume, Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
