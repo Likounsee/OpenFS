@@ -248,6 +248,40 @@ mod tests {
     }
 
     #[test]
+    fn discovered_verification_counts_the_descriptor_as_an_owned_block() {
+        use crate::PersistentInventoryDescriptor;
+
+        let path = image_path("discovered-clean-report");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor_block = volume.allocate_block(&mut device).unwrap();
+            write_root_inventory(&mut device, metadata_block);
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            device
+                .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                .unwrap();
+
+            let report = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(report.descriptor_block, Some(descriptor_block));
+            assert!(report.is_consistent());
+            assert_eq!(report.allocation.orphaned_allocation_count, 0);
+            assert_eq!(report.allocation.dangling_reference_count, 0);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn reports_consistent_inventory_when_all_allocations_have_owners() {
         let path = image_path("clean-report");
         {
