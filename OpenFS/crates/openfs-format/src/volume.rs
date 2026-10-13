@@ -1794,7 +1794,9 @@ mod tests {
                     let discovered = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
-                    let free_after = recovered.free_data_block_count(&mut device).unwrap();
+                    let free_after = recovered
+                        .free_data_block_count(&mut device)
+                        .unwrap();
                     if fail_at <= 4 {
                         assert!(
                             discovered.is_none(),
@@ -3125,7 +3127,9 @@ mod tests {
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&root.encode().unwrap());
-                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    device
+                        .write_blocks(metadata_block, &metadata_bytes)
+                        .unwrap();
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
                         metadata_blocks: vec![metadata_block],
@@ -3149,17 +3153,24 @@ mod tests {
                     let mut device = failing.inner;
                     drop(volume);
                     let mut recovered = open_volume(&mut device).unwrap();
-                    let found = recovered.discover_persistent_inventory(&mut device).unwrap();
+                    let found = recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap();
                     let free_after = recovered.free_data_block_count(&mut device).unwrap();
                     if fail_at <= 1 {
-                        assert!(found.is_none(), "uncommitted descriptor became visible (block size {block_size}, flush {fail_at})");
+                        assert!(
+                            found.is_none(),
+                            "uncommitted descriptor became visible (block size {block_size}, flush {fail_at})"
+                        );
                         assert_eq!(free_after, free_before);
                     } else {
                         let (block, decoded) = found.unwrap_or_else(|| panic!(
                             "committed descriptor was lost after flush failure (block size {block_size}, flush {fail_at})"
                         ));
                         assert_eq!(decoded, descriptor);
-                        assert!(recovered.is_data_block_allocated(&mut device, block).unwrap());
+                        assert!(recovered
+                            .is_data_block_allocated(&mut device, block)
+                            .unwrap());
                         assert_eq!(free_after, free_before - 1);
                     }
                 }
@@ -3223,8 +3234,14 @@ mod tests {
                     let mut device = failing.inner;
                     drop(volume);
                     let mut recovered = open_volume(&mut device).unwrap();
-                    assert!(recovered.discover_persistent_inventory(&mut device).unwrap().is_none());
-                    assert_eq!(recovered.free_data_block_count(&mut device).unwrap(), free_before);
+                    assert!(recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none());
+                    assert_eq!(
+                        recovered.free_data_block_count(&mut device).unwrap(),
+                        free_before
+                    );
                     let reused = recovered.allocate_block(&mut device).unwrap();
                     let mut bytes = vec![0; block_size as usize];
                     device.read_blocks(reused, &mut bytes).unwrap();
