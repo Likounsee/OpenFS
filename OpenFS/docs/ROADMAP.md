@@ -2,10 +2,10 @@
 
 Last source audit: 2026-10-13  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: f6a250d784edc9f64c9d09000b97795e962ae8a2  
-Current branch HEAD before this roadmap revision: f6a250d784edc9f64c9d09000b97795e962ae8a2  
+Code baseline audited: 000d1be0e9fe1a63e35fc334be9b9948d8ca6148  
+Current branch HEAD before this roadmap revision: 000d1be0e9fe1a63e35fc334be9b9948d8ca6148  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record allocator recovery and descriptor lifetime protections, plus cross-structure verifier regressions for descriptor/data, metadata/directory, and metadata/file-data aliases. This documentation commit does not change filesystem code.
+Scope: record allocator recovery and descriptor lifetime protections, plus cross-structure verifier regressions for descriptor/data, descriptor/inventory, metadata/directory, and metadata/file-data aliases. This documentation commit does not change filesystem code.
 
 ## Executive assessment
 
@@ -346,7 +346,7 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 | **P0 total** | **100** | **100** | **100%** |
 | P1.1 Format geometry, superblocks and reserved areas | 20 | 18 | Format/open validation and layout tests exist; golden fixtures and stable format policy remain missing. |
 | P1.2 Allocation/free and persistence across reopen | 20 | 19 | Allocation/free APIs and reopen tests in `volume.rs`; broader crash-cut coverage remains incomplete. |
-| P1.3 Cross-structure block ownership | 15 | 11 | Inventory/extent ownership validation exists; regressions `discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size`, `caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size`, and `caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size` cover three ownership collisions at all five supported block sizes. Exact-SHA CI run [38451134612](https://github.com/Likounsee/OpenFS/actions/runs/38451134612) passed Linux and Windows for the first two; run [38451666041](https://github.com/Likounsee/OpenFS/actions/runs/38451666041) was green on Linux while Windows validation of the third was still in progress at this audit. Whole-volume canonical-root traversal and all ownership transitions do not. |
+| P1.3 Cross-structure block ownership | 15 | 11 | Inventory/extent ownership validation exists; regressions `discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size`, `caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size`, `caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size`, and `discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size` cover four ownership collisions at all five supported block sizes. Exact-SHA CI run [38451134612](https://github.com/Likounsee/OpenFS/actions/runs/38451134612) passed Linux and Windows for the first two; run [38451666041](https://github.com/Likounsee/OpenFS/actions/runs/38451666041) passed Linux and Windows for metadata/file-data alias rejection; run [38452124961](https://github.com/Likounsee/OpenFS/actions/runs/38452124961) passed Linux and had Windows validation still in progress at this audit for descriptor/inventory self-alias rejection. Whole-volume canonical-root traversal and all ownership transitions do not. |
 | P1.4 Persistent descriptor publication/recovery | 20 | 16 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist; safe descriptor replacement protocol is absent. |
 | P1.5 Scalable metadata locator | 15 | 12 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
 | P1.6 Golden images and format compatibility policy | 10 | 7 | Compatibility notes exist; fixtures, version-negotiation tests and conversion are absent. |
