@@ -1736,7 +1736,10 @@ mod tests {
 
     #[test]
     fn descriptor_publication_is_atomic_across_every_journal_write_failure() {
-        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+            INVENTORY_DESCRIPTOR_MAGIC,
+        };
 
         // The bitmap redo image occupies two chunks at the supported block sizes, so
         // the four-block ring holds begin, both chunks, and commit. Fail each journal,
