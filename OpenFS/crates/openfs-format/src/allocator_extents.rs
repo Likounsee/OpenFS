@@ -1460,8 +1460,7 @@ mod allocation_bitmap_report_tests {
                     generation: 1,
                 };
                 let mut metadata = vec![0_u8; block_size as usize];
-                metadata[..crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&root.encode().unwrap());
+                metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
                 device.write_blocks(metadata_block, &metadata).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
