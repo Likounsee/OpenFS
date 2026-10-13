@@ -211,11 +211,15 @@ impl OpenedVolume {
             // Refresh the bitmap before touching candidate contents. A second opener may
             // have allocated one of these blocks since the initial free-space scan.
             device.read_blocks(bitmap_block, &mut bitmap)?;
-            let selection_changed = selected.iter().any(|block| {
+            let mut selection_changed = false;
+            for block in &selected {
                 let local = *block - base;
-                let byte = usize::try_from(local / 8).expect("bitmap index was already validated");
-                bitmap[byte] & (1_u8 << (local % 8)) != 0
-            });
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                    selection_changed = true;
+                    break;
+                }
+            }
             if selection_changed {
                 continue;
             }
