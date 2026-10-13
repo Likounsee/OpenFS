@@ -492,11 +492,13 @@ impl OpenedVolumeV2 {
         for (start, end) in ranges {
             for block in start..end {
                 let bitmap_index = block / bits_per_block;
-                if !cached_bitmaps.contains_key(&bitmap_index) {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    cached_bitmaps.entry(bitmap_index)
+                {
                     let mut bitmap = vec![0_u8; self.volume.block_size as usize];
                     device
                         .read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
-                    cached_bitmaps.insert(bitmap_index, bitmap);
+                    entry.insert(bitmap);
                 }
                 let bitmap = cached_bitmaps
                     .get(&bitmap_index)
