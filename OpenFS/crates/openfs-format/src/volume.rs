@@ -356,8 +356,8 @@ impl OpenedVolume {
     ) -> Result<Option<(u64, PersistentInventoryDescriptor)>> {
         self.validate_device(device)?;
         let allocated = self.allocated_data_block_inventory(device)?;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut discovered = None;
         let mut cursor = 0;
 
