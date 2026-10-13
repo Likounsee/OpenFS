@@ -3150,7 +3150,7 @@ mod tests {
                     );
                     let mut device = failing.inner;
                     drop(volume);
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    let recovered = open_volume(&mut device).unwrap();
                     let found = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
