@@ -1102,7 +1102,9 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
     if primary != backup {
-        return Err(Error::Corrupt("primary and backup filesystem superblocks disagree"));
+        return Err(Error::Corrupt(
+            "primary and backup filesystem superblocks disagree",
+        ));
     }
     let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
@@ -2634,7 +2636,9 @@ mod tests {
 
                 assert!(matches!(
                     open_volume(&mut device),
-                    Err(Error::Corrupt("primary and backup filesystem superblocks disagree"))
+                    Err(Error::Corrupt(
+                        "primary and backup filesystem superblocks disagree"
+                    ))
                 ));
             }
             fs::remove_file(path).unwrap();
@@ -2687,7 +2691,9 @@ mod tests {
 
                 assert!(matches!(
                     open_volume(&mut device),
-                    Err(Error::Corrupt("reserved filesystem superblock bytes must be zero"))
+                    Err(Error::Corrupt(
+                        "reserved filesystem superblock bytes must be zero"
+                    ))
                 ));
             }
             fs::remove_file(path).unwrap();
