@@ -923,9 +923,12 @@ impl OpenedVolume {
                 self.volume.layout.data_start,
                 self.volume.layout.backup_superblock,
             )? {
+                // The root inventory is sorted and unique. Binary search avoids a
+                // roots-by-extents scan on filesystems with many small files.
+                let root_index = roots.partition_point(|root_block| *root_block < start);
                 if roots
-                    .iter()
-                    .any(|root_block| start <= *root_block && *root_block < end)
+                    .get(root_index)
+                    .is_some_and(|root_block| *root_block < end)
                 {
                     return Err(Error::Corrupt("file data aliases an extent-map root"));
                 }
@@ -963,31 +966,25 @@ impl OpenedVolume {
             self.volume.layout.backup_superblock,
         )?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let mut cached_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        // validated_physical_ranges returns ranges in ascending physical order. Therefore
+        // the bitmap page index can only stay the same or increase as we scan; one-page
+        // caching is sufficient and avoids repeated BTreeMap lookups and cache eviction
+        // for highly fragmented files.
+        let mut cached_bitmap_index = None;
+        let mut cached_bitmap = vec![0_u8; self.volume.block_size as usize];
         for (start, end) in ranges {
             for block in start..end {
                 let bitmap_index = block / bits_per_block;
-                if !cached_bitmaps.contains_key(&bitmap_index)
-                    && cached_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
-                {
-                    // A highly fragmented file can touch many bitmap pages. Keep this
-                    // validation path bounded in memory just like inventory readers.
-                    cached_bitmaps.clear();
+                if cached_bitmap_index != Some(bitmap_index) {
+                    device.read_blocks(
+                        self.volume.layout.bitmap_start + bitmap_index,
+                        &mut cached_bitmap,
+                    )?;
+                    cached_bitmap_index = Some(bitmap_index);
                 }
-                if let std::collections::btree_map::Entry::Vacant(entry) =
-                    cached_bitmaps.entry(bitmap_index)
-                {
-                    let mut bitmap = vec![0_u8; self.volume.block_size as usize];
-                    device
-                        .read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
-                    entry.insert(bitmap);
-                }
-                let bitmap = cached_bitmaps
-                    .get(&bitmap_index)
-                    .expect("bitmap was cached");
                 let local = block % bits_per_block;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                if cached_bitmap[byte] & (1_u8 << (local % 8)) == 0 {
                     return Err(Error::Corrupt("file extent points to a free data block"));
                 }
             }
