@@ -2095,7 +2095,7 @@ mod tests {
     }
 
     #[test]
-    fn current_journals_allocator_updates_across_reopen_and_keeps_v1_separate() {
+    fn journals_allocator_updates_across_reopen() {
         let path = image_path("roundtrip");
         let first;
         {
