@@ -1566,13 +1566,10 @@ mod tests {
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for corruption in ["checksum", "reserved", "padding", "version"] {
-                let path = image_path(&format!(
-                    "descriptor-corruption-{corruption}-{block_size}"
-                ));
+                let path = image_path(&format!("descriptor-corruption-{corruption}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 64).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
