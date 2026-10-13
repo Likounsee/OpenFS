@@ -3,9 +3,37 @@
 //! The current on-disk journal can atomically update one bitmap block per transaction.
 //! Extents are therefore deliberately constrained to a single bitmap segment.
 
-use crate::{OpenedVolume, RedoUpdate, VolumeLayout};
+use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
+
+/// Clear stale descriptor signatures from free blocks before making them allocated.
+///
+/// A failed descriptor publication may leave a staged descriptor in a block whose
+/// allocation bit was never committed. Every allocator path must scrub that signature
+/// before reusing such a block, or discovery can mistake stale bytes for a live root.
+fn clear_stale_descriptor_magic<D: BlockDevice>(
+    device: &mut D,
+    block_size: u32,
+    blocks: &[u64],
+) -> Result<()> {
+    let mut changed = false;
+    let mut contents = vec![0_u8; block_size as usize];
+    for block in blocks {
+        device.read_blocks(*block, &mut contents)?;
+        if contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+            contents.fill(0);
+            device.write_blocks(*block, &contents)?;
+            changed = true;
+        }
+    }
+    if changed {
+        // Scrubbing must be durable before the bitmap commit makes these blocks
+        // visible to descriptor discovery as allocated data.
+        device.flush()?;
+    }
+    Ok(())
+}
 
 /// Read-only snapshot of usable data-space capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +208,9 @@ impl OpenedVolume {
             if selected.len() as u64 != count {
                 continue;
             }
+            // Staged descriptors left by interrupted publication must be scrubbed
+            // before this allocation becomes visible in the bitmap.
+            clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
             for block in &selected {
                 let local = block - base;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -425,6 +456,10 @@ impl OpenedVolume {
         let base = (start / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        // Match the single- and batch-block allocators: stale staged descriptor bytes
+        // must be durable-cleared before these free blocks become allocated.
+        let selected: Vec<u64> = (start..end).collect();
+        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
         for block in start..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1261,6 +1296,48 @@ mod allocation_bitmap_report_tests {
             "openfs-bitmap-report-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn every_allocation_path_scrubs_stale_descriptor_staging() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for allocation_kind in ["batch", "contiguous"] {
+                let path = image_path(&format!("stale-descriptor-{allocation_kind}-{block_size}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let metadata_block = volume.allocate_block(&mut device).unwrap();
+                    let root = MetadataRecord {
+                        id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
+                        flags: 0, size: 0, extent_root_block: None, generation: 1,
+                    };
+                    let mut metadata = vec![0_u8; block_size as usize];
+                    metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                    device.write_blocks(metadata_block, &metadata).unwrap();
+                    let descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1), metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1, directory_blocks: vec![], directory_entry_count: 0,
+                    };
+                    let staged_block = volume.volume.layout.data_start + 1;
+                    assert!(!volume.is_data_block_allocated(&mut device, staged_block).unwrap());
+                    device.write_blocks(staged_block, &descriptor.encode(block_size as usize).unwrap()).unwrap();
+                    device.flush().unwrap();
+
+                    let allocated = match allocation_kind {
+                        "batch" => volume.allocate_blocks(&mut device, 1).unwrap(),
+                        "contiguous" => vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()],
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(allocated, vec![staged_block]);
+                    assert!(volume.is_data_block_allocated(&mut device, staged_block).unwrap());
+                    assert_eq!(volume.discover_persistent_inventory(&mut device).unwrap(), None,
+                        "stale staged descriptor must not become discoverable after {allocation_kind} allocation at block size {block_size}");
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
     }
 
     #[test]
