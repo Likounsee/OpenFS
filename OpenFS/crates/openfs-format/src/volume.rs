@@ -1668,6 +1668,82 @@ mod tests {
     }
 
     #[test]
+    fn failed_descriptor_write_leaves_detectable_orphan_and_never_publishes_partial_state() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("descriptor-write-failure-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let free_before = volume.free_data_block_count(&mut device).unwrap();
+                let mut failing = FailWriteAt {
+                    inner: device,
+                    write_index: 0,
+                    // Allocation's journal transaction uses writes 0..=5. Fail the
+                    // following descriptor home-block write, after allocation is durable.
+                    fail_at: 6,
+                };
+                assert!(
+                    matches!(
+                        volume.publish_persistent_inventory(&mut failing, &descriptor),
+                        Err(Error::Io(_))
+                    ),
+                    "descriptor write should fail after durable allocation (block size {block_size})"
+                );
+
+                let mut device = failing.inner;
+                drop(volume);
+                let mut recovered = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    recovered.free_data_block_count(&mut device).unwrap(),
+                    free_before - 1,
+                    "the durable allocation must survive reopen (block size {block_size})"
+                );
+                assert!(
+                    recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none(),
+                    "a failed descriptor write must not expose a descriptor (block size {block_size})"
+                );
+                assert!(
+                    matches!(
+                        recovered.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::InvalidInput(
+                            "persistent inventory has unresolved allocation ownership anomalies"
+                        ))
+                    ),
+                    "the orphan must be detected before another descriptor is published (block size {block_size})"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn refuses_to_publish_when_existing_allocations_have_no_owner() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
