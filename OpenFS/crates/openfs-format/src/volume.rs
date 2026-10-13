@@ -861,7 +861,8 @@ impl OpenedVolume {
             ));
         }
         let mut seen = std::collections::BTreeSet::new();
-        let mut packed = Vec::with_capacity(required_blocks * block_size);
+        let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         for block in blocks {
             if !seen.insert(*block) {
                 return Err(Error::Corrupt("inventory repeats a physical block"));
@@ -871,14 +872,51 @@ impl OpenedVolume {
             {
                 return Err(Error::Corrupt("inventory block is outside the data region"));
             }
-            if !self.is_data_block_allocated(device, *block)? {
+
+            let bitmap_index = *block / bits_per_bitmap_block;
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                allocation_bitmaps.entry(bitmap_index)
+            {
+                let mut bitmap = vec![0_u8; block_size];
+                device.read_blocks(
+                    self.volume.layout.bitmap_start + bitmap_index,
+                    &mut bitmap,
+                )?;
+                entry.insert(bitmap);
+            }
+            let bitmap = allocation_bitmaps
+                .get(&bitmap_index)
+                .expect("bitmap page was cached");
+            let local_bit = *block % bits_per_bitmap_block;
+            let byte_index =
+                usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            if bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                 return Err(Error::Corrupt(
                     "inventory block is marked free in the bitmap",
                 ));
             }
-            let mut bytes = vec![0_u8; block_size];
-            device.read_blocks(*block, &mut bytes)?;
-            packed.extend_from_slice(&bytes);
+        }
+
+        // Preserve caller-defined stream order, while coalescing adjacent physical
+        // blocks into bounded reads. Non-adjacent blocks remain separate runs.
+        let mut packed = Vec::with_capacity(required_blocks * block_size);
+        let mut cursor = 0;
+        while cursor < blocks.len() {
+            let mut end = cursor + 1;
+            while end < blocks.len()
+                && end - cursor < INVENTORY_DISCOVERY_BATCH_BLOCKS
+                && blocks[end - 1].checked_add(1) == Some(blocks[end])
+            {
+                end += 1;
+            }
+            let run_blocks = end - cursor;
+            let run_bytes = run_blocks
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut batch = vec![0_u8; run_bytes];
+            device.read_blocks(blocks[cursor], &mut batch)?;
+            packed.extend_from_slice(&batch);
+            cursor = end;
         }
         packed.truncate(required_bytes);
         Ok(packed)
