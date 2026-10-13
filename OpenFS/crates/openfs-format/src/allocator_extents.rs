@@ -715,6 +715,10 @@ impl OpenedVolume {
                 return Err(Error::Corrupt("best-fit extent changed during allocation"));
             }
         }
+        // Match every other allocation path: interrupted descriptor staging must not
+        // become discoverable when a stale free block is allocated through best-fit.
+        let selected: Vec<u64> = (extent.start_block..end).collect();
+        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
         for block in extent.start_block..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1320,7 +1324,7 @@ mod allocation_bitmap_report_tests {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for allocation_kind in ["single", "batch", "contiguous"] {
+            for allocation_kind in ["single", "batch", "contiguous", "best-fit"] {
                 let path = image_path(&format!("stale-descriptor-{allocation_kind}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
@@ -1363,6 +1367,9 @@ mod allocation_bitmap_report_tests {
                         "batch" => volume.allocate_blocks(&mut device, 1).unwrap(),
                         "contiguous" => {
                             vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()]
+                        }
+                        "best-fit" => {
+                            vec![volume.allocate_best_fit_contiguous_blocks(&mut device, 1).unwrap()]
                         }
                         _ => unreachable!(),
                     };
