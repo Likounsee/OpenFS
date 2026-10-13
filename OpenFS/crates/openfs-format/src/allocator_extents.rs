@@ -1356,7 +1356,9 @@ mod allocation_bitmap_report_tests {
     fn stale_descriptor_scrub_flush_failure_keeps_allocation_free() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for allocation_kind in ["single", "batch", "contiguous", "best-fit"] {
-                let path = image_path(&format!("stale-flush-failure-{allocation_kind}-{block_size}"));
+                let path = image_path(&format!(
+                    "stale-flush-failure-{allocation_kind}-{block_size}"
+                ));
                 {
                     let device = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut volume = format_volume(
@@ -1383,7 +1385,9 @@ mod allocation_bitmap_report_tests {
                     let first_attempt = match allocation_kind {
                         "single" => volume.allocate_block(&mut device).map(|_| ()),
                         "batch" => volume.allocate_blocks(&mut device, 1).map(|_| ()),
-                        "contiguous" => volume.allocate_contiguous_blocks(&mut device, 1).map(|_| ()),
+                        "contiguous" => volume
+                            .allocate_contiguous_blocks(&mut device, 1)
+                            .map(|_| ()),
                         "best-fit" => volume
                             .allocate_best_fit_contiguous_blocks(&mut device, 1)
                             .map(|_| ()),
@@ -1401,9 +1405,13 @@ mod allocation_bitmap_report_tests {
                     let retry = match allocation_kind {
                         "single" => vec![volume.allocate_block(&mut device).unwrap()],
                         "batch" => volume.allocate_blocks(&mut device, 1).unwrap(),
-                        "contiguous" => vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()],
+                        "contiguous" => {
+                            vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()]
+                        },
                         "best-fit" => {
-                            vec![volume.allocate_best_fit_contiguous_blocks(&mut device, 1).unwrap()]
+                            vec![volume
+                                .allocate_best_fit_contiguous_blocks(&mut device, 1)
+                                .unwrap()]
                         }
                         _ => unreachable!(),
                     };
