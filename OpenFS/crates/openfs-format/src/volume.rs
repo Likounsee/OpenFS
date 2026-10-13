@@ -293,6 +293,9 @@ impl OpenedVolume {
         }
         let encoded = descriptor.encode(self.volume.block_size as usize)?;
         let mut claimed = std::collections::BTreeSet::new();
+        let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
+        let block_size = self.volume.block_size as usize;
         for block in descriptor
             .metadata_blocks
             .iter()
@@ -310,7 +313,27 @@ impl OpenedVolume {
                     "inventory descriptor contains overlapping block lists",
                 ));
             }
-            if !self.is_data_block_allocated(device, *block)? {
+
+            // Validate all inventory owners against cached bitmap pages. This avoids
+            // one device read per inventory block when publishing large inventories.
+            let bitmap_index = *block / bits_per_bitmap_block;
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                allocation_bitmaps.entry(bitmap_index)
+            {
+                let mut bitmap = vec![0_u8; block_size];
+                device.read_blocks(
+                    self.volume.layout.bitmap_start + bitmap_index,
+                    &mut bitmap,
+                )?;
+                entry.insert(bitmap);
+            }
+            let bitmap = allocation_bitmaps
+                .get(&bitmap_index)
+                .expect("bitmap page was cached");
+            let local_bit = *block % bits_per_bitmap_block;
+            let byte_index =
+                usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            if bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                 return Err(Error::InvalidInput(
                     "inventory descriptor references a free inventory block",
                 ));
