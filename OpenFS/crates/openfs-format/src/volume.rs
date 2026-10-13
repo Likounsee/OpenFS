@@ -1525,11 +1525,19 @@ mod tests {
             self.inner.block_count()
         }
 
-        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+        fn read_blocks(
+            &mut self,
+            first_block: u64,
+            output: &mut [u8],
+        ) -> openfs_core::Result<()> {
             self.inner.read_blocks(first_block, output)
         }
 
-        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+        fn write_blocks(
+            &mut self,
+            first_block: u64,
+            input: &[u8],
+        ) -> openfs_core::Result<()> {
             self.inner.write_blocks(first_block, input)
         }
 
