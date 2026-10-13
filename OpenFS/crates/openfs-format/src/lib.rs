@@ -182,6 +182,13 @@ pub use journal::{
 pub use journal_engine::{
     format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
 };
+#[cfg(test)]
+pub use legacy_layout::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
+#[cfg(test)]
+pub use volume::{
+    check_volume_v2, format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeCheckReport,
+    VolumeLayoutV2, VolumeV2,
+};
 pub use metadata::{
     decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE,
 };
