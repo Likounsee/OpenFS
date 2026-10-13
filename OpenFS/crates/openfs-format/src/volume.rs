@@ -2008,14 +2008,19 @@ mod tests {
                 };
                 let free_before = volume.free_data_block_count(&mut device).unwrap();
 
-                assert!(matches!(
-                    volume.publish_persistent_inventory(&mut device, &descriptor),
-                    Err(Error::InvalidInput(
-                        "persistent inventory has unresolved allocation ownership anomalies"
-                    ))
-                ), "publication must reject orphan blocks at block size {block_size}");
                 assert!(
-                    volume.is_data_block_allocated(&mut device, orphan_block).unwrap(),
+                    matches!(
+                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::InvalidInput(
+                            "persistent inventory has unresolved allocation ownership anomalies"
+                        ))
+                    ),
+                    "publication must reject orphan blocks at block size {block_size}"
+                );
+                assert!(
+                    volume
+                        .is_data_block_allocated(&mut device, orphan_block)
+                        .unwrap(),
                     "failed publication must not free the orphan block at block size {block_size}"
                 );
                 assert_eq!(
