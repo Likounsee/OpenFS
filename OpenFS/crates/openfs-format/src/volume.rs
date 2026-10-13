@@ -3152,8 +3152,7 @@ mod tests {
                 let path = image_path(&format!("free-recovery-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
