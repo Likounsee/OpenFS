@@ -246,6 +246,7 @@ impl PersistentJournal {
         self.region.validate(device)?;
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        let mut targets = std::collections::BTreeSet::new();
         for update in updates {
             if update.contents.len() != block_size {
                 return Err(Error::InvalidInput(
@@ -254,6 +255,11 @@ impl PersistentJournal {
             }
             validate_home_target(device, self.region, update.target_block, block_size)?;
             validate_protected_target(&self.protected_blocks, update.target_block)?;
+            if !targets.insert(update.target_block) {
+                return Err(Error::InvalidInput(
+                    "transaction contains duplicate redo targets",
+                ));
+            }
         }
 
         let transaction_id = self.checkpoint.next_transaction_id;
@@ -793,6 +799,27 @@ mod tests {
             assert_eq!(reopened.checkpoint().checkpoint_sequence, 0);
             assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
         }
+    }
+
+    #[test]
+    fn duplicate_redo_targets_are_rejected_before_any_persistent_write() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut failing = FailAt::new(device.clone(), 0);
+
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5), update(0x5A)]),
+            Err(Error::InvalidInput(
+                "transaction contains duplicate redo targets"
+            ))
+        ));
+
+        let mut persisted = failing.into_inner();
+        assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
+        let reopened = open_journal(&mut persisted, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 0);
+        assert_eq!(reopened.checkpoint().next_transaction_id, 1);
+        assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
     }
 
     #[test]
