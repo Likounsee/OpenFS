@@ -2546,6 +2546,86 @@ mod tests {
     }
 
     #[test]
+    fn namespace_extent_map_root_checks_scale_across_all_supported_block_sizes() {
+        use crate::{DirectoryEntry, MetadataRecord, Namespace, ObjectId, ObjectKind};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("many-extent-roots-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let file_count = 32_usize;
+                let allocated = volume
+                    .allocate_blocks(&mut device, (file_count * 2) as u64)
+                    .unwrap();
+                let mut namespace = Namespace::new(ObjectId(1)).unwrap();
+
+                for (index, pair) in allocated.chunks_exact(2).enumerate() {
+                    let object_id = ObjectId((index + 2) as u128);
+                    let name = format!("file-{index:02}.bin");
+                    let record = MetadataRecord {
+                        id: object_id,
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: u64::from(block_size),
+                        extent_root_block: Some(pair[0]),
+                        generation: 1,
+                    };
+                    namespace
+                        .insert(
+                            DirectoryEntry {
+                                parent_id: 1,
+                                object_id: object_id.0,
+                                kind: ObjectKind::File,
+                                name,
+                            },
+                            record,
+                        )
+                        .unwrap();
+                    let map = ExtentMap::new(vec![Extent {
+                        logical_start: 0,
+                        physical_start: pair[1],
+                        block_count: 1,
+                    }])
+                    .unwrap();
+                    device
+                        .write_blocks(pair[0], &map.encode_block(block_size as usize).unwrap())
+                        .unwrap();
+                }
+
+                let maps = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
+                assert_eq!(maps.len(), file_count, "block size {block_size}");
+
+                // A data range that aliases a root late in the sorted root inventory must
+                // still be rejected; this exercises the binary-search boundary, not just
+                // the common case where roots and data are disjoint.
+                let last_root = allocated[allocated.len() - 2];
+                let first_root = allocated[0];
+                let aliased = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: first_root,
+                    block_count: 1,
+                }])
+                .unwrap();
+                device
+                    .write_blocks(
+                        last_root,
+                        &aliased.encode_block(block_size as usize).unwrap(),
+                    )
+                    .unwrap();
+                assert!(matches!(
+                    volume.read_namespace_extent_maps(&mut device, &namespace),
+                    Err(Error::Corrupt("file data aliases an extent-map root"))
+                ), "block size {block_size}");
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn namespace_extent_roots_must_be_allocated_and_not_alias_inventory_blocks() {
         use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 
