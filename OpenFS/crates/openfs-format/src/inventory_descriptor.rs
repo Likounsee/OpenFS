@@ -1,6 +1,6 @@
 //! Checksummed on-disk locator for persistent namespace inventories.
 //!
-//! The descriptor is stored in one allocated data block. The canonical superblock remains unchanged;
+//! The descriptor is stored in one allocated data block. The superblock remains unchanged;
 //! discovery can scan allocated data blocks for this self-identifying, checksummed record.
 
 use crate::{crc32c, ObjectId};

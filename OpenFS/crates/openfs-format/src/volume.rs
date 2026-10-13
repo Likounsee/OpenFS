@@ -345,8 +345,8 @@ impl OpenedVolume {
 
     /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
     ///
-    /// canonical has no fixed inventory region in its superblock, so this bounded-format discovery
-    /// scans allocated data blocks for the versioned descriptor magic. It rejects multiple
+    /// The superblock has no fixed inventory region, so discovery scans allocated data
+    /// blocks for the descriptor magic. It rejects multiple
     /// descriptors, malformed descriptor records, unallocated inventory blocks, and aliases
     /// between the descriptor itself and its inventory lists.
     pub fn discover_persistent_inventory<D: BlockDevice>(
