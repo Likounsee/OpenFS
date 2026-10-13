@@ -589,7 +589,9 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                 ));
             }
             if !targets.insert(target) {
-                return Err(Error::Corrupt("redo transaction contains duplicate targets"));
+                return Err(Error::Corrupt(
+                    "redo transaction contains duplicate targets",
+                ));
             }
             updates.push(RedoUpdate {
                 target_block: target,
