@@ -20,7 +20,7 @@ const CHECKSUM_OFFSET: usize = 4088;
 const JOURNAL_RING_BLOCKS: u64 = 4;
 const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 
-/// On-disk regions for format current. The journal occupies six consecutive blocks.
+/// On-disk regions for the filesystem. The journal occupies six consecutive blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VolumeLayout {
     pub total_blocks: u64,
@@ -39,7 +39,7 @@ impl VolumeLayout {
         }
         if total_blocks < 12 {
             return Err(Error::InvalidInput(
-                "volume is too small for current reserved regions",
+                "volume is too small for reserved regions",
             ));
         }
         u64::from(block_size)
@@ -62,7 +62,7 @@ impl VolumeLayout {
         let backup_superblock = total_blocks - 1;
         if data_start >= backup_superblock {
             return Err(Error::InvalidInput(
-                "volume has no data region after current reserved blocks",
+                "volume has no data region after reserved blocks",
             ));
         }
         Ok(Self {
@@ -96,7 +96,7 @@ impl VolumeLayout {
     }
 }
 
-/// Validated current volume geometry and superblock fields.
+/// Validated volume geometry and superblock fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Volume {
     pub block_size: u32,
@@ -106,7 +106,7 @@ pub struct Volume {
     pub layout: VolumeLayout,
 }
 
-/// Writable current volume. Opening this value runs journal recovery before returning it.
+/// Writable volume. Opening this value runs journal recovery before returning it.
 #[derive(Debug)]
 pub struct OpenedVolume {
     pub volume: Volume,
@@ -345,7 +345,7 @@ impl OpenedVolume {
 
     /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
     ///
-    /// current format has no fixed inventory region in its superblock, so this bounded-format discovery
+    /// filesystem has no fixed inventory region in its superblock, so this bounded-format discovery
     /// scans allocated data blocks for the versioned descriptor magic. It rejects multiple
     /// descriptors, malformed descriptor records, unallocated inventory blocks, and aliases
     /// between the descriptor itself and its inventory lists.
@@ -497,7 +497,7 @@ impl OpenedVolume {
         Ok(namespace)
     }
 
-    /// Validate every extent-map root referenced by a namespace against the current format bitmap.
+    /// Validate every extent-map root referenced by a namespace against the filesystem bitmap.
     ///
     /// Returns the sorted, unique roots after checking data-region bounds and requiring
     /// each root block to be allocated. This does not decode the extent-map pages.
@@ -840,20 +840,20 @@ impl OpenedVolume {
             || device.block_count() != self.volume.total_blocks
         {
             return Err(Error::InvalidInput(
-                "device geometry does not match opened current volume",
+                "device geometry does not match opened volume",
             ));
         }
         let canonical = VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
         if self.volume.layout != canonical {
             return Err(Error::InvalidInput(
-                "current volume layout was modified after validation",
+                "volume layout was modified after validation",
             ));
         }
         Ok(())
     }
 }
 
-/// Result of a non-mutating current format volume check.
+/// Result of a non-mutating filesystem volume check.
 ///
 /// This verifies the primary/backup superblocks, canonical geometry, and reserved/padding
 /// bitmap invariants. It deliberately does not replay the journal or claim namespace
@@ -875,7 +875,7 @@ pub struct VolumeCheckReport {
     pub recoverable_transactions: u64,
 }
 
-/// Inspect static current format volume metadata without writing to the device.
+/// Inspect static volume metadata without writing to the device.
 ///
 /// Unlike `open_volume`, this function does not recover or checkpoint the journal.
 /// It is suitable for a read-only first-pass checker, not a full crash-recovery verdict.
@@ -892,12 +892,14 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
     if primary != backup {
-        return Err(Error::Corrupt("primary and backup current superblocks disagree"));
+        return Err(Error::Corrupt(
+            "primary and backup filesystem superblocks disagree",
+        ));
     }
     let (block_size, total_blocks, _features, _uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
-            "current superblock geometry does not match device geometry",
+            "filesystem superblock geometry does not match device geometry",
         ));
     }
     let layout = VolumeLayout::calculate(block_size, total_blocks)?;
@@ -1049,7 +1051,7 @@ fn check_journal_read_only<D: BlockDevice>(
     ))
 }
 
-/// Format a device as current. Destructive; call only on a disposable image or explicitly
+/// Format a device as OpenFS. Destructive; call only on a disposable image or explicitly
 /// selected device. Physical-device formatting is not exposed by the host utility.
 pub fn format_volume<D: BlockDevice>(
     device: &mut D,
@@ -1086,7 +1088,7 @@ pub fn format_volume<D: BlockDevice>(
     open_volume(device)
 }
 
-/// Validate a current volume and recover committed journal records before returning writable state.
+/// Validate a volume and recover committed journal records before returning writable state.
 pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
         return Err(Error::InvalidInput(
@@ -1100,12 +1102,12 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
     if primary != backup {
-        return Err(Error::Corrupt("primary and backup current superblocks disagree"));
+        return Err(Error::Corrupt("primary and backup filesystem superblocks disagree"));
     }
     let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
-            "current superblock geometry does not match device geometry",
+            "filesystem superblock geometry does not match device geometry",
         ));
     }
     let layout = VolumeLayout::calculate(block_size, total_blocks)?;
@@ -1137,7 +1139,7 @@ fn encode_superblock(
     uuid: [u8; 16],
 ) -> Result<[u8; SUPERBLOCK_SIZE]> {
     if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
-        return Err(Error::InvalidInput("invalid current superblock geometry"));
+        return Err(Error::InvalidInput("invalid filesystem superblock geometry"));
     }
     u64::from(block_size)
         .checked_mul(total_blocks)
@@ -1157,14 +1159,14 @@ fn encode_superblock(
 
 fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u8; 16])> {
     if &bytes[..8] != MAGIC {
-        return Err(Error::Corrupt("bad current superblock magic"));
+        return Err(Error::Corrupt("bad filesystem superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
     if version != FORMAT_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
-        return Err(Error::Corrupt("unexpected current superblock header size"));
+        return Err(Error::Corrupt("unexpected filesystem superblock header size"));
     }
     let stored = u32::from_le_bytes(
         bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
@@ -1172,16 +1174,18 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
             .unwrap(),
     );
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
-        return Err(Error::Corrupt("current superblock CRC32C mismatch"));
+        return Err(Error::Corrupt("filesystem superblock CRC32C mismatch"));
     }
     if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0) || bytes[4092..].iter().any(|b| *b != 0) {
-        return Err(Error::Corrupt("reserved current superblock bytes must be zero"));
+        return Err(Error::Corrupt(
+            "reserved filesystem superblock bytes must be zero",
+        ));
     }
     let block_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
     let total_blocks = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
     let features = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
     if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() || total_blocks < 2 {
-        return Err(Error::Corrupt("invalid current superblock geometry"));
+        return Err(Error::Corrupt("invalid filesystem superblock geometry"));
     }
     u64::from(block_size)
         .checked_mul(total_blocks)
@@ -2189,13 +2193,13 @@ mod tests {
                 assert!(matches!(
                     volume.allocate_block(&mut device),
                     Err(Error::InvalidInput(
-                        "current volume layout was modified after validation"
+                        "volume layout was modified after validation"
                     ))
                 ));
                 assert!(matches!(
                     volume.free_block(&mut device, 8),
                     Err(Error::InvalidInput(
-                        "current volume layout was modified after validation"
+                        "volume layout was modified after validation"
                     ))
                 ));
 
@@ -2250,13 +2254,13 @@ mod tests {
             assert!(matches!(
                 volume.allocate_block(&mut wrong_count),
                 Err(Error::InvalidInput(
-                    "device geometry does not match opened current volume"
+                    "device geometry does not match opened volume"
                 ))
             ));
             assert!(matches!(
                 volume.free_block(&mut wrong_count, volume.volume.layout.data_start),
                 Err(Error::InvalidInput(
-                    "device geometry does not match opened current volume"
+                    "device geometry does not match opened volume"
                 ))
             ));
 
@@ -2266,13 +2270,13 @@ mod tests {
                 assert!(matches!(
                     volume.allocate_block(&mut wrong_size),
                     Err(Error::InvalidInput(
-                        "device geometry does not match opened current volume"
+                        "device geometry does not match opened volume"
                     ))
                 ));
                 assert!(matches!(
                     volume.free_block(&mut wrong_size, volume.volume.layout.data_start),
                     Err(Error::InvalidInput(
-                        "device geometry does not match opened current volume"
+                        "device geometry does not match opened volume"
                     ))
                 ));
             }
@@ -2293,7 +2297,7 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("allocator-exhaustion-{block_size}"));
             {
-                // The minimum valid current format geometry has exactly three data blocks.
+                // The minimum valid filesystem geometry has exactly three data blocks.
                 let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
@@ -2630,7 +2634,7 @@ mod tests {
 
                 assert!(matches!(
                     open_volume(&mut device),
-                    Err(Error::Corrupt("primary and backup current superblocks disagree"))
+                    Err(Error::Corrupt("primary and backup filesystem superblocks disagree"))
                 ));
             }
             fs::remove_file(path).unwrap();
@@ -2654,7 +2658,7 @@ mod tests {
 
             assert!(matches!(
                 open_volume(&mut device),
-                Err(Error::Corrupt("current superblock CRC32C mismatch"))
+                Err(Error::Corrupt("filesystem superblock CRC32C mismatch"))
             ));
         }
         fs::remove_file(path).unwrap();
@@ -2683,7 +2687,7 @@ mod tests {
 
                 assert!(matches!(
                     open_volume(&mut device),
-                    Err(Error::Corrupt("reserved current superblock bytes must be zero"))
+                    Err(Error::Corrupt("reserved filesystem superblock bytes must be zero"))
                 ));
             }
             fs::remove_file(path).unwrap();
@@ -2693,12 +2697,12 @@ mod tests {
     #[test]
     fn current_rejects_invalid_superblock_headers_and_geometry() {
         let cases: [(&str, usize, &[u8], &'static str); 2] = [
-            ("bad-magic", 0, b"BADMAGIC", "bad current superblock magic"),
+            ("bad-magic", 0, b"BADMAGIC", "bad filesystem superblock magic"),
             (
                 "bad-header-size",
                 10,
                 &[0x31, 0x00],
-                "unexpected current superblock header size",
+                "unexpected filesystem superblock header size",
             ),
         ];
 
@@ -2773,7 +2777,7 @@ mod tests {
                 device.flush().unwrap();
                 assert!(matches!(
                     open_volume(&mut device),
-                    Err(Error::Corrupt("invalid current superblock geometry"))
+                    Err(Error::Corrupt("invalid filesystem superblock geometry"))
                 ));
             }
             fs::remove_file(path).unwrap();
@@ -2826,7 +2830,7 @@ mod tests {
                 assert!(matches!(
                     open_volume(&mut device),
                     Err(Error::Corrupt(
-                        "current superblock geometry does not match device geometry"
+                        "filesystem superblock geometry does not match device geometry"
                     ))
                 ));
             }
