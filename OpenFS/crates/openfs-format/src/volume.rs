@@ -524,6 +524,7 @@ impl OpenedVolume {
             }
         }
         inspect_batch(&pending_blocks, device)?;
+        drop(inspect_batch);
         Ok(discovered)
     }
 
