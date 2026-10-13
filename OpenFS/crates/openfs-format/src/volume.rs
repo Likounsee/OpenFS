@@ -2201,7 +2201,7 @@ mod tests {
             // an uncertain outcome: the descriptor can legitimately become visible.
             {
                 let mut device = ImageDevice::open(&path, block_size).unwrap();
-                let mut volume = open_volume(&mut device).unwrap();
+                let volume = open_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.free_data_block_count(&mut device).unwrap(),
                     free_before - 1,
