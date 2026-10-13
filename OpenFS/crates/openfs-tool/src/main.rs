@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::ImageDevice;
-use openfs_format::{check_volume_v2, format_volume, open_volume};
+use openfs_format::{check_volume, format_volume, open_volume};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -84,7 +84,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     println!("Path: {}", path.display());
     println!("Size: {size_mib} MiB ({block_count} blocks × {BLOCK_SIZE} bytes)");
     println!("UUID: {}", format_uuid(uuid));
-    println!("Format: v1 (development only; no persistent file namespace or integrated journal)");
+    println!("Format: OpenFS journaled filesystem");
     println!("This command created a regular image file, not a physical USB volume.");
     Ok(())
 }
@@ -94,32 +94,32 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     let volume = open_volume(&mut device)?;
     println!("OpenFS volume validated; no filesystem writes were performed.");
     println!("Path: {}", path.display());
-    println!("Block size: {} bytes", volume.layout.block_size);
-    println!("Total blocks: {}", volume.layout.total_blocks);
+    println!("Block size: {} bytes", volume.volume.layout.block_size);
+    println!("Total blocks: {}", volume.volume.layout.total_blocks);
     println!(
         "Bitmap: blocks {}..{}",
-        volume.layout.bitmap_start,
-        volume.layout.bitmap_start + volume.layout.bitmap_blocks
+        volume.volume.layout.bitmap_start,
+        volume.volume.layout.bitmap_start + volume.volume.layout.bitmap_blocks
     );
     println!(
         "Data region: blocks {}..{}",
-        volume.layout.data_start, volume.layout.backup_superblock
+        volume.volume.layout.data_start, volume.volume.layout.backup_superblock
     );
-    println!("Data blocks: {}", volume.layout.data_blocks());
-    println!("UUID: {}", format_uuid(volume.superblock.uuid));
-    println!("Format: v1 (development only; no persistent file namespace or integrated journal)");
+    println!("Data blocks: {}", volume.volume.layout.data_blocks());
+    println!("UUID: {}", format_uuid(volume.volume.uuid));
+    println!("Format: OpenFS journaled filesystem");
     Ok(())
 }
 
-/// Read-only V2 consistency check. Unlike opening a writable volume, this never replays
+/// Read-only consistency check. Unlike opening a writable volume, this never replays
 /// pending journal records and never changes the image.
 fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
         return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
     }
     let mut device = ImageDevice::open(path, block_size)?;
-    let report = check_volume_v2(&mut device)?;
-    println!("OpenFS V2 volume check passed (read-only; no recovery performed).");
+    let report = check_volume(&mut device)?;
+    println!("OpenFS volume check passed (read-only; no recovery performed).");
     println!("Path: {}", path.display());
     println!("Block size: {} bytes", report.block_size);
     println!("Total blocks: {}", report.total_blocks);
@@ -184,7 +184,7 @@ fn print_usage() {
 mod tests {
     use super::{create_image, inspect_image, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice};
-    use openfs_format::{format_volume_v2, open_volume};
+    use openfs_format::{format_volume, open_volume};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -234,11 +234,11 @@ mod tests {
     }
 
     #[test]
-    fn checks_v2_image_without_modifying_it() {
-        let path = unique_path("v2-check");
+    fn checks_current_image_without_modifying_it() {
+        let path = unique_path("current-check");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             device.flush().unwrap();
         }
         let before = fs::read(&path).unwrap();
