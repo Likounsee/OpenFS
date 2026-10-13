@@ -207,14 +207,7 @@ mod tests {
             write_root_inventory(&mut device, metadata_block);
 
             let report = volume
-                .verify_persistent_inventory(
-                    &mut device,
-                    ObjectId(1),
-                    &[metadata_block],
-                    1,
-                    &[],
-                    0,
-                )
+                .verify_persistent_inventory(&mut device, ObjectId(1), &[metadata_block], 1, &[], 0)
                 .unwrap();
             assert!(report.is_consistent());
             assert_eq!(report.allocation.orphaned_allocation_count, 0);
