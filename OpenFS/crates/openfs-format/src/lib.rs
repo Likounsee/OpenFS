@@ -196,6 +196,6 @@ pub use volume::{
 #[cfg(not(test))]
 pub use volume::{
     check_volume_v2 as check_volume, format_volume_v2 as format_volume,
-    open_volume_v2 as open_volume, OpenedVolumeV2 as OpenedVolume,
-    VolumeLayoutV2 as VolumeLayout, VolumeV2 as Volume,
+    open_volume_v2 as open_volume, OpenedVolumeV2 as OpenedVolume, VolumeLayoutV2 as VolumeLayout,
+    VolumeV2 as Volume,
 };
