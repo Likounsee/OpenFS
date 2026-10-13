@@ -7,7 +7,8 @@ use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
     DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord,
     Namespace, ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE,
-    JOURNAL_CHECKPOINT_SIZE, METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
+    JOURNAL_CHECKPOINT_SIZE, METADATA_RECORD_SIZE, PersistentInventoryDescriptor,
+    INVENTORY_DESCRIPTOR_MAGIC, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -268,6 +269,63 @@ impl OpenedVolumeV2 {
             }],
         )?;
         Ok(())
+    }
+
+    /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
+    ///
+    /// V2 has no fixed inventory region in its superblock, so this bounded-format discovery
+    /// scans allocated data blocks for the versioned descriptor magic. It rejects multiple
+    /// descriptors, malformed descriptor records, unallocated inventory blocks, and aliases
+    /// between the descriptor itself and its inventory lists.
+    pub fn discover_persistent_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<Option<(u64, PersistentInventoryDescriptor)>> {
+        self.validate_device(device)?;
+        let allocated = self.allocated_data_block_inventory(device)?;
+        let mut discovered = None;
+        let mut block_bytes = vec![0_u8; self.volume.block_size as usize];
+        for block in allocated {
+            device.read_blocks(block, &mut block_bytes)?;
+            if block_bytes.get(..INVENTORY_DESCRIPTOR_MAGIC.len())
+                != Some(INVENTORY_DESCRIPTOR_MAGIC.as_slice())
+            {
+                continue;
+            }
+            let descriptor = PersistentInventoryDescriptor::decode(&block_bytes)?;
+            if descriptor.metadata_blocks.contains(&block)
+                || descriptor.directory_blocks.contains(&block)
+            {
+                return Err(Error::Corrupt(
+                    "inventory descriptor aliases one of its inventory blocks",
+                ));
+            }
+            for inventory_block in descriptor
+                .metadata_blocks
+                .iter()
+                .chain(descriptor.directory_blocks.iter())
+            {
+                if *inventory_block < self.volume.layout.data_start
+                    || *inventory_block >= self.volume.layout.backup_superblock
+                {
+                    return Err(Error::Corrupt(
+                        "inventory descriptor references a block outside the data region",
+                    ));
+                }
+                if !self.is_data_block_allocated(device, *inventory_block)? {
+                    return Err(Error::Corrupt(
+                        "inventory descriptor references a free inventory block",
+                    ));
+                }
+            }
+            if discovered.is_some() {
+                return Err(Error::Corrupt(
+                    "multiple persistent inventory descriptors were discovered",
+                ));
+            }
+            discovered = Some((block, descriptor));
+        }
+        Ok(discovered)
     }
 
     /// Read a caller-located, packed metadata inventory from allocated data blocks.
