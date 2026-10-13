@@ -89,7 +89,9 @@ impl OpenedVolumeV2 {
                 physical_start: *block,
                 block_count: 1,
             });
-            logical_cursor = logical_cursor.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            logical_cursor = logical_cursor
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
         }
         for record in namespace.objects() {
             if let Some(root) = record.extent_root_block {
@@ -98,7 +100,9 @@ impl OpenedVolumeV2 {
                     physical_start: root,
                     block_count: 1,
                 });
-                logical_cursor = logical_cursor.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                logical_cursor = logical_cursor
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
         }
         let index_map = ExtentMap::new(index_extents)?;
@@ -109,8 +113,8 @@ impl OpenedVolumeV2 {
                 .object(*object_id)
                 .ok_or(Error::Corrupt("extent map has no namespace object"))?;
             let block_size = u64::from(self.volume.block_size);
-            let logical_blocks = record.size / block_size
-                + u64::from(record.size % block_size != 0);
+            let logical_blocks =
+                record.size / block_size + u64::from(record.size % block_size != 0);
             owned_maps.push((map.clone(), logical_blocks));
         }
         let map_refs: Vec<(&ExtentMap, u64)> = owned_maps
@@ -179,14 +183,7 @@ mod tests {
             write_root_inventory(&mut device, metadata_block);
 
             let report: PersistentInventoryReport = volume
-                .verify_persistent_inventory(
-                    &mut device,
-                    ObjectId(1),
-                    &[metadata_block],
-                    1,
-                    &[],
-                    0,
-                )
+                .verify_persistent_inventory(&mut device, ObjectId(1), &[metadata_block], 1, &[], 0)
                 .unwrap();
             assert_eq!(report.namespace.root_id(), ObjectId(1));
             assert_eq!(report.metadata_record_count, 1);
