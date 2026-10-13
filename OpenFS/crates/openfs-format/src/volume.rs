@@ -2069,8 +2069,7 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor = match alias_kind {
                         "metadata" => PersistentInventoryDescriptor {
