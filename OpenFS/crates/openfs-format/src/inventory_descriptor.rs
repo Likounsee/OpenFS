@@ -94,10 +94,8 @@ impl PersistentInventoryDescriptor {
         }
         let root_id = ObjectId::new(u128::from_le_bytes(bytes[12..28].try_into().unwrap()))
             .map_err(|_| Error::Corrupt("inventory descriptor root ID is zero"))?;
-        let metadata_record_count =
-            u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize;
-        let directory_entry_count =
-            u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+        let metadata_record_count = u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize;
+        let directory_entry_count = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
         let metadata_blocks_len = bytes_needed(
             metadata_record_count,
             crate::METADATA_RECORD_SIZE,
