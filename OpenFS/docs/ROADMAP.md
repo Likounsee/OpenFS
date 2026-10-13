@@ -2,10 +2,10 @@
 
 Last source audit: 2026-10-13  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: 9fd6d857235723f9474109d73666be89994962f6  
-Current branch HEAD before this roadmap revision: 9fd6d857235723f9474109d73666be89994962f6  
+Code baseline audited: c8ee192bf14f62e943c360f595ba8a169619786c  
+Current branch HEAD before this roadmap revision: c8ee192bf14f62e943c360f595ba8a169619786c  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record the allocator stale-descriptor recovery fix and its exact-SHA cross-platform CI evidence; this documentation commit does not change filesystem code.
+Scope: record allocator stale-descriptor recovery across all allocation APIs, fail-closed scrub-flush handling, and protection of the persistent inventory descriptor from generic free APIs. This documentation commit does not change filesystem code.
 
 ## Executive assessment
 
@@ -42,7 +42,7 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, layout and allocator | 15% | 82% | Strong image-backed layout/allocator coverage; descriptor publication and ownership recovery remain incomplete |
+| P1 Format, layout and allocator | 15% | 83% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
 | P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
 | P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
 | P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
@@ -136,7 +136,7 @@ Remaining rule: reopen this phase if a concrete integrity or safety defect is fo
 **Exit criteria:** baseline CI green on both OS jobs for the exact SHA; no known untriaged baseline blocker; contributors know how to distinguish image tests from physical-device guarantees.
 
 ## P1 — Canonical format, layout and allocator
-**Status: Partially implemented; recent CI validated — 82%. Weight: 15%.**
+**Status: Partially implemented; recent CI validated — 83%. Weight: 15%.**
 
 Implemented:
 - Canonical layout calculation with checked geometry and supported block sizes from 4 KiB through 64 KiB.
@@ -146,7 +146,8 @@ Implemented:
 - Persistent metadata/directory codecs, extent-map page codec and ownership verifier foundations.
 - Persistent inventory descriptor publication/discovery, bounded batched reads and fail-closed handling for malformed, duplicated or unallocated references.
 - Descriptor publication stages the encoded descriptor in a free data block and flushes it before journaling the allocation bitmap. The bitmap commit is the visibility point: discovery scans allocated blocks, so an uncommitted staged descriptor remains invisible after reopen. Tests fail each journal/home/checkpoint write position and each flush boundary across all five supported block sizes, requiring recovery to either the old state or the complete descriptor. Torn-prefix writes to the staging block are tested at five prefix lengths per block size; the descriptor remains invisible, and reuse clears stale descriptor magic.
-- Exact implementation/test evidence: commit [`e16472c746d3d398686d1eedecc259e3cf06e5c1`](https://github.com/Likounsee/OpenFS/commit/e16472c746d3d398686d1eedecc259e3cf06e5c1); Rust CI run [38428579237](https://github.com/Likounsee/OpenFS/actions/runs/38428579237) passed formatting, workspace tests and Clippy on both Linux and Windows.
+- Allocator recovery regression: commits [`1eaf85ed7fa001249666c57f7947d1b58f0d3d13`](https://github.com/Likounsee/OpenFS/commit/1eaf85ed7fa001249666c57f7947d1b58f0d3d13) and [`32984d4e12dd46339fa48adc7d1f893eab93aa7c`](https://github.com/Likounsee/OpenFS/commit/32984d4e12dd46339fa48adc7d1f893eab93aa7c) cover stale descriptor staging through single, batch, contiguous and best-fit allocation, plus a simulated scrub-flush failure that must leave the bitmap allocation free and allow a safe retry. CI run [38448265235](https://github.com/Likounsee/OpenFS/actions/runs/38448265235) passed Linux and Windows for the fail-closed regression test.
+- Persistent descriptor lifetime: commits [`09c169de84876e6fb71f4aff901f1860e32700de`](https://github.com/Likounsee/OpenFS/commit/09c169de84876e6fb71f4aff901f1860e32700de), [`780fd760a1ff226197a7729da395029582b46077`](https://github.com/Likounsee/OpenFS/commit/780fd760a1ff226197a7729da395029582b46077), [`ba9e006db0364b2f497925bba76b1bb7c334a319`](https://github.com/Likounsee/OpenFS/commit/ba9e006db0364b2f497925bba76b1bb7c334a319) and [`c8ee192bf14f62e943c360f595ba8a169619786c`](https://github.com/Likounsee/OpenFS/commit/c8ee192bf14f62e943c360f595ba8a169619786c) prevent the generic single, batch and contiguous free APIs from freeing a block containing the persistent inventory descriptor; a five-block-size regression checks that the descriptor remains allocated and discoverable. Exact-SHA CI run [38448632465](https://github.com/Likounsee/OpenFS/actions/runs/38448632465) has Linux formatting, workspace tests and Clippy green; Windows workspace tests are still running at the time of this roadmap update. on both Linux and Windows.
 
 Open blockers:
 - The initial descriptor publication now has an explicit visibility point and tested old-or-complete recovery for journal write failures, flush failures, and torn-prefix staging writes. This does not prove physical-device power-loss behavior and does not solve general multi-object transactions.
@@ -346,7 +347,7 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 | P1.1 Format geometry, superblocks and reserved areas | 20 | 18 | Format/open validation and layout tests exist; golden fixtures and stable format policy remain missing. |
 | P1.2 Allocation/free and persistence across reopen | 20 | 19 | Allocation/free APIs and reopen tests in `volume.rs`; broader crash-cut coverage remains incomplete. |
 | P1.3 Cross-structure block ownership | 15 | 11 | Inventory/extent ownership validation exists; whole-volume canonical-root traversal and all ownership transitions do not. |
-| P1.4 Persistent descriptor publication/recovery | 20 | 16 | Discovery, ambiguity rejection, failed-write recovery, and regression coverage for stale staged descriptors across single, batch and contiguous allocation exist; safe repair/replacement protocol is absent. |
+| P1.4 Persistent descriptor publication/recovery | 20 | 16 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist; safe descriptor replacement protocol is absent. |
 | P1.5 Scalable metadata locator | 15 | 12 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
 | P1.6 Golden images and format compatibility policy | 10 | 7 | Compatibility notes exist; fixtures, version-negotiation tests and conversion are absent. |
 | **P1 total** | **100** | **83** | **83%** |
