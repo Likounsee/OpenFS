@@ -1,10 +1,11 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 Last source audit: 2026-10-13  
-Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS  
+Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
+Code baseline audited: 44efa42408258247fdcb99890799f19b8e9c482f  
+Current branch HEAD before this roadmap revision: 7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Current OpenFS HEAD at audit start: ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c  
-Scope: roadmap and planning documents only; this revision does not change implementation code.
+Scope: roadmap evidence, scoring transparency and planning only; no filesystem implementation code is changed.
 
 ## Executive assessment
 
@@ -34,7 +35,9 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 
 **Units and rounding:** phase weights are percentage points of the project and sum to 100. Inside each phase, task weights are normalized points and sum to 100. A task earns between zero and its full task weight; its earned points are based on the strongest evidence actually available for its acceptance criteria, not on the number of files or tests. Phase progress = earned task points / 100 × 100%. Calculate with full precision and round only the displayed phase and global results to the nearest whole percent (0.5 rounds upward). A displayed integer is not a claim of measurement precision; retain the earned-point ledger to make changes reproducible.
 
-**Evidence credit rule:** for each task, score each stated acceptance criterion once, then sum its weighted criterion contributions. A criterion with no implementation earns 0%; code present but not reachable from the intended path earns at most 25%; integrated behavior without a relevant regression test earns at most 50%; a regression test added but not confirmed executed earns at most 60%; a test confirmed executed locally or in a run earns at most 75%; exact-SHA relevant CI success earns at most 90%; 100% is reserved for all task acceptance criteria being met with evidence appropriate to the claim. These are ceilings, not automatic awards. If a task has several criteria, score them separately and weight by their stated importance. Do not award the same criterion again under another task. For a cross-cutting test, credit it to the task whose behavior it exercises, not again to a generic testing task. Record test-added, test-executed, CI-validated, and physical-device-validated as separate evidence fields.
+**Evidence credit rule:** for each task, score each stated acceptance criterion once, then sum its weighted criterion contributions. A criterion with no implementation earns 0%; code present but not reachable from the intended path earns at most 25%; integrated behavior without a relevant regression test earns at most 50%; a regression test added but not confirmed executed earns at most 60%; a test confirmed executed locally or in a run earns at most 75%; exact-SHA relevant CI success earns at most 90%; 100% is reserved for all task acceptance criteria being met with evidence appropriate to the claim. These are ceilings, not automatic awards. Do not award the same criterion again under another task. For a cross-cutting test, credit it to the task whose behavior it exercises, not again to a generic testing task. Record test-added, test-executed, CI-validated, and physical-device-validated as separate evidence fields.
+
+**Scoring reproducibility limitation:** the task ledger below records weights and current earned points, but some earned values are still expert estimates justified by narrative evidence rather than sums from published subcriteria. Therefore, the phase values and the 39% global figure are **provisional engineering estimates**, not a fully mechanical measurement. Do not describe the score as fully reproducible until every non-zero partial task is split into named, weighted acceptance criteria with an evidence link/status per criterion. Until that decomposition is complete, preserve the current figures for continuity, disclose this limitation, and change a score only when the cited evidence changes. Never invent criterion weights retroactively merely to make an existing estimate appear exact.
 
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
@@ -62,12 +65,14 @@ When reporting a task, state implementation status separately from test status a
 
 ## Repository and CI baseline checked for this revision
 
-- OpenFS branch HEAD before this documentation change: ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c.
-- Latest Rust Actions run found: 38375379163 on ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c; Linux and Windows jobs both concluded success. Each job runs rustfmt check, cargo test --workspace and Clippy with warnings denied.
-- Previous code run 38375058616 on 1a7d2ea32cd21a4c6674914b4945a2ea878aa258 also passed both Linux and Windows.
-- Legacy HEAD inspected: fdb5dee16266d037c79438a5b20ebccceab3fa24. Its latest Actions run found, 38167327262, failed on Windows because openfs-crash-cut timed out; GCC, Clang and ThreadSanitizer jobs passed. The previous legacy run 38166246104 was successful on an earlier commit, not on current legacy HEAD.
-- The Rust CI currently covers formatting, workspace tests and Clippy on Linux and Windows. It does not currently show dedicated fuzzing, sanitizers, benchmarks, power-loss hardware testing, or mounted-filesystem integration.
-- No physical USB device was accessed. No local commands were run during this documentation-only audit. Current Rust CI evidence above is remote GitHub Actions evidence.
+- Code/source baseline audited for this roadmap: commit [44efa42408258247fdcb99890799f19b8e9c482f](https://github.com/Likounsee/OpenFS/commit/44efa42408258247fdcb99890799f19b8e9c482f).
+- Roadmap-only commit immediately preceding this revision: [7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618](https://github.com/Likounsee/OpenFS/commit/7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618). It changes documentation, not filesystem implementation.
+- CI run [38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899) completed successfully for exact SHA `44efa42408258247fdcb99890799f19b8e9c482f`; Linux and Windows jobs both passed rustfmt check, `cargo test --workspace` and Clippy with warnings denied.
+- CI run [38379956462](https://github.com/Likounsee/OpenFS/actions/runs/38379956462) completed successfully for exact roadmap-only SHA `7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618`. This validates the configured automated checks on that revision; it does not constitute new implementation evidence.
+- Earlier run 38375379163 on `ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c` and run 38375058616 on `1a7d2ea32cd21a4c6674914b4945a2ea878aa258` are historical evidence only; neither is the latest run for the current branch.
+- Legacy HEAD inspected: `fdb5dee16266d037c79438a5b20ebccceab3fa24`. Its latest Actions run found, 38167327262, failed on Windows because `openfs-crash-cut` timed out; GCC, Clang and ThreadSanitizer jobs passed. The previous legacy run 38166246104 succeeded on an earlier commit, not current legacy HEAD.
+- Rust CI covers formatting, workspace tests and Clippy on Linux and Windows. No dedicated fuzzing, sanitizers, benchmarks, power-loss hardware testing or mounted-filesystem integration was evidenced in the inspected workflows.
+- No physical USB device was accessed and no local commands were run. All CI claims here refer to remote GitHub Actions evidence and the exact SHA stated above.
 
 ## Source inventory and actual Rust capabilities
 
@@ -393,11 +398,11 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 
 ### Recalculation
 
-The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points are respectively 100, 82, 40, 35, 21, 5, 0 and 3.
+The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 82, 40, 35, 21, 5, 0 and 3.
 
 `Global = (10×100 + 15×82 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 38.65` percent, rounded to **39%**.
 
-The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are still absent. The global displayed value remains 39% after rounding, but the unrounded weighted value is 38.65%. P1 remains 82% only as a weighted implementation-progress estimate; its exit gate is still blocked and it must not be called complete.
+The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **39% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 remains 82% as an implementation-progress estimate; its exit gate is blocked and it must not be called complete. A documentation-only commit does not change these implementation scores.
 
 ## Evidence register for implemented work
 
@@ -408,9 +413,9 @@ These references are intended to make important claims quickly auditable without
 | Format and geometry | `OpenFS/crates/openfs-format/src/lib.rs` (`Superblock::encode/decode`); `volume.rs` (`VolumeLayout::calculate`, `format_volume`, `open_volume`, `check_volume`) | Rust CI run [38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899), exact tested SHA `44efa42408258247fdcb99890799f19b8e9c482f` | CI proves the configured automated suite only; not physical-device durability. |
 | Allocation, descriptor discovery and failed-publication behavior | `volume.rs`: `allocate_block`, `free_block`, `publish_persistent_inventory`, `discover_persistent_inventory`; tests `discovers_unique_persistent_inventory_descriptor`, `failed_descriptor_write_leaves_detectable_orphan_and_never_publishes_partial_state`, `refuses_to_publish_when_existing_allocations_have_no_owner` | Descriptor failure regression commit [1a7d2ea](https://github.com/Likounsee/OpenFS/commit/1a7d2ea32cd21a4c6674914b4945a2ea878aa258); roadmap evidence previously recorded in [ce36ced](https://github.com/Likounsee/OpenFS/commit/ce36ced79a50676553e7f9bb7d0b1bb3f82fce7c); CI run 38375058616 passed Linux/Windows for code SHA 1a7d2ea | Detects and refuses unresolved orphan ownership; does not automatically recover it. |
 | Journal/checkpoint recovery | `OpenFS/crates/openfs-format/src/journal_engine.rs`: `PersistentJournal::commit`, `validate_checkpoint_geometry`; tests `replays_durable_commit_if_home_write_fails`, `torn_home_write_is_repaired_from_durable_redo_record`, `torn_checkpoint_write_recovers_from_durable_redo_for_multiple_prefixes`, `open_rejects_persisted_checkpoint_sequence_gap` | Checkpoint validation commit [16957d1](https://github.com/Likounsee/OpenFS/commit/16957d1efcb182dbf38c15e4f58646343ff8a688); torn checkpoint regression [8b74985](https://github.com/Likounsee/OpenFS/commit/8b7498584554138ce9e0c516d750ebf3db5f0e2f); journal reuse after recovery [d43132f](https://github.com/Likounsee/OpenFS/commit/d43132fda7dd6c5efed6d3cea5347b6d9ab30c95); run [38374720525](https://github.com/Likounsee/OpenFS/actions/runs/38374720525) passed Linux/Windows for its tested SHA | Selected crash cuts and allocator-focused use only; not a general namespace transaction protocol. |
-| In-memory namespace and path invariants | `OpenFS/crates/openfs-format/src/namespace.rs`: `Namespace::from_records`, `resolve_path`, `insert`, `rename`, `remove`, `validate`; tests for duplicate names, rename/move, removal, generation overflow, traversal and index consistency | Latest Rust CI run 38379103899 tests the full workspace at exact SHA 44efa42408258247fdcb99890799f19b8e9c482f | In-memory correctness does not prove durable namespace mutations. |
-| Read paths and read-only checker | `volume.rs`: `read_file_range`, `read_file_contents`, `read_path_range`, `check_volume`; CLI `OpenFS/crates/openfs-tool/src/main.rs`: `check_image`; test `checks_current_image_without_modifying_it` | Latest Rust CI run 38379103899 passed on exact SHA 44efa42408258247fdcb99890799f19b8e9c482f | Does not provide whole-volume repair, durable write/truncate or mount integration. |
-| Cross-platform CI contract | `.github/workflows/ci.yml`: formatting, `cargo test --workspace`, Clippy with warnings denied on Linux and Windows | [Run 38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899), SHA `44efa42408258247fdcb99890799f19b8e9c482f`, both jobs success | No fuzzing, sanitizer, benchmark, mounted OS integration or physical hardware job. |
+| In-memory namespace and path invariants | `OpenFS/crates/openfs-format/src/namespace.rs`: `Namespace::from_records`, `resolve_path`, `insert`, `rename`, `remove`, `validate`; tests for duplicate names, rename/move, removal, generation overflow, traversal and index consistency | Code CI run 38379103899 passed the full workspace at exact code SHA 44efa42408258247fdcb99890799f19b8e9c482f; current roadmap-only CI run 38379956462 passed at SHA 7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618 | In-memory correctness does not prove durable namespace mutations. |
+| Read paths and read-only checker | `volume.rs`: `read_file_range`, `read_file_contents`, `read_path_range`, `check_volume`; CLI `OpenFS/crates/openfs-tool/src/main.rs`: `check_image`; test `checks_current_image_without_modifying_it` | Code CI run 38379103899 passed on exact SHA 44efa42408258247fdcb99890799f19b8e9c482f; roadmap-only CI run 38379956462 passed on exact SHA 7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618 | Does not provide whole-volume repair, durable write/truncate or mount integration. |
+| Cross-platform CI contract | `.github/workflows/ci.yml`: formatting, `cargo test --workspace`, Clippy with warnings denied on Linux and Windows | Code SHA `44efa42408258247fdcb99890799f19b8e9c482f`: [run 38379103899](https://github.com/Likounsee/OpenFS/actions/runs/38379103899), both jobs success. Current roadmap SHA `7e0f50eabe49ac4aeb1e763d9f7fe1181a1bf618`: [run 38379956462](https://github.com/Likounsee/OpenFS/actions/runs/38379956462), success. | Roadmap-only CI adds no implementation coverage. No fuzzing, sanitizer, benchmark, mounted OS integration or physical hardware job. |
 
 Evidence vocabulary is mandatory: **Implemented** means code/API exists; **Integrated** means connected to the intended end-to-end path; **Test added** means a matching test exists in source; **Test executed** means a recorded runner actually ran it; **CI validated** means the relevant job succeeded on the exact cited SHA; **Non vérifié** means evidence does not cover the claim; **Bloqué** means a safety prerequisite or unresolved defect prevents progression. For historical commits whose exact run cannot be retrieved, treat the run reference above as historical recorded evidence and do not extrapolate its result to later SHAs.
 
@@ -448,6 +453,11 @@ Before changing any percentage or status in a future update:
 1. Confirm branch and exact HEAD; inspect the task's current source, tests and workflow.
 2. Update the earned points only for acceptance criteria whose evidence changed; keep the task weight fixed unless the scope changes and the reason is documented.
 3. Recompute every phase as earned points / 100 and the global value using phase weights; never edit the displayed total by intuition.
-4. Verify every cited CI run's `head_sha` matches the claim. A later documentation-only CI pass validates that revision's configured checks, not physical behavior or a different code SHA.
+4. Verify every cited CI run's `head_sha` matches the claim. Label code-validation runs separately from documentation-only runs; the latter do not create implementation evidence.
 5. Verify dependency gates and milestone status against the actual implementation, not just task completion percentages.
 6. Review the diff and ensure this roadmap-only mission did not change filesystem source, tests, scripts or workflow code.
+
+
+## Required next improvement to the scoring ledger
+
+The current ledger is useful for planning but should not be mistaken for a mechanically reproducible score. In the next scoring-only pass, decompose each task with a partial score into a small set of named acceptance criteria. For each criterion record: (a) stable criterion ID; (b) criterion weight within its task; (c) expected behavior; (d) source/API path; (e) regression test name; (f) test execution/CI run and exact tested SHA; (g) earned credit and a one-line justification. Criterion weights within each task must sum to that task's weight; task weights within each phase must sum to 100. A criterion may appear in one scoring row only. If evidence is missing, keep its credit at zero or mark it unverified rather than infer completion. Recalculate phase and global totals from those rows, preserve full precision internally, and document any resulting change from the provisional 39% baseline. Do not inflate scores to match the old estimate.
