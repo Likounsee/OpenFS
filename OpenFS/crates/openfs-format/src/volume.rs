@@ -1360,6 +1360,57 @@ mod tests {
     }
 
     #[test]
+    fn discovers_descriptor_across_batched_allocated_block_reads() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("inventory-descriptor-batch-boundary");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let allocated = volume.allocate_blocks(&mut device, 66).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut metadata_bytes = vec![0_u8; 4096];
+            metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(allocated[0], &metadata_bytes).unwrap();
+
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![allocated[0]],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let encoded = descriptor.encode(4096).unwrap();
+            let descriptor_block = allocated[65];
+            device.write_blocks(descriptor_block, &encoded).unwrap();
+
+            let found = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.0, descriptor_block);
+            assert_eq!(found.1, descriptor);
+
+            let namespace = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(namespace.0, descriptor_block);
+            assert_eq!(namespace.1.root_id(), ObjectId(1));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn refuses_to_publish_invalid_inventory_without_consuming_a_block() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
