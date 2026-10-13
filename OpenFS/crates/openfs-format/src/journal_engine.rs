@@ -768,12 +768,19 @@ mod tests {
 
     #[test]
     fn counter_overflow_is_rejected_before_any_persistent_write() {
-        for overflow in ["transaction id", "checkpoint generation"] {
+        for overflow in [
+            "transaction id",
+            "checkpoint generation",
+            "record sequence",
+        ] {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
             match overflow {
                 "transaction id" => journal.checkpoint.next_transaction_id = u64::MAX,
                 "checkpoint generation" => journal.checkpoint.generation = u64::MAX,
+                // BEGIN and UPDATE can be constructed, but the COMMIT would require
+                // advancing the sequence beyond u64::MAX.
+                "record sequence" => journal.checkpoint.next_sequence = u64::MAX - 2,
                 _ => unreachable!("test cases are fixed"),
             }
 
