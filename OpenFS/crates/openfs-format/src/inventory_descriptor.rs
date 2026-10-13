@@ -3,8 +3,28 @@
 //! The descriptor is stored in one allocated data block. The superblock remains unchanged;
 //! discovery can scan allocated data blocks for this self-identifying, checksummed record.
 
-use crate::{crc32c, ObjectId};
+use crate::{crc32c, ObjectId, INVENTORY_DESCRIPTOR_MAGIC};
+use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
+
+/// Refuse to release the block that currently stores the persistent inventory locator.
+///
+/// Descriptor replacement/deletion has no transactional protocol yet. Allowing generic
+/// allocator APIs to free this block would make the persistent namespace undiscoverable.
+pub(crate) fn reject_freeing_inventory_descriptor<D: BlockDevice>(
+    device: &mut D,
+    block: u64,
+    block_size: u32,
+) -> Result<()> {
+    let mut contents = vec![0_u8; block_size as usize];
+    device.read_blocks(block, &mut contents)?;
+    if contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+        return Err(Error::InvalidInput(
+            "cannot free a persistent inventory descriptor block",
+        ));
+    }
+    Ok(())
+}
 
 pub const INVENTORY_DESCRIPTOR_MAGIC: &[u8; 8] = b"OFSMINV\0";
 const VERSION: u16 = 1;
