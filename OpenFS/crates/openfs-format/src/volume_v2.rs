@@ -1166,6 +1166,80 @@ mod tests {
     }
 
     #[test]
+    fn discovers_unique_persistent_inventory_descriptor() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("inventory-descriptor-discovery");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor_block = volume.allocate_block(&mut device).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut metadata_bytes = vec![0; 4096];
+            metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            device
+                .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                .unwrap();
+
+            let found = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.0, descriptor_block);
+            assert_eq!(found.1, descriptor);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_multiple_persistent_inventory_descriptors() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("duplicate-inventory-descriptors");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let first = volume.allocate_block(&mut device).unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let encoded = descriptor.encode(4096).unwrap();
+            device.write_blocks(first, &encoded).unwrap();
+            device.write_blocks(second, &encoded).unwrap();
+
+            assert!(matches!(
+                volume.discover_persistent_inventory(&mut device),
+                Err(Error::Corrupt("multiple persistent inventory descriptors were discovered"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn reads_persistent_record_inventories_and_reconstructs_namespace() {
         use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 
