@@ -1,44 +1,60 @@
 # Architecture
 
-## Current dependency graph
+## Workspace and dependency direction
 
-    openfs-format -> openfs-block -> openfs-core
-    openfs-format -> openfs-core
+The Rust workspace lives in `OpenFS/`; CI workflows live in `.github/workflows/`.
 
-- **openfs-core**: shared error taxonomy and checked block-range validation.
-- **openfs-block**: bounded block-device interface, regular-file image backend, explicit flush contract, and test-only deterministic I/O fault/torn-write injection.
-- **openfs-format**: explicit v1/v2 superblock codecs, mirrored volume layouts, bitmap initialization and validation, metadata and directory-entry codecs, namespace primitives, journal record/checkpoint codecs, and a persistent single-writer redo journal with replay/checkpoint logic.
-- **openfs-tool**: host-side command-line utility; it is not an OS mount adapter or a safe physical-device formatter.
+```text
+openfs-tool ──> openfs-format ──> openfs-block ──> openfs-core
+                         └──────────────────────> openfs-core
+```
 
-The Rust workspace is experimental. V1 and V2 are separate formats: V1 does not contain the persistent journal, while V2 reserves checkpoint and journal-ring blocks and currently journals bitmap allocator mutations. The journal is not yet a general transaction layer for persistent namespace operations. The existence of metadata and namespace primitives does not mean durable create/read/write/rename/delete is complete.
+- **`openfs-core`** — shared error types and checked block-range primitives.
+- **`openfs-block`** — bounded block-device interface, regular-file image backend, explicit flush contract, and deterministic I/O fault injection for tests.
+- **`openfs-format`** — the canonical on-disk layout, superblock validation, allocation bitmap, journal/checkpoints, metadata and directory-entry codecs, extent maps, namespace reconstruction, and consistency reports.
+- **`openfs-tool`** — host-side development-image CLI. It is not an OS mount adapter and must not format physical devices.
 
-## Rules
+There is one active volume implementation in `src/volume.rs`. Do not introduce parallel implementations named after format generations. Keep format identification in the on-disk superblock so unsupported layouts fail closed; that identifier is a compatibility guard, not a reason to maintain multiple live implementations.
 
-1. Dependencies point downward toward core primitives; no cycles.
-2. Disk bytes are untrusted and are decoded field-by-field; reserved bytes, version, checksums, and geometry must be validated.
-3. All block ranges and layout arithmetic are checked before I/O.
-4. Device I/O errors propagate to callers. After an uncertain journal commit/home-write error, reopen and recover before further mutation.
-5. No unsafe code is allowed by the workspace lint policy.
-6. Never claim physical-device durability from file-image tests or host flush calls alone.
-7. Keep V1 compatibility behavior explicit: V2 volumes must not be silently treated as V1, and historical C-format images must be rejected unless a dedicated converter is implemented.
+## Module ownership
 
-## Image I/O contract
+| Module | Responsibility |
+| --- | --- |
+| `volume.rs` | Layout geometry, superblock I/O, format/open/check entry points, bitmap and persistent inventory operations |
+| `journal.rs` | Journal record encoding, transaction parsing and recovery planning |
+| `journal_engine.rs` | Journal persistence, commit/replay/checkpoint sequencing |
+| `checkpoint.rs` | Checkpoint record encoding and validation |
+| `allocator_extents.rs` | Allocation queries, free-space statistics and ownership reconciliation |
+| `metadata.rs` / `directory_entry.rs` | Strict fixed-record codecs |
+| `extent_map.rs` | Logical-to-physical extent mapping and range operations |
+| `namespace.rs` | In-memory object graph, path resolution and graph validation |
+| `inventory_descriptor.rs` | Persistent inventory descriptor encoding and validation |
+| `verifier.rs` | Cross-layer consistency reports |
+| `openfs-block` | Device bounds, exact I/O and flush behavior |
+| `openfs-tool` | CLI argument validation and image-only workflows |
 
-The image backend uses fixed-size blocks and rejects invalid block sizes, empty/misaligned buffers, zero-length images, and ranges outside the image. Creating an image refuses to overwrite an existing path; destructive replacement requires the explicit `create_truncate` API. Reads use `read_exact`, writes use `write_all`, and flush uses `File::sync_all`. This is a host synchronization request, not a universal physical-media durability guarantee. The backend is mutable (`&mut self`) and does not itself promise concurrent access synchronization.
+Keep each module responsible for one domain. Shared invariants should live next to the type that enforces them, and public entry points should orchestrate modules rather than duplicate their validation logic.
 
-## Volume formats and limits
+## Safety and compatibility rules
 
-- **V1**: primary superblock, bitmap, data region, and backup superblock. Formatting is destructive and not transactional. The standalone journal does not protect V1 formatting or allocator mutations.
-- **V2**: primary and backup superblocks, bitmap, two checkpoint blocks, a four-block journal ring, and data region. The current V2 allocator journals bitmap updates. Its fixed journal capacity and current transaction scope are intentionally limited.
-- Both layouts validate their reserved/padding bitmap bits on open, but cannot yet verify allocation ownership across persistent objects because the complete file/directory data model and ownership graph are not implemented.
-- Formatting and RawDevice tests use disposable regular files. They do not establish safe discovery, exclusion, or formatting of physical USB/system devices.
+1. Decode disk bytes field-by-field; never serialize native Rust struct layout.
+2. Validate magic, the format identifier, checksums, reserved bytes, geometry, and arithmetic before trusting disk data.
+3. Validate block ranges and allocation state before I/O. Propagate I/O failures.
+4. After an uncertain journal commit or home-block write, reopen and recover before further mutation.
+5. Do not free storage until ownership checks prove it is unreachable.
+6. No unsafe code is allowed by workspace lint policy.
+7. Historical OpenFS C images are not silently compatible. Reject them unless a separately reviewed converter is implemented.
+8. Image tests and host flush calls do not prove physical USB durability.
+9. Formatting is destructive. Keep the CLI image-only until device discovery, exclusive access, and recovery gates are satisfied.
 
-## Current development order
+## Current limits
 
-1. Close the cross-module P0 format/safety review and maintain green Linux and Windows CI.
-2. Expand journal crash-cut and flush-order coverage, including reopen from persisted bytes and repeated recovery.
-3. Define persistent object ownership and connect all metadata mutations to a proven transaction/recovery layer.
-4. Complete persistent namespace/file operations, then the read-only checker and hostile-input tests.
-5. Add safe device discovery and OS integration only after the data-integrity gates pass.
+The journal protects allocator bitmap changes, but it is not yet a general transaction layer for durable namespace/file mutations. The descriptor publication sequence can leave a detectable orphan if interrupted between allocation and descriptor write. File reads are available over reconstructed metadata and extent maps, but durable create/write/rename/delete is not complete.
 
-Platform adapters must not leak OS-specific assumptions into the portable format or core.
+## Development order
+
+1. Keep formatting, workspace tests, and Clippy green on Linux and Windows.
+2. Add crash-cut and flush-order coverage around journal commit, replay, and checkpointing.
+3. Design a bounded transaction protocol for durable namespace and extent-map updates.
+4. Implement persistent create/write/rename/delete with ownership-safe allocation and release.
+5. Expand checker/recovery tests before any physical-device or OS integration.
