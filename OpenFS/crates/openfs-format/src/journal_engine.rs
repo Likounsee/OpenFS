@@ -796,6 +796,61 @@ mod tests {
     }
 
     #[test]
+    fn recovery_sequence_overflow_is_rejected_before_replaying_home_blocks() {
+        let mut device = formatted();
+        let checkpoint = crate::JournalCheckpoint {
+            generation: 2,
+            checkpoint_sequence: u64::MAX - 2,
+            next_sequence: u64::MAX - 1,
+            next_transaction_id: 1,
+            head_block: 0,
+            tail_block: 0,
+        };
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &crate::JournalCheckpoint {
+            generation: 1,
+            ..checkpoint
+        })
+        .unwrap();
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &checkpoint).unwrap();
+
+        // The stream begins at MAX-1. Processing the next record at MAX would
+        // require incrementing the expected sequence and must fail before replay.
+        let records = [
+            crate::JournalRecord {
+                kind: crate::JournalRecordKind::Begin,
+                sequence: u64::MAX - 1,
+                transaction_id: 1,
+                payload: Vec::new(),
+            },
+            crate::JournalRecord {
+                kind: crate::JournalRecordKind::Update,
+                sequence: u64::MAX,
+                transaction_id: 1,
+                payload: vec![0xA5],
+            },
+        ];
+        for (slot, record) in records.iter().enumerate() {
+            device
+                .write_blocks(
+                    REGION.ring_start + slot as u64,
+                    &record.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+        }
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(
+            read_home(&mut device),
+            vec![0x11; BS as usize],
+            "recovery changed home data before rejecting sequence overflow"
+        );
+    }
+
+    #[test]
     fn recovery_counter_overflow_is_rejected_before_replaying_home_blocks() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
