@@ -2024,7 +2024,10 @@ mod tests {
                     "failed publication must not consume a descriptor block at block size {block_size}"
                 );
                 assert!(
-                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    volume
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none(),
                     "failed publication must remain undiscoverable at block size {block_size}"
                 );
             }
