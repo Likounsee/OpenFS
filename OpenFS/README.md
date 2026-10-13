@@ -1,41 +1,43 @@
 # OpenFS Rust workspace
 
-This directory is the Rust project root. The root-level repository README remains at ../README.md; GitHub Actions workflows live in the repository-root .github/workflows/.
+This directory is the Rust project root. Repository-level overview is in `../README.md`; GitHub Actions workflows live in `../.github/workflows/`.
 
-## Current workspace
+## Workspace crates
 
 - `openfs-core`: shared errors and checked block-range validation.
-- `openfs-block`: file-backed image device; bounded block reads/writes, explicit sync, safe create-by-default behavior with a separately named destructive truncate API, and test-support for one-shot read/write/flush failure injection and a mixed-state torn-write model (not a simulation of physical-device firmware).
-- `openfs-format`: explicit little-endian superblock encoding/decoding with CRC32C; experimental V1 and V2 volume layouts; V2 allocation bitmap validation with bounded corruption diagnostics (exact first 64 invalid reserved/padding block numbers plus total count), one-pass free/allocated data-block counts, allocation statistics cross-checked against usable volume capacity, allocated/free block inventories using byte-level set-bit scans, free-space fragmentation statistics using byte-level run detection, plus a read-only inventory of contiguous free extents streamed directly from bitmap bytes without materializing the full free-block list, plus byte-level first-fit contiguous search that skips allocated bits; both preserve bitmap-segment boundaries, with deterministic best-fit selection that selects the smallest extent satisfying a request, plus atomic best-fit contiguous allocation that rereads and validates target bitmap bits before journaling the allocation, atomic contiguous-extent freeing with complete range/state validation, and first-fit allocation that revalidates bitmap bits before commit, and regression coverage for inventories and fragmented runs across all five supported block sizes; invalid reserved/padding bits are consistently rejected by allocation statistics, free-block inventory, and fragmentation queries. It also provides caller-supplied ownership-inventory consistency checks that merge sorted owner references with allocated bitmap set bits (avoiding a per-data-block scan on sparse volumes), with bounded orphan/dangling samples (64 block numbers per category, total counts, and truncation flags), extent-map-to-bitmap ownership validation (including cross-file physical aliases), and journaled block allocation/free; persistent journal/checkpoint encoding, commit/replay, and recovery paths; metadata/directory-entry codecs with strict packed-inventory decoders that reject partial records and validate every record; validated `Namespace::from_records` reconstruction from decoded record inventories with duplicate-ID/name and graph-consistency rejection; checksummed block-sized extent maps with sparse logical-to-physical lookup, coalescing, atomic in-memory extent insertion, validated sorted physical-block inventories and validated physical-block counts plus sorted/coalesced extent-level physical range inventories (adjacent runs are merged within a map and across file maps to avoid expanding blocks and reduce bitmap ownership-scan work), physical-block iteration, range removal/truncation that returns physical runs for release, bounds/overlap validation, sparse logical-length reporting, checked allocated-byte/logical-capacity reporting, file-byte-length validation, and validation that physical runs stay inside the allocatable data region; in-memory namespace insert/lookup/path resolution/path reconstruction, cursor-based paginated directory listings, rename/move/file-layout updates/remove and graph consistency validation, plus sorted extent-map-root ownership inventory with data-region bounds checks, duplicate-root rejection during inventory and namespace validation, and a validated extent-root owner count. The ownership validator supports caller-located inventories and descriptor-driven discovery; see `discover_persistent_inventory` and `verify_discovered_persistent_inventory`. V2 now also reads caller-located packed metadata and directory-entry records from allocated data blocks, checks inventory block counts, range/allocation state, duplicate blocks, and cross-inventory aliases, then reconstructs a validated namespace from the disk-backed records. This is the caller-located reconstruction path; automatic discovery is provided separately by the persistent inventory descriptor. A durable namespace mutation layer is still missing. Reconstruction also validates extent-map root pointers against data-region bounds and the allocation bitmap, and rejects roots that alias metadata/directory inventory blocks. `OpenedVolumeV2::read_extent_map` now decodes each checksummed on-disk extent page, validates file-size/logical bounds and physical data allocation; `read_namespace_extent_maps` loads all file maps and rejects cross-file physical aliases and data runs that overlap any extent-map root. `Namespace::objects` exposes a deterministic read-only record iterator for these consistency checks. The public `verify_persistent_inventory` API now composes caller-located metadata/directory decoding, namespace graph reconstruction, extent-page decoding, and bitmap ownership reconciliation into one deterministic report. Structural/format errors remain fatal; orphaned allocations and dangling references are returned as bounded recoverable diagnostics. A versioned, checksummed `PersistentInventoryDescriptor` can now describe the root object, metadata-record count and blocks, and directory-entry count and blocks. `discover_persistent_inventory` scans allocated data blocks for one unique descriptor; `reconstruct_discovered_namespace` uses it to rebuild the namespace, and `verify_discovered_persistent_inventory` includes the descriptor itself in ownership reconciliation. Malformed or duplicate descriptors and references to free/out-of-range inventory blocks fail closed. `publish_persistent_inventory` validates inventory references, reconstructs the namespace, validates every referenced extent-map page and physical ownership, and refuses publication if the existing bitmap contains orphan allocations or dangling ownership references. Only after this preflight succeeds does it journal allocation of the descriptor block and write/flush the descriptor. A regression verifies invalid inventory is rejected without consuming another block. A crash between allocation and descriptor write can still leave an orphaned allocation, which the verifier can report; publication is not yet one atomic journal transaction. Safe descriptor replacement and scalable non-linear discovery are not implemented. V2 now also provides read-only `read_file_range`, `read_file_contents`, and `read_path_range` APIs over reconstructed namespaces and loaded extent maps, including sparse zero-fill, EOF truncation, and a live bitmap recheck for every data block read. These APIs read persistent file data but do not persist namespace or extent-map mutations.
-- `openfs-tool`: workspace utility crate; its capabilities should not be confused with a safe physical-device formatter.
+- `openfs-block`: bounded block reads/writes, explicit flush, safe create-by-default image handling, and deterministic read/write/flush failure injection.
+- `openfs-format`: the single canonical volume layout; checksummed superblocks; bitmap allocation and fragmentation statistics; journal/checkpoint encoding and replay; metadata, directory-entry, extent-map, namespace, persistent inventory and ownership-verification primitives. Public entry points are `format_volume`, `open_volume`, and `check_volume`.
+- `openfs-tool`: safe-first command-line tools for regular image files only.
 
-The V1 and V2 layouts are separate experimental formats. V2 journals allocator bitmap mutations, but the journal is not yet a general transaction layer for persistent file and directory metadata. A read-only V2 image checker is available; it validates superblocks, layout, bitmap invariants, and journal framing without replaying or repairing the journal. There is no complete durable create/read/write/rename/delete workflow, no automatic persistent-metadata ownership/namespace discovery or repair utility, and no OS mount adapter. This is not yet a usable end-user filesystem and must not be used with valuable data.
+The disk format uses an explicit identifier checked on open. Keep one active layout implementation; do not add a parallel format implementation for an alternate generation. See [architecture](docs/ARCHITECTURE.md), [format specification](docs/FORMAT_SPEC.md), and [development guide](docs/DEVELOPMENT.md).
 
-## Toolchain and commands
+## Commands
 
-Use the Rust stable toolchain from rust-toolchain.toml. Run commands here:
+Run from this directory:
 
-    cargo fmt --all -- --check
-    cargo test --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
+```sh
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
-Inspect a V2 image without modifying it (supply its actual block size):
+Create a new 1 GiB development image:
 
-    cargo run -p openfs-tool -- check-image ./volume.img 4096
+```sh
+cargo run -p openfs-tool -- create-image ./openfs.img 1024
+```
 
-The checker is read-only and does not replay pending journal records. The existing `create-image` command still creates the V1 development format; it does not create a V2 image or format a physical USB drive.
+Inspect the image without writing:
 
-The repository-root GitHub Actions workflow runs formatting, workspace tests, and Clippy on Linux and Windows. Check the exact commit's Actions results before treating a change as validated; the presence of a workflow or a previous green commit is not evidence that the latest commit passed.
+```sh
+cargo run -p openfs-tool -- inspect-image ./openfs.img
+cargo run -p openfs-tool -- check-image ./openfs.img 4096
+```
 
-## Engineering conventions
+The checker is read-only and does not replay pending journal records. Opening a volume for normal writable operations performs journal recovery.
 
-- Treat all disk-derived fields as untrusted input.
-- Use checked arithmetic for offsets, lengths, and capacities.
-- Encode disk fields explicitly; native Rust struct layout is never the disk format.
-- Propagate I/O errors and distinguish malformed input from device failures.
-- Keep the core platform-neutral and safe Rust by default.
-- Add tests for invalid sizes, ranges, truncated/malformed input, persistence and I/O failure behavior.
-- Do not claim durability beyond the actual flush contract or measured hardware behavior.
-- Keep hardware formatting unavailable until device discovery, target confirmation, mounted/system-device exclusion, and integrity/recovery gates are implemented and validated.
+## Current limits
 
-See docs/ARCHITECTURE.md, docs/FORMAT_SPEC.md, docs/RECOVERY_DESIGN.md, docs/SECURITY_MODEL.md, and docs/ROADMAP.md.
+The journal currently protects allocator bitmap changes, but does not yet provide a general transaction layer for persistent namespace and extent-map mutations. Persistent inventory publication can leave a detectable orphan if interrupted between descriptor allocation and descriptor write. File reads support sparse zero-fill, ranges and EOF, but durable file/directory mutation and mounting are not complete.
+
+Image-backed tests do not establish physical-device durability. Do not use important data or physical USB devices.
