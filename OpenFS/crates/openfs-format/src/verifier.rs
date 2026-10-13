@@ -334,7 +334,9 @@ mod tests {
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
                 metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -344,7 +346,9 @@ mod tests {
                 };
                 let mut directory_bytes = vec![0; block_size as usize];
                 directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-                device.write_blocks(directory_block, &directory_bytes).unwrap();
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
 
                 let map = ExtentMap::new(vec![Extent {
                     logical_start: 0,
@@ -353,7 +357,10 @@ mod tests {
                 }])
                 .unwrap();
                 device
-                    .write_blocks(extent_root_block, &map.encode_block(block_size as usize).unwrap())
+                    .write_blocks(
+                        extent_root_block,
+                        &map.encode_block(block_size as usize).unwrap(),
+                    )
                     .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
@@ -364,7 +371,10 @@ mod tests {
                     directory_entry_count: 1,
                 };
                 device
-                    .write_blocks(descriptor_block, &descriptor.encode(block_size as usize).unwrap())
+                    .write_blocks(
+                        descriptor_block,
+                        &descriptor.encode(block_size as usize).unwrap(),
+                    )
                     .unwrap();
 
                 assert!(
@@ -378,5 +388,4 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
 }
