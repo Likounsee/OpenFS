@@ -801,6 +801,37 @@ mod tests {
     }
 
     #[test]
+    fn malformed_nonterminal_record_before_later_valid_records_fails_closed() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+
+        // Let the COMMIT and home write succeed, but fail before checkpoint publication.
+        // This leaves a committed, uncheckpointed transaction in the ring.
+        let mut failing = FailAt::new(device.clone(), 8);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+
+        // Damage BEGIN while later valid UPDATE/COMMIT records remain. Unlike a malformed
+        // terminal append, this is not a safely ignorable tail and must fail closed.
+        recovered
+            .write_blocks(REGION.ring_start, &vec![0xEE; BS as usize])
+            .unwrap();
+        recovered.flush().unwrap();
+        assert!(matches!(
+            open_journal(&mut recovered, REGION),
+            Err(Error::Corrupt(
+                "malformed journal block appears before a later valid record"
+            ))
+        ));
+        // Opening is read-only until the entire recovery plan validates; HOME is untouched.
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+    }
+
+    #[test]
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
