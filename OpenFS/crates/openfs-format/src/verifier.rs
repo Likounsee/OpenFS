@@ -389,6 +389,75 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size() {
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("caller-inventory-data-alias-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let extent_root_block = volume.allocate_block(&mut device).unwrap();
+
+                let root = root_record();
+                let file = crate::MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: crate::ObjectKind::File,
+                    flags: 0,
+                    size: 1,
+                    extent_root_block: Some(extent_root_block),
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0; block_size as usize];
+                metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: crate::ObjectKind::File,
+                    name: "file.bin".to_owned(),
+                };
+                let mut directory_bytes = vec![0; block_size as usize];
+                directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+                device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: metadata_block,
+                    block_count: 1,
+                }])
+                .unwrap();
+                device
+                    .write_blocks(
+                        extent_root_block,
+                        &map.encode_block(block_size as usize).unwrap(),
+                    )
+                    .unwrap();
+
+                assert!(
+                    matches!(
+                        volume.verify_persistent_inventory(
+                            &mut device,
+                            ObjectId(1),
+                            &[metadata_block],
+                            2,
+                            &[directory_block],
+                            1,
+                        ),
+                        Err(openfs_core::Error::Corrupt(_))
+                    ),
+                    "file data must not alias metadata inventory at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
     #[test]
     fn caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size() {
         for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
