@@ -301,7 +301,9 @@ mod tests {
         bad_header[10..12].copy_from_slice(&47_u16.to_le_bytes());
         assert!(matches!(
             PersistentInventoryDescriptor::decode(&bad_header),
-            Err(Error::Corrupt("unexpected inventory descriptor header size"))
+            Err(Error::Corrupt(
+                "unexpected inventory descriptor header size"
+            ))
         ));
 
         for offset in [36_usize, 44] {
@@ -310,7 +312,9 @@ mod tests {
             refresh_checksum(&mut reserved);
             assert!(matches!(
                 PersistentInventoryDescriptor::decode(&reserved),
-                Err(Error::Corrupt("inventory descriptor reserved bytes must be zero"))
+                Err(Error::Corrupt(
+                    "inventory descriptor reserved bytes must be zero"
+                ))
             ));
         }
 
