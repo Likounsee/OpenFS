@@ -305,6 +305,7 @@ mod metadata;
 mod namespace;
 mod volume;
 mod volume_v2;
+mod verifier;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{
     decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES,
@@ -322,6 +323,7 @@ pub use metadata::{
 };
 pub use namespace::Namespace;
 pub use volume::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
+pub use verifier::PersistentInventoryReport;
 pub use volume_v2::{
     check_volume_v2, format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeCheckReport,
     VolumeLayoutV2, VolumeV2,
