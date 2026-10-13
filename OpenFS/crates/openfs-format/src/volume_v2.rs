@@ -1253,7 +1253,6 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let descriptor_block = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
                 id: ObjectId(1),
                 parent_id: 0,
@@ -1276,9 +1275,15 @@ mod tests {
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
-            device
-                .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+            let descriptor_block = volume
+                .publish_persistent_inventory(&mut device, &descriptor)
                 .unwrap();
+            assert!(matches!(
+                volume.publish_persistent_inventory(&mut device, &descriptor),
+                Err(Error::InvalidInput(
+                    "a persistent inventory descriptor already exists"
+                ))
+            ));
 
             let found = volume
                 .discover_persistent_inventory(&mut device)
