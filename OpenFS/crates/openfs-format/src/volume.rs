@@ -378,36 +378,36 @@ impl OpenedVolume {
         device: &mut D,
     ) -> Result<Option<(u64, PersistentInventoryDescriptor)>> {
         self.validate_device(device)?;
-        let allocated = self.allocated_data_block_inventory(device)?;
+        // Validate reserved and padding bits before trusting any allocation entry.
+        // Do not materialize allocated_data_block_inventory here: on a large volume that
+        // vector scales with every allocated block, even though discovery only needs a
+        // bounded batch of candidate blocks at a time.
+        self.validate_allocation_bitmap(device)?;
+        let layout = self.volume.layout;
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
+        let first_bitmap = layout.data_start / bits_per_bitmap_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
         let mut discovered = None;
-        let mut cursor = 0;
-        // Descriptors can reference many blocks that share a bitmap page. Cache those
-        // pages during discovery instead of issuing one bitmap read per referenced block.
+        let mut pending_blocks = Vec::with_capacity(INVENTORY_DISCOVERY_BATCH_BLOCKS);
+        // Descriptor references often share bitmap pages. Keep only the pages actually
+        // needed to validate a candidate descriptor's inventory references.
         let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
-        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
 
-        // Read adjacent allocated blocks together to avoid one device operation per block.
-        // Bound each read so a long allocated run never requires an unbounded buffer.
-        while cursor < allocated.len() {
-            let first_block = allocated[cursor];
-            let mut end = cursor + 1;
-            while end < allocated.len()
-                && end - cursor < INVENTORY_DISCOVERY_BATCH_BLOCKS
-                && allocated[end - 1].checked_add(1) == Some(allocated[end])
-            {
-                end += 1;
+        let mut inspect_batch = |blocks: &[u64], device: &mut D| -> Result<()> {
+            if blocks.is_empty() {
+                return Ok(());
             }
-
-            let block_count = end - cursor;
-            let byte_count = block_count
+            let first_block = blocks[0];
+            let byte_count = blocks
+                .len()
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
             let mut batch = vec![0_u8; byte_count];
             device.read_blocks(first_block, &mut batch)?;
 
-            for (offset, block) in allocated[cursor..end].iter().copied().enumerate() {
+            for (offset, block) in blocks.iter().copied().enumerate() {
                 let byte_start = offset
                     .checked_mul(block_size)
                     .ok_or(Error::ArithmeticOverflow)?;
@@ -430,8 +430,8 @@ impl OpenedVolume {
                     .iter()
                     .chain(descriptor.directory_blocks.iter())
                 {
-                    if *inventory_block < self.volume.layout.data_start
-                        || *inventory_block >= self.volume.layout.backup_superblock
+                    if *inventory_block < layout.data_start
+                        || *inventory_block >= layout.backup_superblock
                     {
                         return Err(Error::Corrupt(
                             "inventory descriptor references a block outside the data region",
@@ -442,10 +442,7 @@ impl OpenedVolume {
                         allocation_bitmaps.entry(bitmap_index)
                     {
                         let mut bitmap = vec![0_u8; block_size];
-                        device.read_blocks(
-                            self.volume.layout.bitmap_start + bitmap_index,
-                            &mut bitmap,
-                        )?;
+                        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
                         entry.insert(bitmap);
                     }
                     let bitmap = allocation_bitmaps
@@ -467,8 +464,66 @@ impl OpenedVolume {
                 }
                 discovered = Some((block, descriptor));
             }
-            cursor = end;
+            Ok(())
+        };
+
+        // Walk bitmap pages and set bits directly. At most one bitmap page, one cached
+        // descriptor-reference page per touched bitmap, and 64 candidate block numbers
+        // are retained; the number of allocated blocks no longer controls peak memory.
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_bitmap_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
+            {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut bits = *bitmap_byte & lower_mask & upper_mask;
+                while bits != 0 {
+                    let bit = u64::from(bits.trailing_zeros());
+                    let block = base
+                        .checked_add(byte_start)
+                        .and_then(|value| value.checked_add(bit))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if pending_blocks.last().is_some_and(|previous| {
+                        previous.checked_add(1) != Some(block)
+                    }) || pending_blocks.len() == INVENTORY_DISCOVERY_BATCH_BLOCKS
+                    {
+                        inspect_batch(&pending_blocks, device)?;
+                        pending_blocks.clear();
+                    }
+                    pending_blocks.push(block);
+                    bits &= bits - 1;
+                }
+            }
         }
+        inspect_batch(&pending_blocks, device)?;
         Ok(discovered)
     }
 
