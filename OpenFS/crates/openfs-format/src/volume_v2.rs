@@ -164,7 +164,7 @@ impl OpenedVolumeV2 {
                         device,
                         &[RedoUpdate {
                             target_block: bitmap_block,
-                            contents: bitmap,
+                            contents: bitmap.clone(),
                         }],
                     )?;
                     return Ok(block);
@@ -370,7 +370,7 @@ impl OpenedVolumeV2 {
                         },
                         RedoUpdate {
                             target_block: descriptor_block,
-                            contents: encoded,
+                            contents: encoded.clone(),
                         },
                     ],
                 )?;
