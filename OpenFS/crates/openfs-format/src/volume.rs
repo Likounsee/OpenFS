@@ -273,6 +273,11 @@ impl OpenedVolume {
         if bitmap[byte] & mask == 0 {
             return Err(Error::InvalidInput("data block is already free"));
         }
+        crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+            device,
+            block,
+            self.volume.block_size,
+        )?;
         bitmap[byte] &= !mask;
         self.journal.commit(
             device,
