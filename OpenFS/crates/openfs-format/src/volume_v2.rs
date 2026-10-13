@@ -271,13 +271,13 @@ impl OpenedVolumeV2 {
         Ok(())
     }
 
-    /// Publish the first persistent inventory descriptor.
+    /// Publish the first persistent inventory descriptor atomically with its allocation.
     ///
-    /// The descriptor block is allocated through the journal, then written and flushed.
-    /// Existing descriptors are never overwritten: callers must use an explicit future
-    /// replacement protocol once journal-aware namespace mutations are available. If the
-    /// process stops after allocation but before the descriptor is durable, the result is
-    /// an unreferenced allocated block that the verifier can report as an orphan.
+    /// The descriptor block's bitmap bit and descriptor contents are committed in the same
+    /// journal transaction. V2's four-block redo ring can hold this transaction exactly:
+    /// begin, bitmap image, descriptor image, and commit. Existing descriptors are never
+    /// overwritten; a replacement protocol must coordinate descriptor, metadata, and extent
+    /// ownership together with durable namespace mutations.
     pub fn publish_persistent_inventory<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -314,17 +314,70 @@ impl OpenedVolumeV2 {
                 ));
             }
         }
-        let descriptor_block = self.allocate_block(device)?;
-        if claimed.contains(&descriptor_block) {
-            // Should be impossible if the bitmap is internally consistent, but don't
-            // publish a self-referential descriptor if that invariant is ever violated.
-            return Err(Error::Corrupt(
-                "allocator returned a block already owned by the inventory",
-            ));
+
+        let block_size = self.volume.block_size as usize;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let first_bitmap = self.volume.layout.data_start / bits_per_block;
+        let last_data_block = self.volume.layout.backup_superblock - 1;
+        let last_bitmap = last_data_block / bits_per_block;
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let bitmap_base = bitmap_index * bits_per_block;
+            let first_block = bitmap_base.max(self.volume.layout.data_start);
+            let end_block = bitmap_base
+                .saturating_add(bits_per_block)
+                .min(self.volume.layout.backup_superblock);
+            let local_start = first_block - bitmap_base;
+            let local_end = end_block - bitmap_base;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, byte) in bitmap
+                .iter_mut()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
+                let byte_start = (byte_index as u64) * 8;
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
+                }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let available = !*byte & valid_mask;
+                if available == 0 {
+                    continue;
+                }
+                let bit = u64::from(available.trailing_zeros());
+                let descriptor_block = bitmap_base + byte_start + bit;
+                if claimed.contains(&descriptor_block) {
+                    return Err(Error::Corrupt(
+                        "allocator selected a block already owned by the inventory",
+                    ));
+                }
+                *byte |= 1_u8 << bit;
+                self.journal.commit(
+                    device,
+                    &[
+                        RedoUpdate {
+                            target_block: bitmap_block,
+                            contents: bitmap,
+                        },
+                        RedoUpdate {
+                            target_block: descriptor_block,
+                            contents: encoded,
+                        },
+                    ],
+                )?;
+                return Ok(descriptor_block);
+            }
         }
-        device.write_blocks(descriptor_block, &encoded)?;
-        device.flush()?;
-        Ok(descriptor_block)
+        Err(Error::InvalidInput("volume has no free data blocks"))
     }
 
     /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
