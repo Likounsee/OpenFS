@@ -397,7 +397,6 @@ impl OpenedVolume {
                 .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
-                let byte_start = (byte_index as u64) * 8;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -1788,7 +1787,7 @@ mod tests {
 
                     let mut device = failing.inner;
                     drop(volume);
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    let recovered = open_volume(&mut device).unwrap();
                     let discovered = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
