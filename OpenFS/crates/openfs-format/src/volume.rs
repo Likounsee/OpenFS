@@ -1801,6 +1801,23 @@ mod tests {
                             free_after, free_before,
                             "uncommitted descriptor must not consume an allocation (block size {block_size}, write {fail_at})"
                         );
+
+                        // Reusing the staged block must erase the uncommitted descriptor
+                        // magic before allocation makes that block part of the live volume.
+                        let reused = recovered.allocate_block(&mut device).unwrap();
+                        let mut reused_contents = vec![0_u8; block_size as usize];
+                        device.read_blocks(reused, &mut reused_contents).unwrap();
+                        assert!(
+                            !reused_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC),
+                            "reused block must not retain staged descriptor magic (block size {block_size}, write {fail_at})"
+                        );
+                        assert!(
+                            recovered
+                                .discover_persistent_inventory(&mut device)
+                                .unwrap()
+                                .is_none(),
+                            "reused staging block must not publish a false descriptor (block size {block_size}, write {fail_at})"
+                        );
                     } else {
                         assert_eq!(
                             free_after,
