@@ -265,7 +265,13 @@ mod tests {
 
     #[test]
     fn descriptor_codec_round_trips_every_supported_block_size() {
-        let expected = sample();
+        let expected = PersistentInventoryDescriptor {
+            root_id: ObjectId(1),
+            metadata_blocks: vec![20],
+            metadata_record_count: 1,
+            directory_blocks: vec![21],
+            directory_entry_count: 1,
+        };
         for block_size in [4096_usize, 8192, 16_384, 32_768, 65_536] {
             let encoded = expected.encode(block_size).unwrap();
             assert_eq!(encoded.len(), block_size);
