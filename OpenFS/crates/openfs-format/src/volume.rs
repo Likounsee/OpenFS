@@ -2059,6 +2059,59 @@ mod tests {
     }
 
     #[test]
+    fn discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for alias_kind in ["metadata", "directory"] {
+                let path = image_path(&format!(
+                    "descriptor-inventory-alias-{alias_kind}-{block_size}"
+                ));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                    let descriptor = match alias_kind {
+                        "metadata" => PersistentInventoryDescriptor {
+                            root_id: ObjectId(1),
+                            metadata_blocks: vec![descriptor_block],
+                            metadata_record_count: 1,
+                            directory_blocks: vec![],
+                            directory_entry_count: 0,
+                        },
+                        "directory" => PersistentInventoryDescriptor {
+                            root_id: ObjectId(1),
+                            metadata_blocks: vec![],
+                            metadata_record_count: 0,
+                            directory_blocks: vec![descriptor_block],
+                            directory_entry_count: 1,
+                        },
+                        _ => unreachable!("test cases are fixed"),
+                    };
+                    device
+                        .write_blocks(
+                            descriptor_block,
+                            &descriptor.encode(block_size as usize).unwrap(),
+                        )
+                        .unwrap();
+
+                    assert!(
+                        matches!(
+                            volume.discover_persistent_inventory(&mut device),
+                            Err(Error::Corrupt(
+                                "inventory descriptor aliases one of its inventory blocks"
+                            ))
+                        ),
+                        "discovery accepted descriptor/{alias_kind} alias at block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn discovery_rejects_descriptors_that_reference_freed_inventory_blocks() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
