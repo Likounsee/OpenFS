@@ -1511,6 +1511,39 @@ mod tests {
         std::env::temp_dir().join(format!("openfs-{label}-{}-{nonce}.img", std::process::id()))
     }
 
+    struct FailNextFlush<D> {
+        inner: D,
+        fail_next_flush: bool,
+    }
+
+    impl<D: BlockDevice> BlockDevice for FailNextFlush<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            if self.fail_next_flush {
+                self.fail_next_flush = false;
+                return Err(Error::Io(std::io::Error::other(
+                    "injected persistent-inventory publication flush failure",
+                )));
+            }
+            self.inner.flush()
+        }
+    }
+
     #[test]
     fn discovery_fails_closed_on_corrupt_allocated_descriptor() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
@@ -2034,6 +2067,86 @@ mod tests {
                         .unwrap()
                         .is_none(),
                     "failed publication must remain undiscoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn publication_flush_failure_keeps_descriptor_unallocated_and_retryable() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("inventory-publication-flush-failure-{block_size}"));
+            {
+                let raw = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut device = FailNextFlush {
+                    inner: raw,
+                    fail_next_flush: false,
+                };
+                let mut volume =
+                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0_u8; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let free_before = volume.free_data_block_count(&mut device).unwrap();
+                device.fail_next_flush = true;
+
+                assert!(
+                    matches!(
+                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::Io(_))
+                    ),
+                    "injected staging flush must fail publication at block size {block_size}"
+                );
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before,
+                    "failed staging flush must not commit descriptor allocation at block size {block_size}"
+                );
+                assert!(
+                    volume
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none(),
+                    "unallocated staged bytes must not be discoverable at block size {block_size}"
+                );
+
+                let descriptor_block = volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before - 1,
+                    "successful retry must consume exactly one descriptor block at block size {block_size}"
+                );
+                assert_eq!(
+                    volume
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .map(|(block, discovered)| (block, discovered)),
+                    Some((descriptor_block, descriptor)),
+                    "successful retry must publish a discoverable descriptor at block size {block_size}"
                 );
             }
             fs::remove_file(path).unwrap();
