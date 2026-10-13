@@ -189,7 +189,6 @@ pub use metadata::{
 };
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
-#[cfg(test)]
 pub use volume::{
     check_volume_v2, format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeCheckReport,
     VolumeLayoutV2, VolumeV2,
