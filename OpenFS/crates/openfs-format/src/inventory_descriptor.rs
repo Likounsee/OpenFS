@@ -3,7 +3,7 @@
 //! The descriptor is stored in one allocated data block. The superblock remains unchanged;
 //! discovery can scan allocated data blocks for this self-identifying, checksummed record.
 
-use crate::{crc32c, ObjectId, INVENTORY_DESCRIPTOR_MAGIC};
+use crate::{crc32c, ObjectId};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
