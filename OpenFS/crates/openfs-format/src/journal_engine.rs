@@ -806,10 +806,14 @@ mod tests {
             head_block: 0,
             tail_block: 0,
         };
-        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &crate::JournalCheckpoint {
-            generation: 1,
-            ..checkpoint
-        })
+        super::write_checkpoint_block(
+            &mut device,
+            REGION.checkpoint_a,
+            &crate::JournalCheckpoint {
+                generation: 1,
+                ..checkpoint
+            },
+        )
         .unwrap();
         super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &checkpoint).unwrap();
 
