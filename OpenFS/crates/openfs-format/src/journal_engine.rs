@@ -410,6 +410,11 @@ fn validate_checkpoint_geometry(
     checkpoint: &JournalCheckpoint,
     region: JournalRegion,
 ) -> Result<()> {
+    if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
+        return Err(Error::Corrupt(
+            "journal checkpoint sequence counters disagree",
+        ));
+    }
     if checkpoint.head_block >= region.ring_blocks || checkpoint.tail_block >= region.ring_blocks {
         return Err(Error::Corrupt("checkpoint ring position is out of bounds"));
     }
@@ -859,6 +864,23 @@ mod tests {
         assert!(matches!(
             journal.commit(&mut device, &many),
             Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn open_rejects_persisted_checkpoint_sequence_gap() {
+        let mut device = formatted();
+        let mut checkpoint = open_journal(&mut device, REGION).unwrap().checkpoint();
+        checkpoint.next_sequence += 1;
+        // Both copies are validly encoded and have the same generation, but
+        // their counters claim a sequence gap that the read-only checker rejects.
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &checkpoint).unwrap();
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &checkpoint).unwrap();
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt("journal checkpoint sequence counters disagree"))
         ));
     }
 
