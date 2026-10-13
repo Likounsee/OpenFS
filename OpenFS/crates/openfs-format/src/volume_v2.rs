@@ -1230,6 +1230,14 @@ mod tests {
                 .unwrap();
             assert_eq!(found.0, descriptor_block);
             assert_eq!(found.1, descriptor);
+
+            let reconstructed = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(reconstructed.0, descriptor_block);
+            assert_eq!(reconstructed.1.root_id(), ObjectId(1));
+            assert_eq!(reconstructed.1.objects().count(), 1);
         }
         fs::remove_file(path).unwrap();
     }
