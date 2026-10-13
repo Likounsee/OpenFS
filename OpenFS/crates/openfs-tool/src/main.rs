@@ -221,7 +221,7 @@ mod tests {
         };
         let second = {
             let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
-            let volume = open_volume(&mut device).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
             let next = volume.allocate_block(&mut device).unwrap();
             assert_ne!(next, first);
             volume.free_block(&mut device, first).unwrap();
