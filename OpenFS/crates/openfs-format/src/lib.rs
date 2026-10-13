@@ -303,9 +303,9 @@ mod journal;
 mod journal_engine;
 mod metadata;
 mod namespace;
+mod verifier;
 mod volume;
 mod volume_v2;
-mod verifier;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{
     decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES,
