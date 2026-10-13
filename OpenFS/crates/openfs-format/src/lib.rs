@@ -192,8 +192,7 @@ pub use verifier::PersistentInventoryReport;
 pub use legacy_layout::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
 #[cfg(not(test))]
 pub use volume::{
-    check_journaled_volume as check_volume, format_journaled_volume as format_volume,
-    open_journaled_volume as open_volume, JournaledVolume as Volume,
-    JournaledVolumeLayout as VolumeLayout, OpenedJournaledVolume as OpenedVolume,
-    VolumeCheckReport,
+    check_volume_v2 as check_volume, format_volume_v2 as format_volume,
+    open_volume_v2 as open_volume, OpenedVolumeV2 as OpenedVolume, VolumeCheckReport,
+    VolumeLayoutV2 as VolumeLayout, VolumeV2 as Volume,
 };
