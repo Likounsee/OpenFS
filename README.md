@@ -1,61 +1,38 @@
 # OpenFS
 
-OpenFS is a new, open-source filesystem project written primarily in **Rust**. Its long-term goal is a reliable, secure, high-performance filesystem with broad platform support, including Windows, Linux, and eventually ArchiaOS.
+OpenFS is an open-source filesystem project written primarily in Rust. Its long-term goal is a reliable, secure, high-performance filesystem for Windows, Linux, and eventually ArchiaOS.
 
-> **Status: early P0 foundations.** The Rust workspace and initial block-image and superblock primitives are being established. This is not yet a mountable or production-ready filesystem and is not a replacement for NTFS.
+> **Status: experimental.** The workspace contains a canonical journaled volume layout, a bounded block-image backend, allocation and ownership checks, namespace/extent codecs, persistent inventory discovery, and read-only file reads. It is not yet a mountable or production-ready filesystem and is not a replacement for NTFS.
 
-## Vision
+## Repository structure
 
-OpenFS aims to combine an explicit, versioned disk format, defined persistence semantics, strong corruption detection, recoverability, and reproducible performance testing. Comparisons with NTFS will be made only after equivalent workloads have been measured.
+- `README.md` — project overview and high-level status.
+- `OpenFS/` — Rust workspace and technical documentation.
+  - `crates/openfs-core/` — shared errors and checked ranges.
+  - `crates/openfs-block/` — block-device contract and image backend.
+  - `crates/openfs-format/` — canonical disk layout and filesystem primitives.
+  - `crates/openfs-tool/` — development-image CLI.
+  - `docs/ARCHITECTURE.md` — module boundaries and safety rules.
+  - `docs/FORMAT_SPEC.md` — on-disk layout and record rules.
+  - `docs/DEVELOPMENT.md` — workflow for future features and fixes.
+  - `docs/ROADMAP.md` — phase gates and measured progress.
+- `.github/workflows/ci.yml` — Linux and Windows formatting, tests, and Clippy.
 
-The new implementation starts afresh in Rust. The historical [OpenFS-old repository](https://github.com/Likounsee/OpenFS-old) is a read-only technical reference for prior C implementation choices, failure handling, recovery tests, and OS adapters. Its code is being audited rather than copied blindly.
+There is one active volume implementation in `OpenFS/crates/openfs-format/src/volume.rs`. Do not create parallel volume implementations distinguished by generation labels. The on-disk format identifier remains a strict compatibility check, not a source-file naming convention.
 
-## Repository layout
+## Development
 
-- /README.md — this overview.
-- [OpenFS/README.md](OpenFS/README.md) — technical guide and Cargo commands.
-- OpenFS/Cargo.toml — Rust workspace manifest.
-- OpenFS/crates/ — implemented Rust components.
-- OpenFS/docs/ — architecture, disk-format draft, recovery/security design, compatibility, roadmap, benchmarks, and legacy audit.
-- /.github/workflows/ — root-level GitHub Actions workflows.
+From the workspace directory:
 
-The project code belongs under OpenFS/. Git commits are part of the repository history, not files inside that directory.
+```sh
+cd OpenFS
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
-## Roadmap
+All development commits belong on the `OpenFS` branch. Validate untrusted disk bytes, use checked arithmetic, propagate I/O errors, and test failure paths as well as successful paths. Formatting is destructive; the CLI is intentionally limited to regular image files.
 
-| Phase | Focus | Status |
-| --- | --- | --- |
-| P0 | Foundations, safety, image backend, docs, CI | In progress |
-| P1 | Format and essential file/directory operations | Not started |
-| P2 | Transactions, journal, crash recovery | Not started |
-| P3 | Integrity checks, corruption handling, verification tools | Not started |
-| P4 | Reproducible benchmarks and evidence-driven optimization | Not started |
-| P5 | Advanced features such as ACLs, links, sparse files, quotas | Not started |
-| P6 | Windows integration through a suitable adapter | Not started |
-| P7 | Hardening and stable release process | Not started |
+## Limits
 
-## What exists now
-
-The initial Rust workspace contains:
-- shared error and checked block-range primitives;
-- a file-backed block-image device with explicit block bounds, exact-length I/O, a flush operation based on File::sync_all, and non-destructive image creation by default;
-- an explicitly encoded 4096-byte superblock draft with little-endian fields, version checks, reserved-byte validation, and CRC32C;
-- unit tests for normal I/O, invalid ranges and buffers, persistence across reopen, malformed superblocks, and deterministic read/write/flush failure injection and a mixed-state torn-write model;
-- a root-level CI workflow for formatting, workspace tests, and Clippy.
-
-These primitives do **not** yet implement file allocation, directories, file operations, mounting, journaling, recovery, or repair. Their actual CI status is visible in [GitHub Actions](https://github.com/Likounsee/OpenFS/actions).
-
-## Build and test
-
-Run from the project directory:
-
-    cd OpenFS
-    cargo fmt --all -- --check
-    cargo test --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
-
-## Limits and contribution rules
-
-No NTFS compatibility or performance parity is claimed; no comparative benchmark results are available. The image backend is a development primitive, not a guarantee of physical-media durability beyond the host OS and device's reported synchronization semantics. Windows mounting, kernel integration, and production recovery remain future work.
-
-Development commits belong on the **OpenFS** branch, never main. Disk formats must be encoded explicitly rather than by copying native Rust struct memory. Validate untrusted disk data, check arithmetic and ranges, propagate I/O errors, and test failure paths alongside successful operations. See [the technical README](OpenFS/README.md) and [roadmap](OpenFS/docs/ROADMAP.md).
+Durable create/write/rename/delete, a general transaction layer for namespace updates, complete crash-recovery evidence, physical-device discovery safeguards, and OS mounting remain unfinished. Do not use important data or claim physical-device durability based on image tests.
