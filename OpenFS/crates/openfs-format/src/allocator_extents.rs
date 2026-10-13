@@ -1330,7 +1330,9 @@ mod allocation_bitmap_report_tests {
                         directory_entry_count: 0,
                     };
                     let staged_block = volume.volume.layout.data_start + 1;
-                    assert!(!volume.is_data_block_allocated(&mut device, staged_block).unwrap());
+                    assert!(!volume
+                        .is_data_block_allocated(&mut device, staged_block)
+                        .unwrap());
                     device
                         .write_blocks(
                             staged_block,
@@ -1347,7 +1349,9 @@ mod allocation_bitmap_report_tests {
                         _ => unreachable!(),
                     };
                     assert_eq!(allocated, vec![staged_block]);
-                    assert!(volume.is_data_block_allocated(&mut device, staged_block).unwrap());
+                    assert!(volume
+                        .is_data_block_allocated(&mut device, staged_block)
+                        .unwrap());
                     assert_eq!(
                         volume.discover_persistent_inventory(&mut device).unwrap(),
                         None,
