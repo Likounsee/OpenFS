@@ -156,7 +156,6 @@ pub(crate) fn crc32c(bytes: &[u8]) -> u32 {
     !crc
 }
 
-
 mod allocator_extents;
 mod checkpoint;
 mod directory_entry;
@@ -164,11 +163,11 @@ mod extent_map;
 mod inventory_descriptor;
 mod journal;
 mod journal_engine;
+#[cfg(test)]
+mod legacy_layout;
 mod metadata;
 mod namespace;
 mod verifier;
-#[cfg(test)]
-mod legacy_layout;
 mod volume;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{
@@ -188,8 +187,6 @@ pub use metadata::{
 };
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
-#[cfg(test)]
-pub use legacy_layout::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
 #[cfg(not(test))]
 pub use volume::{
     check_volume_v2 as check_volume, format_volume_v2 as format_volume,
