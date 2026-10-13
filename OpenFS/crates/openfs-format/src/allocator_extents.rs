@@ -294,6 +294,13 @@ impl OpenedVolume {
             }
         }
         for block in &sorted {
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+                device,
+                *block,
+                self.volume.block_size,
+            )?;
+        }
+        for block in &sorted {
             let local = *block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             bitmap[byte] &= !(1_u8 << (local % 8));
@@ -353,6 +360,13 @@ impl OpenedVolume {
                     "contiguous free extent contains an already-free block",
                 ));
             }
+        }
+        for block in start_block..end_block {
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+                device,
+                block,
+                self.volume.block_size,
+            )?;
         }
         for block in start_block..end_block {
             let local = block - base;
@@ -1423,6 +1437,71 @@ mod allocation_bitmap_report_tests {
                 }
                 fs::remove_file(path).unwrap();
             }
+        }
+    }
+
+    #[test]
+    fn all_free_paths_preserve_the_persistent_inventory_descriptor() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("descriptor-free-protection-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata = vec![0_u8; block_size as usize];
+                metadata[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let descriptor_block = volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+
+                for result in [
+                    volume.free_block(&mut device, descriptor_block),
+                    volume.free_blocks(&mut device, &[descriptor_block]),
+                    volume.free_contiguous_blocks(&mut device, descriptor_block, 1),
+                ] {
+                    assert!(
+                        matches!(
+                            result,
+                            Err(Error::InvalidInput(
+                                "cannot free a persistent inventory descriptor block"
+                            ))
+                        ),
+                        "generic free API must preserve descriptor ownership at block size {block_size}"
+                    );
+                    assert!(
+                        volume
+                            .is_data_block_allocated(&mut device, descriptor_block)
+                            .unwrap(),
+                        "failed free must leave descriptor allocated at block size {block_size}"
+                    );
+                }
+                assert_eq!(
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
+                    Some((descriptor_block, descriptor)),
+                    "descriptor must remain discoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
     }
 
