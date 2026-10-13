@@ -20,6 +20,7 @@ const CHECKSUM_OFFSET: usize = 4088;
 const JOURNAL_RING_BLOCKS: u64 = 4;
 const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
+const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
 /// On-disk regions for format canonical. The journal occupies six consecutive blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,9 +315,14 @@ impl OpenedVolume {
                 ));
             }
 
-            // Validate all inventory owners against cached bitmap pages. This avoids
-            // one device read per inventory block when publishing large inventories.
+            // Keep bitmap-cache memory bounded even when an inventory spans many
+            // bitmap pages. Clearing is safe: it only trades cache hits for device reads.
             let bitmap_index = *block / bits_per_bitmap_block;
+            if !allocation_bitmaps.contains_key(&bitmap_index)
+                && allocation_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
+            {
+                allocation_bitmaps.clear();
+            }
             if let std::collections::btree_map::Entry::Vacant(entry) =
                 allocation_bitmaps.entry(bitmap_index)
             {
@@ -438,6 +444,13 @@ impl OpenedVolume {
                         ));
                     }
                     let bitmap_index = *inventory_block / bits_per_bitmap_block;
+                    // Descriptor references can span the whole data region. Bound retained
+                    // bitmap pages independently from the descriptor's number of references.
+                    if !allocation_bitmaps.contains_key(&bitmap_index)
+                        && allocation_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
+                    {
+                        allocation_bitmaps.clear();
+                    }
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         allocation_bitmaps.entry(bitmap_index)
                     {
@@ -953,6 +966,11 @@ impl OpenedVolume {
             }
 
             let bitmap_index = *block / bits_per_bitmap_block;
+            if !allocation_bitmaps.contains_key(&bitmap_index)
+                && allocation_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
+            {
+                allocation_bitmaps.clear();
+            }
             if let std::collections::btree_map::Entry::Vacant(entry) =
                 allocation_bitmaps.entry(bitmap_index)
             {
