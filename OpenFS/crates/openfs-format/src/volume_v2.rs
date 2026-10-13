@@ -5,8 +5,8 @@
 
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
-    DirectoryEntry, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord, Namespace,
-    ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE, JOURNAL_CHECKPOINT_SIZE,
+    DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord,
+    Namespace, ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE, JOURNAL_CHECKPOINT_SIZE,
     METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
@@ -366,6 +366,140 @@ impl OpenedVolumeV2 {
             }
         }
         Ok(roots)
+    }
+
+    /// Read and validate one on-disk extent-map page for a file.
+    ///
+    /// The root and every referenced data block must be allocated and lie in the
+    /// allocatable data region. The extent map must fit the file's logical size, and
+    /// its own root may not also be claimed as file data.
+    pub fn read_extent_map<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        root_block: u64,
+        file_size: u64,
+    ) -> Result<ExtentMap> {
+        self.validate_device(device)?;
+        if root_block < self.volume.layout.data_start
+            || root_block >= self.volume.layout.backup_superblock
+        {
+            return Err(Error::Corrupt("extent-map root is outside the data region"));
+        }
+        if !self.is_data_block_allocated(device, root_block)? {
+            return Err(Error::Corrupt("extent-map root is marked free in the allocation bitmap"));
+        }
+        let mut bytes = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(root_block, &mut bytes)?;
+        let map = ExtentMap::decode_block(&bytes)?;
+        let logical_blocks = file_size / u64::from(self.volume.block_size)
+            + u64::from(file_size % u64::from(self.volume.block_size) != 0);
+        map.validate_file_size(file_size, self.volume.block_size)?;
+        map.validate(
+            logical_blocks,
+            self.volume.layout.data_start,
+            self.volume.layout.backup_superblock,
+        )?;
+        if map
+            .validated_physical_ranges(
+                logical_blocks,
+                self.volume.layout.data_start,
+                self.volume.layout.backup_superblock,
+            )?
+            .iter()
+            .any(|(start, end)| *start <= root_block && root_block < *end)
+        {
+            return Err(Error::Corrupt("extent-map root aliases its own file data"));
+        }
+        self.validate_extent_allocations(device, &map, logical_blocks)?;
+        Ok(map)
+    }
+
+    /// Load every file's extent-map page and validate global physical ownership.
+    ///
+    /// This detects extent runs that alias another file's map root or data, validates
+    /// each run against the bitmap, and returns maps keyed by stable object ID. It still
+    /// depends on a namespace reconstructed from caller-located metadata inventories.
+    pub fn read_namespace_extent_maps<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        namespace: &Namespace,
+    ) -> Result<std::collections::BTreeMap<ObjectId, ExtentMap>> {
+        self.validate_device(device)?;
+        let roots = self.validate_namespace_extent_roots(device, namespace)?;
+        let mut root_owners = std::collections::BTreeMap::new();
+        for record in namespace.objects() {
+            if let Some(root) = record.extent_root_block {
+                root_owners.insert(root, record.id);
+            }
+        }
+        let mut maps = std::collections::BTreeMap::new();
+        let mut owned_ranges: Vec<(u64, u64, ObjectId)> = Vec::new();
+        for record in namespace.objects() {
+            let Some(root) = record.extent_root_block else {
+                continue;
+            };
+            let map = self.read_extent_map(device, root, record.size)?;
+            let logical_blocks = record.size / u64::from(self.volume.block_size)
+                + u64::from(record.size % u64::from(self.volume.block_size) != 0);
+            for (start, end) in map.validated_physical_ranges(
+                logical_blocks,
+                self.volume.layout.data_start,
+                self.volume.layout.backup_superblock,
+            )? {
+                if roots.iter().any(|root_block| start <= *root_block && *root_block < end) {
+                    return Err(Error::Corrupt("file data aliases an extent-map root"));
+                }
+                owned_ranges.push((start, end, record.id));
+            }
+            maps.insert(record.id, map);
+        }
+        owned_ranges.sort_unstable_by_key(|(start, end, owner)| (*start, *end, *owner));
+        for pair in owned_ranges.windows(2) {
+            if pair[0].1 > pair[1].0 && pair[0].2 != pair[1].2 {
+                return Err(Error::Corrupt("files claim overlapping physical data blocks"));
+            }
+        }
+        // Keep this explicit: every root must map to exactly one object, even if a future
+        // Namespace implementation changes its validation guarantees.
+        if root_owners.len() != roots.len() {
+            return Err(Error::Corrupt("extent-map root ownership inventory disagrees"));
+        }
+        Ok(maps)
+    }
+
+    fn validate_extent_allocations<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        map: &ExtentMap,
+        logical_blocks: u64,
+    ) -> Result<()> {
+        let ranges = map.validated_physical_ranges(
+            logical_blocks,
+            self.volume.layout.data_start,
+            self.volume.layout.backup_superblock,
+        )?;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let mut cached_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        for (start, end) in ranges {
+            for block in start..end {
+                let bitmap_index = block / bits_per_block;
+                if !cached_bitmaps.contains_key(&bitmap_index) {
+                    let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+                    device.read_blocks(
+                        self.volume.layout.bitmap_start + bitmap_index,
+                        &mut bitmap,
+                    )?;
+                    cached_bitmaps.insert(bitmap_index, bitmap);
+                }
+                let bitmap = cached_bitmaps.get(&bitmap_index).expect("bitmap was cached");
+                let local = block % bits_per_block;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    return Err(Error::Corrupt("file extent points to a free data block"));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn read_packed_inventory<D: BlockDevice>(
