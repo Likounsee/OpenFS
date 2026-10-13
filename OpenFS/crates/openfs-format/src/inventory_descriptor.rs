@@ -264,6 +264,82 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_codec_round_trips_every_supported_block_size() {
+        let expected = sample();
+        for block_size in [4096_usize, 8192, 16_384, 32_768, 65_536] {
+            let encoded = expected.encode(block_size).unwrap();
+            assert_eq!(encoded.len(), block_size);
+            assert_eq!(
+                PersistentInventoryDescriptor::decode(&encoded).unwrap(),
+                expected,
+                "block_size={block_size}"
+            );
+            assert_eq!(&encoded[..8], crate::INVENTORY_DESCRIPTOR_MAGIC);
+            assert_eq!(u16::from_le_bytes([encoded[8], encoded[9]]), 1);
+            assert_eq!(u16::from_le_bytes([encoded[10], encoded[11]]), 48);
+        }
+    }
+
+    #[test]
+    fn descriptor_decoder_fails_closed_for_header_and_shape_corruption() {
+        fn refresh_checksum(bytes: &mut [u8]) {
+            bytes[40..44].fill(0);
+            let checksum = crate::crc32c(bytes);
+            bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
+        }
+
+        let valid = sample().encode(4096).unwrap();
+
+        let mut unsupported = valid.clone();
+        unsupported[8..10].copy_from_slice(&2_u16.to_le_bytes());
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&unsupported),
+            Err(Error::UnsupportedVersion(2))
+        ));
+
+        let mut bad_header = valid.clone();
+        bad_header[10..12].copy_from_slice(&47_u16.to_le_bytes());
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&bad_header),
+            Err(Error::Corrupt("unexpected inventory descriptor header size"))
+        ));
+
+        for offset in [36_usize, 44] {
+            let mut reserved = valid.clone();
+            reserved[offset] = 1;
+            refresh_checksum(&mut reserved);
+            assert!(matches!(
+                PersistentInventoryDescriptor::decode(&reserved),
+                Err(Error::Corrupt("inventory descriptor reserved bytes must be zero"))
+            ));
+        }
+
+        let mut zero_root = valid.clone();
+        zero_root[12..28].fill(0);
+        refresh_checksum(&mut zero_root);
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&zero_root),
+            Err(Error::Corrupt("inventory descriptor root ID is zero"))
+        ));
+
+        let mut duplicate = valid.clone();
+        duplicate[56..64].copy_from_slice(&20_u64.to_le_bytes());
+        refresh_checksum(&mut duplicate);
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&duplicate),
+            Err(Error::Corrupt("invalid inventory descriptor shape"))
+        ));
+
+        let mut impossible_count = valid;
+        impossible_count[28..32].copy_from_slice(&u32::MAX.to_le_bytes());
+        refresh_checksum(&mut impossible_count);
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&impossible_count),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
     fn rejects_overlapping_or_mis_sized_inventory_lists() {
         let mut value = sample();
         value.directory_blocks[0] = value.metadata_blocks[0];
