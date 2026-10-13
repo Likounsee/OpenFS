@@ -327,10 +327,7 @@ impl OpenedVolume {
                 allocation_bitmaps.entry(bitmap_index)
             {
                 let mut bitmap = vec![0_u8; block_size];
-                device.read_blocks(
-                    self.volume.layout.bitmap_start + bitmap_index,
-                    &mut bitmap,
-                )?;
+                device.read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
                 entry.insert(bitmap);
             }
             let bitmap = allocation_bitmaps
@@ -462,8 +459,8 @@ impl OpenedVolume {
                         .get(&bitmap_index)
                         .expect("bitmap page was cached");
                     let local_bit = *inventory_block % bits_per_bitmap_block;
-                    let byte_index = usize::try_from(local_bit / 8)
-                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let byte_index =
+                        usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
                     if bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                         return Err(Error::Corrupt(
                             "inventory descriptor references a free inventory block",
@@ -524,9 +521,10 @@ impl OpenedVolume {
                         .checked_add(byte_start)
                         .and_then(|value| value.checked_add(bit))
                         .ok_or(Error::ArithmeticOverflow)?;
-                    if pending_blocks.last().is_some_and(|previous| {
-                        previous.checked_add(1) != Some(block)
-                    }) || pending_blocks.len() == INVENTORY_DISCOVERY_BATCH_BLOCKS
+                    if pending_blocks
+                        .last()
+                        .is_some_and(|previous| previous.checked_add(1) != Some(block))
+                        || pending_blocks.len() == INVENTORY_DISCOVERY_BATCH_BLOCKS
                     {
                         inspect_batch(&pending_blocks, device)?;
                         pending_blocks.clear();
@@ -975,10 +973,7 @@ impl OpenedVolume {
                 allocation_bitmaps.entry(bitmap_index)
             {
                 let mut bitmap = vec![0_u8; block_size];
-                device.read_blocks(
-                    self.volume.layout.bitmap_start + bitmap_index,
-                    &mut bitmap,
-                )?;
+                device.read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
                 entry.insert(bitmap);
             }
             let bitmap = allocation_bitmaps
@@ -1624,12 +1619,15 @@ mod tests {
                     device.write_blocks(block, &encoded).unwrap();
                 }
 
-                assert!(matches!(
-                    volume.discover_persistent_inventory(&mut device),
-                    Err(Error::Corrupt(
-                        "multiple persistent inventory descriptors were discovered"
-                    ))
-                ), "ambiguous descriptors must be rejected for block size {block_size}");
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut device),
+                        Err(Error::Corrupt(
+                            "multiple persistent inventory descriptors were discovered"
+                        ))
+                    ),
+                    "ambiguous descriptors must be rejected for block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
@@ -1766,8 +1764,7 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let directory_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
