@@ -328,6 +328,30 @@ impl OpenedVolumeV2 {
         Ok(discovered)
     }
 
+    /// Discover the persistent descriptor and reconstruct its namespace in one operation.
+    ///
+    /// Returns None when no descriptor exists. A malformed or ambiguous descriptor is
+    /// an error; a discovered descriptor is never guessed from partial record streams.
+    pub fn reconstruct_discovered_namespace<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<Option<(u64, Namespace)>> {
+        let Some((descriptor_block, descriptor)) =
+            self.discover_persistent_inventory(device)?
+        else {
+            return Ok(None);
+        };
+        let namespace = self.reconstruct_namespace(
+            device,
+            descriptor.root_id,
+            &descriptor.metadata_blocks,
+            descriptor.metadata_record_count,
+            &descriptor.directory_blocks,
+            descriptor.directory_entry_count,
+        )?;
+        Ok(Some((descriptor_block, namespace)))
+    }
+
     /// Read a caller-located, packed metadata inventory from allocated data blocks.
     ///
     /// The blocks are supplied in stream order and must contain exactly enough blocks
