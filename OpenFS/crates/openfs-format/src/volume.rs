@@ -1629,9 +1629,8 @@ mod tests {
                     directory_blocks: vec![],
                     directory_entry_count: 0,
                 };
-                device
-                    .write_blocks(descriptor_block, &descriptor.encode(block_size as usize).unwrap())
-                    .unwrap();
+                let encoded = descriptor.encode(block_size as usize).unwrap();
+                device.write_blocks(descriptor_block, &encoded).unwrap();
                 volume.free_block(&mut device, metadata_block).unwrap();
 
                 assert!(
