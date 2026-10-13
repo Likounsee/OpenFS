@@ -1332,13 +1332,18 @@ mod allocation_bitmap_report_tests {
                     let staged_block = volume.volume.layout.data_start + 1;
                     assert!(!volume.is_data_block_allocated(&mut device, staged_block).unwrap());
                     device
-                        .write_blocks(staged_block, &descriptor.encode(block_size as usize).unwrap())
+                        .write_blocks(
+                            staged_block,
+                            &descriptor.encode(block_size as usize).unwrap(),
+                        )
                         .unwrap();
                     device.flush().unwrap();
 
                     let allocated = match allocation_kind {
                         "batch" => volume.allocate_blocks(&mut device, 1).unwrap(),
-                        "contiguous" => vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()],
+                        "contiguous" => {
+                            vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()]
+                        }
                         _ => unreachable!(),
                     };
                     assert_eq!(allocated, vec![staged_block]);
