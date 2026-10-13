@@ -884,6 +884,15 @@ mod tests {
             let reopened_again = open_journal(&mut recovered, REGION).unwrap();
             assert_eq!(reopened_again.checkpoint().checkpoint_sequence, 4);
             assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+
+            // The recovered ring must also be reusable by a subsequent transaction.
+            let mut next_journal = open_journal(&mut recovered, REGION).unwrap();
+            next_journal
+                .commit(&mut recovered, &[update(0x5A)])
+                .unwrap();
+            let final_journal = open_journal(&mut recovered, REGION).unwrap();
+            assert_eq!(final_journal.checkpoint().checkpoint_sequence, 8);
+            assert_eq!(read_home(&mut recovered), vec![0x5A; BS as usize]);
         }
     }
 
