@@ -216,7 +216,7 @@ mod tests {
 
         let first = {
             let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
-            let volume = open_volume(&mut device).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
             volume.allocate_block(&mut device).unwrap()
         };
         let second = {
@@ -238,7 +238,7 @@ mod tests {
         let path = unique_path("current-check");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
             device.flush().unwrap();
         }
         let before = fs::read(&path).unwrap();
