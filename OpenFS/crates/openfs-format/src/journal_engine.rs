@@ -768,11 +768,7 @@ mod tests {
 
     #[test]
     fn counter_overflow_is_rejected_before_any_persistent_write() {
-        for overflow in [
-            "transaction id",
-            "checkpoint generation",
-            "record sequence",
-        ] {
+        for overflow in ["transaction id", "checkpoint generation", "record sequence"] {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
             match overflow {
