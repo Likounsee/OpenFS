@@ -6,8 +6,8 @@
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
     DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord,
-    Namespace, ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE, JOURNAL_CHECKPOINT_SIZE,
-    METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
+    Namespace, ObjectId, PersistentJournal, RedoUpdate, DIRECTORY_ENTRY_SIZE,
+    JOURNAL_CHECKPOINT_SIZE, METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
@@ -386,7 +386,9 @@ impl OpenedVolumeV2 {
             return Err(Error::Corrupt("extent-map root is outside the data region"));
         }
         if !self.is_data_block_allocated(device, root_block)? {
-            return Err(Error::Corrupt("extent-map root is marked free in the allocation bitmap"));
+            return Err(Error::Corrupt(
+                "extent-map root is marked free in the allocation bitmap",
+            ));
         }
         let mut bytes = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(root_block, &mut bytes)?;
@@ -446,7 +448,10 @@ impl OpenedVolumeV2 {
                 self.volume.layout.data_start,
                 self.volume.layout.backup_superblock,
             )? {
-                if roots.iter().any(|root_block| start <= *root_block && *root_block < end) {
+                if roots
+                    .iter()
+                    .any(|root_block| start <= *root_block && *root_block < end)
+                {
                     return Err(Error::Corrupt("file data aliases an extent-map root"));
                 }
                 owned_ranges.push((start, end, record.id));
@@ -456,13 +461,17 @@ impl OpenedVolumeV2 {
         owned_ranges.sort_unstable_by_key(|(start, end, owner)| (*start, *end, *owner));
         for pair in owned_ranges.windows(2) {
             if pair[0].1 > pair[1].0 && pair[0].2 != pair[1].2 {
-                return Err(Error::Corrupt("files claim overlapping physical data blocks"));
+                return Err(Error::Corrupt(
+                    "files claim overlapping physical data blocks",
+                ));
             }
         }
         // Keep this explicit: every root must map to exactly one object, even if a future
         // Namespace implementation changes its validation guarantees.
         if root_owners.len() != roots.len() {
-            return Err(Error::Corrupt("extent-map root ownership inventory disagrees"));
+            return Err(Error::Corrupt(
+                "extent-map root ownership inventory disagrees",
+            ));
         }
         Ok(maps)
     }
@@ -485,13 +494,13 @@ impl OpenedVolumeV2 {
                 let bitmap_index = block / bits_per_block;
                 if !cached_bitmaps.contains_key(&bitmap_index) {
                     let mut bitmap = vec![0_u8; self.volume.block_size as usize];
-                    device.read_blocks(
-                        self.volume.layout.bitmap_start + bitmap_index,
-                        &mut bitmap,
-                    )?;
+                    device
+                        .read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
                     cached_bitmaps.insert(bitmap_index, bitmap);
                 }
-                let bitmap = cached_bitmaps.get(&bitmap_index).expect("bitmap was cached");
+                let bitmap = cached_bitmaps
+                    .get(&bitmap_index)
+                    .expect("bitmap was cached");
                 let local = block % bits_per_block;
                 let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
                 if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
@@ -1057,32 +1066,63 @@ mod tests {
             let extent_root = volume.allocate_block(&mut device).unwrap();
             let data_block = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
-                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                flags: 0, size: 0, extent_root_block: None, generation: 1,
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
             let file = MetadataRecord {
-                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 4096, extent_root_block: Some(extent_root), generation: 1,
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 4096,
+                extent_root_block: Some(extent_root),
+                generation: 1,
             };
             let entry = DirectoryEntry {
-                parent_id: 1, object_id: 2, kind: ObjectKind::File, name: "payload.bin".to_owned(),
+                parent_id: 1,
+                object_id: 2,
+                kind: ObjectKind::File,
+                name: "payload.bin".to_owned(),
             };
             let mut metadata_bytes = vec![0_u8; 4096];
             metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
             metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
             let mut directory_bytes = vec![0_u8; 4096];
             directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device
+                .write_blocks(directory_block, &directory_bytes)
+                .unwrap();
             let map = ExtentMap::new(vec![Extent {
-                logical_start: 0, physical_start: data_block, block_count: 1,
-            }]).unwrap();
-            device.write_blocks(extent_root, &map.encode_block(4096).unwrap()).unwrap();
+                logical_start: 0,
+                physical_start: data_block,
+                block_count: 1,
+            }])
+            .unwrap();
+            device
+                .write_blocks(extent_root, &map.encode_block(4096).unwrap())
+                .unwrap();
 
-            let namespace = volume.reconstruct_namespace(
-                &mut device, ObjectId(1), &[metadata_block], 2, &[directory_block], 1,
-            ).unwrap();
-            let loaded = volume.read_namespace_extent_maps(&mut device, &namespace).unwrap();
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                )
+                .unwrap();
+            let loaded = volume
+                .read_namespace_extent_maps(&mut device, &namespace)
+                .unwrap();
             assert_eq!(loaded.get(&ObjectId(2)).unwrap(), &map);
 
             volume.free_block(&mut device, data_block).unwrap();
@@ -1108,42 +1148,83 @@ mod tests {
             let second_root = volume.allocate_block(&mut device).unwrap();
             let shared_data = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
-                id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
-                flags: 0, size: 0, extent_root_block: None, generation: 1,
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
             let first = MetadataRecord {
-                id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 4096, extent_root_block: Some(first_root), generation: 1,
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 4096,
+                extent_root_block: Some(first_root),
+                generation: 1,
             };
             let second = MetadataRecord {
-                id: ObjectId(3), parent_id: 1, kind: ObjectKind::File,
-                flags: 0, size: 4096, extent_root_block: Some(second_root), generation: 1,
+                id: ObjectId(3),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 4096,
+                extent_root_block: Some(second_root),
+                generation: 1,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
             for (index, record) in [root, first, second].iter().enumerate() {
                 metadata_bytes[index * 80..(index + 1) * 80]
                     .copy_from_slice(&record.encode().unwrap());
             }
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
             let entries = [
-                DirectoryEntry { parent_id: 1, object_id: 2, kind: ObjectKind::File, name: "first.bin".to_owned() },
-                DirectoryEntry { parent_id: 1, object_id: 3, kind: ObjectKind::File, name: "second.bin".to_owned() },
+                DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "first.bin".to_owned(),
+                },
+                DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 3,
+                    kind: ObjectKind::File,
+                    name: "second.bin".to_owned(),
+                },
             ];
             let mut directory_bytes = vec![0_u8; 4096];
             for (index, entry) in entries.iter().enumerate() {
                 directory_bytes[index * 128..(index + 1) * 128]
                     .copy_from_slice(&entry.encode().unwrap());
             }
-            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device
+                .write_blocks(directory_block, &directory_bytes)
+                .unwrap();
             let map = ExtentMap::new(vec![Extent {
-                logical_start: 0, physical_start: shared_data, block_count: 1,
-            }]).unwrap().encode_block(4096).unwrap();
+                logical_start: 0,
+                physical_start: shared_data,
+                block_count: 1,
+            }])
+            .unwrap()
+            .encode_block(4096)
+            .unwrap();
             device.write_blocks(first_root, &map).unwrap();
             device.write_blocks(second_root, &map).unwrap();
 
-            let namespace = volume.reconstruct_namespace(
-                &mut device, ObjectId(1), &[metadata_block], 3, &[directory_block], 2,
-            ).unwrap();
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    3,
+                    &[directory_block],
+                    2,
+                )
+                .unwrap();
             assert!(matches!(
                 volume.read_namespace_extent_maps(&mut device, &namespace),
                 Err(Error::Corrupt("files claim overlapping physical data blocks"))
