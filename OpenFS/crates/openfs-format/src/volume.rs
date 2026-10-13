@@ -843,8 +843,7 @@ impl OpenedVolume {
                 "device geometry does not match opened volume",
             ));
         }
-        let canonical =
-            VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
+        let canonical = VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
         if self.volume.layout != canonical {
             return Err(Error::InvalidInput(
                 "volume layout was modified after validation",
@@ -1240,8 +1239,8 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        check_volume, decode_superblock, encode_superblock, format_volume,
-        open_volume, VolumeLayout,
+        check_volume, decode_superblock, encode_superblock, format_volume, open_volume,
+        VolumeLayout,
     };
     use crate::{open_volume, Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
@@ -1254,10 +1253,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!(
-            "openfs-{label}-{}-{nonce}.img",
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("openfs-{label}-{}-{nonce}.img", std::process::id()))
     }
 
     #[test]
@@ -3117,8 +3113,7 @@ mod tests {
                 let path = image_path(&format!("free-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -3715,10 +3710,7 @@ mod tests {
             device.read_blocks(0, &mut primary).unwrap();
             primary[100] ^= 1;
             device.write_blocks(0, &primary).unwrap();
-            assert!(matches!(
-                check_volume(&mut device),
-                Err(Error::Corrupt(_))
-            ));
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
         }
         fs::remove_file(path).unwrap();
     }
