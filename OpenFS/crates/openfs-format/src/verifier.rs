@@ -30,6 +30,8 @@ pub struct PersistentInventoryReport {
     pub directory_entry_count: usize,
     /// Number of distinct owner ranges submitted to the bitmap reconciliation.
     pub owner_map_count: usize,
+    /// Descriptor block discovered on disk, if verification started from auto-discovery.
+    pub descriptor_block: Option<u64>,
 }
 
 impl PersistentInventoryReport {
@@ -50,11 +52,9 @@ impl PersistentInventoryReport {
 }
 
 impl OpenedVolumeV2 {
-    /// Verify packed namespace inventories, extent-map pages, and allocation ownership.
+    /// Verify caller-located packed inventories, extent-map pages, and allocation ownership.
     ///
-    /// The caller supplies the inventory block lists and record counts because the current
-    /// V2 format has no canonical metadata-region descriptor. Fatal record, graph, bounds,
-    /// checksum, root, and cross-owner alias errors return `Err`. Orphaned allocations and
+    /// The caller supplies inventory block lists and record counts. Orphaned allocations and
     /// dangling references are returned as deterministic recoverable diagnostics.
     pub fn verify_persistent_inventory<D: BlockDevice>(
         &self,
@@ -64,6 +64,53 @@ impl OpenedVolumeV2 {
         metadata_record_count: usize,
         directory_blocks: &[u64],
         directory_entry_count: usize,
+    ) -> Result<PersistentInventoryReport> {
+        self.verify_persistent_inventory_with_extra_blocks(
+            device,
+            root_id,
+            metadata_blocks,
+            metadata_record_count,
+            directory_blocks,
+            directory_entry_count,
+            &[],
+            None,
+        )
+    }
+
+    /// Discover a descriptor, reconstruct its namespace, and reconcile all known owners.
+    /// The descriptor block itself is included in ownership accounting.
+    pub fn verify_discovered_persistent_inventory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+    ) -> Result<Option<PersistentInventoryReport>> {
+        let Some((descriptor_block, descriptor)) =
+            self.discover_persistent_inventory(device)?
+        else {
+            return Ok(None);
+        };
+        let report = self.verify_persistent_inventory_with_extra_blocks(
+            device,
+            descriptor.root_id,
+            &descriptor.metadata_blocks,
+            descriptor.metadata_record_count,
+            &descriptor.directory_blocks,
+            descriptor.directory_entry_count,
+            &[descriptor_block],
+            Some(descriptor_block),
+        )?;
+        Ok(Some(report))
+    }
+
+    fn verify_persistent_inventory_with_extra_blocks<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        root_id: ObjectId,
+        metadata_blocks: &[u64],
+        metadata_record_count: usize,
+        directory_blocks: &[u64],
+        directory_entry_count: usize,
+        extra_owned_blocks: &[u64],
+        descriptor_block: Option<u64>,
     ) -> Result<PersistentInventoryReport> {
         let namespace = self.reconstruct_namespace(
             device,
@@ -81,7 +128,11 @@ impl OpenedVolumeV2 {
         // remains one range in the bitmap reconciliation rather than expanding all blocks.
         let mut index_extents = Vec::new();
         let mut logical_cursor = 0_u64;
-        for block in metadata_blocks.iter().chain(directory_blocks.iter()) {
+        for block in metadata_blocks
+            .iter()
+            .chain(directory_blocks.iter())
+            .chain(extra_owned_blocks.iter())
+        {
             index_extents.push(Extent {
                 logical_start: logical_cursor,
                 physical_start: *block,
@@ -128,6 +179,7 @@ impl OpenedVolumeV2 {
             metadata_record_count,
             directory_entry_count,
             owner_map_count: owned_maps.len(),
+            descriptor_block,
         })
     }
 }
