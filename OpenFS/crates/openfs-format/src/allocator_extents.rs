@@ -1319,6 +1319,105 @@ mod allocation_bitmap_report_tests {
         ))
     }
 
+    struct FailNextFlush<D> {
+        inner: D,
+        fail_next_flush: bool,
+    }
+
+    impl<D: BlockDevice> BlockDevice for FailNextFlush<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> Result<()> {
+            if self.fail_next_flush {
+                self.fail_next_flush = false;
+                return Err(Error::Io(std::io::Error::other(
+                    "injected descriptor-scrub flush failure",
+                )));
+            }
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn stale_descriptor_scrub_flush_failure_keeps_allocation_free() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for allocation_kind in ["single", "batch", "contiguous", "best-fit"] {
+                let path = image_path(&format!("stale-flush-failure-{allocation_kind}-{block_size}"));
+                {
+                    let device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(
+                        &mut FailNextFlush {
+                            inner: device,
+                            fail_next_flush: false,
+                        },
+                        *b"openfs-test-0001",
+                        0,
+                    )
+                    .unwrap();
+                    let staged_block = volume.volume.layout.data_start;
+                    let mut device = FailNextFlush {
+                        inner: ImageDevice::open(&path, block_size).unwrap(),
+                        fail_next_flush: false,
+                    };
+                    let mut stale = vec![0_u8; block_size as usize];
+                    stale[..INVENTORY_DESCRIPTOR_MAGIC.len()]
+                        .copy_from_slice(INVENTORY_DESCRIPTOR_MAGIC);
+                    device.write_blocks(staged_block, &stale).unwrap();
+                    device.flush().unwrap();
+                    device.fail_next_flush = true;
+
+                    let first_attempt = match allocation_kind {
+                        "single" => volume.allocate_block(&mut device).map(|_| ()),
+                        "batch" => volume.allocate_blocks(&mut device, 1).map(|_| ()),
+                        "contiguous" => volume.allocate_contiguous_blocks(&mut device, 1).map(|_| ()),
+                        "best-fit" => volume
+                            .allocate_best_fit_contiguous_blocks(&mut device, 1)
+                            .map(|_| ()),
+                        _ => unreachable!(),
+                    };
+                    assert!(
+                        matches!(first_attempt, Err(Error::Io(_))),
+                        "scrub flush must fail allocation closed: {allocation_kind}, block size {block_size}"
+                    );
+                    assert!(
+                        !volume.is_data_block_allocated(&mut device, staged_block).unwrap(),
+                        "failed scrub must leave the staged block free: {allocation_kind}, block size {block_size}"
+                    );
+
+                    let retry = match allocation_kind {
+                        "single" => vec![volume.allocate_block(&mut device).unwrap()],
+                        "batch" => volume.allocate_blocks(&mut device, 1).unwrap(),
+                        "contiguous" => vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()],
+                        "best-fit" => {
+                            vec![volume.allocate_best_fit_contiguous_blocks(&mut device, 1).unwrap()]
+                        }
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(retry, vec![staged_block]);
+                    assert!(
+                        volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                        "retry must not publish the stale descriptor: {allocation_kind}, block size {block_size}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn every_allocation_path_scrubs_stale_descriptor_staging() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
