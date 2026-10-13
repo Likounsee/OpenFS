@@ -286,10 +286,10 @@ impl OpenedVolume {
 
     /// Publish the first persistent inventory descriptor atomically with its allocation.
     ///
-    /// The descriptor block and its allocation bitmap bit are committed in one journal
-    /// transaction. Recovery therefore exposes either neither change or both changes.
-    /// Existing descriptors are never overwritten; safe replacement must coordinate metadata
-    /// and ownership with durable namespace mutations.
+    /// The descriptor is flushed to a free block before its allocation bit is committed
+    /// through the journal. Discovery scans allocated blocks only, so recovery exposes the
+    /// descriptor only after the bitmap commit is durable. Existing descriptors are never
+    /// overwritten; safe replacement must coordinate metadata and ownership with durable mutations.
     pub fn publish_persistent_inventory<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -396,12 +396,7 @@ impl OpenedVolume {
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate = None;
-            for (byte_index, byte) in bitmap
-                .iter()
-                .enumerate()
-                .take(end_byte)
-                .skip(first_byte)
-            {
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let byte_start = (byte_index as u64) * 8;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
@@ -1744,9 +1739,9 @@ mod tests {
     fn descriptor_publication_is_atomic_across_every_journal_write_failure() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
-        // With one-block redo images, the four-block ring holds begin, two updates,
-        // and commit. Fail each journal/home/checkpoint write and require reopen to
-        // expose either the old state or the complete descriptor plus its allocation.
+        // The bitmap redo image occupies two chunks at the supported block sizes, so
+        // the four-block ring holds begin, both chunks, and commit. Fail each journal,
+        // home, and checkpoint write; reopen must expose old state or the complete descriptor.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in 0..=6 {
                 let path = image_path(&format!("descriptor-atomic-{block_size}-{fail_at}"));
@@ -1766,7 +1761,9 @@ mod tests {
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&root.encode().unwrap());
-                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    device
+                        .write_blocks(metadata_block, &metadata_bytes)
+                        .unwrap();
 
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
@@ -1792,7 +1789,9 @@ mod tests {
                     let mut device = failing.inner;
                     drop(volume);
                     let mut recovered = open_volume(&mut device).unwrap();
-                    let discovered = recovered.discover_persistent_inventory(&mut device).unwrap();
+                    let discovered = recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap();
                     let free_after = recovered.free_data_block_count(&mut device).unwrap();
                     if fail_at <= 4 {
                         assert!(
@@ -1810,10 +1809,14 @@ mod tests {
                             "committed descriptor allocation must survive recovery (block size {block_size}, write {fail_at})"
                         );
                         let (descriptor_block, found) = discovered.unwrap_or_else(|| {
-                            panic!("committed descriptor missing after recovery (block size {block_size}, write {fail_at})")
+                            panic!(
+                                "committed descriptor missing after recovery (block size {block_size}, write {fail_at})"
+                            )
                         });
                         assert_eq!(found, descriptor);
-                        assert!(recovered.is_data_block_allocated(&mut device, descriptor_block).unwrap());
+                        assert!(recovered
+                            .is_data_block_allocated(&mut device, descriptor_block)
+                            .unwrap());
                     }
                 }
                 fs::remove_file(path).unwrap();
