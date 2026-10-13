@@ -892,6 +892,48 @@ mod tests {
     }
 
     #[test]
+    fn every_commit_io_failure_recovers_to_a_complete_home_image() {
+        // For one 4 KiB home block, commit performs four record writes,
+        // pre-COMMIT flush, COMMIT write/flush, home write/flush, and
+        // checkpoint write/flush: ten injectable I/O boundaries.
+        for fail_at in 0..10 {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            let mut failing = FailAt::new(device.clone(), fail_at);
+            assert!(
+                matches!(
+                    journal.commit(&mut failing, &[update(0xA5)]),
+                    Err(Error::Io(_))
+                ),
+                "operation {fail_at} should be injected"
+            );
+
+            let mut recovered = failing.into_inner();
+            let reopened = open_journal(&mut recovered, REGION)
+                .unwrap_or_else(|error| panic!("reopen failed at operation {fail_at}: {error:?}"));
+            let committed = fail_at >= 5;
+            let expected_byte = if committed { 0xA5 } else { 0x11 };
+            let expected_checkpoint = match fail_at {
+                0 => 0,
+                1 => 1,
+                2 => 2,
+                3 | 4 => 3,
+                _ => 4,
+            };
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                expected_checkpoint,
+                "unexpected checkpoint after operation {fail_at}"
+            );
+            assert_eq!(
+                read_home(&mut recovered),
+                vec![expected_byte; BS as usize],
+                "operation {fail_at} recovered to neither the old nor committed home image"
+            );
+        }
+    }
+
+    #[test]
     fn commit_and_reopen_preserve_home_data_and_checkpoint() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
