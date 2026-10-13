@@ -1612,6 +1612,43 @@ mod tests {
     }
 
     #[test]
+    fn discovery_rejects_descriptors_that_reference_freed_inventory_blocks() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("discovery-freed-inventory-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                device
+                    .write_blocks(descriptor_block, &descriptor.encode(block_size as usize).unwrap())
+                    .unwrap();
+                volume.free_block(&mut device, metadata_block).unwrap();
+
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut device),
+                        Err(Error::Corrupt(
+                            "inventory descriptor references a free inventory block"
+                        ))
+                    ),
+                    "discovery accepted a freed metadata block at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn reads_persistent_record_inventories_and_reconstructs_namespace() {
         use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 
