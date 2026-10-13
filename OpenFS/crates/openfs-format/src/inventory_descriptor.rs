@@ -55,7 +55,9 @@ impl PersistentInventoryDescriptor {
     /// nonzero reserved/padding bytes, and duplicate or overlapping physical block lists.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < HEADER_SIZE || bytes.len() > 65_536 || !bytes.len().is_power_of_two() {
-            return Err(Error::InvalidInput("inventory descriptor has an invalid block size"));
+            return Err(Error::InvalidInput(
+                "inventory descriptor has an invalid block size",
+            ));
         }
         if &bytes[..8] != INVENTORY_DESCRIPTOR_MAGIC {
             return Err(Error::Corrupt("bad inventory descriptor magic"));
@@ -91,7 +93,9 @@ impl PersistentInventoryDescriptor {
             .checked_add(required_blocks.checked_mul(8).ok_or(Error::ArithmeticOverflow)?)
             .ok_or(Error::ArithmeticOverflow)?;
         if used_end > bytes.len() {
-            return Err(Error::Corrupt("inventory descriptor block list exceeds descriptor size"));
+            return Err(Error::Corrupt(
+                "inventory descriptor block list exceeds descriptor size",
+            ));
         }
         if bytes[used_end..].iter().any(|byte| *byte != 0) {
             return Err(Error::Corrupt("inventory descriptor padding must be zero"));
@@ -99,12 +103,16 @@ impl PersistentInventoryDescriptor {
         let mut cursor = HEADER_SIZE;
         let mut metadata_blocks = Vec::with_capacity(metadata_blocks_len);
         for _ in 0..metadata_blocks_len {
-            metadata_blocks.push(u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap()));
+            metadata_blocks.push(u64::from_le_bytes(
+                bytes[cursor..cursor + 8].try_into().unwrap(),
+            ));
             cursor += 8;
         }
         let mut directory_blocks = Vec::with_capacity(directory_blocks_len);
         for _ in 0..directory_blocks_len {
-            directory_blocks.push(u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap()));
+            directory_blocks.push(u64::from_le_bytes(
+                bytes[cursor..cursor + 8].try_into().unwrap(),
+            ));
             cursor += 8;
         }
         let descriptor = Self {
@@ -114,13 +122,16 @@ impl PersistentInventoryDescriptor {
             directory_blocks,
             directory_entry_count,
         };
-        validate_shape(&descriptor, bytes.len()).map_err(|_| Error::Corrupt("invalid inventory descriptor shape"))?;
+        validate_shape(&descriptor, bytes.len())
+            .map_err(|_| Error::Corrupt("invalid inventory descriptor shape"))?;
         Ok(descriptor)
     }
 }
 
 fn bytes_needed(record_count: usize, record_size: usize, block_size: usize) -> Result<usize> {
-    let byte_count = record_count.checked_mul(record_size).ok_or(Error::ArithmeticOverflow)?;
+    let byte_count = record_count
+        .checked_mul(record_size)
+        .ok_or(Error::ArithmeticOverflow)?;
     if byte_count == 0 {
         return Ok(0);
     }
@@ -132,7 +143,9 @@ fn bytes_needed(record_count: usize, record_size: usize, block_size: usize) -> R
 
 fn validate_shape(descriptor: &PersistentInventoryDescriptor, block_size: usize) -> Result<()> {
     if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
-        return Err(Error::InvalidInput("unsupported inventory descriptor block size"));
+        return Err(Error::InvalidInput(
+            "unsupported inventory descriptor block size",
+        ));
     }
     let metadata_needed = bytes_needed(
         descriptor.metadata_record_count,
@@ -147,20 +160,37 @@ fn validate_shape(descriptor: &PersistentInventoryDescriptor, block_size: usize)
     if descriptor.metadata_blocks.len() != metadata_needed
         || descriptor.directory_blocks.len() != directory_needed
     {
-        return Err(Error::InvalidInput("inventory descriptor block counts do not match record counts"));
+        return Err(Error::InvalidInput(
+            "inventory descriptor block counts do not match record counts",
+        ));
     }
-    let total_blocks = descriptor.metadata_blocks.len()
+    let total_blocks = descriptor
+        .metadata_blocks
+        .len()
         .checked_add(descriptor.directory_blocks.len())
         .ok_or(Error::ArithmeticOverflow)?;
     let used_end = HEADER_SIZE
-        .checked_add(total_blocks.checked_mul(8).ok_or(Error::ArithmeticOverflow)?)
+        .checked_add(
+            total_blocks
+                .checked_mul(8)
+                .ok_or(Error::ArithmeticOverflow)?,
+        )
         .ok_or(Error::ArithmeticOverflow)?;
     if used_end > block_size {
-        return Err(Error::InvalidInput("inventory block lists do not fit in one descriptor block"));
+        return Err(Error::InvalidInput(
+            "inventory block lists do not fit in one descriptor block",
+        ));
     }
     let mut blocks = std::collections::BTreeSet::new();
-    if descriptor.metadata_blocks.iter().chain(descriptor.directory_blocks.iter()).any(|block| !blocks.insert(*block)) {
-        return Err(Error::InvalidInput("inventory descriptor contains duplicate physical blocks"));
+    if descriptor
+        .metadata_blocks
+        .iter()
+        .chain(descriptor.directory_blocks.iter())
+        .any(|block| !blocks.insert(*block))
+    {
+        return Err(Error::InvalidInput(
+            "inventory descriptor contains duplicate physical blocks",
+        ));
     }
     Ok(())
 }
@@ -185,10 +215,16 @@ mod tests {
     fn descriptor_round_trips_and_rejects_checksum_and_padding_corruption() {
         let expected = sample();
         let bytes = expected.encode(4096).unwrap();
-        assert_eq!(PersistentInventoryDescriptor::decode(&bytes).unwrap(), expected);
+        assert_eq!(
+            PersistentInventoryDescriptor::decode(&bytes).unwrap(),
+            expected
+        );
         let mut corrupt = bytes.clone();
         corrupt[48] ^= 1;
-        assert!(matches!(PersistentInventoryDescriptor::decode(&corrupt), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&corrupt),
+            Err(Error::Corrupt(_))
+        ));
         let mut corrupt = bytes;
         corrupt[4000] = 1;
         let checksum = crate::crc32c(&{
