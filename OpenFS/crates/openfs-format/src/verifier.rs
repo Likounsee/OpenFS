@@ -193,7 +193,10 @@ impl OpenedVolume {
 #[cfg(test)]
 mod tests {
     use super::PersistentInventoryReport;
-    use crate::{format_volume, MetadataRecord, ObjectId, ObjectKind};
+    use crate::{
+        format_volume, DirectoryEntry, Extent, ExtentMap, MetadataRecord, ObjectId, ObjectKind,
+        PersistentInventoryDescriptor,
+    };
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -305,4 +308,75 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size() {
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("descriptor-data-alias-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let extent_root_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+
+                let root = root_record();
+                let file = MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 1,
+                    extent_root_block: Some(extent_root_block),
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0; block_size as usize];
+                metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "file.bin".to_owned(),
+                };
+                let mut directory_bytes = vec![0; block_size as usize];
+                directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+                device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: descriptor_block,
+                    block_count: 1,
+                }])
+                .unwrap();
+                device
+                    .write_blocks(extent_root_block, &map.encode_block(block_size as usize).unwrap())
+                    .unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 2,
+                    directory_blocks: vec![directory_block],
+                    directory_entry_count: 1,
+                };
+                device
+                    .write_blocks(descriptor_block, &descriptor.encode(block_size as usize).unwrap())
+                    .unwrap();
+
+                assert!(
+                    matches!(
+                        volume.verify_discovered_persistent_inventory(&mut device),
+                        Err(openfs_core::Error::Corrupt(_))
+                    ),
+                    "descriptor/data ownership alias must fail closed at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
