@@ -1227,7 +1227,9 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 volume.read_namespace_extent_maps(&mut device, &namespace),
-                Err(Error::Corrupt("files claim overlapping physical data blocks"))
+                Err(Error::Corrupt(
+                    "files claim overlapping physical data blocks"
+                ))
             ));
         }
         fs::remove_file(path).unwrap();
