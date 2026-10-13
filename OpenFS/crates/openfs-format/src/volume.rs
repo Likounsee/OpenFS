@@ -22,7 +22,7 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 
 /// On-disk regions for the filesystem. The journal occupies six consecutive blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VolumeLayout {
+pub struct JournaledVolumeLayout {
     pub total_blocks: u64,
     pub block_size: u32,
     pub bitmap_start: u64,
@@ -32,7 +32,7 @@ pub struct VolumeLayout {
     pub backup_superblock: u64,
 }
 
-impl VolumeLayout {
+impl JournaledVolumeLayout {
     pub fn calculate(block_size: u32, total_blocks: u64) -> Result<Self> {
         if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
             return Err(Error::InvalidInput("unsupported filesystem block size"));
@@ -98,22 +98,22 @@ impl VolumeLayout {
 
 /// Validated volume geometry and superblock fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Volume {
+pub struct JournaledVolume {
     pub block_size: u32,
     pub total_blocks: u64,
     pub features: u64,
     pub uuid: [u8; 16],
-    pub layout: VolumeLayout,
+    pub layout: JournaledVolumeLayout,
 }
 
 /// Writable volume. Opening this value runs journal recovery before returning it.
 #[derive(Debug)]
-pub struct OpenedVolume {
-    pub volume: Volume,
+pub struct OpenedJournaledVolume {
+    pub volume: JournaledVolume,
     pub journal: PersistentJournal,
 }
 
-impl OpenedVolume {
+impl OpenedJournaledVolume {
     /// Allocate and journal the bitmap update before exposing the new allocation.
     pub fn allocate_block<D: BlockDevice>(&mut self, device: &mut D) -> Result<u64> {
         self.validate_device(device)?;
@@ -843,7 +843,7 @@ impl OpenedVolume {
                 "device geometry does not match opened volume",
             ));
         }
-        let canonical = VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
+        let canonical = JournaledVolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
         if self.volume.layout != canonical {
             return Err(Error::InvalidInput(
                 "volume layout was modified after validation",
@@ -857,7 +857,7 @@ impl OpenedVolume {
 ///
 /// This verifies the primary/backup superblocks, canonical geometry, and reserved/padding
 /// bitmap invariants. It deliberately does not replay the journal or claim namespace
-/// ownership integrity; use `open_volume` when recovery is intended.
+/// ownership integrity; use `open_journaled_volume` when recovery is intended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VolumeCheckReport {
     pub block_size: u32,
@@ -877,9 +877,9 @@ pub struct VolumeCheckReport {
 
 /// Inspect static volume metadata without writing to the device.
 ///
-/// Unlike `open_volume`, this function does not recover or checkpoint the journal.
+/// Unlike `open_journaled_volume`, this function does not recover or checkpoint the journal.
 /// It is suitable for a read-only first-pass checker, not a full crash-recovery verdict.
-pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport> {
+pub fn check_journaled_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
         return Err(Error::InvalidInput(
             "device block is smaller than the superblock record",
@@ -902,7 +902,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
             "filesystem superblock geometry does not match device geometry",
         ));
     }
-    let layout = VolumeLayout::calculate(block_size, total_blocks)?;
+    let layout = JournaledVolumeLayout::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
     let (
         journal_generation,
@@ -1053,12 +1053,12 @@ fn check_journal_read_only<D: BlockDevice>(
 
 /// Format a device as OpenFS. Destructive; call only on a disposable image or explicitly
 /// selected device. Physical-device formatting is not exposed by the host utility.
-pub fn format_volume<D: BlockDevice>(
+pub fn format_journaled_volume<D: BlockDevice>(
     device: &mut D,
     uuid: [u8; 16],
     features: u64,
-) -> Result<OpenedVolume> {
-    let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
+) -> Result<OpenedJournaledVolume> {
+    let layout = JournaledVolumeLayout::calculate(device.block_size(), device.block_count())?;
     let encoded = encode_superblock(layout.block_size, layout.total_blocks, features, uuid)?;
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
@@ -1084,11 +1084,11 @@ pub fn format_volume<D: BlockDevice>(
     device.flush()?;
     write_superblock(device, 0, &encoded)?;
     device.flush()?;
-    open_volume(device)
+    open_journaled_volume(device)
 }
 
 /// Validate a volume and recover committed journal records before returning writable state.
-pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
+pub fn open_journaled_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedJournaledVolume> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
         return Err(Error::InvalidInput(
             "device block is smaller than the superblock record",
@@ -1111,7 +1111,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
             "filesystem superblock geometry does not match device geometry",
         ));
     }
-    let layout = VolumeLayout::calculate(block_size, total_blocks)?;
+    let layout = JournaledVolumeLayout::calculate(block_size, total_blocks)?;
     validate_bitmap(device, &layout)?;
     let journal = crate::journal_engine::open_journal_protected(
         device,
@@ -1121,8 +1121,8 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     // Recovery may replay a bitmap home-block image. Validate reserved bits again
     // after replay before exposing writable volume state.
     validate_bitmap(device, &layout)?;
-    Ok(OpenedVolume {
-        volume: Volume {
+    Ok(OpenedJournaledVolume {
+        volume: JournaledVolume {
             block_size,
             total_blocks,
             features,
@@ -1223,7 +1223,7 @@ fn write_superblock<D: BlockDevice>(
     device.write_blocks(block, &buffer)
 }
 
-fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Result<()> {
+fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &JournaledVolumeLayout) -> Result<()> {
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
     for index in 0..layout.bitmap_blocks {
@@ -1249,8 +1249,8 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        check_volume, decode_superblock, encode_superblock, format_volume, open_volume,
-        VolumeLayout,
+        check_journaled_volume, decode_superblock, encode_superblock, format_journaled_volume, open_journaled_volume,
+        JournaledVolumeLayout,
     };
     use crate::{open_volume, Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
@@ -1276,7 +1276,7 @@ mod tests {
         let path = image_path("inventory-descriptor-discovery");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
                 id: ObjectId(1),
@@ -1335,7 +1335,7 @@ mod tests {
         let path = image_path("invalid-inventory-no-allocation");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             // The allocated metadata block deliberately contains no valid record.
             let descriptor = PersistentInventoryDescriptor {
@@ -1369,7 +1369,7 @@ mod tests {
         let path = image_path("orphan-allocation-blocks-publication");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let orphan_block = volume.allocate_block(&mut device).unwrap();
             let root = MetadataRecord {
@@ -1424,7 +1424,7 @@ mod tests {
         let path = image_path("duplicate-inventory-descriptors");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.allocate_block(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
             let descriptor = PersistentInventoryDescriptor {
@@ -1455,7 +1455,7 @@ mod tests {
         let path = image_path("persistent-namespace-reconstruction");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
 
@@ -1519,7 +1519,7 @@ mod tests {
         let path = image_path("file-range-sparse-read");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
             let extent_root = volume.allocate_block(&mut device).unwrap();
@@ -1622,7 +1622,7 @@ mod tests {
         let path = image_path("file-range-invalid");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
             let extent_root = volume.allocate_block(&mut device).unwrap();
@@ -1718,7 +1718,7 @@ mod tests {
         let path = image_path("persistent-extent-map-read");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
             let extent_root = volume.allocate_block(&mut device).unwrap();
@@ -1799,7 +1799,7 @@ mod tests {
         let path = image_path("persistent-extent-map-alias");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
             let first_root = volume.allocate_block(&mut device).unwrap();
@@ -1900,7 +1900,7 @@ mod tests {
         let path = image_path("namespace-extent-root-bitmap");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
             let extent_root = volume.allocate_block(&mut device).unwrap();
@@ -2002,7 +2002,7 @@ mod tests {
         let path = image_path("persistent-inventory-invalid-blocks");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let allocated = volume.allocate_block(&mut device).unwrap();
             let free = allocated + 1;
             assert!(matches!(
@@ -2082,7 +2082,7 @@ mod tests {
             let path = image_path(&format!("block-size-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 32).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 assert_eq!(second, first + 1);
@@ -2090,7 +2090,7 @@ mod tests {
                 device.flush().unwrap();
                 drop(volume);
 
-                let mut volume = open_volume(&mut device).unwrap();
+                let mut volume = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
                 assert_eq!(volume.allocate_block(&mut device).unwrap(), second + 1);
                 device.flush().unwrap();
@@ -2105,7 +2105,7 @@ mod tests {
         let first;
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             first = volume.allocate_block(&mut device).unwrap();
             assert!(first >= volume.volume.layout.data_start);
             assert!(volume.free_block(&mut device, 0).is_err());
@@ -2113,17 +2113,17 @@ mod tests {
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             assert!(matches!(
-                open_volume(&mut device),
+                open_journaled_volume(&mut device),
                 Err(Error::UnsupportedVersion(2))
             ));
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
             assert_ne!(first, second);
             volume.free_block(&mut device, first).unwrap();
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
         }
         fs::remove_file(path).unwrap();
@@ -2140,7 +2140,7 @@ mod tests {
                 bits_per_bitmap_block + 1,
                 bits_per_bitmap_block * 2 + 17,
             ] {
-                let layout = VolumeLayout::calculate(block_size, total_blocks).unwrap();
+                let layout = JournaledVolumeLayout::calculate(block_size, total_blocks).unwrap();
                 assert_eq!(
                     layout.bitmap_blocks,
                     total_blocks.div_ceil(bits_per_bitmap_block),
@@ -2170,7 +2170,7 @@ mod tests {
             let path = image_path(&format!("mutated-layout-{mutation}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let original_layout = volume.volume.layout;
                 // The one bitmap block and six journal blocks occupy blocks 1..8
                 // for this 256-block, 4 KiB test volume.
@@ -2217,7 +2217,7 @@ mod tests {
                     "rejected operations modified bitmap or journal for field {mutation}"
                 );
 
-                let reopened = open_volume(&mut device).unwrap();
+                let reopened = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     reopened.volume.layout.total_blocks,
                     original_layout.total_blocks
@@ -2254,7 +2254,7 @@ mod tests {
         let other_path = image_path("geometry-other");
         {
             let mut original = ImageDevice::create(&volume_path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut original, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut original, *b"openfs-current-test!!", 0).unwrap();
             let mut wrong_count = ImageDevice::create(&other_path, 4096, 257).unwrap();
             assert!(matches!(
                 volume.allocate_block(&mut wrong_count),
@@ -2287,7 +2287,7 @@ mod tests {
             }
             fs::remove_file(wrong_size_path).unwrap();
 
-            let reopened = open_volume(&mut original).unwrap();
+            let reopened = open_journaled_volume(&mut original).unwrap();
             assert_eq!(
                 reopened.volume.layout.data_start,
                 volume.volume.layout.data_start
@@ -2304,7 +2304,7 @@ mod tests {
             {
                 // The minimum valid filesystem geometry has exactly three data blocks.
                 let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
 
@@ -2325,7 +2325,7 @@ mod tests {
                 ));
 
                 drop(volume);
-                let mut reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(reopened.volume.layout.data_start, 8);
                 assert_eq!(reopened.volume.layout.backup_superblock, 11);
                 assert!(matches!(
@@ -2345,7 +2345,7 @@ mod tests {
         let path = image_path("allocator-bitmap-boundary");
         {
             let mut device = ImageDevice::create(&path, 4096, bits_per_bitmap_block + 12).unwrap();
-            let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let layout = volume.volume.layout;
             assert_eq!(layout.bitmap_blocks, 2);
 
@@ -2361,7 +2361,7 @@ mod tests {
             device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
             device.flush().unwrap();
 
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             let allocated = volume.allocate_block(&mut device).unwrap();
             assert_eq!(allocated, bits_per_bitmap_block);
             volume.free_block(&mut device, allocated).unwrap();
@@ -2369,7 +2369,7 @@ mod tests {
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(
                 volume.allocate_block(&mut device).unwrap(),
                 bits_per_bitmap_block + 1
@@ -2384,7 +2384,7 @@ mod tests {
             let path = image_path(&format!("invalid-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let allocated = volume.allocate_block(&mut device).unwrap();
                 let first_data_block = volume.volume.layout.data_start;
                 let backup_superblock = volume.volume.layout.backup_superblock;
@@ -2410,7 +2410,7 @@ mod tests {
                 }
 
                 // Invalid free attempts must not damage the journal or bitmap.
-                let mut reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(reopened.journal.checkpoint().checkpoint_sequence, 8);
                 assert_eq!(
                     reopened.allocate_block(&mut device).unwrap(),
@@ -2498,7 +2498,7 @@ mod tests {
             let path = image_path(&format!("bitmap-read-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let initial_checkpoint = volume.journal.checkpoint();
 
                 let mut failing = FailReadAt {
@@ -2518,7 +2518,7 @@ mod tests {
                 let mut device = failing.inner;
                 drop(volume);
 
-                let mut volume = open_volume(&mut device).unwrap();
+                let mut volume = open_journaled_volume(&mut device).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let checkpoint_after_allocate = volume.journal.checkpoint();
 
@@ -2539,7 +2539,7 @@ mod tests {
                 let mut device = failing.inner;
                 drop(volume);
 
-                let mut volume = open_volume(&mut device).unwrap();
+                let mut volume = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.allocate_block(&mut device).unwrap(),
                     first + 1,
@@ -2563,7 +2563,7 @@ mod tests {
                 let path = image_path(&format!("allocation-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let first = volume.volume.layout.data_start;
                     let mut failing = FailWriteAt {
                         inner: device,
@@ -2578,7 +2578,7 @@ mod tests {
                     let mut device = failing.inner;
                     drop(volume);
 
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    let mut recovered = open_journaled_volume(&mut device).unwrap();
                     assert_eq!(
                         recovered.allocate_block(&mut device).unwrap(),
                         first,
@@ -2596,7 +2596,7 @@ mod tests {
                 let path = image_path(&format!("allocation-recovery-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let first = volume.volume.layout.data_start;
                     let mut failing = FailWriteAt {
                         inner: device,
@@ -2613,8 +2613,8 @@ mod tests {
 
                     // Failures after the durable commit, including checkpoint write,
                     // must preserve the allocation and make recovery repeatable.
-                    drop(open_volume(&mut device).unwrap());
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    drop(open_journaled_volume(&mut device).unwrap());
+                    let mut recovered = open_journaled_volume(&mut device).unwrap();
                     assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
                     recovered.free_block(&mut device, first).unwrap();
                     assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
@@ -2629,7 +2629,7 @@ mod tests {
             let path = image_path(&format!("superblock-mismatch-{label}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
 
                 let mut bytes = vec![0_u8; device.block_size() as usize];
                 device.read_blocks(block, &mut bytes).unwrap();
@@ -2638,7 +2638,7 @@ mod tests {
                 device.flush().unwrap();
 
                 assert!(matches!(
-                    open_volume(&mut device),
+                    open_journaled_volume(&mut device),
                     Err(Error::Corrupt(
                         "primary and backup filesystem superblocks disagree"
                     ))
@@ -2653,7 +2653,7 @@ mod tests {
         let path = image_path("superblock-bad-checksum");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
 
             for block in [0_u64, 255] {
                 let mut bytes = vec![0_u8; device.block_size() as usize];
@@ -2664,7 +2664,7 @@ mod tests {
             device.flush().unwrap();
 
             assert!(matches!(
-                open_volume(&mut device),
+                open_journaled_volume(&mut device),
                 Err(Error::Corrupt("filesystem superblock CRC32C mismatch"))
             ));
         }
@@ -2680,7 +2680,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
 
                 for block in [0_u64, 255] {
                     let mut bytes = vec![0_u8; device.block_size() as usize];
@@ -2693,7 +2693,7 @@ mod tests {
                 device.flush().unwrap();
 
                 assert!(matches!(
-                    open_volume(&mut device),
+                    open_journaled_volume(&mut device),
                     Err(Error::Corrupt(
                         "reserved filesystem superblock bytes must be zero"
                     ))
@@ -2724,7 +2724,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 for block in [0_u64, 255] {
                     let mut bytes = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(block, &mut bytes).unwrap();
@@ -2737,7 +2737,7 @@ mod tests {
                 }
                 device.flush().unwrap();
                 assert!(matches!(
-                    open_volume(&mut device),
+                    open_journaled_volume(&mut device),
                     Err(Error::Corrupt(message)) if message == expected
                 ));
             }
@@ -2747,7 +2747,7 @@ mod tests {
         let path = image_path("unsupported-version");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             for block in [0_u64, 255] {
                 let mut bytes = vec![0_u8; device.block_size() as usize];
                 device.read_blocks(block, &mut bytes).unwrap();
@@ -2758,7 +2758,7 @@ mod tests {
             }
             device.flush().unwrap();
             assert!(matches!(
-                open_volume(&mut device),
+                open_journaled_volume(&mut device),
                 Err(Error::UnsupportedVersion(99))
             ));
         }
@@ -2779,7 +2779,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 for block in [0_u64, 255] {
                     let mut bytes = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(block, &mut bytes).unwrap();
@@ -2790,7 +2790,7 @@ mod tests {
                 }
                 device.flush().unwrap();
                 assert!(matches!(
-                    open_volume(&mut device),
+                    open_journaled_volume(&mut device),
                     Err(Error::Corrupt("invalid filesystem superblock geometry"))
                 ));
             }
@@ -2802,7 +2802,7 @@ mod tests {
         let path = image_path("overflowing-byte-geometry");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             for block in [0_u64, 255] {
                 let mut bytes = vec![0_u8; device.block_size() as usize];
                 device.read_blocks(block, &mut bytes).unwrap();
@@ -2813,7 +2813,7 @@ mod tests {
             }
             device.flush().unwrap();
             assert!(matches!(
-                open_volume(&mut device),
+                open_journaled_volume(&mut device),
                 Err(Error::ArithmeticOverflow)
             ));
         }
@@ -2826,7 +2826,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 for block in [0_u64, 255] {
                     let mut bytes = vec![0_u8; device.block_size() as usize];
                     device.read_blocks(block, &mut bytes).unwrap();
@@ -2842,7 +2842,7 @@ mod tests {
                 }
                 device.flush().unwrap();
                 assert!(matches!(
-                    open_volume(&mut device),
+                    open_journaled_volume(&mut device),
                     Err(Error::Corrupt(
                         "filesystem superblock geometry does not match device geometry"
                     ))
@@ -2864,7 +2864,7 @@ mod tests {
                 let path = image_path(&format!("{label}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + bit / bits_per_bitmap_block;
                     let local = bit % bits_per_bitmap_block;
@@ -2876,7 +2876,7 @@ mod tests {
 
                     assert!(
                         matches!(
-                            open_volume(&mut device),
+                            open_journaled_volume(&mut device),
                             Err(Error::Corrupt(
                                 "current bitmap marks a reserved or padding block free"
                             ))
@@ -2902,7 +2902,7 @@ mod tests {
             let path = image_path(label);
             {
                 let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 assert_eq!(volume.volume.layout.bitmap_blocks, 2);
 
                 let bitmap_index = corrupted_block / bits_per_bitmap_block;
@@ -2917,7 +2917,7 @@ mod tests {
 
                 assert!(
                     matches!(
-                        open_volume(&mut device),
+                        open_journaled_volume(&mut device),
                         Err(Error::Corrupt(
                             "current bitmap marks a reserved or padding block free"
                         ))
@@ -2933,7 +2933,7 @@ mod tests {
     fn current_rejects_each_reserved_block_marked_free() {
         let reserved_blocks = (0..256_u64)
             .filter(|block| {
-                VolumeLayout::calculate(4096, 256)
+                JournaledVolumeLayout::calculate(4096, 256)
                     .unwrap()
                     .is_reserved(*block)
             })
@@ -2949,7 +2949,7 @@ mod tests {
                 let path = image_path(&format!("reserved-block-{reserved}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + *reserved / bits_per_bitmap_block;
                     let local = *reserved % bits_per_bitmap_block;
@@ -2961,7 +2961,7 @@ mod tests {
 
                     assert!(
                         matches!(
-                            open_volume(&mut device),
+                            open_journaled_volume(&mut device),
                             Err(Error::Corrupt(
                                 "current bitmap marks a reserved or padding block free"
                             ))
@@ -2979,7 +2979,7 @@ mod tests {
         let path = image_path("allocator-reuse-order");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.volume.layout.data_start;
             let allocated = (0..40)
                 .map(|_| volume.allocate_block(&mut device).unwrap())
@@ -2992,7 +2992,7 @@ mod tests {
             device.flush().unwrap();
             drop(volume);
 
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             for block in allocated.iter().step_by(2) {
                 assert_eq!(volume.allocate_block(&mut device).unwrap(), *block);
             }
@@ -3003,7 +3003,7 @@ mod tests {
             device.flush().unwrap();
             drop(volume);
 
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(
                 volume.allocate_block(&mut device).unwrap(),
                 first + allocated.len() as u64 + 1
@@ -3017,7 +3017,7 @@ mod tests {
         // Exercise every reserved bit through durable journal replay, not just
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let layout = VolumeLayout::calculate(block_size, 12).unwrap();
+            let layout = JournaledVolumeLayout::calculate(block_size, 12).unwrap();
             let mut corruptions = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
                 .map(|block| ("reserved", block))
@@ -3028,7 +3028,7 @@ mod tests {
                 let path = image_path(&format!("{kind}-replay-{block_size}-{corrupted_block}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + corrupted_block / bits_per_bitmap_block;
@@ -3058,7 +3058,7 @@ mod tests {
 
                     assert!(
                         matches!(
-                            open_volume(&mut device),
+                            open_journaled_volume(&mut device),
                             Err(Error::Corrupt(
                                 "current bitmap marks a reserved or padding block free"
                             ))
@@ -3084,7 +3084,7 @@ mod tests {
             let path = image_path(&format!("later-segment-{label}-bitmap-replay"));
             {
                 let mut device = ImageDevice::create(&path, 4096, total_blocks).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 assert_eq!(volume.volume.layout.bitmap_blocks, 2);
 
                 let bitmap_index = corrupted_block / bits_per_bitmap_block;
@@ -3116,7 +3116,7 @@ mod tests {
 
                 assert!(
                     matches!(
-                        open_volume(&mut device),
+                        open_journaled_volume(&mut device),
                         Err(Error::Corrupt(
                             "current bitmap marks a reserved or padding block free"
                         ))
@@ -3136,7 +3136,7 @@ mod tests {
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut volume =
-                        format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                        format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -3151,7 +3151,7 @@ mod tests {
                     let mut device = failing.inner;
                     drop(volume);
 
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    let mut recovered = open_journaled_volume(&mut device).unwrap();
                     assert_eq!(
                         recovered.allocate_block(&mut device).unwrap(),
                         first + 1,
@@ -3176,7 +3176,7 @@ mod tests {
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut volume =
-                        format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                        format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -3193,8 +3193,8 @@ mod tests {
 
                     // Recovery must be repeatable after both home-write and
                     // checkpoint-write failures following a durable free.
-                    drop(open_volume(&mut device).unwrap());
-                    let mut recovered = open_volume(&mut device).unwrap();
+                    drop(open_journaled_volume(&mut device).unwrap());
+                    let mut recovered = open_journaled_volume(&mut device).unwrap();
                     assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
                     assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
                 }
@@ -3215,13 +3215,13 @@ mod tests {
         let first;
         {
             let mut device = RawDevice::open(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             first = volume.allocate_block(&mut device).unwrap();
             device.flush().unwrap();
         }
         {
             let mut device = RawDevice::open(&path, 4096, 256).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
             assert_ne!(first, second);
             volume.free_block(&mut device, first).unwrap();
@@ -3229,7 +3229,7 @@ mod tests {
         }
         {
             let mut device = RawDevice::open(&path, 4096, 256).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
         }
         fs::remove_file(path).unwrap();
@@ -3241,7 +3241,7 @@ mod tests {
             let path = image_path(&format!("minimum-volume-exhaustion-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
 
@@ -3284,7 +3284,7 @@ mod tests {
             let path = image_path(&format!("last-data-block-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, total_blocks).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert!(layout.bitmap_blocks > 1);
                 let last_data = layout.backup_superblock - 1;
@@ -3305,7 +3305,7 @@ mod tests {
                     }
                     device.write_blocks(bitmap_block, &bitmap).unwrap();
                 }
-                let mut volume = open_volume(&mut device).unwrap();
+                let mut volume = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.allocate_block(&mut device).unwrap(),
                     last_data,
@@ -3318,7 +3318,7 @@ mod tests {
                 volume.free_block(&mut device, last_data).unwrap();
                 drop(volume);
 
-                let mut reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     reopened.allocate_block(&mut device).unwrap(),
                     last_data,
@@ -3339,7 +3339,7 @@ mod tests {
             let path = image_path(&format!("later-bitmap-read-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 65_537).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 let bits_per_block = u64::from(block_size) * 8;
                 assert!(layout.bitmap_blocks >= 2);
@@ -3357,7 +3357,7 @@ mod tests {
                 device.write_blocks(layout.bitmap_start, &bitmap).unwrap();
                 device.flush().unwrap();
 
-                let mut volume = open_volume(&mut device).unwrap();
+                let mut volume = open_journaled_volume(&mut device).unwrap();
                 let initial_checkpoint = volume.journal.checkpoint();
                 let mut failing = FailReadAt {
                     inner: device,
@@ -3376,7 +3376,7 @@ mod tests {
                 let mut device = failing.inner;
                 drop(volume);
 
-                let mut recovered = open_volume(&mut device).unwrap();
+                let mut recovered = open_journaled_volume(&mut device).unwrap();
                 let later_block = recovered.allocate_block(&mut device).unwrap();
                 assert!(later_block >= bits_per_block);
                 let checkpoint_after_allocate = recovered.journal.checkpoint();
@@ -3398,7 +3398,7 @@ mod tests {
                 let mut device = failing.inner;
                 drop(recovered);
 
-                let mut recovered = open_volume(&mut device).unwrap();
+                let mut recovered = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     recovered.allocate_block(&mut device).unwrap(),
                     later_block + 1,
@@ -3420,7 +3420,7 @@ mod tests {
         let path = image_path("allocator-state-queries");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first_data = volume.volume.layout.data_start;
             let initial_free = volume.free_data_block_count(&mut device).unwrap();
             assert_eq!(initial_free, volume.volume.layout.data_blocks());
@@ -3459,7 +3459,7 @@ mod tests {
         let path = image_path("contiguous-allocator");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.volume.layout.data_start;
             let initial_free = volume.free_data_block_count(&mut device).unwrap();
 
@@ -3483,7 +3483,7 @@ mod tests {
             volume.validate_allocation_bitmap(&mut device).unwrap();
             drop(volume);
 
-            let mut reopened = open_volume(&mut device).unwrap();
+            let mut reopened = open_journaled_volume(&mut device).unwrap();
             for block in first..first + 3 {
                 assert!(reopened
                     .is_data_block_allocated(&mut device, block)
@@ -3509,7 +3509,7 @@ mod tests {
         let path = image_path("contiguous-allocator-limits");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let before = volume.journal.checkpoint();
             assert!(matches!(
                 volume.find_contiguous_free_blocks(&mut device, 0),
@@ -3538,7 +3538,7 @@ mod tests {
         let path = image_path("batch-allocator");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.volume.layout.data_start;
             let before = volume.allocation_stats(&mut device).unwrap();
             assert_eq!(
@@ -3572,7 +3572,7 @@ mod tests {
             assert_eq!(volume.allocation_stats(&mut device).unwrap(), before);
             drop(volume);
 
-            let mut reopened = open_volume(&mut device).unwrap();
+            let mut reopened = open_journaled_volume(&mut device).unwrap();
             for block in &blocks {
                 assert!(!reopened
                     .is_data_block_allocated(&mut device, *block)
@@ -3600,7 +3600,7 @@ mod tests {
         let path = image_path("bitmap-validator-second-segment-padding");
         {
             let mut device = ImageDevice::create(&path, 4096, 32_770).unwrap();
-            let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let layout = volume.volume.layout;
             volume.validate_allocation_bitmap(&mut device).unwrap();
 
@@ -3633,7 +3633,7 @@ mod tests {
                 let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                    let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                    let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                     volume.validate_allocation_bitmap(&mut device).unwrap();
 
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
@@ -3664,7 +3664,7 @@ mod tests {
             let path = image_path(&format!("batch-roundtrip-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let initial = volume.allocation_stats(&mut device).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
                 assert_eq!(blocks.len(), 4);
@@ -3680,7 +3680,7 @@ mod tests {
                 volume.validate_allocation_bitmap(&mut device).unwrap();
                 drop(volume);
 
-                let mut reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(reopened.allocation_stats(&mut device).unwrap(), initial);
                 let allocated_again = reopened.allocate_blocks(&mut device, 4).unwrap();
                 assert_eq!(allocated_again, blocks);
@@ -3695,10 +3695,10 @@ mod tests {
         let path = image_path("read-only-checker");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             device.flush().unwrap();
             let bytes_before_check = fs::read(&path).unwrap();
-            let initial = check_volume(&mut device).unwrap();
+            let initial = check_journaled_volume(&mut device).unwrap();
             assert_eq!(
                 fs::read(&path).unwrap(),
                 bytes_before_check,
@@ -3712,7 +3712,7 @@ mod tests {
             assert_eq!(initial.recoverable_transactions, 0);
 
             volume.allocate_blocks(&mut device, 3).unwrap();
-            let after_allocate = check_volume(&mut device).unwrap();
+            let after_allocate = check_journaled_volume(&mut device).unwrap();
             assert_eq!(after_allocate.block_size, 4096);
             assert_eq!(after_allocate.total_blocks, 512);
             assert_eq!(after_allocate.allocated_data_blocks, 3);
@@ -3733,7 +3733,7 @@ mod tests {
             device.read_blocks(0, &mut primary).unwrap();
             primary[100] ^= 1;
             device.write_blocks(0, &primary).unwrap();
-            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+            assert!(matches!(check_journaled_volume(&mut device), Err(Error::Corrupt(_))));
         }
         fs::remove_file(path).unwrap();
     }
@@ -3744,7 +3744,7 @@ mod tests {
             let path = image_path(&format!("checker-journal-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let layout = volume.volume.layout;
                 drop(volume);
                 device.flush().unwrap();
@@ -3760,7 +3760,7 @@ mod tests {
                 device.flush().unwrap();
 
                 let before_check = fs::read(&path).unwrap();
-                let report = check_volume(&mut device).unwrap();
+                let report = check_journaled_volume(&mut device).unwrap();
                 assert_eq!(report.journal_generation, 1);
                 assert_eq!(report.journal_checkpoint_sequence, 0);
                 assert_eq!(report.pending_journal_records, 0);
@@ -3780,7 +3780,7 @@ mod tests {
                     .write_blocks(layout.journal.checkpoint_a, &other)
                     .unwrap();
                 assert!(
-                    matches!(check_volume(&mut device), Err(Error::Corrupt(_))),
+                    matches!(check_journaled_volume(&mut device), Err(Error::Corrupt(_))),
                     "checker accepted two invalid checkpoint copies at block size {block_size}"
                 );
             }
@@ -3792,7 +3792,7 @@ mod tests {
     fn current_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
-                let layout = VolumeLayout::calculate(block_size, total_blocks).unwrap();
+                let layout = JournaledVolumeLayout::calculate(block_size, total_blocks).unwrap();
                 let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
                 let checkpoint_end = layout.journal.checkpoint_a + 1;
                 let ring_end = layout.journal.ring_start + layout.journal.ring_blocks;
@@ -3827,7 +3827,7 @@ mod tests {
         let path = image_path("mixed-allocation-reopen-sequence");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.allocate_block(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
             let third = volume.allocate_block(&mut device).unwrap();
@@ -3839,14 +3839,14 @@ mod tests {
             device.flush().unwrap();
             drop(volume);
 
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
             assert_eq!(volume.allocate_block(&mut device).unwrap(), second);
             assert_eq!(volume.allocate_block(&mut device).unwrap(), third + 1);
             device.flush().unwrap();
             drop(volume);
 
-            let mut volume = open_volume(&mut device).unwrap();
+            let mut volume = open_journaled_volume(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), third + 2);
         }
         fs::remove_file(path).unwrap();
@@ -3858,7 +3858,7 @@ mod tests {
             let path = image_path(&format!("allocated-block-inventory-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 assert!(volume
                     .allocated_data_block_inventory(&mut device)
                     .unwrap()
@@ -3876,7 +3876,7 @@ mod tests {
                 device.flush().unwrap();
                 drop(volume);
 
-                let volume = open_volume(&mut device).unwrap();
+                let volume = open_journaled_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.allocated_data_block_inventory(&mut device).unwrap(),
                     vec![first, third]
@@ -3898,7 +3898,7 @@ mod tests {
         let path = image_path("free-inventory-fragmentation");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let layout = volume.volume.layout;
             let initial_free = volume.free_data_block_inventory(&mut device).unwrap();
             assert_eq!(initial_free.len() as u64, layout.data_blocks());
@@ -3940,7 +3940,7 @@ mod tests {
             let path = image_path(&format!("range-ownership-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+                let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 6).unwrap();
                 let map = ExtentMap::new(vec![
                     Extent {
@@ -3984,7 +3984,7 @@ mod tests {
         let path = image_path("extent-map-ownership-bridge");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
             let first_map = ExtentMap::new(vec![Extent {
                 logical_start: 0,
@@ -4076,7 +4076,7 @@ mod tests {
         let path = image_path("bounded-ownership-report");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let blocks = volume.allocate_blocks(&mut device, 100).unwrap();
 
             let orphaned = volume
@@ -4109,7 +4109,7 @@ mod tests {
         let path = image_path("ownership-inventory");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
+            let mut volume = format_journaled_volume(&mut device, *b"openfs-current-test!!", 0).unwrap();
             let first = volume.allocate_block(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
 
@@ -4143,12 +4143,12 @@ mod tests {
 
     #[test]
     fn current_layout_rejects_too_small_volumes() {
-        assert!(VolumeLayout::calculate(4096, 11).is_err());
+        assert!(JournaledVolumeLayout::calculate(4096, 11).is_err());
     }
 
     #[test]
     fn current_layout_pins_minimum_geometry_and_rejects_invalid_or_overflowing_inputs() {
-        let minimum = VolumeLayout::calculate(4096, 12).unwrap();
+        let minimum = JournaledVolumeLayout::calculate(4096, 12).unwrap();
         assert_eq!(minimum.bitmap_start, 1);
         assert_eq!(minimum.bitmap_blocks, 1);
         assert_eq!(minimum.journal.checkpoint_a, 2);
@@ -4162,7 +4162,7 @@ mod tests {
         for block_size in [0, 512, 2048, 4097, 131_072] {
             assert!(
                 matches!(
-                    VolumeLayout::calculate(block_size, 256),
+                    JournaledVolumeLayout::calculate(block_size, 256),
                     Err(Error::InvalidInput(_))
                 ),
                 "unexpectedly accepted current block size {block_size}"
@@ -4171,15 +4171,15 @@ mod tests {
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             assert!(matches!(
-                VolumeLayout::calculate(block_size, u64::MAX),
+                JournaledVolumeLayout::calculate(block_size, u64::MAX),
                 Err(Error::ArithmeticOverflow)
             ));
             assert!(matches!(
-                VolumeLayout::calculate(block_size, u64::MAX / u64::from(block_size) + 1),
+                JournaledVolumeLayout::calculate(block_size, u64::MAX / u64::from(block_size) + 1),
                 Err(Error::ArithmeticOverflow)
             ));
             assert!(matches!(
-                VolumeLayout::calculate(block_size, 12),
+                JournaledVolumeLayout::calculate(block_size, 12),
                 Ok(layout) if layout.data_blocks() > 0
             ));
         }
