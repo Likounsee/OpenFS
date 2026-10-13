@@ -1253,11 +1253,22 @@ mod tests {
             assert!(full[4096..8192].iter().all(|byte| *byte == 0));
             assert_eq!(&full[8192..], &vec![0x5A; 3808]);
             assert_eq!(
-                volume.read_path_range(&mut device, &namespace, &maps, "/sparse.bin", 4094, 6).unwrap(),
+                volume
+                    .read_path_range(&mut device, &namespace, &maps, "/sparse.bin", 4094, 6)
+                    .unwrap(),
                 vec![0xA5, 0xA5, 0, 0, 0, 0],
             );
-            assert!(volume.read_file_range(&mut device, &namespace, &maps, ObjectId(2), 12_000, 32).unwrap().is_empty());
-            assert_eq!(volume.read_file_range(&mut device, &namespace, &maps, ObjectId(2), 11_998, 20).unwrap().len(), 2);
+            assert!(volume
+                .read_file_range(&mut device, &namespace, &maps, ObjectId(2), 12_000, 32)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                volume
+                    .read_file_range(&mut device, &namespace, &maps, ObjectId(2), 11_998, 20)
+                    .unwrap()
+                    .len(),
+                2
+            );
         }
         fs::remove_file(path).unwrap();
     }
@@ -1306,20 +1317,29 @@ mod tests {
             let mut directory = vec![0; 4096];
             directory[..128].copy_from_slice(&entry.encode().unwrap());
             device.write_blocks(directory_block, &directory).unwrap();
-            let map = ExtentMap::new(vec![
-                Extent {
-                    logical_start: 0,
-                    physical_start: data_block,
-                    block_count: 1,
-                },
-            ])
+            let map = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: data_block,
+                block_count: 1,
+            }])
             .unwrap();
-            device.write_blocks(extent_root, &map.encode_block(4096).unwrap()).unwrap();
+            device
+                .write_blocks(extent_root, &map.encode_block(4096).unwrap())
+                .unwrap();
             device.write_blocks(data_block, &vec![0xCD; 4096]).unwrap();
-            let namespace = volume.reconstruct_namespace(
-                &mut device, ObjectId(1), &[metadata_block], 2, &[directory_block], 1,
-            ).unwrap();
-            let maps = volume.read_namespace_extent_maps(&mut device, &namespace).unwrap();
+            let namespace = volume
+                .reconstruct_namespace(
+                    &mut device,
+                    ObjectId(1),
+                    &[metadata_block],
+                    2,
+                    &[directory_block],
+                    1,
+                )
+                .unwrap();
+            let maps = volume
+                .read_namespace_extent_maps(&mut device, &namespace)
+                .unwrap();
             assert!(matches!(
                 volume.read_file_range(&mut device, &namespace, &maps, ObjectId(1), 0, 8),
                 Err(Error::InvalidInput("object is not a regular file"))
