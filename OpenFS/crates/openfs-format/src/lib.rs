@@ -1,4 +1,4 @@
-//! Explicit byte-level encoding for the initial OpenFS superblock draft.
+//! Byte-level encoding and validation for OpenFS on-disk structures.
 
 #[cfg(test)]
 use openfs_core::{Error, Result};
@@ -8,9 +8,9 @@ pub use allocator_extents::{
     FreeExtentStats, OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT,
 };
 
-/// Size of the initial fixed superblock record.
+/// Size of the fixed superblock record.
 pub const SUPERBLOCK_SIZE: usize = 4096;
-/// Supported format version for this draft.
+/// Supported format version for the legacy test fixture.
 #[cfg(test)]
 pub const FORMAT_VERSION: u16 = 1;
 #[cfg(test)]
