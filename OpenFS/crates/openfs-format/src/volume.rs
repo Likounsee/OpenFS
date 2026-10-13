@@ -1606,31 +1606,33 @@ mod tests {
     fn rejects_ambiguous_multiple_persistent_inventory_descriptors() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        let path = image_path("inventory-descriptor-ambiguous-discovery");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let descriptor_blocks = volume.allocate_blocks(&mut device, 2).unwrap();
-            let descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![],
-                metadata_record_count: 0,
-                directory_blocks: vec![],
-                directory_entry_count: 0,
-            };
-            let encoded = descriptor.encode(4096).unwrap();
-            for block in descriptor_blocks {
-                device.write_blocks(block, &encoded).unwrap();
-            }
+        for block_size in [4096, 8192, 16384, 32768, 65536] {
+            let path = image_path("inventory-descriptor-ambiguous-discovery");
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let descriptor_blocks = volume.allocate_blocks(&mut device, 2).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let encoded = descriptor.encode(block_size as usize).unwrap();
+                for block in descriptor_blocks {
+                    device.write_blocks(block, &encoded).unwrap();
+                }
 
-            assert!(matches!(
-                volume.discover_persistent_inventory(&mut device),
-                Err(Error::Corrupt(
-                    "multiple persistent inventory descriptors were discovered"
-                ))
-            ));
+                assert!(matches!(
+                    volume.discover_persistent_inventory(&mut device),
+                    Err(Error::Corrupt(
+                        "multiple persistent inventory descriptors were discovered"
+                    ))
+                ), "ambiguous descriptors must be rejected for block size {block_size}");
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
