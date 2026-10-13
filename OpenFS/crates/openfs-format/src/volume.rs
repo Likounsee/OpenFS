@@ -3020,6 +3020,222 @@ mod tests {
         }
     }
 
+    struct FailFlushAt<D> {
+        inner: D,
+        flush_index: usize,
+        fail_at: usize,
+    }
+
+    impl<D: openfs_block::BlockDevice> openfs_block::BlockDevice for FailFlushAt<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            let index = self.flush_index;
+            self.flush_index += 1;
+            if index == self.fail_at {
+                return Err(Error::Io(std::io::Error::other(
+                    "injected descriptor publication flush failure",
+                )));
+            }
+            self.inner.flush()
+        }
+    }
+
+    struct TearWriteAt<D> {
+        inner: D,
+        write_index: usize,
+        fail_at: usize,
+        prefix_bytes: usize,
+    }
+
+    impl<D: openfs_block::BlockDevice> openfs_block::BlockDevice for TearWriteAt<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            let index = self.write_index;
+            self.write_index += 1;
+            if index != self.fail_at {
+                return self.inner.write_blocks(first_block, input);
+            }
+            let block_size = usize::try_from(self.inner.block_size())
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if input.len() != block_size || self.prefix_bytes >= input.len() {
+                return Err(Error::InvalidInput(
+                    "test tear must target one block with a shorter prefix",
+                ));
+            }
+            let mut mixed = vec![0; block_size];
+            self.inner.read_blocks(first_block, &mut mixed)?;
+            mixed[..self.prefix_bytes].copy_from_slice(&input[..self.prefix_bytes]);
+            self.inner.write_blocks(first_block, &mixed)?;
+            Err(Error::Io(std::io::Error::other(
+                "injected torn descriptor block write",
+            )))
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn descriptor_publication_flush_failures_recover_old_or_complete_state() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..=4 {
+                let path = image_path(&format!("descriptor-flush-failure-{block_size}-{fail_at}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let metadata_block = volume.allocate_block(&mut device).unwrap();
+                    let root = MetadataRecord {
+                        id: ObjectId(1),
+                        parent_id: 0,
+                        kind: ObjectKind::Directory,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    };
+                    let mut metadata_bytes = vec![0; block_size as usize];
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&root.encode().unwrap());
+                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    let descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    };
+                    let free_before = volume.free_data_block_count(&mut device).unwrap();
+                    let mut failing = FailFlushAt {
+                        inner: device,
+                        flush_index: 0,
+                        fail_at,
+                    };
+                    assert!(
+                        matches!(
+                            volume.publish_persistent_inventory(&mut failing, &descriptor),
+                            Err(Error::Io(_))
+                        ),
+                        "flush {fail_at} should fail (block size {block_size})"
+                    );
+                    let mut device = failing.inner;
+                    drop(volume);
+                    let mut recovered = open_volume(&mut device).unwrap();
+                    let found = recovered.discover_persistent_inventory(&mut device).unwrap();
+                    let free_after = recovered.free_data_block_count(&mut device).unwrap();
+                    if fail_at <= 1 {
+                        assert!(found.is_none(), "uncommitted descriptor became visible (block size {block_size}, flush {fail_at})");
+                        assert_eq!(free_after, free_before);
+                    } else {
+                        let (block, decoded) = found.unwrap_or_else(|| panic!(
+                            "committed descriptor was lost after flush failure (block size {block_size}, flush {fail_at})"
+                        ));
+                        assert_eq!(decoded, descriptor);
+                        assert!(recovered.is_data_block_allocated(&mut device, block).unwrap());
+                        assert_eq!(free_after, free_before - 1);
+                    }
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn torn_descriptor_staging_writes_remain_invisible_and_safe_to_reuse() {
+        use crate::{
+            MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+            INVENTORY_DESCRIPTOR_MAGIC,
+        };
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let prefixes = [
+                0,
+                INVENTORY_DESCRIPTOR_MAGIC.len().saturating_sub(1),
+                INVENTORY_DESCRIPTOR_MAGIC.len(),
+                (block_size as usize) / 2,
+                (block_size as usize) - 1,
+            ];
+            for (case, prefix_bytes) in prefixes.into_iter().enumerate() {
+                let path = image_path(&format!("descriptor-torn-stage-{block_size}-{case}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let metadata_block = volume.allocate_block(&mut device).unwrap();
+                    let root = MetadataRecord {
+                        id: ObjectId(1),
+                        parent_id: 0,
+                        kind: ObjectKind::Directory,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    };
+                    let mut metadata_bytes = vec![0; block_size as usize];
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&root.encode().unwrap());
+                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    let descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    };
+                    let free_before = volume.free_data_block_count(&mut device).unwrap();
+                    let mut failing = TearWriteAt {
+                        inner: device,
+                        write_index: 0,
+                        fail_at: 0,
+                        prefix_bytes,
+                    };
+                    assert!(matches!(
+                        volume.publish_persistent_inventory(&mut failing, &descriptor),
+                        Err(Error::Io(_))
+                    ));
+                    let mut device = failing.inner;
+                    drop(volume);
+                    let mut recovered = open_volume(&mut device).unwrap();
+                    assert!(recovered.discover_persistent_inventory(&mut device).unwrap().is_none());
+                    assert_eq!(recovered.free_data_block_count(&mut device).unwrap(), free_before);
+                    let reused = recovered.allocate_block(&mut device).unwrap();
+                    let mut bytes = vec![0; block_size as usize];
+                    device.read_blocks(reused, &mut bytes).unwrap();
+                    assert!(!bytes.starts_with(INVENTORY_DESCRIPTOR_MAGIC));
+                    assert!(recovered.discover_persistent_inventory(&mut device).unwrap().is_none());
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn canonical_bitmap_read_failures_do_not_mutate_allocator_state() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
