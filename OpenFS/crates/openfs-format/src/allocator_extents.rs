@@ -1369,7 +1369,9 @@ mod allocation_bitmap_report_tests {
                             vec![volume.allocate_contiguous_blocks(&mut device, 1).unwrap()]
                         }
                         "best-fit" => {
-                            vec![volume.allocate_best_fit_contiguous_blocks(&mut device, 1).unwrap()]
+                            vec![volume
+                                .allocate_best_fit_contiguous_blocks(&mut device, 1)
+                                .unwrap()]
                         }
                         _ => unreachable!(),
                     };
