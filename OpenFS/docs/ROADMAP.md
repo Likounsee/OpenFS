@@ -2,10 +2,10 @@
 
 Last source audit: 2026-10-13  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: 536a744d46e0c0b12616f92e0f07bbcbe69343a7  
-Current branch HEAD before this roadmap revision: 536a744d46e0c0b12616f92e0f07bbcbe69343a7  
+Code baseline audited: 93284e01d91e920f3379db38a85ae00febe989a5  
+Current branch HEAD before this roadmap revision: 93284e01d91e920f3379db38a85ae00febe989a5  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record allocator recovery and descriptor lifetime protections, plus cross-structure verifier regressions for descriptor/data, descriptor/inventory, metadata/directory, and metadata/file-data aliases. This documentation commit does not change filesystem code.
+Scope: record allocator recovery and descriptor lifetime protections, cross-structure verifier regressions, orphan-publication refusal, and descriptor publication write/flush failure recovery. This documentation commit does not change filesystem code.
 
 ## Executive assessment
 
@@ -74,6 +74,8 @@ When reporting a task, state implementation status separately from test status a
 - Legacy HEAD inspected: `fdb5dee16266d037c79438a5b20ebccceab3fa24`. Its latest Actions run found, 38167327262, failed on Windows because `openfs-crash-cut` timed out; GCC, Clang and ThreadSanitizer jobs passed. The previous legacy run 38166246104 succeeded on an earlier commit, not current legacy HEAD.
 - Rust CI covers formatting, workspace tests and Clippy on Linux and Windows. The latest ownership-validation batch is exact SHA `c7b93f1ee77869529d869ce4d3ae15ef6dae52aa`, validated by run [38437650554](https://github.com/Likounsee/OpenFS/actions/runs/38437650554) with both platform jobs successful. It bounds extent-allocation bitmap caching to one page while scanning sorted physical ranges, replaces per-range linear root-alias checks with binary search, and adds `namespace_extent_map_root_checks_scale_across_all_supported_block_sizes` for 32 file roots at each supported block size. No dedicated fuzzing, sanitizers, benchmarks, power-loss hardware testing or mounted-filesystem integration was evidenced in the inspected workflows.
 - Exact-SHA CI run [38453937847](https://github.com/Likounsee/OpenFS/actions/runs/38453937847) passed for `536a744d46e0c0b12616f92e0f07bbcbe69343a7` on both Linux and Windows (formatting, workspace tests, Clippy). The `refuses_to_publish_when_existing_allocations_have_no_owner` regression now exercises all five supported block sizes (4, 8, 16, 32 and 64 KiB) and confirms a rejected inventory publication leaves the orphan allocated, consumes no descriptor block, and remains undiscoverable.
+- Exact-SHA CI run [38455410660](https://github.com/Likounsee/OpenFS/actions/runs/38455410660) passed Linux and Windows formatting, workspace tests, and Clippy for `7db08563db31540bb62f0d1f7eb2ab245857e017`. It validates the five-size staging-flush failure regression after closing and reopening the image, including undiscoverability and successful retry.
+- For code HEAD `93284e01d91e920f3379db38a85ae00febe989a5`, CI run [38455806800](https://github.com/Likounsee/OpenFS/actions/runs/38455806800) has passed Linux formatting, workspace tests, and Clippy. The added descriptor-write-failure/reopen/retry test covers all five block sizes; Windows validation was still in progress at the time of this roadmap update, so do not mark that latest test cross-platform validated yet.
 - The descriptor-publication failure contract is still not exhaustively crash-cut tested. In particular, staging-write failure, staging-flush failure, and redo-journal failure need separate injected-failure tests that inspect allocation state and rediscovery after reopening; a normal CI pass is not physical durability evidence.
 - No physical USB device was accessed and no local commands were run. All CI claims here refer to remote GitHub Actions evidence and the exact SHA stated above.
 
