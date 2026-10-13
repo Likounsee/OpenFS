@@ -1,9 +1,9 @@
-//! Atomic contiguous allocation helpers for v2 volumes.
+//! Atomic contiguous allocation helpers for volumes.
 //!
 //! The current on-disk journal can atomically update one bitmap block per transaction.
 //! Extents are therefore deliberately constrained to a single bitmap segment.
 
-use crate::{OpenedVolumeV2, RedoUpdate, VolumeLayoutV2};
+use crate::{OpenedVolume, RedoUpdate, VolumeLayout};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
@@ -25,7 +25,7 @@ pub struct FreeExtent {
     pub block_count: u64,
 }
 
-/// Read-only fragmentation summary for free space in the V2 data region.
+/// Read-only fragmentation summary for free space in the data region.
 ///
 /// A free extent is a consecutive run of free data blocks within one bitmap segment,
 /// matching the current allocator's single-bitmap-block transaction limit.
@@ -108,13 +108,13 @@ impl AllocationOwnershipReport {
     }
 }
 
-impl OpenedVolumeV2 {
+impl OpenedVolume {
     /// Return total, allocated, and free data-block counts from the current bitmap.
     pub fn allocation_stats<D: BlockDevice>(&self, device: &mut D) -> Result<AllocationStats> {
         let report = self.allocation_bitmap_report(device)?;
         if report.invalid_free_block_count != 0 {
             return Err(Error::Corrupt(
-                "v2 bitmap marks a reserved or padding block free",
+                "allocation bitmap marks a reserved or padding block free",
             ));
         }
         let total = self.volume.layout.data_blocks();
@@ -124,7 +124,7 @@ impl OpenedVolumeV2 {
             .ok_or(Error::ArithmeticOverflow)?;
         if accounted != total {
             return Err(Error::Corrupt(
-                "v2 bitmap data-block counts do not match the usable data region",
+                "allocation bitmap data-block counts do not match the usable data region",
             ));
         }
         Ok(AllocationStats {
@@ -399,7 +399,7 @@ impl OpenedVolumeV2 {
     }
 
     /// Atomically allocate a contiguous extent and return its first data block.
-    /// The extent must fit within one bitmap block to fit the bounded v2 journal.
+    /// The extent must fit within one bitmap block to fit the bounded canonical journal.
     pub fn allocate_contiguous_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -625,7 +625,7 @@ impl OpenedVolumeV2 {
     ///
     /// Selection is deterministic (smallest extent, then lowest block number). The selected
     /// bitmap is reread and every target bit is checked before the journal is committed.
-    /// Like other V2 allocator transactions, the extent must fit in one bitmap segment.
+    /// Like other allocator transactions, the extent must fit in one bitmap segment.
     pub fn allocate_best_fit_contiguous_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1220,26 +1220,26 @@ impl OpenedVolumeV2 {
         let report = self.allocation_bitmap_report(device)?;
         if report.invalid_free_block_count != 0 {
             return Err(Error::Corrupt(
-                "v2 bitmap marks a reserved or padding block free",
+                "allocation bitmap marks a reserved or padding block free",
             ));
         }
         Ok(())
     }
 }
 
-fn validate_device<D: BlockDevice>(volume: &OpenedVolumeV2, device: &D) -> Result<()> {
+fn validate_device<D: BlockDevice>(volume: &OpenedVolume, device: &D) -> Result<()> {
     if device.block_size() != volume.volume.block_size
         || device.block_count() != volume.volume.total_blocks
     {
         return Err(Error::InvalidInput(
-            "device geometry does not match opened v2 volume",
+            "device geometry does not match opened volume",
         ));
     }
     let canonical =
-        VolumeLayoutV2::calculate(volume.volume.block_size, volume.volume.total_blocks)?;
+        VolumeLayout::calculate(volume.volume.block_size, volume.volume.total_blocks)?;
     if volume.volume.layout != canonical {
         return Err(Error::InvalidInput(
-            "v2 volume layout was modified after validation",
+            "volume layout was modified after validation",
         ));
     }
     Ok(())
@@ -1248,7 +1248,7 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolumeV2, device: &D) -> Resul
 #[cfg(test)]
 mod allocation_bitmap_report_tests {
     use super::*;
-    use crate::format_volume_v2;
+    use crate::format_volume;
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1269,7 +1269,7 @@ mod allocation_bitmap_report_tests {
         let path = image_path("exact");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let volume = crate::format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let volume = crate::format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let layout = volume.volume.layout;
             let mut bitmap = vec![0_u8; 4096];
             device
@@ -1289,7 +1289,7 @@ mod allocation_bitmap_report_tests {
             assert!(matches!(
                 volume.validate_allocation_bitmap(&mut device),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
         }
@@ -1302,7 +1302,7 @@ mod allocation_bitmap_report_tests {
             let path = image_path(&format!("contiguous-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 assert!(matches!(
                     volume.allocate_contiguous_blocks(&mut device, u64::from(block_size) * 8 + 1),
                     Err(Error::InvalidInput(_))
@@ -1359,7 +1359,7 @@ mod allocation_bitmap_report_tests {
         let path = image_path("bitmap-run-search");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let data_start = volume.volume.layout.data_start;
             assert_eq!(
                 volume.find_contiguous_free_blocks(&mut device, 17).unwrap(),
@@ -1405,7 +1405,7 @@ mod allocation_bitmap_report_tests {
             let path = image_path(&format!("free-inventory-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let allocated = volume.allocate_blocks(&mut device, 9).unwrap();
                 volume.free_blocks(&mut device, &allocated[2..5]).unwrap();
 
@@ -1541,7 +1541,7 @@ mod allocation_bitmap_report_tests {
         let path = image_path("counts");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let total = volume.volume.layout.data_blocks();
             let allocated = volume.allocate_blocks(&mut device, 5).unwrap();
             volume.free_blocks(&mut device, &allocated[1..3]).unwrap();
@@ -1568,7 +1568,7 @@ mod allocation_bitmap_report_tests {
             let path = image_path(&format!("all-sizes-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let total = volume.volume.layout.data_blocks();
                 let allocated = volume.allocate_blocks(&mut device, 3).unwrap();
                 volume.free_blocks(&mut device, &allocated[1..2]).unwrap();
@@ -1606,7 +1606,7 @@ mod allocation_bitmap_report_tests {
         let path = image_path("stats-corrupt");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let layout = volume.volume.layout;
             let mut bitmap = vec![0_u8; 4096];
             device
@@ -1620,31 +1620,31 @@ mod allocation_bitmap_report_tests {
             assert!(matches!(
                 volume.allocation_stats(&mut device),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
             assert!(matches!(
                 volume.free_data_block_inventory(&mut device),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
             assert!(matches!(
                 volume.free_extent_stats(&mut device),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
             assert!(matches!(
                 volume.find_best_fit_free_extent(&mut device, 1),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
             assert!(matches!(
                 volume.free_extent_inventory(&mut device),
                 Err(Error::Corrupt(
-                    "v2 bitmap marks a reserved or padding block free"
+                    "allocation bitmap marks a reserved or padding block free"
                 ))
             ));
         }
@@ -1656,7 +1656,7 @@ mod allocation_bitmap_report_tests {
         let path = image_path("bounded");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let mut bitmap = vec![0_u8; 4096];
             device
                 .read_blocks(volume.volume.layout.bitmap_start, &mut bitmap)
@@ -1686,7 +1686,7 @@ mod allocation_bitmap_report_tests {
             let path = image_path(&format!("ownership-bit-scan-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let allocated = volume.allocate_blocks(&mut device, 11).unwrap();
                 volume.free_blocks(&mut device, &[allocated[4]]).unwrap();
 

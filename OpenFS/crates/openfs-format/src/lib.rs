@@ -183,19 +183,16 @@ pub use journal_engine::{
     format_journal, open_journal, JournalRegion, PersistentJournal, RedoUpdate,
 };
 #[cfg(test)]
-pub use legacy_layout::{format_volume, open_volume, Volume, VolumeLayout, BITMAP_START_BLOCK};
+pub use legacy_layout::{
+    format_volume as format_legacy_volume, open_volume as open_legacy_volume,
+    Volume as LegacyVolume, VolumeLayout as LegacyVolumeLayout, BITMAP_START_BLOCK,
+};
 pub use metadata::{
     decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE,
 };
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
 pub use volume::{
-    check_volume_v2, format_volume_v2, open_volume_v2, OpenedVolumeV2, VolumeCheckReport,
-    VolumeLayoutV2, VolumeV2,
-};
-#[cfg(not(test))]
-pub use volume::{
-    check_volume_v2 as check_volume, format_volume_v2 as format_volume,
-    open_volume_v2 as open_volume, OpenedVolumeV2 as OpenedVolume, VolumeLayoutV2 as VolumeLayout,
-    VolumeV2 as Volume,
+    check_volume, format_volume, open_volume, OpenedVolume, VolumeCheckReport, VolumeLayout,
+    Volume,
 };

@@ -10,7 +10,7 @@ use openfs_core::{Error, Result};
 /// First block containing the allocation bitmap. Block zero stores the primary superblock.
 pub const BITMAP_START_BLOCK: u64 = 1;
 
-/// Derived v1 volume layout. The last block stores the backup superblock.
+/// Derived legacy volume layout. The last block stores the backup superblock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VolumeLayout {
     pub total_blocks: u64,
@@ -29,7 +29,7 @@ impl VolumeLayout {
         }
         if total_blocks < 4 {
             return Err(Error::InvalidInput(
-                "volume is too small for v1 reserved regions",
+                "volume is too small for legacy reserved regions",
             ));
         }
         u64::from(block_size)

@@ -1,15 +1,15 @@
-//! Read-only end-to-end verification for caller-located V2 inventories.
+//! Read-only end-to-end verification for caller-located persistent inventories.
 //!
 //! This composes the existing on-disk decoders, namespace graph validation, extent-page
 //! validation, and bitmap ownership reconciliation. It intentionally does not guess where
-//! inventories live: V2 has not yet assigned canonical persistent inventory regions.
+//! inventories live: the format has not yet assigned canonical persistent inventory regions.
 
 use std::collections::BTreeMap;
 
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
-use crate::{AllocationOwnershipReport, Extent, ExtentMap, Namespace, ObjectId, OpenedVolumeV2};
+use crate::{AllocationOwnershipReport, Extent, ExtentMap, Namespace, ObjectId, OpenedVolume};
 
 /// Structured result of verifying caller-located persistent namespace inventories.
 ///
@@ -61,7 +61,7 @@ impl PersistentInventoryReport {
     }
 }
 
-impl OpenedVolumeV2 {
+impl OpenedVolume {
     /// Verify caller-located packed inventories, extent-map pages, and allocation ownership.
     ///
     /// The caller supplies inventory block lists and record counts. Orphaned allocations and
@@ -193,7 +193,7 @@ impl OpenedVolumeV2 {
 #[cfg(test)]
 mod tests {
     use super::PersistentInventoryReport;
-    use crate::{format_volume_v2, MetadataRecord, ObjectId, ObjectKind};
+    use crate::{format_volume, MetadataRecord, ObjectId, ObjectKind};
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -233,7 +233,7 @@ mod tests {
         let path = image_path("orphan-report");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let orphan_block = volume.allocate_block(&mut device).unwrap();
             write_root_inventory(&mut device, metadata_block);
@@ -260,7 +260,7 @@ mod tests {
         let path = image_path("discovered-clean-report");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let descriptor_block = volume.allocate_block(&mut device).unwrap();
             write_root_inventory(&mut device, metadata_block);
@@ -292,7 +292,7 @@ mod tests {
         let path = image_path("clean-report");
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             write_root_inventory(&mut device, metadata_block);
 
