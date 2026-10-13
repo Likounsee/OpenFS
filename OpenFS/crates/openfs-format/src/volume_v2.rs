@@ -315,6 +315,23 @@ impl OpenedVolumeV2 {
                 ));
             }
         }
+        // Validate the complete namespace and global block ownership before consuming
+        // another block. Otherwise a descriptor could make a corrupt or ambiguous
+        // inventory discoverable even though publication itself succeeded.
+        let report = self.verify_persistent_inventory(
+            device,
+            descriptor.root_id,
+            &descriptor.metadata_blocks,
+            descriptor.metadata_record_count,
+            &descriptor.directory_blocks,
+            descriptor.directory_entry_count,
+        )?;
+        if !report.is_consistent() {
+            return Err(Error::InvalidInput(
+                "persistent inventory has unresolved allocation ownership anomalies",
+            ));
+        }
+
         let descriptor_block = self.allocate_block(device)?;
         if claimed.contains(&descriptor_block) {
             return Err(Error::Corrupt(
@@ -1298,6 +1315,40 @@ mod tests {
             assert_eq!(reconstructed.0, descriptor_block);
             assert_eq!(reconstructed.1.root_id(), ObjectId(1));
             assert_eq!(reconstructed.1.objects().count(), 1);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_publish_invalid_inventory_without_consuming_a_block() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("invalid-inventory-no-allocation");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume_v2(&mut device, *b"openfs-v2-test!!", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            // The allocated metadata block deliberately contains no valid record.
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let free_before = volume.free_data_block_count(&mut device).unwrap();
+
+            assert!(volume
+                .publish_persistent_inventory(&mut device, &descriptor)
+                .is_err());
+            assert_eq!(
+                volume.free_data_block_count(&mut device).unwrap(),
+                free_before
+            );
+            assert!(volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .is_none());
         }
         fs::remove_file(path).unwrap();
     }
