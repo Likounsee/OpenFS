@@ -544,6 +544,7 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     let expected_count_u16 =
         u16::try_from(expected_count).map_err(|_| Error::ArithmeticOverflow)?;
     let mut updates = Vec::new();
+    let mut targets = std::collections::BTreeSet::new();
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::with_capacity(block_size);
@@ -587,6 +588,9 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                     "redo image has incorrect reconstructed size",
                 ));
             }
+            if !targets.insert(target) {
+                return Err(Error::Corrupt("redo transaction contains duplicate targets"));
+            }
             updates.push(RedoUpdate {
                 target_block: target,
                 contents: current.clone(),
@@ -604,7 +608,10 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
 
 #[cfg(test)]
 mod tests {
-    use super::{format_journal, open_journal, JournalRegion, RedoUpdate};
+    use super::{
+        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, JournalRegion,
+        RedoUpdate,
+    };
     use openfs_block::BlockDevice;
     use openfs_core::{Error, Result};
     use std::sync::{Arc, Mutex};
@@ -799,6 +806,20 @@ mod tests {
             assert_eq!(reopened.checkpoint().checkpoint_sequence, 0);
             assert_eq!(read_home(&mut persisted), vec![0x11; BS as usize]);
         }
+    }
+
+    #[test]
+    fn decoded_redo_rejects_duplicate_targets_from_persisted_records() {
+        let first = encode_redo_chunks(&update(0xA5), BS as usize).unwrap();
+        let second = encode_redo_chunks(&update(0x5A), BS as usize).unwrap();
+        let payloads: Vec<Vec<u8>> = first.into_iter().chain(second).collect();
+
+        assert!(matches!(
+            decode_redo_updates(&payloads, BS as usize),
+            Err(Error::Corrupt(
+                "redo transaction contains duplicate targets"
+            ))
+        ));
     }
 
     #[test]
