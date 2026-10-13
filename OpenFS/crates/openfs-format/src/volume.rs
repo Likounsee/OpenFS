@@ -1242,7 +1242,7 @@ mod tests {
         check_volume, decode_superblock, encode_superblock, format_volume, open_volume,
         VolumeLayout,
     };
-    use crate::{open_volume, Extent, ExtentMap};
+    use crate::{Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
