@@ -389,7 +389,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size() {
         for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
@@ -414,7 +413,9 @@ mod tests {
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
                 metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -424,7 +425,9 @@ mod tests {
                 };
                 let mut directory_bytes = vec![0; block_size as usize];
                 directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-                device.write_blocks(directory_block, &directory_bytes).unwrap();
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
 
                 let map = ExtentMap::new(vec![Extent {
                     logical_start: 0,
