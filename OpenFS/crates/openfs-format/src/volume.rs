@@ -7267,13 +7267,14 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root.encode().unwrap());
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
             metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                 .copy_from_slice(&child.encode().unwrap());
             metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
                 .copy_from_slice(&second_child.encode().unwrap());
-            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            device
+                .write_blocks(metadata_block, &metadata_bytes)
+                .unwrap();
 
             let entry = DirectoryEntry {
                 parent_id: 1,
@@ -7292,7 +7293,9 @@ mod tests {
                 .copy_from_slice(&entry.encode().unwrap());
             directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
                 .copy_from_slice(&second_entry.encode().unwrap());
-            device.write_blocks(directory_block, &directory_bytes).unwrap();
+            device
+                .write_blocks(directory_block, &directory_bytes)
+                .unwrap();
 
             let old_descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
@@ -7326,7 +7329,10 @@ mod tests {
             let new_block = volume
                 .replace_persistent_inventory_descriptor(&mut device, &new_descriptor)
                 .unwrap();
-            assert_ne!(new_block / bits_per_bitmap_block, old_block / bits_per_bitmap_block);
+            assert_ne!(
+                new_block / bits_per_bitmap_block,
+                old_block / bits_per_bitmap_block
+            );
             assert!(!volume
                 .is_data_block_allocated(&mut device, old_block)
                 .unwrap());
