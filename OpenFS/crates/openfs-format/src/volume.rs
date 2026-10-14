@@ -322,6 +322,42 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Refuse to release a contiguous range containing blocks owned by the inventory.
+    ///
+    /// This checks the compact descriptor lists directly, avoiding a temporary vector
+    /// proportional to the caller's requested range.
+    pub(crate) fn ensure_inventory_range_releasable<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        start_block: u64,
+        end_block: u64,
+    ) -> Result<()> {
+        if start_block >= end_block {
+            return Ok(());
+        }
+        if self.inventory_descriptor_cache.is_none() {
+            self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
+        }
+        let Some((_, descriptor)) = self
+            .inventory_descriptor_cache
+            .as_ref()
+            .expect("descriptor cache was initialized")
+        else {
+            return Ok(());
+        };
+        if descriptor
+            .metadata_blocks
+            .iter()
+            .chain(descriptor.directory_blocks.iter())
+            .any(|block| *block >= start_block && *block < end_block)
+        {
+            return Err(Error::InvalidInput(
+                "cannot free a block referenced by persistent inventory descriptor",
+            ));
+        }
+        Ok(())
+    }
+
     /// Publish the first persistent inventory descriptor atomically with its allocation.
     ///
     /// The descriptor is flushed to a free block before its allocation bit is committed

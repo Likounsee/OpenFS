@@ -362,12 +362,7 @@ impl OpenedVolume {
                 ));
             }
         }
-        let count_usize = usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
-        let blocks = (start_block..end_block).collect::<Vec<_>>();
-        if blocks.len() != count_usize {
-            return Err(Error::ArithmeticOverflow);
-        }
-        self.ensure_inventory_blocks_releasable(device, &blocks)?;
+        self.ensure_inventory_range_releasable(device, start_block, end_block)?;
         for block in start_block..end_block {
             crate::inventory_descriptor::reject_freeing_inventory_descriptor(
                 device,
