@@ -6643,7 +6643,11 @@ mod tests {
                 "golden header mismatch for block size {block_size}"
             );
             assert_eq!(
-                u32::from_le_bytes(encoded[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].try_into().unwrap()),
+                u32::from_le_bytes(
+                    encoded[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
+                        .try_into()
+                        .unwrap()
+                ),
                 expected_crc,
                 "golden CRC32C mismatch for block size {block_size}"
             );
