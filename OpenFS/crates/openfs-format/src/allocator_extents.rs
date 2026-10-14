@@ -1566,6 +1566,11 @@ mod allocation_bitmap_report_tests {
                 assert!(volume
                     .is_data_block_allocated(&mut device, descriptor_block)
                     .unwrap());
+                assert_eq!(
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
+                    Some((descriptor_block, descriptor)),
+                    "all rejected frees must leave the namespace discoverable for block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
