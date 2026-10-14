@@ -1147,7 +1147,7 @@ mod tests {
                 format_journal(&mut device, REGION),
                 Err(Error::InvalidInput(_))
             ));
-            assert_eq!(*device.bytes.lock().unwrap(), before);
+            assert_eq!(*device.inner.bytes.lock().unwrap(), before);
         }
     }
 
@@ -1498,7 +1498,7 @@ mod tests {
             ))
         ));
         assert_eq!(
-            *device.inner.bytes.lock().unwrap(),
+            *device.bytes.lock().unwrap(),
             before,
             "oversized transaction must be rejected before any persistent write"
         );
