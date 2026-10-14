@@ -7287,10 +7287,8 @@ mod tests {
                 let entries_per_block = 4096 / crate::DIRECTORY_ENTRY_SIZE;
                 assert!(metadata_capacity > 1 && entries_per_block > 0);
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let old_directory_block_count =
-                    metadata_capacity.div_ceil(entries_per_block);
-                let new_directory_block_count =
-                    (metadata_capacity - 1).div_ceil(entries_per_block);
+                let old_directory_block_count = metadata_capacity.div_ceil(entries_per_block);
+                let new_directory_block_count = (metadata_capacity - 1).div_ceil(entries_per_block);
                 let mut directory_blocks = Vec::new();
                 for _ in 0..old_directory_block_count {
                     directory_blocks.push(volume.allocate_block(&mut device).unwrap());
