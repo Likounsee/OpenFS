@@ -113,6 +113,9 @@ pub struct Volume {
 pub struct OpenedVolume {
     pub volume: Volume,
     pub journal: PersistentJournal,
+    // Cache descriptor discovery for allocator guards. None means not checked yet;
+    // Some(None) means checked and absent; Some(Some(...)) is the validated locator.
+    inventory_descriptor_cache: Option<Option<(u64, PersistentInventoryDescriptor)>>,
 }
 
 impl OpenedVolume {
@@ -294,11 +297,18 @@ impl OpenedVolume {
     ///
     /// Discovery is scan-based today; check the whole batch before mutating any bitmap.
     pub(crate) fn ensure_inventory_blocks_releasable<D: BlockDevice>(
-        &self,
+        &mut self,
         device: &mut D,
         blocks: &[u64],
     ) -> Result<()> {
-        let Some((_, descriptor)) = self.discover_persistent_inventory(device)? else {
+        if self.inventory_descriptor_cache.is_none() {
+            self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
+        }
+        let Some((_, descriptor)) = self
+            .inventory_descriptor_cache
+            .as_ref()
+            .expect("descriptor cache was initialized")
+        else {
             return Ok(());
         };
         if blocks.iter().any(|block| {
@@ -462,6 +472,7 @@ impl OpenedVolume {
                 contents: bitmap,
             }],
         )?;
+        self.inventory_descriptor_cache = Some(Some((descriptor_block, descriptor.clone())));
         Ok(descriptor_block)
     }
 
@@ -1404,6 +1415,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
             layout,
         },
         journal,
+        inventory_descriptor_cache: None,
     })
 }
 
