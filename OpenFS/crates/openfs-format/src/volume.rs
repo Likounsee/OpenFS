@@ -563,7 +563,14 @@ impl OpenedVolume {
             &descriptor.directory_blocks,
             descriptor.directory_entry_count,
         )?;
-        if !report.is_consistent() {
+        // The existing descriptor block is still allocated while validating the new
+        // inventory, so the caller-located verifier (which does not count a descriptor
+        // owner) reports exactly that one block as orphaned. Accept only that precise
+        // transitional state; every other orphan or dangling reference remains fatal.
+        let expected_transition = report.allocation.orphaned_allocation_count == 1
+            && report.allocation.orphaned_allocations.as_slice() == [old_block]
+            && report.allocation.dangling_reference_count == 0;
+        if !report.is_consistent() && !expected_transition {
             return Err(Error::InvalidInput(
                 "replacement inventory has unresolved allocation ownership anomalies",
             ));
