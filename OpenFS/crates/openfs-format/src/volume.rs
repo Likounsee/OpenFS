@@ -7293,72 +7293,69 @@ mod tests {
                     extent_root_block: None,
                     generation: 1,
                 };
-                let child = MetadataRecord {
-                    id: ObjectId(2),
-                    parent_id: 1,
-                    kind: ObjectKind::File,
-                    flags: 0,
-                    size: 0,
-                    extent_root_block: None,
-                    generation: 1,
-                };
-                let second_child = MetadataRecord {
-                    id: ObjectId(3),
-                    parent_id: 1,
-                    kind: ObjectKind::File,
-                    flags: 0,
-                    size: 0,
-                    extent_root_block: None,
-                    generation: 1,
-                };
                 let mut metadata_bytes = vec![0_u8; 4096];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&root.encode().unwrap());
-                metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&child.encode().unwrap());
-                metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&second_child.encode().unwrap());
-                device
-                    .write_blocks(metadata_block, &metadata_bytes)
-                    .unwrap();
-
-                let entry = DirectoryEntry {
-                    parent_id: 1,
-                    object_id: 2,
-                    kind: ObjectKind::File,
-                    name: "child.txt".to_owned(),
-                };
-                let second_entry = DirectoryEntry {
-                    parent_id: 1,
-                    object_id: 3,
-                    kind: ObjectKind::File,
-                    name: "second.txt".to_owned(),
-                };
+                let mut high_metadata_bytes = vec![0_u8; 4096];
                 let mut directory_bytes = vec![0_u8; 4096];
-                directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
-                    .copy_from_slice(&entry.encode().unwrap());
-                directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
-                    .copy_from_slice(&second_entry.encode().unwrap());
+                for child_index in 0..64_u64 {
+                    let child_id = child_index + 2;
+                    let child = MetadataRecord {
+                        id: ObjectId(child_id),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    };
+                    let encoded_child = child.encode().unwrap();
+                    if child_index < 63 {
+                        let start = (child_index as usize + 1) * crate::METADATA_RECORD_SIZE;
+                        metadata_bytes[start..start + crate::METADATA_RECORD_SIZE]
+                            .copy_from_slice(&encoded_child);
+                    } else {
+                        high_metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                            .copy_from_slice(&encoded_child);
+                    }
+                    let entry = DirectoryEntry {
+                        parent_id: 1,
+                        object_id: child_id,
+                        kind: ObjectKind::File,
+                        name: format!("child-{child_index}"),
+                    };
+                    let encoded_entry = entry.encode().unwrap();
+                    let start = child_index as usize * crate::DIRECTORY_ENTRY_SIZE;
+                    directory_bytes[start..start + crate::DIRECTORY_ENTRY_SIZE]
+                        .copy_from_slice(&encoded_entry);
+                }
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
                 device
                     .write_blocks(directory_block, &directory_bytes)
                     .unwrap();
 
+                let old_block = 32_770_u64;
+                let high_metadata_block = 32_769_u64;
                 let old_descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
-                    metadata_blocks: vec![metadata_block],
-                    metadata_record_count: 2,
+                    metadata_blocks: vec![metadata_block, high_metadata_block],
+                    metadata_record_count: 65,
                     directory_blocks: vec![directory_block],
-                    directory_entry_count: 1,
+                    directory_entry_count: 64,
                 };
-                let old_block = 32_770_u64;
                 let bits_per_bitmap_block = 4096_u64 * 8;
                 let bitmap_index = old_block / bits_per_bitmap_block;
                 let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
                 let mut bitmap = vec![0_u8; 4096];
                 device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                let local = old_block % bits_per_bitmap_block;
-                bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
+                for block in [high_metadata_block, old_block] {
+                    let local = block % bits_per_bitmap_block;
+                    bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
+                }
                 device.write_blocks(bitmap_block, &bitmap).unwrap();
+                device
+                    .write_blocks(high_metadata_block, &high_metadata_bytes)
+                    .unwrap();
                 device
                     .write_blocks(old_block, &old_descriptor.encode(4096).unwrap())
                     .unwrap();
@@ -7366,8 +7363,9 @@ mod tests {
                 crate::volume::persist_inventory_hint(&mut device, old_block).unwrap();
 
                 let new_descriptor = PersistentInventoryDescriptor {
-                    metadata_record_count: 3,
-                    directory_entry_count: 2,
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 64,
+                    directory_entry_count: 63,
                     ..old_descriptor.clone()
                 };
                 if fail_write {
