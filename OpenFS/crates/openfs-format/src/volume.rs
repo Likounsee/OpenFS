@@ -2420,7 +2420,7 @@ mod tests {
             let encoded = descriptor.encode(4096).unwrap();
             device.write_blocks(descriptor_block, &encoded).unwrap();
             device.flush().unwrap();
-            persist_inventory_hint(&mut device, descriptor_block).unwrap();
+            crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
 
             assert!(matches!(
                 volume.discover_persistent_inventory(&mut device),
