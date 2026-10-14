@@ -1699,7 +1699,9 @@ mod tests {
         // must replay both images, even if only one home block reached disk.
         for fail_at in 0..11 {
             let mut device = formatted();
-            device.write_blocks(HOME + 1, &vec![0x22; BS as usize]).unwrap();
+            device
+                .write_blocks(HOME + 1, &vec![0x22; BS as usize])
+                .unwrap();
             let mut journal = open_journal(&mut device, REGION).unwrap();
             let updates = [
                 update(0xA5),
