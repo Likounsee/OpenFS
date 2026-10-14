@@ -671,12 +671,10 @@ impl OpenedVolume {
         let new_block = new_block.ok_or(Error::InvalidInput(
             "volume has no free block for replacement descriptor",
         ))?;
-        device.write_blocks(new_block, &encoded)?;
-        device.flush()?;
-
         // Assemble one redo image per affected bitmap page. A single journal COMMIT makes
         // all ownership changes visible together, including inventory pages on distant
-        // bitmap segments. Version 4 reserves enough journal slots for up to 7 bitmap-page images.
+        // bitmap segments. Preflight the bounded ring before staging descriptor bytes, so
+        // an oversized transition is rejected without modifying the image.
         let mut bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
         let changed_blocks = std::iter::once((old_block, false))
             .chain(std::iter::once((new_block, true)))
@@ -722,6 +720,12 @@ impl OpenedVolume {
                 contents,
             })
             .collect::<Vec<_>>();
+        self.journal.required_record_count(device, updates.len())?;
+
+        // Stage the complete descriptor only after the whole ownership transaction is
+        // known to fit. It remains invisible while its allocation bit is still clear.
+        device.write_blocks(new_block, &encoded)?;
+        device.flush()?;
 
         // An I/O error from commit can leave its decision uncertain. Drop all cached
         // discovery state; callers must reopen and let journal recovery choose old or new.
