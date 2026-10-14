@@ -3,9 +3,9 @@
 Last source audit: 2026-10-14  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
 Code baseline audited: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
-Current code HEAD before this roadmap revision: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
+Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3a968beee  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record inventory-block free protection and bounded descriptor-range reads across single/batch/contiguous allocator APIs. Exact-SHA Linux/Windows CI run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630) passed for code SHA `a7797a99677197afd0d54adf4a6e84832b8fc7ce`. This roadmap revision does not change filesystem code.
+Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
 ## Executive assessment
 
@@ -42,7 +42,7 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, layout and allocator | 15% | 92% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
+| P1 Format, layout and allocator | 15% | 93% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
 | P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
 | P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
 | P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
@@ -368,8 +368,8 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 | P1.3 Cross-structure block ownership | 15 | 14 | Inventory/extent ownership validation exists; regressions `discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size`, `caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size`, `caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size`, and `discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size` cover four ownership collisions at all five supported block sizes. The regression `allocator_free_apis_preserve_persistent_inventory_blocks` now also checks that single, batch, and contiguous frees refuse to release inventory-owned blocks and preserve allocation bits at all five block sizes. CI run [38541247561](https://github.com/Likounsee/OpenFS/actions/runs/38541247561) passed Linux and Windows on the earlier ownership-guard source tree. The batched descriptor-range guard and multi-block-free integration are validated on Linux and Windows by exact-SHA run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630). Whole-volume canonical-root traversal, descriptor replacement and all ownership transitions remain incomplete. |
 | P1.4 Persistent descriptor publication/recovery | 20 | 19 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist. Commits [`475ef40`](https://github.com/Likounsee/OpenFS/commit/475ef40fd8d7f01a18d78b87a5166bebbfeebd8e), [`f884ca2`](https://github.com/Likounsee/OpenFS/commit/f884ca2ef47fdef7404a45d0359a4fe318c94fe4), and [`9db8789`](https://github.com/Likounsee/OpenFS/commit/9db8789a632dda9176628d86c59201b9c652c13f) cover descriptor-only frees and bounded range scans for contiguous and multi-block frees. Regression `descriptor_range_guard_scans_across_bounded_read_batches` checks the 64-block boundary at all five supported block sizes. Exact-SHA CI run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630) passed formatting, workspace tests and Clippy on Linux and Windows. One provisional point is credited for bounded batch-free descriptor checks; safe descriptor replacement remains absent and blocks completion. |
 | P1.5 Scalable metadata locator | 15 | 14 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
-| P1.6 Golden images and format compatibility policy | 10 | 7 | Compatibility notes exist; fixtures, version-negotiation tests and conversion are absent. |
-| **P1 total** | **100** | **92** | **92%** |
+| P1.6 Golden images and format compatibility policy | 10 | 8 | Added an exact 4096-byte superblock golden encoding with fixed CRC32C and zero-padding assertions (`superblock_encoding_matches_stable_golden_bytes`). Linux CI passed at exact SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee`; Windows is pending. Full-volume golden images, version-negotiation policy/tests and conversion remain absent. One provisional point credits the new stable byte fixture only. |
+| **P1 total** | **100** | **93** | **93%** |
 | P2.1 Journal state machine and error/poison contract | 15 | 10 | Redo/checkpoint sequencing and protected-target validation exist; no general transaction API/error contract. |
 | P2.2 Write/tear fault-injection harness | 20 | 14 | Fail/tear device wrappers and multiple prefix tests exist; exhaustive write/flush cut matrix is absent. |
 | P2.3 Replay, checkpoint and idempotence | 20 | 12 | Selected torn commit/home/checkpoint and repeated recovery tests exist; coverage is not exhaustive. |
@@ -421,11 +421,11 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 
 ### Recalculation
 
-The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 92, 40, 35, 21, 5, 0 and 3.
+The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 93, 40, 35, 21, 5, 0 and 3.
 
-`Global = (10×100 + 15×92 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 40.15` percent, rounded to **40%**.
+`Global = (10×100 + 15×93 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 40.30` percent, rounded to **40%**.
 
-The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **40% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 is now estimated at 92% as a provisional implementation-progress score after integrating bounded descriptor-range scans into both contiguous and multi-block frees. The 64-block-boundary regression covers all five supported block sizes, and exact-SHA run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630) passed formatting, workspace tests and Clippy on Linux and Windows. The one-point task adjustment is explicitly provisional and reflects the new bounded batch-free guard; it does not imply that descriptor replacement is implemented. P1's exit gate remains blocked and it must not be called complete. A documentation-only commit does not change implementation scores.
+The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **40% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 is now estimated at 93% as a provisional implementation-progress score. The one-point adjustment for P1.6 credits the newly added stable superblock golden-byte fixture and CRC32C/padding assertions; exact-SHA Linux CI passed in [run 38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632), while Windows is pending. The descriptor single-byte corruption sweep is also added and Linux-validated in [run 38545516508](https://github.com/Likounsee/OpenFS/actions/runs/38545516508), with both platforms now passed for that earlier exact SHA. Full-volume golden images, version negotiation, descriptor replacement and broader ownership recovery remain incomplete. P1's exit gate remains blocked and it must not be called complete. A documentation-only commit does not change implementation scores.
 
 ## Evidence register for implemented work
 
