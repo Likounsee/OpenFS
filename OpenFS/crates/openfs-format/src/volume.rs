@@ -2628,6 +2628,54 @@ mod tests {
     }
 
     #[test]
+    fn discovery_batch_read_failures_are_retryable() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        // A full bitmap page is scanned into batches of 64 candidates. With 130
+        // consecutive allocations, reads 2, 3, and 4 hit each candidate batch.
+        for fail_at in 2..5 {
+            let path = image_path(&format!("inventory-discovery-batch-read-failure-{fail_at}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let allocated = volume.allocate_blocks(&mut device, 130).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let descriptor_block = *allocated.last().unwrap();
+                device
+                    .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                    .unwrap();
+                device.flush().unwrap();
+
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at,
+                };
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut failing),
+                        Err(Error::Io(_))
+                    ),
+                    "discovery must propagate candidate-batch read failure at read {fail_at}"
+                );
+                let found = volume
+                    .discover_persistent_inventory(&mut failing)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(found.0, descriptor_block);
+                assert_eq!(found.1, descriptor);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
