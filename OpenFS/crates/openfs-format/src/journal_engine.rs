@@ -620,8 +620,8 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, JournalRegion,
-        RedoUpdate,
+        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, JournalCheckpoint,
+        JournalRegion, RedoUpdate,
     };
     use openfs_block::BlockDevice;
     use openfs_core::{Error, Result};
@@ -800,6 +800,40 @@ mod tests {
             assert_eq!(journal.checkpoint().checkpoint_sequence, 0);
             // Opening with no pending redo must not modify the home block.
             device = failing.into_inner();
+            assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+        }
+    }
+
+    #[test]
+    fn open_falls_back_when_newer_checkpoint_has_invalid_geometry() {
+        for invalid_copy in [0_u8, 1_u8] {
+            let mut device = formatted();
+            let invalid = JournalCheckpoint {
+                generation: 10,
+                checkpoint_sequence: 0,
+                next_sequence: 1,
+                next_transaction_id: 1,
+                // Valid checkpoint encoding, but invalid for this journal engine's
+                // currently supported ring layout.
+                head_block: 1,
+                tail_block: 0,
+            };
+            let encoded = invalid.encode().unwrap();
+            let block_number = if invalid_copy == 0 {
+                REGION.checkpoint_a
+            } else {
+                REGION.checkpoint_b
+            };
+            let mut block = vec![0; BS as usize];
+            block[..encoded.len()].copy_from_slice(&encoded);
+            device.write_blocks(block_number, &block).unwrap();
+            device.flush().unwrap();
+
+            let journal = open_journal(&mut device, REGION)
+                .expect("the other coherent checkpoint copy should remain usable");
+            let expected_generation = if invalid_copy == 0 { 2 } else { 1 };
+            assert_eq!(journal.checkpoint().generation, expected_generation);
+            assert_eq!(journal.checkpoint().checkpoint_sequence, 0);
             assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
         }
     }
