@@ -6843,6 +6843,23 @@ mod tests {
                     ),
                     "a different inventory must not replace the published descriptor at block size {block_size}"
                 );
+                let changed_ownership = PersistentInventoryDescriptor {
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    ..descriptor.clone()
+                };
+                assert!(
+                    matches!(
+                        volume.replace_persistent_inventory_descriptor(
+                            &mut device,
+                            &changed_ownership,
+                        ),
+                        Err(Error::InvalidInput(
+                            "descriptor replacement cannot change inventory block ownership"
+                        ))
+                    ),
+                    "replacement must refuse ownership changes before writing at block size {block_size}"
+                );
                 drop(volume);
                 drop(device);
 
