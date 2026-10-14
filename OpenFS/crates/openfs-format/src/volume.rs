@@ -760,12 +760,12 @@ impl OpenedVolume {
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
 
-        // Version 3 volumes carry a checksummed descriptor-block hint in both superblocks.
-        // Validate the hint and every referenced allocation before trusting it; if stale or
-        // damaged, fall back to the full scan so interrupted hint updates remain recoverable.
-        if let Some(block) = self.inventory_descriptor_hint {
-            if block >= layout.data_start && block < layout.backup_superblock {
-                let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
+        // A locator narrows the likely descriptor location, but cannot establish uniqueness:
+        // another allocated block may contain a second valid descriptor. Discovery therefore
+        // scans allocated data blocks authoritatively. Avoid validating the hinted descriptor
+        // and reconstructing its namespace here, because the scan below performs those checks
+        // and would otherwise repeat the same I/O and parsing work.
+        let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
                 let bitmap_index = block / bits_per_bitmap_block;
                 let mut bitmap = vec![0_u8; block_size];
                 device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
