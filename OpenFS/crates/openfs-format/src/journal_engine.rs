@@ -1499,6 +1499,29 @@ mod tests {
     }
 
     #[test]
+    fn transaction_capacity_preflight_rejects_oversized_redo_without_mutation() {
+        let mut device = MemoryDevice::new();
+        format_journal(&mut device, REGION).unwrap();
+        let journal = open_journal(&mut device, REGION).unwrap();
+        let before = device.bytes.lock().unwrap().clone();
+
+        // A 4096-byte redo image needs two ring records; BEGIN and COMMIT
+        // consume the other two records per transaction.
+        assert_eq!(journal.required_record_count(&device, 3).unwrap(), 8);
+        assert!(matches!(
+            journal.required_record_count(&device, 4),
+            Err(Error::InvalidInput(
+                "transaction does not fit in the bounded journal ring"
+            ))
+        ));
+        assert_eq!(
+            *device.bytes.lock().unwrap(),
+            before,
+            "capacity preflight must be read-only"
+        );
+    }
+
+    #[test]
     fn rejects_journal_targets_and_ring_exhaustion() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
