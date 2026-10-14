@@ -4055,6 +4055,87 @@ mod tests {
         }
     }
 
+    struct FailNthWrite<D> {
+        inner: D,
+        writes_until_failure: Option<usize>,
+    }
+
+    impl<D: BlockDevice> BlockDevice for FailNthWrite<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            if let Some(remaining) = self.writes_until_failure.as_mut() {
+                if *remaining == 0 {
+                    self.writes_until_failure = None;
+                    return Err(Error::Io(std::io::Error::other(
+                        "injected batch-free journal write failure",
+                    )));
+                }
+                *remaining -= 1;
+            }
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn allocator_batch_free_recovers_all_or_none_after_each_journal_write_failure() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..=6 {
+                let path = image_path(&format!("batch-free-crash-{block_size}-{fail_at}"));
+                {
+                    let image = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut device = FailNthWrite {
+                        inner: image,
+                        writes_until_failure: None,
+                    };
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let blocks = [
+                        volume.allocate_block(&mut device).unwrap(),
+                        volume.allocate_block(&mut device).unwrap(),
+                        volume.allocate_block(&mut device).unwrap(),
+                    ];
+                    device.writes_until_failure = Some(fail_at);
+
+                    let result = volume.free_blocks(&mut device, &blocks);
+                    assert!(
+                        result.is_ok() || matches!(result, Err(Error::Io(_))),
+                        "unexpected batch-free error at block size {block_size}, write {fail_at}: {result:?}"
+                    );
+                    drop(volume);
+                    drop(device);
+
+                    let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                    let reopened = open_volume(&mut reopened_device).unwrap();
+                    let states = blocks.map(|block| {
+                        reopened
+                            .is_data_block_allocated(&mut reopened_device, block)
+                            .unwrap()
+                    });
+                    assert!(
+                        states == [true, true, true] || states == [false, false, false],
+                        "batch free must recover all blocks allocated or all free; block size {block_size}, write {fail_at}, states {states:?}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn allocator_batch_free_is_atomic_and_rejects_invalid_batches_without_mutation() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
