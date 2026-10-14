@@ -6829,14 +6829,14 @@ mod tests {
                         name: "child.txt".to_owned(),
                     };
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
-                    metadata_bytes[..METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
-                    metadata_bytes[METADATA_RECORD_SIZE..2 * METADATA_RECORD_SIZE]
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                    metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&child.encode().unwrap());
                     device
                         .write_blocks(metadata_block, &metadata_bytes)
                         .unwrap();
                     let mut directory_bytes = vec![0_u8; block_size as usize];
-                    directory_bytes[..DIRECTORY_ENTRY_SIZE]
+                    directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
                         .copy_from_slice(&entry.encode().unwrap());
                     device
                         .write_blocks(directory_block, &directory_bytes)
