@@ -191,7 +191,7 @@ Remaining rule: reopen this phase if a concrete integrity or safety defect is fo
 **Exit criteria:** baseline CI green on both OS jobs for the exact SHA; no known untriaged baseline blocker; contributors know how to distinguish image tests from physical-device guarantees.
 
 ## P1 — Canonical format, layout and allocator
-**Status: Partially implemented; validation advancing — 88%. Weight: 15%.**
+**Status: Partially implemented; validation advancing — 93%. Weight: 15%.**
 
 - **Current P1 work (2026-10-14):** [descriptor publication and ownership contract](P1_DESCRIPTOR_PUBLICATION_CONTRACT.md) documents descriptor states, the bitmap/journal commit point, ownership invariants, uncertain-I/O handling and required crash-cut evidence. Commit [`63b84cc`](https://github.com/Likounsee/OpenFS/commit/63b84cc695c5626e0f8a49896c9de636bb8d12d8). Regression `refused_descriptor_publication_preserves_exact_image_bytes_across_block_sizes` was added in [`70acfe1`](https://github.com/Likounsee/OpenFS/commit/70acfe1963eb78b3be3f4ccc8d90d44b40074b34); it checks exact image-byte preservation after rejected publication at all five block sizes. At this roadmap edit, execution and exact-SHA CI for that test are **not yet confirmed**, so it earns no validated progress credit.
 - **Format compatibility policy (2026-10-14):** [FORMAT_COMPATIBILITY_POLICY.md](FORMAT_COMPATIBILITY_POLICY.md) now specifies immutable released versions, fail-closed handling of unknown versions/features, deterministic encoding, explicit conversion, recovery compatibility and golden-fixture acceptance criteria. Commit [`6abf422`](https://github.com/Likounsee/OpenFS/commit/6abf422d8cee32a5b16661a44084fe3ba5cc3d10). This is a written policy only; binary golden fixtures, compatibility tests and conversion remain unimplemented and receive no completion credit.
@@ -232,6 +232,9 @@ Open blockers:
 ## P2 — Transaction protocol and crash recovery
 **Status: Partially implemented — 40%. Weight: 20%.**
 
+- **Transaction/recovery contract (2026-10-14):** [P2_JOURNAL_TRANSACTION_CONTRACT.md](P2_JOURNAL_TRANSACTION_CONTRACT.md) now records the current bounded-ring state machine, commit uncertainty, recovery/retry rules, capacity preflight and explicit limits. Commit [`1a0e603`](https://github.com/Likounsee/OpenFS/commit/1a0e603136da5a03ef221e97caea0038b312b826). This is a normative documentation step, not proof of complete crash-cut coverage and not a reason to raise P2 progress by itself.
+- **Capacity preflight retry regression (2026-10-14):** commit [`34ed75e`](https://github.com/Likounsee/OpenFS/commit/34ed75e0ebf77331a2f12ae0d0704f6983fb6899) extends `rejects_journal_targets_and_ring_exhaustion`: after an oversized transaction is rejected without changing persisted bytes, a valid transaction is committed using the same journal instance. Exact-SHA CI is pending; no validation credit is awarded until both OS jobs pass.**
+
 Implemented:
 - Bounded single-writer redo journal, checkpoint copies, sequence and framing checks, protected home-target checks and recovery of committed allocator changes.
 - Tests for commit/reopen, failed home writes, ignored incomplete commit, torn terminal COMMIT, torn home writes, torn checkpoint writes across several byte prefixes, retryable recovery and repeated journal use after recovery.
@@ -247,10 +250,10 @@ Absent/incomplete:
 - Proof of physical-device durability; host flush semantics are only software ordering evidence.
 
 **Tasks and acceptance criteria**
-1. **P2.1 Normative state machine — Blocked on design.** Document BEGIN/redo/COMMIT/home writes/flush/checkpoint states, sequence overflow, journal-full behavior, and which errors make the live writer unusable until remount.
+1. **P2.1 Normative state machine — Documented; implementation validation ongoing.** The contract records BEGIN/redo/COMMIT/home writes/flush/checkpoint states, indeterminate I/O, preflight rejection, and recovery-before-retry rules. Exhaustive fault evidence and API-wide enforcement remain incomplete.
 2. **P2.2 Fault-injection harness — Partially implemented.** Fail or tear each write and flush in turn; preserve exact on-disk bytes; remount after each cut and compare every home block.
 3. **P2.3 Recovery correctness — Partially implemented.** Repeat replay and inject failures during replay/checkpoint. Committed transactions must be replayed completely and idempotently; uncommitted transactions must not be published.
-4. **P2.4 Capacity design — Not implemented.** Define bounded transaction size and preflight space. Consider multi-record redo or a larger/versioned journal only with a format revision and fixtures.
+4. **P2.4 Capacity design — Partially implemented.** Current four-slot ring capacity is preflighted before writes and oversize rejection preserves image bytes; a follow-up regression verifies a valid commit still works after rejection. A larger/versioned journal and general transaction-capacity design remain unimplemented.
 5. **P2.5 Namespace transaction — Not implemented.** Atomic create/rename/delete must update namespace records, directory indexes, extent ownership and bitmap in a defined order. Crash outcomes must be exactly old or new state, not mixed state.
 6. **P2.6 Durability contract — Partially documented.** Distinguish process crash, OS crash, power loss and hardware that lies about flush; hardware guarantees require dedicated devices and test plans.
 
