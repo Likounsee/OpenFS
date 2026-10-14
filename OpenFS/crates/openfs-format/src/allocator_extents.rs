@@ -1451,7 +1451,11 @@ mod allocation_bitmap_report_tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let left_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let right_block = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(metadata_block, left_block + 1);
+                assert_eq!(right_block, metadata_block + 1);
                 let root = MetadataRecord {
                     id: ObjectId(1),
                     parent_id: 0,
@@ -1546,20 +1550,23 @@ mod allocation_bitmap_report_tests {
                     ))
                 ));
                 assert!(matches!(
-                    volume.free_blocks(&mut device, &[metadata_block]),
+                    volume.free_blocks(&mut device, &[left_block, metadata_block]),
                     Err(Error::InvalidInput(
                         "cannot free a block referenced by persistent inventory descriptor"
                     ))
                 ));
                 assert!(matches!(
-                    volume.free_contiguous_blocks(&mut device, metadata_block, 1),
+                    volume.free_contiguous_blocks(&mut device, left_block, 3),
                     Err(Error::InvalidInput(
                         "cannot free a block referenced by persistent inventory descriptor"
                     ))
                 ));
-                assert!(volume
-                    .is_data_block_allocated(&mut device, metadata_block)
-                    .unwrap());
+                for block in [left_block, metadata_block, right_block] {
+                    assert!(
+                        volume.is_data_block_allocated(&mut device, block).unwrap(),
+                        "rejected range free must preserve every allocation"
+                    );
+                }
                 assert!(volume
                     .is_data_block_allocated(&mut device, descriptor_block)
                     .unwrap());
