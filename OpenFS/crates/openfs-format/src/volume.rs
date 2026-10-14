@@ -4338,7 +4338,7 @@ mod tests {
                     );
                     let mut device = failing.inner;
                     drop(volume);
-                    let recovered = open_volume(&mut device).unwrap();
+                    let mut recovered = open_volume(&mut device).unwrap();
                     let found = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
@@ -4360,6 +4360,18 @@ mod tests {
                             .is_data_block_allocated(&mut device, block)
                             .unwrap());
                         assert_eq!(free_after, free_before - 1);
+                        assert_eq!(
+                            recovered
+                                .publish_persistent_inventory(&mut device, &descriptor)
+                                .unwrap(),
+                            block,
+                            "retry after an uncertain flush outcome must reuse the committed descriptor (block size {block_size}, flush {fail_at})"
+                        );
+                        assert_eq!(
+                            recovered.free_data_block_count(&mut device).unwrap(),
+                            free_after,
+                            "retry must not allocate a duplicate descriptor (block size {block_size}, flush {fail_at})"
+                        );
                     }
 
                     // Flush errors can also leave an uncertain commit outcome. Check
