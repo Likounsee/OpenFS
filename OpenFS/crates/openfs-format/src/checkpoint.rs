@@ -107,6 +107,18 @@ impl JournalCheckpoint {
                 "next journal transaction ID must be non-zero",
             ));
         }
+        // Every consumed transaction ID requires at least one BEGIN record.
+        // A checkpoint cannot therefore claim more consumed IDs than the number
+        // of journal records covered by its durable sequence.
+        let maximum_next_transaction_id = self
+            .checkpoint_sequence
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if self.next_transaction_id > maximum_next_transaction_id {
+            return Err(Error::InvalidInput(
+                "next transaction ID exceeds the checkpointed journal history",
+            ));
+        }
         Ok(())
     }
 }
@@ -220,6 +232,29 @@ mod tests {
             JournalCheckpoint::decode(&bytes),
             Err(Error::Corrupt(_))
         ));
+    }
+
+    #[test]
+    fn rejects_transaction_id_ahead_of_checkpointed_history() {
+        let mut bytes = sample().encode().unwrap();
+        // Sequence eight can cover at most eight BEGIN records, so the next ID
+        // cannot exceed nine even if every covered record began a new transaction.
+        bytes[40..48].copy_from_slice(&10_u64.to_le_bytes());
+        refresh_checksum(&mut bytes);
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::InvalidInput(_))
+        ));
+
+        let impossible = JournalCheckpoint {
+            generation: 1,
+            checkpoint_sequence: 0,
+            next_sequence: 1,
+            next_transaction_id: 2,
+            head_block: 0,
+            tail_block: 0,
+        };
+        assert!(matches!(impossible.encode(), Err(Error::InvalidInput(_))));
     }
 
     #[test]
