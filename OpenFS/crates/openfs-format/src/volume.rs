@@ -4519,6 +4519,7 @@ mod tests {
     struct FailNthWrite<D> {
         inner: D,
         writes_until_failure: Option<usize>,
+        flushes_until_failure: Option<usize>,
     }
 
     impl<D: BlockDevice> BlockDevice for FailNthWrite<D> {
@@ -4548,6 +4549,15 @@ mod tests {
         }
 
         fn flush(&mut self) -> openfs_core::Result<()> {
+            if self.flushes_until_failure == Some(0) {
+                self.flushes_until_failure = None;
+                return Err(Error::Io(std::io::Error::other(
+                    "injected multi-page journal flush failure",
+                )));
+            }
+            if let Some(remaining) = self.flushes_until_failure.as_mut() {
+                *remaining -= 1;
+            }
             self.inner.flush()
         }
     }
@@ -7250,15 +7260,21 @@ mod tests {
 
         // A 4 KiB bitmap page covers 32,768 blocks. Put the old descriptor on page 2,
         // while its replacement is staged on page 1, and fail each write in turn.
-        for fail_at in 0..=12 {
+        let failures = (0..=12)
+            .map(|fail_at| (true, fail_at))
+            .chain((0..=6).map(|fail_at| (false, fail_at)))
+            .collect::<Vec<_>>();
+        for (fail_write, fail_at) in failures {
+            let failure_kind = if fail_write { "write" } else { "flush" };
             let path = image_path(&format!(
-                "descriptor-replacement-multi-page-crash-{fail_at}"
+                "descriptor-replacement-multi-page-crash-{failure_kind}-{fail_at}"
             ));
             {
                 let image = ImageDevice::create(&path, 4096, 32_780).unwrap();
                 let mut device = FailNthWrite {
                     inner: image,
                     writes_until_failure: None,
+                    flushes_until_failure: None,
                 };
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
@@ -7349,12 +7365,16 @@ mod tests {
                     directory_entry_count: 2,
                     ..old_descriptor.clone()
                 };
-                device.writes_until_failure = Some(fail_at);
+                if fail_write {
+                    device.writes_until_failure = Some(fail_at);
+                } else {
+                    device.flushes_until_failure = Some(fail_at);
+                }
                 let result =
                     volume.replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
                 assert!(
                     result.is_ok() || matches!(result, Err(Error::Io(_))),
-                    "unexpected replacement error at write {fail_at}: {result:?}"
+                    "unexpected replacement error at {failure_kind} {fail_at}: {result:?}"
                 );
                 drop(volume);
                 drop(device);
@@ -7370,7 +7390,7 @@ mod tests {
                 assert!(
                     (found_block == old_block && found_descriptor == old_descriptor)
                         || (found_block != old_block && found_descriptor == new_descriptor),
-                    "recovery exposed a mixed state at write {fail_at}: {found_descriptor:?}"
+                    "recovery exposed a mixed state at {failure_kind} {fail_at}: {found_descriptor:?}"
                 );
                 if found_block == old_block {
                     assert!(reopened
