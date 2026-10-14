@@ -293,6 +293,84 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Free several data blocks with one recoverable bitmap transition.
+    ///
+    /// The bounded journal can atomically update one bitmap page together with other
+    /// metadata only when the transaction fits its ring. This allocator operation
+    /// deliberately limits a batch to one bitmap page, validates every member before
+    /// writing anything, and commits the entire bitmap change as one redo transaction.
+    /// Callers must remove all persistent references to these blocks before freeing them.
+    pub fn free_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        blocks: &[u64],
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        if blocks.is_empty() {
+            return Err(Error::InvalidInput("block-free batch must not be empty"));
+        }
+
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
+        let mut unique = std::collections::BTreeSet::new();
+        let mut bitmap_block = None;
+        for block in blocks {
+            if *block < layout.data_start || *block >= layout.backup_superblock {
+                return Err(Error::InvalidInput(
+                    "cannot free a reserved or out-of-range block",
+                ));
+            }
+            if !unique.insert(*block) {
+                return Err(Error::InvalidInput("block-free batch contains duplicates"));
+            }
+            let target = layout.bitmap_start + *block / bits_per_block;
+            if bitmap_block.is_some_and(|existing| existing != target) {
+                return Err(Error::InvalidInput(
+                    "block-free batch spans multiple allocation bitmap blocks",
+                ));
+            }
+            bitmap_block = Some(target);
+        }
+
+        // Validate all ownership guards before reading-modifying the bitmap. No home
+        // block is written until the entire batch is known to be releasable.
+        let ordered: Vec<u64> = unique.into_iter().collect();
+        self.ensure_inventory_blocks_releasable(device, &ordered)?;
+        for block in &ordered {
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+                device,
+                *block,
+                self.volume.block_size,
+            )?;
+        }
+
+        let bitmap_block = bitmap_block.expect("non-empty batch has a bitmap block");
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        for block in &ordered {
+            let local = *block % bits_per_block;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if bitmap[byte] & mask == 0 {
+                return Err(Error::InvalidInput("data block is already free"));
+            }
+        }
+        for block in &ordered {
+            let local = *block % bits_per_block;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            bitmap[byte] &= !(1_u8 << (local % 8));
+        }
+
+        self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )?;
+        Ok(())
+    }
+
     /// Refuse to release blocks that the persistent inventory still owns.
     ///
     /// Discovery is scan-based today; check the whole batch before mutating any bitmap.
@@ -4050,6 +4128,47 @@ mod tests {
                 ));
                 reopened.free_block(&mut device, first).unwrap();
                 assert_eq!(reopened.allocate_block(&mut device).unwrap(), first);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn allocator_batch_free_is_atomic_and_rejects_invalid_batches_without_mutation() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("allocator-batch-free-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                let third = volume.allocate_block(&mut device).unwrap();
+                let free_before = volume.free_data_block_count(&mut device).unwrap();
+
+                assert!(matches!(
+                    volume.free_blocks(&mut device, &[first, first]),
+                    Err(Error::InvalidInput("block-free batch contains duplicates"))
+                ));
+                assert!(matches!(
+                    volume.free_blocks(&mut device, &[first, u64::MAX]),
+                    Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+                ));
+                assert_eq!(volume.free_data_block_count(&mut device).unwrap(), free_before);
+
+                volume.free_blocks(&mut device, &[first, second, third]).unwrap();
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before + 3
+                );
+                drop(volume);
+
+                let mut reopened = open_volume(&mut device).unwrap();
+                let recovered = [
+                    reopened.allocate_block(&mut device).unwrap(),
+                    reopened.allocate_block(&mut device).unwrap(),
+                    reopened.allocate_block(&mut device).unwrap(),
+                ];
+                assert_eq!(recovered, [first, second, third]);
             }
             fs::remove_file(path).unwrap();
         }
