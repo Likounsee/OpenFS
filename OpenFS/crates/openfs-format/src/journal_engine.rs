@@ -1770,9 +1770,10 @@ mod tests {
             );
 
             let mut recovered_device = failing.into_inner();
-            let mut reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
-                panic!("multi-block recovery failed at operation {fail_at}: {error:?}")
-            });
+            let mut reopened =
+                open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
+                    panic!("multi-block recovery failed at operation {fail_at}: {error:?}")
+                });
             let committed = fail_at >= 7;
             let expected_first = if committed { 0xA5 } else { 0x11 };
             let expected_second = if committed { 0xB6 } else { 0x22 };
@@ -1802,9 +1803,14 @@ mod tests {
             reopened
                 .commit(&mut recovered_device, &follow_up)
                 .unwrap_or_else(|error| {
-                    panic!("post-recovery multi-block commit failed at operation {fail_at}: {error:?}")
+                    panic!(
+                        "post-recovery multi-block commit failed at operation {fail_at}: {error:?}"
+                    )
                 });
-            assert_eq!(read_block(&mut recovered_device, HOME), vec![0xC3; BS as usize]);
+            assert_eq!(
+                read_block(&mut recovered_device, HOME),
+                vec![0xC3; BS as usize]
+            );
             assert_eq!(
                 read_block(&mut recovered_device, HOME + 1),
                 vec![0xD4; BS as usize]
