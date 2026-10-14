@@ -6795,8 +6795,8 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let records_per_block = 4096 / crate::METADATA_RECORD_SIZE;
-            let record_count = records_per_block + 1;
-            let blocks = volume.allocate_blocks(&mut device, 2).unwrap();
+            let record_count = records_per_block * 2 + 1;
+            let blocks = volume.allocate_blocks(&mut device, 3).unwrap();
             let mut records = Vec::with_capacity(record_count);
             records.push(MetadataRecord {
                 id: ObjectId(1),
@@ -6842,7 +6842,7 @@ mod tests {
             // Reordering the same physical metadata blocks changes the canonical stream
             // descriptor without changing data or ownership before the commit point.
             let new_descriptor = PersistentInventoryDescriptor {
-                metadata_blocks: vec![blocks[1], blocks[0]],
+                metadata_blocks: vec![blocks[1], blocks[0], blocks[2]],
                 ..old_descriptor.clone()
             };
             let new_block = volume
