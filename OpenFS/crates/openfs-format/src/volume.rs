@@ -5832,6 +5832,35 @@ mod tests {
     }
 
     #[test]
+    fn read_only_checker_rejects_checkpoint_generation_gaps() {
+        let path = image_path("checker-generation-gap");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 257).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            drop(volume);
+            for (block_number, checkpoint) in [
+                (layout.journal.checkpoint_a, JournalCheckpoint {
+                    generation: 4, checkpoint_sequence: 3, next_sequence: 4,
+                    next_transaction_id: 2, head_block: 0, tail_block: 0,
+                }),
+                (layout.journal.checkpoint_b, JournalCheckpoint {
+                    generation: 2, checkpoint_sequence: 0, next_sequence: 1,
+                    next_transaction_id: 1, head_block: 0, tail_block: 0,
+                }),
+            ] {
+                let encoded = checkpoint.encode().unwrap();
+                let mut block = vec![0_u8; 4096];
+                block[..encoded.len()].copy_from_slice(&encoded);
+                device.write_blocks(block_number, &block).unwrap();
+            }
+            device.flush().unwrap();
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+        }
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn read_only_checker_rejects_post_checkpoint_transaction_id_reuse() {
         use crate::{JournalRecord, JournalRecordKind};
 
