@@ -1519,17 +1519,20 @@ mod allocation_bitmap_report_tests {
                     .copy_from_slice(crate::INVENTORY_DESCRIPTOR_MAGIC);
                 device.write_blocks(descriptor_block, &contents).unwrap();
 
-                assert!(matches!(
-                    crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
-                        &mut device,
-                        start,
-                        descriptor_block + 1,
-                        block_size,
+                assert!(
+                    matches!(
+                        crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
+                            &mut device,
+                            start,
+                            descriptor_block + 1,
+                            block_size,
+                        ),
+                        Err(Error::InvalidInput(
+                            "cannot free a persistent inventory descriptor block"
+                        ))
                     ),
-                    Err(Error::InvalidInput(
-                        "cannot free a persistent inventory descriptor block"
-                    ))
-                ), "descriptor in second batch was missed at block size {block_size}");
+                    "descriptor in second batch was missed at block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
