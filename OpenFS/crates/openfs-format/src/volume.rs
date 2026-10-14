@@ -1370,7 +1370,14 @@ fn check_journal_read_only<D: BlockDevice>(
         }
         match JournalRecord::decode_block(&block) {
             Ok(record) if record.sequence <= checkpoint.checkpoint_sequence => {}
-            Ok(record) => newer.push((slot, record)),
+            Ok(record) => {
+                if record.transaction_id < checkpoint.next_transaction_id {
+                    return Err(Error::Corrupt(
+                        "post-checkpoint journal record reuses a checkpointed transaction ID",
+                    ));
+                }
+                newer.push((slot, record));
+            }
             Err(_) => malformed.push(slot),
         }
     }
@@ -5748,6 +5755,53 @@ mod tests {
                 device.write_blocks(block, &block_bytes).unwrap();
             }
             device.flush().unwrap();
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+        }
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn read_only_checker_rejects_post_checkpoint_transaction_id_reuse() {
+        use crate::{JournalRecord, JournalRecordKind};
+
+        let path = image_path("checker-transaction-id-reuse");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 257).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            drop(volume);
+
+            // The checkpoint says IDs below five have already been consumed. A
+            // post-checkpoint record cannot legally reuse transaction ID one.
+            let checkpoint = JournalCheckpoint {
+                generation: 3,
+                checkpoint_sequence: 0,
+                next_sequence: 1,
+                next_transaction_id: 5,
+                head_block: 0,
+                tail_block: 0,
+            };
+            let encoded = checkpoint.encode().unwrap();
+            let mut checkpoint_block = vec![0_u8; 4096];
+            checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
+            device
+                .write_blocks(layout.journal.checkpoint_a, &checkpoint_block)
+                .unwrap();
+
+            let record = JournalRecord {
+                kind: JournalRecordKind::Begin,
+                sequence: 1,
+                transaction_id: 1,
+                payload: Vec::new(),
+            };
+            device
+                .write_blocks(
+                    layout.journal.ring_start,
+                    &record.encode_block(4096).unwrap(),
+                )
+                .unwrap();
+            device.flush().unwrap();
+
             assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
         }
         fs::remove_file(&path).unwrap();
