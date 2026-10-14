@@ -535,7 +535,7 @@ fn read_checkpoint_pair<D: BlockDevice>(
         (Ok(_), Ok(b)) => Ok((b, 1)),
         (Ok(a), Err(_)) => Ok((a, 0)),
         (Err(_), Ok(b)) => Ok((b, 1)),
-        (Err(_), Err(_)) => Err(Error::Corrupt("both journal checkpoint copies are invalid")),
+        (Err(error), Err(_)) => Err(error),
     }
 }
 
@@ -1204,15 +1204,9 @@ mod tests {
             head_block: 0,
             tail_block: 0,
         };
-        super::write_checkpoint_block(
-            &mut device,
-            REGION.checkpoint_a,
-            &crate::JournalCheckpoint {
-                generation: 1,
-                ..checkpoint
-            },
-        )
-        .unwrap();
+        // Both copies describe the same durable state; otherwise the pair
+        // consistency check would correctly reject the fixture before recovery.
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &checkpoint).unwrap();
         super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &checkpoint).unwrap();
 
         // The stream begins at MAX-1. Processing the next record at MAX would
