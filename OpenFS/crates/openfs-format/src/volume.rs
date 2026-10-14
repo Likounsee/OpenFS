@@ -139,6 +139,7 @@ pub struct Volume {
 pub struct OpenedVolume {
     pub volume: Volume,
     pub journal: PersistentJournal,
+    format_version: u16,
     // Cache descriptor discovery for allocator guards. None means not checked yet;
     // Some(None) means checked and absent; Some(Some(...)) is the validated locator.
     inventory_descriptor_cache: Option<Option<(u64, PersistentInventoryDescriptor)>>,
@@ -1458,7 +1459,11 @@ impl OpenedVolume {
                 "device geometry does not match opened volume",
             ));
         }
-        let canonical = VolumeLayout::calculate(self.volume.block_size, self.volume.total_blocks)?;
+        let canonical = VolumeLayout::calculate_for_version(
+            self.volume.block_size,
+            self.volume.total_blocks,
+            self.format_version,
+        )?;
         if self.volume.layout != canonical {
             return Err(Error::InvalidInput(
                 "volume layout was modified after validation",
@@ -1850,6 +1855,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
             layout,
         },
         journal,
+        format_version: version,
         inventory_descriptor_cache: None,
         inventory_descriptor_hint,
     })
@@ -4152,7 +4158,7 @@ mod tests {
         assert_eq!(
             &encoded[..48],
             &[
-                79, 80, 69, 78, 70, 83, 0, 0, 3, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
+                79, 80, 69, 78, 70, 83, 0, 0, 4, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
                 7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48,
                 48, 48, 49
             ]
@@ -5662,7 +5668,7 @@ mod tests {
         // Exercise every reserved bit through durable journal replay, not just
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let layout = VolumeLayout::calculate(block_size, 22).unwrap();
+            let layout = VolumeLayout::calculate(block_size, 24).unwrap();
             let mut corruptions = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
                 .map(|block| ("reserved", block))
