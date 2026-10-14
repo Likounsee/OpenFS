@@ -5873,4 +5873,72 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+    #[test]
+    fn rejecting_descriptor_replacement_preserves_existing_image_at_every_block_size() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("descriptor-replacement-rejected-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0_u8; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let descriptor_block = volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+                device.flush().unwrap();
+                let bytes_before = std::fs::read(&path).unwrap();
+
+                assert!(
+                    matches!(
+                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::InvalidInput(
+                            "a persistent inventory descriptor already exists"
+                        ))
+                    ),
+                    "replacement must be refused at block size {block_size}"
+                );
+                drop(volume);
+                drop(device);
+
+                let bytes_after = std::fs::read(&path).unwrap();
+                assert_eq!(
+                    bytes_after, bytes_before,
+                    "rejected replacement must preserve every image byte at block size {block_size}"
+                );
+
+                let mut reopened_device = ImageDevice::open(&path).unwrap();
+                let reopened_volume = open_volume(&mut reopened_device).unwrap();
+                let discovered = reopened_volume
+                    .discover_persistent_inventory(&mut reopened_device)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(discovered.0, descriptor_block);
+                assert_eq!(discovered.1, descriptor);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
