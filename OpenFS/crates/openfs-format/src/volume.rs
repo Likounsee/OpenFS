@@ -1980,6 +1980,10 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
         .checked_sub(1)
         .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
+    // Do not turn a damaged superblock into a seemingly valid one by recomputing its
+    // checksum during a locator update. Both copies must be independently valid and
+    // agree on every field except the locator/checksum pair before either is modified.
+    decode_superblock(&primary)?;
     let version = u16::from_le_bytes([primary[8], primary[9]]);
     // Legacy v2 volumes retain scan-based discovery and are never modified to store a hint.
     if version == LEGACY_VERSION {
@@ -1988,8 +1992,23 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
     if version != VERSION && version != PREVIOUS_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
+    let backup = read_superblock(device, last)?;
+    decode_superblock(&backup)?;
+    if !superblocks_match(&primary, &backup) {
+        return Err(Error::Corrupt(
+            "primary and backup superblocks disagree before locator update",
+        ));
+    }
     for block in [last, 0] {
         let mut encoded = read_superblock(device, block)?;
+        // The previous hint may differ after an interrupted backup-first update, but
+        // the independently checksummed stable superblock fields must still match.
+        decode_superblock(&encoded)?;
+        if !superblocks_match(&primary, &encoded) {
+            return Err(Error::Corrupt(
+                "superblock changed during locator update",
+            ));
+        }
         encoded[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
             .copy_from_slice(&hint.to_le_bytes());
         let checksum = crc32c(&encoded[..CHECKSUM_OFFSET]);
