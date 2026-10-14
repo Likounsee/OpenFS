@@ -271,9 +271,34 @@ impl PersistentJournal {
             }
         }
 
+        // Bound work and allocation before constructing the record vector. A caller
+        // can supply an arbitrarily large update slice, but this journal only has a
+        // fixed number of slots and must reject oversized transactions without
+        // allocating a transaction-sized intermediate representation.
+        let chunk_capacity = block_size
+            .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
+            .ok_or(Error::InvalidInput("device block is too small for redo chunks"))?;
+        let chunks_per_update = block_size
+            .checked_add(chunk_capacity - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / chunk_capacity;
+        let mut required_records = 2_u64; // BEGIN and COMMIT
+        for _ in updates {
+            required_records = required_records
+                .checked_add(u64::try_from(chunks_per_update).map_err(|_| Error::ArithmeticOverflow)?)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if required_records > self.region.ring_blocks {
+                return Err(Error::InvalidInput(
+                    "transaction does not fit in the bounded journal ring",
+                ));
+            }
+        }
+
         let transaction_id = self.checkpoint.next_transaction_id;
         let mut sequence = self.checkpoint.next_sequence;
-        let mut records = Vec::new();
+        let mut records = Vec::with_capacity(
+            usize::try_from(required_records).map_err(|_| Error::ArithmeticOverflow)?,
+        );
         records.push(JournalRecord {
             kind: JournalRecordKind::Begin,
             sequence,
@@ -301,13 +326,6 @@ impl PersistentJournal {
         });
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
 
-        if u64::try_from(records.len()).map_err(|_| Error::ArithmeticOverflow)?
-            > self.region.ring_blocks
-        {
-            return Err(Error::InvalidInput(
-                "transaction does not fit in the bounded journal ring",
-            ));
-        }
         // Preflight counters before the first persistent write. Overflow after a
         // durable COMMIT would otherwise strand recovery before checkpoint publication.
         let next_transaction_id = transaction_id
@@ -1468,10 +1486,18 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
         let many = (0..4).map(|_| update(1)).collect::<Vec<_>>();
+        let before = device.inner.bytes.lock().unwrap().clone();
         assert!(matches!(
             journal.commit(&mut device, &many),
-            Err(Error::InvalidInput(_))
+            Err(Error::InvalidInput(
+                "transaction does not fit in the bounded journal ring"
+            ))
         ));
+        assert_eq!(
+            *device.inner.bytes.lock().unwrap(),
+            before,
+            "oversized transaction must be rejected before any persistent write"
+        );
     }
 
     #[test]
