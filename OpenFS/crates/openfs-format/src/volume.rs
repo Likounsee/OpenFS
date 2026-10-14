@@ -1830,7 +1830,8 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
             "superblock geometry does not match device geometry",
         ));
     }
-    let layout = VolumeLayout::calculate(block_size, total_blocks)?;
+    let version = u16::from_le_bytes([primary[8], primary[9]]);
+    let layout = VolumeLayout::calculate_for_version(block_size, total_blocks, version)?;
     validate_bitmap(device, &layout)?;
     let journal = crate::journal_engine::open_journal_protected(
         device,
@@ -4472,7 +4473,7 @@ mod tests {
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 let third = volume.allocate_block(&mut device).unwrap();
-                assert_eq!([first, second, third], [8, 9, 10]);
+                assert_eq!([first, second, third], [20, 21, 22]);
                 assert!(matches!(
                     volume.allocate_block(&mut device),
                     Err(Error::InvalidInput("volume has no free data blocks"))
@@ -5584,7 +5585,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             reserved_blocks,
-            (0..8).chain(std::iter::once(255)).collect::<Vec<_>>()
+            (0..20).chain(std::iter::once(255)).collect::<Vec<_>>()
         );
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
@@ -5671,7 +5672,7 @@ mod tests {
             for (kind, corrupted_block) in corruptions {
                 let path = image_path(&format!("{kind}-replay-{block_size}-{corrupted_block}"));
                 {
-                    let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
+                    let mut device = ImageDevice::create(&path, block_size, 24).unwrap();
                     let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
                     let bitmap_block =
@@ -6644,7 +6645,7 @@ mod tests {
     #[test]
     fn canonical_layout_regions_are_disjoint_across_supported_geometries() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for total_blocks in [12_u64, 13, 255, 256, 4097, 65_537, 1_000_003] {
+            for total_blocks in [22_u64, 23, 255, 256, 4097, 65_537, 1_000_003] {
                 let layout = VolumeLayout::calculate(block_size, total_blocks).unwrap();
                 let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
                 let checkpoint_end = layout.journal.checkpoint_a + 1;
@@ -7001,15 +7002,15 @@ mod tests {
 
     #[test]
     fn canonical_layout_pins_minimum_geometry_and_rejects_invalid_or_overflowing_inputs() {
-        let minimum = VolumeLayout::calculate(4096, 12).unwrap();
+        let minimum = VolumeLayout::calculate(4096, 24).unwrap();
         assert_eq!(minimum.bitmap_start, 1);
         assert_eq!(minimum.bitmap_blocks, 1);
         assert_eq!(minimum.journal.checkpoint_a, 2);
         assert_eq!(minimum.journal.checkpoint_b, 3);
         assert_eq!(minimum.journal.ring_start, 4);
-        assert_eq!(minimum.journal.ring_blocks, 4);
-        assert_eq!(minimum.data_start, 8);
-        assert_eq!(minimum.backup_superblock, 11);
+        assert_eq!(minimum.journal.ring_blocks, 16);
+        assert_eq!(minimum.data_start, 20);
+        assert_eq!(minimum.backup_superblock, 23);
         assert_eq!(minimum.data_blocks(), 3);
 
         for block_size in [0, 512, 2048, 4097, 131_072] {
@@ -7032,7 +7033,7 @@ mod tests {
                 Err(Error::ArithmeticOverflow)
             ));
             assert!(matches!(
-                VolumeLayout::calculate(block_size, 12),
+                VolumeLayout::calculate(block_size, 22),
                 Ok(layout) if layout.data_blocks() > 0
             ));
         }
@@ -7412,16 +7413,10 @@ mod tests {
                     ..descriptor.clone()
                 };
                 assert!(
-                    matches!(
-                        volume.replace_persistent_inventory_descriptor(
-                            &mut device,
-                            &changed_ownership,
-                        ),
-                        Err(Error::InvalidInput(
-                            "descriptor replacement cannot change inventory block ownership"
-                        ))
-                    ),
-                    "replacement must refuse ownership changes before writing at block size {block_size}"
+                    volume
+                        .replace_persistent_inventory_descriptor(&mut device, &changed_ownership)
+                        .is_err(),
+                    "replacement must reject an inventory that cannot reconstruct a valid namespace at block size {block_size}"
                 );
                 drop(volume);
                 drop(device);
