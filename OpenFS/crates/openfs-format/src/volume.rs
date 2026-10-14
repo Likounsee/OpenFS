@@ -2209,7 +2209,7 @@ mod tests {
                             result,
                             Err(Error::Corrupt("inventory descriptor padding must be zero"))
                         )),
-                        "version" => assert!(matches!(result, Err(Error::UnsupportedVersion(2)))),
+                        "version" => assert!(matches!(result, Err(Error::UnsupportedVersion(3)))),
                         _ => unreachable!("test cases are fixed"),
                     }
                     assert_eq!(
@@ -4029,14 +4029,14 @@ mod tests {
         assert_eq!(
             &encoded[..48],
             &[
-                79, 80, 69, 78, 70, 83, 0, 0, 2, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
+                79, 80, 69, 78, 70, 83, 0, 0, 3, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
                 7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48,
                 48, 48, 49
             ]
         );
         assert_eq!(
             u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
-            0x2951_902d
+            0xd05c_923e
         );
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
@@ -5134,7 +5134,7 @@ mod tests {
     #[test]
     fn canonical_rejects_nonzero_reserved_superblock_bytes_with_valid_checksum() {
         for (label, offset) in [
-            ("superblock-reserved-header-byte", 48_usize),
+            ("superblock-reserved-header-byte", 56_usize),
             ("superblock-reserved-tail-byte", 4092_usize),
         ] {
             let path = image_path(label);
@@ -7136,11 +7136,11 @@ mod tests {
     #[test]
     fn canonical_superblock_has_golden_bytes_for_every_supported_block_size() {
         let fixtures = [
-            (4096_u32, 0x832c_e650_u32),
-            (8192_u32, 0x3e20_1f78_u32),
-            (16_384_u32, 0x41d5_9bd9_u32),
-            (32_768_u32, 0xbe3e_929b_u32),
-            (65_536_u32, 0x4404_f6ee_u32),
+            (4096_u32, 0x7a21_e443_u32),
+            (8192_u32, 0xc72d_1d6b_u32),
+            (16_384_u32, 0xb8d8_99ca_u32),
+            (32_768_u32, 0x4733_9088_u32),
+            (65_536_u32, 0xbd09_f4fd_u32),
         ];
         let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let features = 0x0102_0304_0506_0708_u64;
