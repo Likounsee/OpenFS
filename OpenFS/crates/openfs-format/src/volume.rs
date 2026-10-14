@@ -4197,7 +4197,7 @@ mod tests {
 
             let bytes_before = fs::read(&path).unwrap();
             assert!(matches!(
-                persist_inventory_hint(&mut device, 42),
+                super::persist_inventory_hint(&mut device, 42),
                 Err(Error::Corrupt("superblock CRC32C mismatch"))
             ));
             assert_eq!(
