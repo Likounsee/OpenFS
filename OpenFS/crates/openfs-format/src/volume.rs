@@ -2580,7 +2580,7 @@ mod tests {
 
             {
                 let mut device = ImageDevice::open(&path, block_size).unwrap();
-                let mut volume = open_volume(&mut device).unwrap();
+                let volume = open_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.free_data_block_count(&mut device).unwrap(),
                     free_before,
@@ -6544,7 +6544,7 @@ mod tests {
                     "rejected replacement must preserve every image byte at block size {block_size}"
                 );
 
-                let mut reopened_device = ImageDevice::open(&path).unwrap();
+                let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
                 let reopened_volume = open_volume(&mut reopened_device).unwrap();
                 let discovered = reopened_volume
                     .discover_persistent_inventory(&mut reopened_device)
