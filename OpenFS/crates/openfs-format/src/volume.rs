@@ -7328,8 +7328,16 @@ mod tests {
                         metadata_bytes[start..start + crate::METADATA_RECORD_SIZE]
                             .copy_from_slice(&encoded_child);
                     } else {
-                        high_metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                            .copy_from_slice(&encoded_child);
+                        // Inventories are packed byte streams, not per-block record arrays.
+                        // The final record begins in the last bytes of the first block and
+                        // continues at offset zero in the next block.
+                        let fragment_start = metadata_capacity * crate::METADATA_RECORD_SIZE;
+                        let first_fragment_len = 4096 - fragment_start;
+                        metadata_bytes[fragment_start..]
+                            .copy_from_slice(&encoded_child[..first_fragment_len]);
+                        high_metadata_bytes
+                            [..crate::METADATA_RECORD_SIZE - first_fragment_len]
+                            .copy_from_slice(&encoded_child[first_fragment_len..]);
                     }
 
                     let entry = DirectoryEntry {
