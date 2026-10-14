@@ -1692,12 +1692,13 @@ mod tests {
 
     #[test]
     fn every_multi_block_commit_io_failure_recovers_all_home_blocks_together() {
-        // Two redo images fit the bounded ring as BEGIN + two UPDATEs + COMMIT.
-        // There are eleven fallible I/O operations: three pre-commit writes,
-        // pre-commit flush, commit write/flush, two home writes, home flush,
-        // checkpoint write/flush. Once COMMIT is written successfully, recovery
-        // must replay both images, even if only one home block reached disk.
-        for fail_at in 0..11 {
+        // Each full-block redo image is split into two UPDATE records. The two-image
+        // transaction therefore uses BEGIN + four UPDATEs + COMMIT in this test's
+        // eight-slot ring. There are thirteen fallible I/O operations: five pre-commit
+        // writes, pre-commit flush, commit write/flush, two home writes, home flush,
+        // checkpoint write/flush. Once COMMIT is written, recovery must replay both
+        // images, even if only one home block reached disk.
+        for fail_at in 0..13 {
             let mut device = formatted();
             device
                 .write_blocks(HOME + 1, &vec![0x22; BS as usize])
@@ -1720,7 +1721,7 @@ mod tests {
             let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
                 panic!("multi-block recovery failed at operation {fail_at}: {error:?}")
             });
-            let committed = fail_at >= 5;
+            let committed = fail_at >= 7;
             let expected_first = if committed { 0xA5 } else { 0x11 };
             let expected_second = if committed { 0xB6 } else { 0x22 };
             assert_eq!(
