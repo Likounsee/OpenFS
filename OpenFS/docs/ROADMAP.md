@@ -147,6 +147,8 @@ Remaining rule: reopen this phase if a concrete integrity or safety defect is fo
 ## P1 — Canonical format, layout and allocator
 **Status: Partially implemented; recent CI validated — 83%. Weight: 15%.**
 
+- **Current P1 work (2026-10-14):** [descriptor publication and ownership contract](P1_DESCRIPTOR_PUBLICATION_CONTRACT.md) documents descriptor states, the bitmap/journal commit point, ownership invariants, uncertain-I/O handling and required crash-cut evidence. Commit [`63b84cc`](https://github.com/Likounsee/OpenFS/commit/63b84cc695c5626e0f8a49896c9de636bb8d12d8). Regression `refused_descriptor_publication_preserves_exact_image_bytes_across_block_sizes` was added in [`70acfe1`](https://github.com/Likounsee/OpenFS/commit/70acfe1963eb78b3be3f4ccc8d90d44b40074b34); it checks exact image-byte preservation after rejected publication at all five block sizes. At this roadmap edit, execution and exact-SHA CI for that test are **not yet confirmed**, so it earns no validated progress credit.
+
 Implemented:
 - Canonical layout calculation with checked geometry and supported block sizes from 4 KiB through 64 KiB.
 - Primary and backup superblocks; bitmap, checkpoint copies and four-block redo ring; reserved/padding bitmap validation.
