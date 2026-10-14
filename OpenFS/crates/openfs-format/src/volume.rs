@@ -4069,13 +4069,11 @@ mod tests {
 
                 assert!(matches!(
                     volume.free_blocks(&mut device, &[first, first]),
-                    Err(Error::InvalidInput("block-free batch contains duplicates"))
+                    Err(Error::InvalidInput("batch free list contains duplicates"))
                 ));
                 assert!(matches!(
                     volume.free_blocks(&mut device, &[first, u64::MAX]),
-                    Err(Error::InvalidInput(
-                        "cannot free a reserved or out-of-range block",
-                    ))
+                    Err(Error::InvalidInput("batch free contains a non-data block"))
                 ));
                 assert_eq!(
                     volume.free_data_block_count(&mut device).unwrap(),
