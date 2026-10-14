@@ -4226,7 +4226,7 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
             for total_blocks in [
-                JOURNAL_RESERVED_BLOCKS + 4,
+                22,
                 bits_per_bitmap_block - 1,
                 bits_per_bitmap_block,
                 bits_per_bitmap_block + 1,
