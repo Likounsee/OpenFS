@@ -5545,7 +5545,7 @@ mod tests {
         // Exercise every reserved bit through durable journal replay, not just
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let layout = VolumeLayout::calculate(block_size, 12).unwrap();
+            let layout = VolumeLayout::calculate(block_size, JOURNAL_RESERVED_BLOCKS + 4).unwrap();
             let mut corruptions = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
                 .map(|block| ("reserved", block))
@@ -7215,7 +7215,7 @@ mod tests {
             (8_192_u32, 0x23d6_fef0_u32),
             (16_384_u32, 0x5c23_7a51_u32),
             (32_768_u32, 0xa3c8_7313_u32),
-            (65_536_u32, 0xf5de_50c0_u32),
+            (65_536_u32, 0x59f2_1766_u32),
         ];
         let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let features = 0x0102_0304_0506_0708_u64;
