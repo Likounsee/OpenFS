@@ -2401,6 +2401,38 @@ mod tests {
     }
 
     #[test]
+    fn locator_does_not_trust_duplicate_inventory_ownership() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("locator-duplicate-inventory-ownership");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block, metadata_block],
+                metadata_record_count: 2,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let encoded = descriptor.encode(4096).unwrap();
+            device.write_blocks(descriptor_block, &encoded).unwrap();
+            device.flush().unwrap();
+            persist_inventory_hint(&mut device, descriptor_block).unwrap();
+
+            assert!(matches!(
+                volume.discover_persistent_inventory(&mut device),
+                Err(Error::Corrupt(
+                    "inventory descriptor contains duplicate block ownership"
+                ))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn rejects_ambiguous_multiple_persistent_inventory_descriptors() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
