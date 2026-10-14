@@ -934,6 +934,11 @@ mod tests {
         device.read_blocks(HOME, &mut bytes).unwrap();
         bytes
     }
+    fn read_block(device: &mut MemoryDevice, block: u64) -> Vec<u8> {
+        let mut bytes = vec![0; BS as usize];
+        device.read_blocks(block, &mut bytes).unwrap();
+        bytes
+    }
     fn formatted() -> MemoryDevice {
         let mut device = MemoryDevice::new();
         format_journal(&mut device, REGION).unwrap();
@@ -1682,6 +1687,55 @@ mod tests {
             });
             assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
             assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+        }
+    }
+
+    #[test]
+    fn every_multi_block_commit_io_failure_recovers_all_home_blocks_together() {
+        // Two redo images fit the bounded ring as BEGIN + two UPDATEs + COMMIT.
+        // There are eleven fallible I/O operations: three pre-commit writes,
+        // pre-commit flush, commit write/flush, two home writes, home flush,
+        // checkpoint write/flush. Once COMMIT is written successfully, recovery
+        // must replay both images, even if only one home block reached disk.
+        for fail_at in 0..11 {
+            let mut device = formatted();
+            device.write_blocks(HOME + 1, &vec![0x22; BS as usize]).unwrap();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            let updates = [
+                update(0xA5),
+                RedoUpdate {
+                    target_block: HOME + 1,
+                    contents: vec![0xB6; BS as usize],
+                },
+            ];
+            let mut failing = FailAt::new(device.clone(), fail_at);
+            assert!(
+                matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))),
+                "operation {fail_at} should return the injected I/O error"
+            );
+
+            let mut recovered_device = failing.into_inner();
+            let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
+                panic!("multi-block recovery failed at operation {fail_at}: {error:?}")
+            });
+            let committed = fail_at >= 5;
+            let expected_first = if committed { 0xA5 } else { 0x11 };
+            let expected_second = if committed { 0xB6 } else { 0x22 };
+            assert_eq!(
+                read_block(&mut recovered_device, HOME),
+                vec![expected_first; BS as usize],
+                "first home block differs after operation {fail_at}"
+            );
+            assert_eq!(
+                read_block(&mut recovered_device, HOME + 1),
+                vec![expected_second; BS as usize],
+                "second home block differs after operation {fail_at}"
+            );
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                if committed { 3 } else { 0 },
+                "checkpoint should reflect the all-old or all-new transaction at operation {fail_at}"
+            );
         }
     }
 
