@@ -2481,8 +2481,7 @@ mod tests {
                 let layout = volume.volume.layout;
                 let descriptor_block = layout.backup_superblock - 1;
                 let bits_per_bitmap_block = u64::from(block_size) * 8;
-                let bitmap_block =
-                    layout.bitmap_start + descriptor_block / bits_per_bitmap_block;
+                let bitmap_block = layout.bitmap_start + descriptor_block / bits_per_bitmap_block;
                 let local_bit = descriptor_block % bits_per_bitmap_block;
                 let mut bitmap = vec![0_u8; block_size as usize];
                 device.read_blocks(bitmap_block, &mut bitmap).unwrap();
