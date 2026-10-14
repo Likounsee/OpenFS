@@ -153,7 +153,12 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         ));
     }
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
-    let scanned = scan_uncheckpointed_records(device, region, checkpoint.checkpoint_sequence)?;
+    let scanned = scan_uncheckpointed_records(
+        device,
+        region,
+        checkpoint.checkpoint_sequence,
+        checkpoint.next_transaction_id,
+    )?;
 
     if !scanned.records.is_empty() {
         let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
@@ -366,6 +371,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     device: &mut D,
     region: JournalRegion,
     checkpoint_sequence: u64,
+    next_transaction_id: u64,
 ) -> Result<ScannedRecords> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
@@ -378,7 +384,14 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         }
         match JournalRecord::decode_block(&block) {
             Ok(record) if record.sequence <= checkpoint_sequence => {}
-            Ok(record) => newer.push((slot, record)),
+            Ok(record) => {
+                if record.transaction_id < next_transaction_id {
+                    return Err(Error::Corrupt(
+                        "post-checkpoint journal record reuses a checkpointed transaction ID",
+                    ));
+                }
+                newer.push((slot, record));
+            }
             Err(_) => malformed.push(slot),
         }
     }
