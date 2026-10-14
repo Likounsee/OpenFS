@@ -363,13 +363,12 @@ impl OpenedVolume {
             }
         }
         self.ensure_inventory_range_releasable(device, start_block, end_block)?;
-        for block in start_block..end_block {
-            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
-                device,
-                block,
-                self.volume.block_size,
-            )?;
-        }
+        crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
+            device,
+            start_block,
+            end_block,
+            self.volume.block_size,
+        )?;
         for block in start_block..end_block {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1501,6 +1500,36 @@ mod allocation_bitmap_report_tests {
                     Some((descriptor_block, descriptor)),
                     "descriptor must remain discoverable at block size {block_size}"
                 );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn descriptor_range_guard_scans_across_bounded_read_batches() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("descriptor-range-batch-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let start = volume.volume.layout.data_start;
+                let descriptor_block = start + 64;
+                let mut contents = vec![0_u8; block_size as usize];
+                contents[..crate::INVENTORY_DESCRIPTOR_MAGIC.len()]
+                    .copy_from_slice(crate::INVENTORY_DESCRIPTOR_MAGIC);
+                device.write_blocks(descriptor_block, &contents).unwrap();
+
+                assert!(matches!(
+                    crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
+                        &mut device,
+                        start,
+                        descriptor_block + 1,
+                        block_size,
+                    ),
+                    Err(Error::InvalidInput(
+                        "cannot free a persistent inventory descriptor block"
+                    ))
+                ), "descriptor in second batch was missed at block size {block_size}");
             }
             fs::remove_file(path).unwrap();
         }

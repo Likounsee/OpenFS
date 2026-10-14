@@ -26,6 +26,41 @@ pub(crate) fn reject_freeing_inventory_descriptor<D: BlockDevice>(
     Ok(())
 }
 
+/// Refuse to release a contiguous range containing a persistent inventory descriptor.
+///
+/// Read in bounded batches instead of issuing one device read per block. A maximum of
+/// 64 blocks keeps temporary memory bounded to 4 MiB at the largest supported block size.
+pub(crate) fn reject_freeing_inventory_descriptor_range<D: BlockDevice>(
+    device: &mut D,
+    start_block: u64,
+    end_block: u64,
+    block_size: u32,
+) -> Result<()> {
+    const BATCH_BLOCKS: u64 = 64;
+    let block_size_usize = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut next_block = start_block;
+    while next_block < end_block {
+        let count = (end_block - next_block).min(BATCH_BLOCKS);
+        let byte_count = usize::try_from(count)
+            .map_err(|_| Error::ArithmeticOverflow)?
+            .checked_mul(block_size_usize)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut contents = vec![0_u8; byte_count];
+        device.read_blocks(next_block, &mut contents)?;
+        for chunk in contents.chunks_exact(block_size_usize) {
+            if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                return Err(Error::InvalidInput(
+                    "cannot free a persistent inventory descriptor block",
+                ));
+            }
+        }
+        next_block = next_block
+            .checked_add(count)
+            .ok_or(Error::ArithmeticOverflow)?;
+    }
+    Ok(())
+}
+
 pub const INVENTORY_DESCRIPTOR_MAGIC: &[u8; 8] = b"OFSMINV\0";
 const VERSION: u16 = 1;
 const HEADER_SIZE: usize = 48;
