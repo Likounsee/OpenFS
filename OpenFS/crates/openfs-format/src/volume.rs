@@ -1867,13 +1867,17 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
         .block_count()
         .checked_sub(1)
         .ok_or(Error::InvalidInput("empty device"))?;
+    let primary = read_superblock(device, 0)?;
+    let version = u16::from_le_bytes([primary[8], primary[9]]);
+    // Legacy v2 volumes retain scan-based discovery and are never modified to store a hint.
+    if version == LEGACY_VERSION {
+        return Ok(());
+    }
+    if version != VERSION {
+        return Err(Error::UnsupportedVersion(version));
+    }
     for block in [last, 0] {
         let mut encoded = read_superblock(device, block)?;
-        if u16::from_le_bytes([encoded[8], encoded[9]]) != VERSION {
-            return Err(Error::UnsupportedVersion(u16::from_le_bytes([
-                encoded[8], encoded[9],
-            ])));
-        }
         encoded[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
             .copy_from_slice(&hint.to_le_bytes());
         let checksum = crc32c(&encoded[..CHECKSUM_OFFSET]);
