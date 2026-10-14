@@ -5,9 +5,9 @@
 
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
-    DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRecordKind, JournalRegion, MetadataRecord,
-    Namespace, ObjectId, PersistentInventoryDescriptor, PersistentJournal, RedoUpdate,
-    DIRECTORY_ENTRY_SIZE, INVENTORY_DESCRIPTOR_MAGIC, JOURNAL_CHECKPOINT_SIZE,
+    DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRecordKind, JournalRegion,
+    MetadataRecord, Namespace, ObjectId, PersistentInventoryDescriptor, PersistentJournal,
+    RedoUpdate, DIRECTORY_ENTRY_SIZE, INVENTORY_DESCRIPTOR_MAGIC, JOURNAL_CHECKPOINT_SIZE,
     METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
 };
 use openfs_block::BlockDevice;
@@ -1343,16 +1343,14 @@ fn check_journal_read_only<D: BlockDevice>(
             ));
         }
         (Ok(a), Ok(b))
-            if a.generation > b.generation
-                && a.generation.checked_sub(b.generation) != Some(1) =>
+            if a.generation > b.generation && a.generation.checked_sub(b.generation) != Some(1) =>
         {
             return Err(Error::Corrupt(
                 "journal checkpoint generations are not consecutive",
             ));
         }
         (Ok(a), Ok(b))
-            if b.generation > a.generation
-                && b.generation.checked_sub(a.generation) != Some(1) =>
+            if b.generation > a.generation && b.generation.checked_sub(a.generation) != Some(1) =>
         {
             return Err(Error::Corrupt(
                 "journal checkpoint generations are not consecutive",
@@ -1361,8 +1359,10 @@ fn check_journal_read_only<D: BlockDevice>(
         (Ok(a), Ok(b))
             if a.generation > b.generation
                 && a.checkpoint_sequence == b.checkpoint_sequence
-                && !(a.generation == 2 && b.generation == 1
-                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                && !(a.generation == 2
+                    && b.generation == 1
+                    && a.checkpoint_sequence == 0
+                    && a.next_transaction_id == 1
                     && b.next_transaction_id == 1) =>
         {
             return Err(Error::Corrupt(
@@ -1372,8 +1372,10 @@ fn check_journal_read_only<D: BlockDevice>(
         (Ok(a), Ok(b))
             if b.generation > a.generation
                 && a.checkpoint_sequence == b.checkpoint_sequence
-                && !(b.generation == 2 && a.generation == 1
-                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                && !(b.generation == 2
+                    && a.generation == 1
+                    && a.checkpoint_sequence == 0
+                    && a.next_transaction_id == 1
                     && b.next_transaction_id == 1) =>
         {
             return Err(Error::Corrupt(
@@ -2620,19 +2622,12 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             // Exercise every non-empty prefix of the descriptor magic, then
             // representative header, midpoint, and near-full-block tears.
-            let mut prefixes: Vec<usize> =
-                (1..=crate::INVENTORY_DESCRIPTOR_MAGIC.len()).collect();
-            prefixes.extend([
-                48,
-                block_size as usize / 2,
-                block_size as usize - 1,
-            ]);
+            let mut prefixes: Vec<usize> = (1..=crate::INVENTORY_DESCRIPTOR_MAGIC.len()).collect();
+            prefixes.extend([48, block_size as usize / 2, block_size as usize - 1]);
             prefixes.sort_unstable();
             prefixes.dedup();
             for prefix_len in prefixes {
-                let path = image_path(&format!(
-                    "inventory-torn-prefix-{block_size}-{prefix_len}"
-                ));
+                let path = image_path(&format!("inventory-torn-prefix-{block_size}-{prefix_len}"));
                 let metadata_block;
                 let metadata_record;
                 let free_before;
@@ -2644,8 +2639,7 @@ mod tests {
                         armed: false,
                         prefix_len,
                     };
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
                         id: ObjectId(1),
@@ -2658,9 +2652,10 @@ mod tests {
                     };
                     metadata_record = root.encode().unwrap();
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
-                    metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                        .copy_from_slice(&metadata_record);
-                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&metadata_record);
+                    device
+                        .write_blocks(metadata_block, &metadata_bytes)
+                        .unwrap();
 
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
@@ -2695,7 +2690,9 @@ mod tests {
                         "torn prefix {prefix_len} must not be discoverable after reopen at block size {block_size}"
                     );
                     let mut persisted_metadata = vec![0_u8; block_size as usize];
-                    device.read_blocks(metadata_block, &mut persisted_metadata).unwrap();
+                    device
+                        .read_blocks(metadata_block, &mut persisted_metadata)
+                        .unwrap();
                     assert_eq!(
                         &persisted_metadata[..crate::METADATA_RECORD_SIZE],
                         metadata_record.as_slice(),
@@ -5768,7 +5765,10 @@ mod tests {
             device.read_blocks(0, &mut primary).unwrap();
             primary[100] ^= 1;
             device.write_blocks(0, &primary).unwrap();
-            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+            assert!(matches!(
+            check_volume(&mut device),
+            Err(Error::Corrupt(_))
+        ));
         }
         fs::remove_file(path).unwrap();
     }
@@ -5878,14 +5878,28 @@ mod tests {
             let layout = volume.volume.layout;
             drop(volume);
             for (block_number, checkpoint) in [
-                (layout.journal.checkpoint_a, JournalCheckpoint {
-                    generation: 4, checkpoint_sequence: 3, next_sequence: 4,
-                    next_transaction_id: 2, head_block: 0, tail_block: 0,
-                }),
-                (layout.journal.checkpoint_b, JournalCheckpoint {
-                    generation: 2, checkpoint_sequence: 0, next_sequence: 1,
-                    next_transaction_id: 1, head_block: 0, tail_block: 0,
-                }),
+                (
+                    layout.journal.checkpoint_a,
+                    JournalCheckpoint {
+                        generation: 4,
+                        checkpoint_sequence: 3,
+                        next_sequence: 4,
+                        next_transaction_id: 2,
+                        head_block: 0,
+                        tail_block: 0,
+                    },
+                ),
+                (
+                    layout.journal.checkpoint_b,
+                    JournalCheckpoint {
+                        generation: 2,
+                        checkpoint_sequence: 0,
+                        next_sequence: 1,
+                        next_transaction_id: 1,
+                        head_block: 0,
+                        tail_block: 0,
+                    },
+                ),
             ] {
                 let encoded = checkpoint.encode().unwrap();
                 let mut block = vec![0_u8; 4096];
@@ -5926,13 +5940,19 @@ mod tests {
                 .write_blocks(layout.journal.checkpoint_a, &checkpoint_block)
                 .unwrap();
             let older = JournalCheckpoint {
-                generation: 2, checkpoint_sequence: 9, next_sequence: 10,
-                next_transaction_id: 4, head_block: 0, tail_block: 0,
+                generation: 2,
+                checkpoint_sequence: 9,
+                next_sequence: 10,
+                next_transaction_id: 4,
+                head_block: 0,
+                tail_block: 0,
             };
             let older_encoded = older.encode().unwrap();
             let mut older_block = vec![0_u8; 4096];
             older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
-            device.write_blocks(layout.journal.checkpoint_b, &older_block).unwrap();
+            device
+                .write_blocks(layout.journal.checkpoint_b, &older_block)
+                .unwrap();
 
             let record = JournalRecord {
                 kind: JournalRecordKind::Begin,
@@ -5975,7 +5995,9 @@ mod tests {
             let encoded = checkpoint.encode().unwrap();
             let mut checkpoint_block = vec![0_u8; 4096];
             checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
-            device.write_blocks(layout.journal.checkpoint_a, &checkpoint_block).unwrap();
+            device
+                .write_blocks(layout.journal.checkpoint_a, &checkpoint_block)
+                .unwrap();
             let older = JournalCheckpoint {
                 generation: 2, checkpoint_sequence: 9, next_sequence: 10,
                 next_transaction_id: 4, head_block: 0, tail_block: 0,
@@ -5993,10 +6015,12 @@ mod tests {
                 transaction_id: 6,
                 payload: Vec::new(),
             };
-            device.write_blocks(
-                layout.journal.ring_start,
-                &record.encode_block(4096).unwrap(),
-            ).unwrap();
+            device
+                .write_blocks(
+                    layout.journal.ring_start,
+                    &record.encode_block(4096).unwrap(),
+                )
+                .unwrap();
             device.flush().unwrap();
 
             assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
@@ -6489,7 +6513,9 @@ mod tests {
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&root.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+            .write_blocks(metadata_block, &metadata_bytes)
+            .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
