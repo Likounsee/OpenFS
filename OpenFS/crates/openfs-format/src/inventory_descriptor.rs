@@ -78,7 +78,7 @@ impl PersistentInventoryDescriptor {
     /// Decode one block, rejecting malformed lengths, unsupported versions, bad checksums,
     /// nonzero reserved/padding bytes, and duplicate or overlapping physical block lists.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() < HEADER_SIZE || bytes.len() > 65_536 || !bytes.len().is_power_of_two() {
+        if !(4096..=65_536).contains(&bytes.len()) || !bytes.len().is_power_of_two() {
             return Err(Error::InvalidInput(
                 "inventory descriptor has an invalid block size",
             ));
@@ -303,6 +303,23 @@ mod tests {
             assert_eq!(&encoded[..8], crate::INVENTORY_DESCRIPTOR_MAGIC);
             assert_eq!(u16::from_le_bytes([encoded[8], encoded[9]]), 1);
             assert_eq!(u16::from_le_bytes([encoded[10], encoded[11]]), 48);
+        }
+    }
+
+    #[test]
+    fn descriptor_decoder_rejects_unsupported_block_sizes() {
+        for block_size in [64_usize, 128, 256, 512, 1024, 2048, 131_072] {
+            let mut bytes = vec![0_u8; block_size];
+            if block_size >= 48 && block_size.is_power_of_two() {
+                bytes[..8].copy_from_slice(crate::INVENTORY_DESCRIPTOR_MAGIC);
+            }
+            assert!(
+                matches!(
+                    PersistentInventoryDescriptor::decode(&bytes),
+                    Err(Error::InvalidInput("inventory descriptor has an invalid block size"))
+                ),
+                "unsupported descriptor block size {block_size} was accepted"
+            );
         }
     }
 
