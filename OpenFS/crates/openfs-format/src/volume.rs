@@ -7251,7 +7251,9 @@ mod tests {
         // A 4 KiB bitmap page covers 32,768 blocks. Put the old descriptor on page 2,
         // while its replacement is staged on page 1, and fail each write in turn.
         for fail_at in 0..=12 {
-            let path = image_path(&format!("descriptor-replacement-multi-page-crash-{fail_at}"));
+            let path = image_path(&format!(
+                "descriptor-replacement-multi-page-crash-{fail_at}"
+            ));
             {
                 let image = ImageDevice::create(&path, 4096, 32_780).unwrap();
                 let mut device = FailNthWrite {
@@ -7295,7 +7297,9 @@ mod tests {
                     .copy_from_slice(&child.encode().unwrap());
                 metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&second_child.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -7314,7 +7318,9 @@ mod tests {
                     .copy_from_slice(&entry.encode().unwrap());
                 directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
                     .copy_from_slice(&second_entry.encode().unwrap());
-                device.write_blocks(directory_block, &directory_bytes).unwrap();
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
 
                 let old_descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
