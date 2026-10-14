@@ -7379,6 +7379,10 @@ mod tests {
                     .unwrap();
                 device.flush().unwrap();
                 crate::volume::persist_inventory_hint(&mut device, old_block).unwrap();
+                assert!(matches!(
+                    volume.verify_discovered_persistent_inventory(&mut device).unwrap(),
+                    Some(report) if report.is_consistent()
+                ));
 
                 let new_descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
@@ -7432,12 +7436,19 @@ mod tests {
                         .is_data_block_allocated(&mut reopened_device, found_block)
                         .unwrap());
                 }
-                assert!(matches!(
-                    reopened
-                        .verify_discovered_persistent_inventory(&mut reopened_device)
-                        .unwrap(),
-                    Some(report) if report.is_consistent()
-                ));
+                assert!(
+                    matches!(
+                        reopened
+                            .verify_discovered_persistent_inventory(&mut reopened_device)
+                            .unwrap_or_else(|error| {
+                                panic!(
+                                    "verification failed at {failure_kind} {fail_at}: {error:?}"
+                                )
+                            }),
+                        Some(report) if report.is_consistent()
+                    ),
+                    "recovered inventory is inconsistent at {failure_kind} {fail_at}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
