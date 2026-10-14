@@ -694,12 +694,17 @@ impl OpenedVolume {
                     device.read_blocks(block, &mut bytes)?;
                     if let Ok(descriptor) = PersistentInventoryDescriptor::decode(&bytes) {
                         let mut references_valid = true;
+                        let mut unique_references = std::collections::BTreeSet::new();
                         for referenced in descriptor
                             .metadata_blocks
                             .iter()
                             .chain(descriptor.directory_blocks.iter())
                         {
-                            if *referenced < layout.data_start
+                            // A locator is only a hint to a descriptor, not authority to
+                            // bypass ownership validation. Reject duplicate ownership across
+                            // either inventory list before accepting the fast path.
+                            if !unique_references.insert(*referenced)
+                                || *referenced < layout.data_start
                                 || *referenced >= layout.backup_superblock
                             {
                                 references_valid = false;
@@ -769,11 +774,17 @@ impl OpenedVolume {
                         "inventory descriptor aliases one of its inventory blocks",
                     ));
                 }
+                let mut unique_references = std::collections::BTreeSet::new();
                 for inventory_block in descriptor
                     .metadata_blocks
                     .iter()
                     .chain(descriptor.directory_blocks.iter())
                 {
+                    if !unique_references.insert(*inventory_block) {
+                        return Err(Error::Corrupt(
+                            "inventory descriptor contains duplicate block ownership",
+                        ));
+                    }
                     if *inventory_block < layout.data_start
                         || *inventory_block >= layout.backup_superblock
                     {
