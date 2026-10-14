@@ -2201,6 +2201,37 @@ mod tests {
                             .is_data_block_allocated(&mut device, descriptor_block)
                             .unwrap());
                     }
+
+                    // Recovery must be idempotent: a second close/reopen cannot change
+                    // whether the descriptor is visible or who owns its allocation.
+                    drop(recovered);
+                    drop(device);
+                    let mut device = ImageDevice::open(&path, block_size).unwrap();
+                    let recovered = open_volume(&mut device).unwrap();
+                    let rediscovered = recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap();
+                    if fail_at <= 4 {
+                        assert!(
+                            rediscovered.is_none(),
+                            "uncommitted descriptor became visible after a second reopen (block size {block_size}, write {fail_at})"
+                        );
+                    } else {
+                        let (descriptor_block, found) = rediscovered.unwrap_or_else(|| {
+                            panic!(
+                                "committed descriptor disappeared after a second reopen (block size {block_size}, write {fail_at})"
+                            )
+                        });
+                        assert_eq!(found, descriptor);
+                        assert!(recovered
+                            .is_data_block_allocated(&mut device, descriptor_block)
+                            .unwrap());
+                        assert_eq!(
+                            recovered.free_data_block_count(&mut device).unwrap(),
+                            free_before - 1,
+                            "committed allocation changed after a second reopen (block size {block_size}, write {fail_at})"
+                        );
+                    }
                 }
                 fs::remove_file(path).unwrap();
             }
