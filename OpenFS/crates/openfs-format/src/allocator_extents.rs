@@ -1549,7 +1549,10 @@ mod allocation_bitmap_report_tests {
                         generation: 1,
                     },
                 ];
-                for (block, record) in [left_block, metadata_block, right_block].into_iter().zip(records) {
+                for (block, record) in [left_block, metadata_block, right_block]
+                    .into_iter()
+                    .zip(records)
+                {
                     let mut metadata = vec![0_u8; block_size as usize];
                     metadata[..crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&record.encode().unwrap());
