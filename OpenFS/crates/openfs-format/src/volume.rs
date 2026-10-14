@@ -5937,6 +5937,8 @@ mod tests {
                     .unwrap();
                 assert_eq!(discovered.0, descriptor_block);
                 assert_eq!(discovered.1, descriptor);
+                drop(reopened_volume);
+                drop(reopened_device);
             }
             fs::remove_file(path).unwrap();
         }
