@@ -2,10 +2,10 @@
 
 Last source audit: 2026-10-14  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: 9c7f7eea2081cba225739ab97aa703a52d8c8ec5  
-Current branch HEAD before this roadmap revision: f45d1334b93604b11182d2f22bc565b63797b003  
+Code baseline audited: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
+Current code HEAD before this roadmap revision: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record inventory-block free protection across single/batch/contiguous allocator APIs, exact-SHA Linux/Windows regression validation, and cached descriptor discovery for allocator guards. The cache optimization is a separate implementation commit whose exact-SHA Windows CI remains pending at this audit. This documentation commit does not change filesystem code.
+Scope: record inventory-block free protection and bounded descriptor-range reads across single/batch/contiguous allocator APIs. Exact-SHA Linux/Windows CI run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630) passed for code SHA `a7797a99677197afd0d54adf4a6e84832b8fc7ce`. This roadmap revision does not change filesystem code.
 
 ## Executive assessment
 
@@ -42,14 +42,14 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, layout and allocator | 15% | 91% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
+| P1 Format, layout and allocator | 15% | 92% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
 | P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
 | P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
 | P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
 | P5 Safe device discovery and formatting | 10% | 5% | Raw-device backend exists but not discovery, exclusive ownership, target confirmation or safe end-user formatting |
 | P6 OS integration | 10% | 0% | No Rust mount/VFS adapter found |
 | P7 Release, compatibility and operational hardening | 5% | 3% | Some docs and CI exist; release gates and hardware/compatibility evidence do not |
-| **Overall** | **100%** | **40%** | Weighted engineering progress, not percentage of a production-ready filesystem |
+| **Overall** | **100%** | **40%** | Exact weighted estimate 40.15%; rounded display 40%, not percentage of a production-ready filesystem |
 
 The current estimates are deliberately lower than the older roadmap where the older numbers treated many unchecked checklist items as done. A phase can have high implementation progress and still fail its exit gate.
 
