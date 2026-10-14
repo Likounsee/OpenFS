@@ -7714,10 +7714,27 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let backup = volume.volume.layout.backup_superblock;
+            let first_hint = volume.volume.layout.data_start;
+            let second_hint = first_hint + 1;
             drop(volume);
 
+            // Simulate the durable intermediate state of a backup-first locator update:
+            // both superblocks are independently valid, but their hint values differ.
+            persist_inventory_hint(&mut device, first_hint).unwrap();
             let mut bytes = vec![0_u8; 4096];
             device.read_blocks(backup, &mut bytes).unwrap();
+            bytes[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
+                .copy_from_slice(&second_hint.to_le_bytes());
+            let checksum = crc32c(&bytes[..CHECKSUM_OFFSET]);
+            bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].copy_from_slice(&checksum.to_le_bytes());
+            device.write_blocks(backup, &bytes).unwrap();
+            device.flush().unwrap();
+
+            // Differing but independently valid hints must not make the volume unopenable.
+            drop(open_volume(&mut device).unwrap());
+
+            // A later backup checksum failure must still be detected, even though the
+            // primary and backup hint fields differ and the primary copy is valid.
             bytes[CHECKSUM_OFFSET] ^= 0x80;
             device.write_blocks(backup, &bytes).unwrap();
             device.flush().unwrap();
