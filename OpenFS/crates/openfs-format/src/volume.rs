@@ -4046,6 +4046,50 @@ mod tests {
         }
     }
     #[test]
+    fn refused_inventory_block_alias_preserves_exact_image_bytes_at_every_block_size() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("inventory-alias-no-write-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let owned_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![owned_block],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![owned_block],
+                    directory_entry_count: 0,
+                };
+
+                let image_len = block_size as usize * device.block_count() as usize;
+                let mut before = vec![0_u8; image_len];
+                device.read_blocks(0, &mut before).unwrap();
+
+                assert!(matches!(
+                    volume.publish_persistent_inventory(&mut device, &descriptor),
+                    Err(Error::InvalidInput(
+                        "inventory descriptor contains overlapping block lists"
+                    ))
+                ), "cross-list block alias was accepted at block size {block_size}");
+
+                let mut after = vec![0_u8; image_len];
+                device.read_blocks(0, &mut after).unwrap();
+                assert_eq!(
+                    after, before,
+                    "rejected inventory alias modified the image at block size {block_size}"
+                );
+                assert!(
+                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    "rejected inventory alias must remain undiscoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn canonical_rejects_primary_or_backup_superblock_mismatch_without_writes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let total_blocks = 32_u64;
