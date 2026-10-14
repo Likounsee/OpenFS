@@ -7357,9 +7357,9 @@ mod tests {
                 let old_descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
                     metadata_blocks: vec![metadata_block, high_metadata_block],
-                    metadata_record_count: (metadata_capacity + 1) as u64,
+                    metadata_record_count: metadata_capacity + 1,
                     directory_blocks: directory_blocks.clone(),
-                    directory_entry_count: metadata_capacity as u64,
+                    directory_entry_count: metadata_capacity,
                 };
                 let bits_per_bitmap_block = 4096_u64 * 8;
                 let bitmap_index = old_block / bits_per_bitmap_block;
@@ -7383,9 +7383,9 @@ mod tests {
                 let new_descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
                     metadata_blocks: vec![metadata_block],
-                    metadata_record_count: metadata_capacity as u64,
+                    metadata_record_count: metadata_capacity,
                     directory_blocks: directory_blocks[..new_directory_block_count].to_vec(),
-                    directory_entry_count: (metadata_capacity - 1) as u64,
+                    directory_entry_count: metadata_capacity - 1,
                 };
                 if fail_write {
                     device.writes_until_failure = Some(fail_at);
