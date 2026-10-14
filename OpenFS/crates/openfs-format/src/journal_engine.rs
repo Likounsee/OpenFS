@@ -1147,7 +1147,7 @@ mod tests {
                 format_journal(&mut device, REGION),
                 Err(Error::InvalidInput(_))
             ));
-            assert_eq!(*device.inner.bytes.lock().unwrap(), before);
+            assert_eq!(*device.bytes.lock().unwrap(), before);
         }
     }
 
@@ -1490,7 +1490,7 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
         let many = (0..4).map(|_| update(1)).collect::<Vec<_>>();
-        let before = device.inner.bytes.lock().unwrap().clone();
+        let before = device.bytes.lock().unwrap().clone();
         assert!(matches!(
             journal.commit(&mut device, &many),
             Err(Error::InvalidInput(
