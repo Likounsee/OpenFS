@@ -1933,37 +1933,56 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_publish_invalid_inventory_without_consuming_a_block() {
+    fn refuses_to_publish_invalid_inventory_without_modifying_image_at_every_block_size() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        let path = image_path("invalid-inventory-no-allocation");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            // The allocated metadata block deliberately contains no valid record.
-            let descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![metadata_block],
-                metadata_record_count: 1,
-                directory_blocks: vec![],
-                directory_entry_count: 0,
-            };
-            let free_before = volume.free_data_block_count(&mut device).unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("invalid-inventory-no-write-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                // The allocated metadata block deliberately contains no valid record.
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let free_before = volume.free_data_block_count(&mut device).unwrap();
+                let image_len = block_size as usize * device.block_count() as usize;
+                let mut before = vec![0_u8; image_len];
+                device.read_blocks(0, &mut before).unwrap();
 
-            assert!(volume
-                .publish_persistent_inventory(&mut device, &descriptor)
-                .is_err());
-            assert_eq!(
-                volume.free_data_block_count(&mut device).unwrap(),
-                free_before
-            );
-            assert!(volume
-                .discover_persistent_inventory(&mut device)
-                .unwrap()
-                .is_none());
+                assert!(
+                    volume
+                        .publish_persistent_inventory(&mut device, &descriptor)
+                        .is_err(),
+                    "invalid metadata inventory was published at block size {block_size}"
+                );
+
+                let mut after = vec![0_u8; image_len];
+                device.read_blocks(0, &mut after).unwrap();
+                assert_eq!(
+                    after, before,
+                    "rejected invalid inventory modified image bytes at block size {block_size}"
+                );
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before,
+                    "rejected invalid inventory consumed a block at block size {block_size}"
+                );
+                assert!(
+                    volume
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none(),
+                    "rejected invalid inventory became discoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
