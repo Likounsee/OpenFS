@@ -2474,6 +2474,7 @@ mod tests {
                 let metadata_block;
                 let metadata_record;
                 let free_before;
+                let descriptor_block;
                 let descriptor = {
                     let raw = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut device = TornNextWrite {
@@ -2556,7 +2557,7 @@ mod tests {
                     // verifier does not mistake this test-only allocation for an orphan.
                     volume.free_block(&mut device, reused).unwrap();
 
-                    let descriptor_block = volume
+                    descriptor_block = volume
                         .publish_persistent_inventory(&mut device, &descriptor)
                         .unwrap();
                     assert_eq!(
@@ -2580,11 +2581,7 @@ mod tests {
                     let mut volume = open_volume(&mut device).unwrap();
                     assert_eq!(
                         volume.discover_persistent_inventory(&mut device).unwrap(),
-                        Some((
-                            volume.discover_persistent_inventory(&mut device).unwrap()
-                                .expect("descriptor should remain discoverable after reopen").0,
-                            descriptor.clone(),
-                        )),
+                        Some((descriptor_block, descriptor.clone())),
                         "successful retry must remain discoverable after reopen at block size {block_size}"
                     );
                     assert_eq!(
