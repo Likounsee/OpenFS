@@ -273,6 +273,7 @@ impl OpenedVolume {
         if bitmap[byte] & mask == 0 {
             return Err(Error::InvalidInput("data block is already free"));
         }
+        self.ensure_inventory_blocks_releasable(device, &[block])?;
         crate::inventory_descriptor::reject_freeing_inventory_descriptor(
             device,
             block,
@@ -286,6 +287,28 @@ impl OpenedVolume {
                 contents: bitmap,
             }],
         )?;
+        Ok(())
+    }
+
+    /// Refuse to release blocks that the persistent inventory still owns.
+    ///
+    /// Discovery is scan-based today; check the whole batch before mutating any bitmap.
+    pub(crate) fn ensure_inventory_blocks_releasable<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        blocks: &[u64],
+    ) -> Result<()> {
+        let Some((_, descriptor)) = self.discover_persistent_inventory(device)? else {
+            return Ok(());
+        };
+        if blocks.iter().any(|block| {
+            descriptor.metadata_blocks.contains(block)
+                || descriptor.directory_blocks.contains(block)
+        }) {
+            return Err(Error::InvalidInput(
+                "cannot free a block referenced by persistent inventory descriptor",
+            ));
+        }
         Ok(())
     }
 

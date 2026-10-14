@@ -293,6 +293,7 @@ impl OpenedVolume {
                 ));
             }
         }
+        self.ensure_inventory_blocks_releasable(device, &sorted)?;
         for block in &sorted {
             crate::inventory_descriptor::reject_freeing_inventory_descriptor(
                 device,
@@ -361,6 +362,12 @@ impl OpenedVolume {
                 ));
             }
         }
+        let count_usize = usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
+        let blocks = (start_block..end_block).collect::<Vec<_>>();
+        if blocks.len() != count_usize {
+            return Err(Error::ArithmeticOverflow);
+        }
+        self.ensure_inventory_blocks_releasable(device, &blocks)?;
         for block in start_block..end_block {
             crate::inventory_descriptor::reject_freeing_inventory_descriptor(
                 device,
@@ -1498,6 +1505,70 @@ mod allocation_bitmap_report_tests {
                     volume.discover_persistent_inventory(&mut device).unwrap(),
                     Some((descriptor_block, descriptor)),
                     "descriptor must remain discoverable at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn allocator_free_apis_preserve_persistent_inventory_blocks() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("inventory-block-free-guard-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata = vec![0_u8; block_size as usize];
+                metadata[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let descriptor_block = volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+
+                assert!(matches!(
+                    volume.free_block(&mut device, metadata_block),
+                    Err(Error::InvalidInput(
+                        "cannot free a block referenced by persistent inventory descriptor"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_blocks(&mut device, &[metadata_block]),
+                    Err(Error::InvalidInput(
+                        "cannot free a block referenced by persistent inventory descriptor"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, metadata_block, 1),
+                    Err(Error::InvalidInput(
+                        "cannot free a block referenced by persistent inventory descriptor"
+                    ))
+                ));
+                assert!(volume.is_data_block_allocated(&mut device, metadata_block).unwrap());
+                assert!(volume.is_data_block_allocated(&mut device, descriptor_block).unwrap());
+                assert_eq!(
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
+                    Some((descriptor_block, descriptor)),
+                    "all rejected frees must leave the namespace discoverable for block size {block_size}"
                 );
             }
             fs::remove_file(path).unwrap();
