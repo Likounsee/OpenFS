@@ -294,12 +294,28 @@ impl OpenedVolume {
             }
         }
         self.ensure_inventory_blocks_releasable(device, &sorted)?;
-        for block in &sorted {
-            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+        // The list is sorted and duplicate-free. Scan adjacent blocks as bounded
+        // ranges instead of issuing one device read per block; sparse batches still
+        // retain exact per-block protection because each run is checked separately.
+        let mut run_start = sorted[0];
+        let mut previous = sorted[0];
+        for &block in sorted.iter().skip(1).chain(std::iter::once(&u64::MAX)) {
+            if previous.checked_add(1) == Some(block) {
+                previous = block;
+                continue;
+            }
+            let run_end = previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
                 device,
-                *block,
+                run_start,
+                run_end,
                 self.volume.block_size,
             )?;
+            if block == u64::MAX {
+                break;
+            }
+            run_start = block;
+            previous = block;
         }
         for block in &sorted {
             let local = *block - base;
@@ -1500,6 +1516,41 @@ mod allocation_bitmap_report_tests {
                     Some((descriptor_block, descriptor)),
                     "descriptor must remain discoverable at block size {block_size}"
                 );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn batch_free_descriptor_guard_checks_contiguous_runs() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("batch-free-descriptor-runs-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                let third = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(second, first + 1);
+                assert_eq!(third, second + 1);
+
+                let mut contents = vec![0_u8; block_size as usize];
+                contents[..crate::INVENTORY_DESCRIPTOR_MAGIC.len()]
+                    .copy_from_slice(crate::INVENTORY_DESCRIPTOR_MAGIC);
+                device.write_blocks(second, &contents).unwrap();
+
+                assert!(matches!(
+                    volume.free_blocks(&mut device, &[third, first, second]),
+                    Err(Error::InvalidInput(
+                        "cannot free a persistent inventory descriptor block"
+                    ))
+                ));
+                for block in [first, second, third] {
+                    assert!(
+                        volume.is_data_block_allocated(&mut device, block).unwrap(),
+                        "rejected batch free must preserve allocation at block size {block_size}"
+                    );
+                }
             }
             fs::remove_file(path).unwrap();
         }
