@@ -404,13 +404,12 @@ fn read_checkpoint_pair<D: BlockDevice>(
 ) -> Result<(JournalCheckpoint, u8)> {
     let first = read_checkpoint_block(device, region.checkpoint_a);
     let second = read_checkpoint_block(device, region.checkpoint_b);
-    if let Err(Error::Io(_)) = &first {
-        return first.map(|c| (c, 0));
-    }
-    if let Err(Error::Io(_)) = &second {
-        return second.map(|c| (c, 1));
-    }
     match (first, second) {
+        // Either checkpoint copy can be unavailable independently. Preserve an I/O
+        // error only when no readable copy exists; otherwise the valid copy is enough
+        // to recover the journal state.
+        (Err(error @ Error::Io(_)), Err(_)) => Err(error),
+        (Err(_), Err(error @ Error::Io(_))) => Err(error),
         (Ok(a), Ok(b)) if a.generation == b.generation && a != b => Err(Error::Corrupt(
             "checkpoint copies conflict at the same generation",
         )),
@@ -779,6 +778,20 @@ mod tests {
         device.write_blocks(HOME, &vec![0x11; BS as usize]).unwrap();
         device.flush().unwrap();
         device
+    }
+
+    #[test]
+    fn open_uses_valid_checkpoint_copy_when_other_read_fails() {
+        for fail_at in [0, 1] {
+            let mut device = formatted();
+            let mut failing = FailAt::new(device.clone(), fail_at);
+            let journal = open_journal(&mut failing, REGION)
+                .expect("one readable checkpoint copy should be sufficient");
+            assert_eq!(journal.checkpoint().checkpoint_sequence, 0);
+            // Opening with no pending redo must not modify the home block.
+            device = failing.into_inner();
+            assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+        }
     }
 
     #[test]
