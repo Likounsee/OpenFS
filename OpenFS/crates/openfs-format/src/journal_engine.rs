@@ -236,6 +236,45 @@ impl PersistentJournal {
         self.checkpoint
     }
 
+    /// Return the exact number of ring records needed for this many full-block redo images.
+    ///
+    /// Callers that stage data before committing ownership changes can preflight capacity
+    /// before their first write, avoiding durable-but-unpublishable staging when a bounded
+    /// journal cannot fit the complete atomic transition.
+    pub(crate) fn required_record_count<D: BlockDevice>(
+        &self,
+        device: &D,
+        update_count: usize,
+    ) -> Result<usize> {
+        self.region.validate(device)?;
+        let block_size =
+            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        let chunk_capacity = block_size
+            .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
+            .ok_or(Error::InvalidInput(
+                "device block is too small for redo chunks",
+            ))?;
+        let chunks_per_update = block_size
+            .checked_add(chunk_capacity - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / chunk_capacity;
+        let required_records = 2_usize
+            .checked_add(
+                update_count
+                    .checked_mul(chunks_per_update)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+            .ok_or(Error::ArithmeticOverflow)?;
+        if u64::try_from(required_records).map_err(|_| Error::ArithmeticOverflow)?
+            > self.region.ring_blocks
+        {
+            return Err(Error::InvalidInput(
+                "transaction does not fit in the bounded journal ring",
+            ));
+        }
+        Ok(required_records)
+    }
+
     /// Append, durably commit, apply, flush home blocks, then persist the checkpoint.
     pub fn commit<D: BlockDevice>(
         &mut self,
@@ -275,34 +314,11 @@ impl PersistentJournal {
         // can supply an arbitrarily large update slice, but this journal only has a
         // fixed number of slots and must reject oversized transactions without
         // allocating a transaction-sized intermediate representation.
-        let chunk_capacity = block_size
-            .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
-            .ok_or(Error::InvalidInput(
-                "device block is too small for redo chunks",
-            ))?;
-        let chunks_per_update = block_size
-            .checked_add(chunk_capacity - 1)
-            .ok_or(Error::ArithmeticOverflow)?
-            / chunk_capacity;
-        let mut required_records = 2_u64; // BEGIN and COMMIT
-        for _ in updates {
-            required_records = required_records
-                .checked_add(
-                    u64::try_from(chunks_per_update).map_err(|_| Error::ArithmeticOverflow)?,
-                )
-                .ok_or(Error::ArithmeticOverflow)?;
-            if required_records > self.region.ring_blocks {
-                return Err(Error::InvalidInput(
-                    "transaction does not fit in the bounded journal ring",
-                ));
-            }
-        }
+        let required_records = self.required_record_count(device, updates.len())?;
 
         let transaction_id = self.checkpoint.next_transaction_id;
         let mut sequence = self.checkpoint.next_sequence;
-        let mut records = Vec::with_capacity(
-            usize::try_from(required_records).map_err(|_| Error::ArithmeticOverflow)?,
-        );
+        let mut records = Vec::with_capacity(required_records);
         records.push(JournalRecord {
             kind: JournalRecordKind::Begin,
             sequence,
