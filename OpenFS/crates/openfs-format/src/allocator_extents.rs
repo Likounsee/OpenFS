@@ -299,7 +299,7 @@ impl OpenedVolume {
         // retain exact per-block protection because each run is checked separately.
         let mut run_start = sorted[0];
         let mut previous = sorted[0];
-        for &block in sorted.iter().skip(1).chain(std::iter::once(&u64::MAX)) {
+        for &block in sorted.iter().skip(1) {
             if previous.checked_add(1) == Some(block) {
                 previous = block;
                 continue;
@@ -311,12 +311,16 @@ impl OpenedVolume {
                 run_end,
                 self.volume.block_size,
             )?;
-            if block == u64::MAX {
-                break;
-            }
             run_start = block;
             previous = block;
         }
+        let run_end = previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
+            device,
+            run_start,
+            run_end,
+            self.volume.block_size,
+        )?;
         for block in &sorted {
             let local = *block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
