@@ -6787,6 +6787,75 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_replacement_recovers_old_or_new_descriptor_after_write_failures() {
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..=6 {
+                let path = image_path(&format!("descriptor-replace-crash-{block_size}-{fail_at}"));
+                {
+                    let image = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut device = FailNthWrite {
+                        inner: image,
+                        writes_until_failure: None,
+                    };
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let metadata_block = volume.allocate_block(&mut device).unwrap();
+                    let directory_block = volume.allocate_block(&mut device).unwrap();
+                    let root = MetadataRecord {
+                        id: ObjectId(1), parent_id: 0, kind: ObjectKind::Directory,
+                        flags: 0, size: 0, extent_root_block: None, generation: 1,
+                    };
+                    let child = MetadataRecord {
+                        id: ObjectId(2), parent_id: 1, kind: ObjectKind::File,
+                        flags: 0, size: 0, extent_root_block: None, generation: 1,
+                    };
+                    let entry = DirectoryEntry {
+                        parent_id: 1, object_id: 2, kind: ObjectKind::File,
+                        name: "child.txt".to_owned(),
+                    };
+                    let mut metadata_bytes = vec![0_u8; block_size as usize];
+                    metadata_bytes[..METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                    metadata_bytes[METADATA_RECORD_SIZE..2 * METADATA_RECORD_SIZE]
+                        .copy_from_slice(&child.encode().unwrap());
+                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    let mut directory_bytes = vec![0_u8; block_size as usize];
+                    directory_bytes[..DIRECTORY_ENTRY_SIZE].copy_from_slice(&entry.encode().unwrap());
+                    device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+                    let old_descriptor = PersistentInventoryDescriptor {
+                        root_id: ObjectId(1), metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1, directory_blocks: vec![directory_block],
+                        directory_entry_count: 0,
+                    };
+                    let old_block = volume.publish_persistent_inventory(&mut device, &old_descriptor).unwrap();
+                    let new_descriptor = PersistentInventoryDescriptor {
+                        metadata_record_count: 2, directory_entry_count: 1,
+                        ..old_descriptor.clone()
+                    };
+                    device.writes_until_failure = Some(fail_at);
+                    let result = volume.replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
+                    assert!(result.is_ok() || matches!(result, Err(Error::Io(_))),
+                        "unexpected replacement error at block size {block_size}, write {fail_at}: {result:?}");
+                    drop(volume);
+                    drop(device);
+
+                    let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                    let mut reopened = open_volume(&mut reopened_device).unwrap();
+                    let (descriptor_block, descriptor) = reopened.discover_persistent_inventory(&mut reopened_device).unwrap().unwrap();
+                    assert!(
+                        (descriptor_block == old_block && descriptor == old_descriptor)
+                            || (descriptor_block != old_block && descriptor == new_descriptor),
+                        "recovery must expose exactly old or new descriptor at block size {block_size}, write {fail_at}: {descriptor:?}"
+                    );
+                    assert!(reopened.verify_discovered_persistent_inventory(&mut reopened_device).unwrap().unwrap().is_consistent());
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn repeated_descriptor_publication_is_idempotent_and_different_replacement_is_rejected() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
