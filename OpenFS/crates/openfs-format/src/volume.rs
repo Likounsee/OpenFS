@@ -5873,6 +5873,7 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
     #[test]
     fn rejecting_descriptor_replacement_preserves_existing_image_at_every_block_size() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
