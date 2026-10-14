@@ -572,22 +572,12 @@ impl OpenedVolume {
                 .ok_or(Error::InvalidInput(
                     "no persistent inventory descriptor exists to replace",
                 ))?;
-        let mut old_metadata_blocks = old_descriptor.metadata_blocks.clone();
-        let mut new_metadata_blocks = descriptor.metadata_blocks.clone();
-        old_metadata_blocks.sort_unstable();
-        new_metadata_blocks.sort_unstable();
-        let mut old_directory_blocks = old_descriptor.directory_blocks.clone();
-        let mut new_directory_blocks = descriptor.directory_blocks.clone();
-        old_directory_blocks.sort_unstable();
-        new_directory_blocks.sort_unstable();
-        if old_metadata_blocks != new_metadata_blocks
-            || old_directory_blocks != new_directory_blocks
-        {
-            return Err(Error::InvalidInput(
-                "descriptor replacement cannot change inventory block ownership",
-            ));
-        }
+
         if old_descriptor == *descriptor {
+            // A retry after the bitmap transaction committed but locator publication failed
+            // must remain idempotent and repair the hint without creating another descriptor.
+            persist_inventory_hint(device, old_block)?;
+            self.inventory_descriptor_hint = Some(old_block);
             self.inventory_descriptor_cache = Some(Some((old_block, old_descriptor)));
             return Ok(old_block);
         }
@@ -601,80 +591,136 @@ impl OpenedVolume {
             &descriptor.directory_blocks,
             descriptor.directory_entry_count,
         )?;
-        // The existing descriptor block is still allocated while validating the new
-        // inventory, so the caller-located verifier (which does not count a descriptor
-        // owner) reports exactly that one block as orphaned. Accept only that precise
-        // transitional state; every other orphan or dangling reference remains fatal.
-        let expected_transition = report.allocation.orphaned_allocation_count == 1
-            && report.allocation.orphaned_allocations.as_slice() == [old_block]
-            && report.allocation.dangling_reference_count == 0;
-        if !report.is_consistent() && !expected_transition {
+
+        // Under the proposed inventory, only the old descriptor and old inventory blocks
+        // omitted from the replacement may become orphaned. Reject unrelated orphans,
+        // dangling references, and truncated diagnostics rather than guessing ownership.
+        let old_inventory_blocks = old_descriptor
+            .metadata_blocks
+            .iter()
+            .chain(old_descriptor.directory_blocks.iter())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let new_inventory_blocks = descriptor
+            .metadata_blocks
+            .iter()
+            .chain(descriptor.directory_blocks.iter())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected_releasable = old_inventory_blocks
+            .difference(&new_inventory_blocks)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        if report.dangling_reference_count() != 0
+            || report.allocation.orphaned_allocations_truncated
+            || report.allocation.orphaned_allocation_count
+                != report.allocation.orphaned_allocations.len() as u64
+            || !report.allocation.orphaned_allocations.contains(&old_block)
+            || report.allocation.orphaned_allocations.iter().any(|block| {
+                *block != old_block && !expected_releasable.contains(block)
+            })
+        {
             return Err(Error::InvalidInput(
                 "replacement inventory has unresolved allocation ownership anomalies",
             ));
         }
+        let released_blocks = report
+            .allocation
+            .orphaned_allocations
+            .iter()
+            .copied()
+            .filter(|block| *block != old_block)
+            .collect::<std::collections::BTreeSet<_>>();
 
         let layout = self.volume.layout;
-        let block_size =
-            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
-        let bitmap_index = old_block / bits_per_bitmap_block;
-        let bitmap_block = layout.bitmap_start + bitmap_index;
-        let bitmap_base = bitmap_index * bits_per_bitmap_block;
-        let first_block = bitmap_base.max(layout.data_start);
-        let end_block = bitmap_base
-            .checked_add(bits_per_bitmap_block)
-            .ok_or(Error::ArithmeticOverflow)?
-            .min(layout.backup_superblock);
-        let mut bitmap = vec![0_u8; block_size];
-        device.read_blocks(bitmap_block, &mut bitmap)?;
+        let first_bitmap = layout.data_start / bits_per_bitmap_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
 
-        let mut replacement_block = None;
-        for block in first_block..end_block {
-            if block == old_block {
-                continue;
-            }
-            let local = block - bitmap_base;
-            let byte_index = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte_index] & mask == 0 {
-                replacement_block = Some(block);
-                break;
+        // The replacement descriptor may live on any bitmap page. Stage it while free;
+        // the multi-page journal transaction below is the sole publication commit point.
+        let mut new_block = None;
+        'pages: for bitmap_index in first_bitmap..=last_bitmap {
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let base = bitmap_index * bits_per_bitmap_block;
+            let first = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_bitmap_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            for block in first..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    new_block = Some(block);
+                    break 'pages;
+                }
             }
         }
-        let new_block = replacement_block.ok_or(Error::InvalidInput(
-            "no free block shares the current descriptor bitmap page",
+        let new_block = new_block.ok_or(Error::InvalidInput(
+            "volume has no free block for replacement descriptor",
         ))?;
-
-        // Stage while the block is still free. A failed write/flush leaves the old
-        // descriptor as the only allocated, discoverable one.
         device.write_blocks(new_block, &encoded)?;
         device.flush()?;
 
-        let old_local = old_block - bitmap_base;
-        let old_byte = usize::try_from(old_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-        let old_mask = 1_u8 << (old_local % 8);
-        let new_local = new_block - bitmap_base;
-        let new_byte = usize::try_from(new_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-        let new_mask = 1_u8 << (new_local % 8);
-        if bitmap[old_byte] & old_mask == 0 || bitmap[new_byte] & new_mask != 0 {
-            return Err(Error::Corrupt(
-                "descriptor allocation changed during replacement",
-            ));
+        // Assemble one redo image per affected bitmap page. A single journal COMMIT makes
+        // all ownership changes visible together, including inventory pages on distant
+        // bitmap segments. Version 4 reserves enough journal slots for up to 15 page images.
+        let mut bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        let changed_blocks = std::iter::once((old_block, false))
+            .chain(std::iter::once((new_block, true)))
+            .chain(released_blocks.iter().copied().map(|block| (block, false)));
+        for (block, allocate) in changed_blocks {
+            if block < layout.data_start || block >= layout.backup_superblock {
+                return Err(Error::Corrupt(
+                    "replacement ownership transition references a block outside the data region",
+                ));
+            }
+            let bitmap_index = block / bits_per_bitmap_block;
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                bitmaps.entry(bitmap_index)
+            {
+                let mut bitmap = vec![0_u8; block_size];
+                device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                entry.insert(bitmap);
+            }
+            let bitmap = bitmaps
+                .get_mut(&bitmap_index)
+                .expect("bitmap page was inserted");
+            let local = block % bits_per_bitmap_block;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if allocate {
+                if bitmap[byte] & mask != 0 {
+                    return Err(Error::Corrupt(
+                        "replacement descriptor candidate is already allocated",
+                    ));
+                }
+                bitmap[byte] |= mask;
+            } else {
+                if bitmap[byte] & mask == 0 {
+                    return Err(Error::Corrupt(
+                        "replacement ownership block is already free",
+                    ));
+                }
+                bitmap[byte] &= !mask;
+            }
         }
-        bitmap[old_byte] &= !old_mask;
-        bitmap[new_byte] |= new_mask;
+        let updates = bitmaps
+            .into_iter()
+            .map(|(bitmap_index, contents)| RedoUpdate {
+                target_block: layout.bitmap_start + bitmap_index,
+                contents,
+            })
+            .collect::<Vec<_>>();
 
-        // An I/O error makes commit outcome uncertain; force callers to rediscover after
-        // reopening instead of trusting stale in-memory cache state.
+        // An I/O error from commit can leave its decision uncertain. Drop all cached
+        // discovery state; callers must reopen and let journal recovery choose old or new.
         self.inventory_descriptor_cache = None;
-        self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        )?;
+        self.journal.commit(device, &updates)?;
         persist_inventory_hint(device, new_block)?;
         self.inventory_descriptor_hint = Some(new_block);
         self.inventory_descriptor_cache = Some(Some((new_block, descriptor.clone())));
