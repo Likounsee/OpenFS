@@ -1,6 +1,6 @@
 //! Canonical volume layout with a reserved persistent journal.
 //!
-//! The journal reserves two checkpoint blocks and a four-block redo ring before the
+//! The journal reserves two checkpoint blocks and a versioned redo ring before the
 //! data region, and protects allocator bitmap changes.
 
 use crate::{
@@ -26,7 +26,7 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
-/// On-disk regions for format canonical. The journal occupies six consecutive blocks.
+/// On-disk regions for the canonical format. Journal capacity depends on the format version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VolumeLayout {
     pub total_blocks: u64,
@@ -43,11 +43,7 @@ impl VolumeLayout {
         Self::calculate_with_ring(block_size, total_blocks, JOURNAL_RING_BLOCKS)
     }
 
-    fn calculate_for_version(
-        block_size: u32,
-        total_blocks: u64,
-        version: u16,
-    ) -> Result<Self> {
+    fn calculate_for_version(block_size: u32, total_blocks: u64, version: u16) -> Result<Self> {
         let ring_blocks = if version == VERSION {
             JOURNAL_RING_BLOCKS
         } else {
@@ -83,8 +79,13 @@ impl VolumeLayout {
         let journal_start = bitmap_start
             .checked_add(bitmap_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
+        let reserved_journal_blocks = if journal_ring_blocks == JOURNAL_RING_BLOCKS {
+            JOURNAL_RESERVED_BLOCKS
+        } else {
+            2_u64 + journal_ring_blocks
+        };
         let data_start = journal_start
-            .checked_add(2_u64 + journal_ring_blocks)
+            .checked_add(reserved_journal_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
         let backup_superblock = total_blocks - 1;
         if data_start >= backup_superblock {
@@ -616,9 +617,11 @@ impl OpenedVolume {
             || report.allocation.orphaned_allocation_count
                 != report.allocation.orphaned_allocations.len() as u64
             || !report.allocation.orphaned_allocations.contains(&old_block)
-            || report.allocation.orphaned_allocations.iter().any(|block| {
-                *block != old_block && !expected_releasable.contains(block)
-            })
+            || report
+                .allocation
+                .orphaned_allocations
+                .iter()
+                .any(|block| *block != old_block && !expected_releasable.contains(block))
         {
             return Err(Error::InvalidInput(
                 "replacement inventory has unresolved allocation ownership anomalies",
@@ -633,8 +636,8 @@ impl OpenedVolume {
             .collect::<std::collections::BTreeSet<_>>();
 
         let layout = self.volume.layout;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
@@ -680,9 +683,7 @@ impl OpenedVolume {
                 ));
             }
             let bitmap_index = block / bits_per_bitmap_block;
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                bitmaps.entry(bitmap_index)
-            {
+            if let std::collections::btree_map::Entry::Vacant(entry) = bitmaps.entry(bitmap_index) {
                 let mut bitmap = vec![0_u8; block_size];
                 device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
                 entry.insert(bitmap);
