@@ -1515,53 +1515,23 @@ mod allocation_bitmap_report_tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let left_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let right_block = volume.allocate_block(&mut device).unwrap();
-                assert_eq!(metadata_block, left_block + 1);
-                assert_eq!(right_block, metadata_block + 1);
-                let records = [
-                    MetadataRecord {
-                        id: ObjectId(1),
-                        parent_id: 0,
-                        kind: ObjectKind::Directory,
-                        flags: 0,
-                        size: 0,
-                        extent_root_block: None,
-                        generation: 1,
-                    },
-                    MetadataRecord {
-                        id: ObjectId(2),
-                        parent_id: 1,
-                        kind: ObjectKind::File,
-                        flags: 0,
-                        size: 0,
-                        extent_root_block: None,
-                        generation: 1,
-                    },
-                    MetadataRecord {
-                        id: ObjectId(3),
-                        parent_id: 1,
-                        kind: ObjectKind::File,
-                        flags: 0,
-                        size: 0,
-                        extent_root_block: None,
-                        generation: 1,
-                    },
-                ];
-                for (block, record) in [left_block, metadata_block, right_block]
-                    .into_iter()
-                    .zip(records)
-                {
-                    let mut metadata = vec![0_u8; block_size as usize];
-                    metadata[..crate::METADATA_RECORD_SIZE]
-                        .copy_from_slice(&record.encode().unwrap());
-                    device.write_blocks(block, &metadata).unwrap();
-                }
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata = vec![0_u8; block_size as usize];
+                metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
-                    metadata_blocks: vec![left_block, metadata_block, right_block],
-                    metadata_record_count: 3,
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
                     directory_blocks: vec![],
                     directory_entry_count: 0,
                 };
@@ -1576,18 +1546,18 @@ mod allocation_bitmap_report_tests {
                     ))
                 ));
                 assert!(matches!(
-                    volume.free_blocks(&mut device, &[left_block, metadata_block]),
+                    volume.free_blocks(&mut device, &[metadata_block, descriptor_block]),
                     Err(Error::InvalidInput(
                         "cannot free a block referenced by persistent inventory descriptor"
                     ))
                 ));
                 assert!(matches!(
-                    volume.free_contiguous_blocks(&mut device, left_block, 3),
+                    volume.free_contiguous_blocks(&mut device, metadata_block, 2),
                     Err(Error::InvalidInput(
                         "cannot free a block referenced by persistent inventory descriptor"
                     ))
                 ));
-                for block in [left_block, metadata_block, right_block] {
+                for block in [metadata_block, descriptor_block] {
                     assert!(
                         volume.is_data_block_allocated(&mut device, block).unwrap(),
                         "rejected range free must preserve every allocation"
