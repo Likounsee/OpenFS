@@ -832,7 +832,10 @@ impl OpenedVolume {
                                     )
                                 })?;
                             }
-                            return Ok(Some((block, descriptor)));
+                            // The locator validates this candidate, but cannot prove
+                            // uniqueness elsewhere in the data region. Continue into the
+                            // authoritative scan so a second allocated descriptor cannot
+                            // be hidden by an otherwise valid hint.
                         }
                     }
                 }
@@ -2653,6 +2656,43 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("inventory-descriptor-ambiguous-with-locator");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let first = volume
+                .publish_persistent_inventory(&mut device, &descriptor)
+                .unwrap();
+            let second = volume.allocate_block(&mut device).unwrap();
+            assert_ne!(first, second);
+            device
+                .write_blocks(second, &descriptor.encode(4096).unwrap())
+                .unwrap();
+
+            assert!(
+                matches!(
+                    volume.discover_persistent_inventory(&mut device),
+                    Err(Error::Corrupt(
+                        "multiple persistent inventory descriptors were discovered"
+                    ))
+                ),
+                "a valid locator must not hide a second allocated descriptor"
+            );
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
