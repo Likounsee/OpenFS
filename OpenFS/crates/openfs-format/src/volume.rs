@@ -14,7 +14,9 @@ use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
 const MAGIC: &[u8; 8] = b"OPENFS\0\0";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
+const LEGACY_VERSION: u16 = 2;
+const INVENTORY_HINT_OFFSET: usize = 48;
 const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
 const JOURNAL_RING_BLOCKS: u64 = 4;
@@ -116,6 +118,7 @@ pub struct OpenedVolume {
     // Cache descriptor discovery for allocator guards. None means not checked yet;
     // Some(None) means checked and absent; Some(Some(...)) is the validated locator.
     inventory_descriptor_cache: Option<Option<(u64, PersistentInventoryDescriptor)>>,
+    inventory_descriptor_hint: Option<u64>,
 }
 
 impl OpenedVolume {
@@ -727,8 +730,6 @@ impl OpenedVolume {
                 }
             }
         }
-        let block_size =
-            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
@@ -1424,7 +1425,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
         .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
-    if primary != backup {
+    if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
     let (block_size, total_blocks, _features, _uuid) = decode_superblock(&primary)?;
@@ -1736,10 +1737,11 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
         .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
-    if primary != backup {
+    if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
     let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
+    let inventory_descriptor_hint = decode_inventory_hint(&primary).or(decode_inventory_hint(&backup));
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "superblock geometry does not match device geometry",
@@ -1765,6 +1767,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
         },
         journal,
         inventory_descriptor_cache: None,
+        inventory_descriptor_hint,
     })
 }
 
@@ -1798,7 +1801,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
         return Err(Error::Corrupt("bad superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION {
+    if version != VERSION && version != LEGACY_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
@@ -1812,7 +1815,10 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("superblock CRC32C mismatch"));
     }
-    if bytes[48..CHECKSUM_OFFSET].iter().any(|b| *b != 0) || bytes[4092..].iter().any(|b| *b != 0) {
+    let reserved_start = if version == VERSION { INVENTORY_HINT_OFFSET + 8 } else { 48 };
+    if bytes[reserved_start..CHECKSUM_OFFSET].iter().any(|b| *b != 0)
+        || bytes[4092..].iter().any(|b| *b != 0)
+    {
         return Err(Error::Corrupt("reserved superblock bytes must be zero"));
     }
     let block_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
@@ -1827,6 +1833,55 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
     let mut uuid = [0_u8; 16];
     uuid.copy_from_slice(&bytes[32..48]);
     Ok((block_size, total_blocks, features, uuid))
+}
+
+fn decode_inventory_hint(bytes: &[u8; SUPERBLOCK_SIZE]) -> Option<u64> {
+    if u16::from_le_bytes([bytes[8], bytes[9]]) != VERSION {
+        return None;
+    }
+    let hint = u64::from_le_bytes(
+        bytes[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
+            .try_into()
+            .ok()?,
+    );
+    (hint != 0).then_some(hint)
+}
+
+fn superblocks_match(primary: &[u8; SUPERBLOCK_SIZE], backup: &[u8; SUPERBLOCK_SIZE]) -> bool {
+    if primary == backup {
+        return true;
+    }
+    if u16::from_le_bytes([primary[8], primary[9]]) != VERSION
+        || u16::from_le_bytes([backup[8], backup[9]]) != VERSION
+    {
+        return false;
+    }
+    primary[..INVENTORY_HINT_OFFSET] == backup[..INVENTORY_HINT_OFFSET]
+        && primary[INVENTORY_HINT_OFFSET + 8..CHECKSUM_OFFSET]
+            == backup[INVENTORY_HINT_OFFSET + 8..CHECKSUM_OFFSET]
+        && primary[4092..] == backup[4092..]
+}
+
+fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<()> {
+    let last = device
+        .block_count()
+        .checked_sub(1)
+        .ok_or(Error::InvalidInput("empty device"))?;
+    for block in [last, 0] {
+        let mut encoded = read_superblock(device, block)?;
+        if u16::from_le_bytes([encoded[8], encoded[9]]) != VERSION {
+            return Err(Error::UnsupportedVersion(u16::from_le_bytes([
+                encoded[8], encoded[9],
+            ])));
+        }
+        encoded[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
+            .copy_from_slice(&hint.to_le_bytes());
+        let checksum = crc32c(&encoded[..CHECKSUM_OFFSET]);
+        encoded[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].copy_from_slice(&checksum.to_le_bytes());
+        write_superblock(device, block, &encoded)?;
+        device.flush()?;
+    }
+    Ok(())
 }
 
 fn read_superblock<D: BlockDevice>(device: &mut D, block: u64) -> Result<[u8; SUPERBLOCK_SIZE]> {
