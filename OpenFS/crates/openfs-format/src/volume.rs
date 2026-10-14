@@ -537,9 +537,11 @@ impl OpenedVolume {
         descriptor: &PersistentInventoryDescriptor,
     ) -> Result<u64> {
         self.validate_device(device)?;
-        let (old_block, old_descriptor) = self
-            .discover_persistent_inventory(device)?
-            .ok_or(Error::InvalidInput("no persistent inventory descriptor exists to replace"))?;
+        let (old_block, old_descriptor) =
+            self.discover_persistent_inventory(device)?
+                .ok_or(Error::InvalidInput(
+                    "no persistent inventory descriptor exists to replace",
+                ))?;
         if old_descriptor.metadata_blocks != descriptor.metadata_blocks
             || old_descriptor.directory_blocks != descriptor.directory_blocks
         {
@@ -568,8 +570,8 @@ impl OpenedVolume {
         }
 
         let layout = self.volume.layout;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let bitmap_index = old_block / bits_per_bitmap_block;
         let bitmap_block = layout.bitmap_start + bitmap_index;
@@ -588,8 +590,7 @@ impl OpenedVolume {
                 continue;
             }
             let local = block - bitmap_base;
-            let byte_index = usize::try_from(local / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let byte_index = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let mask = 1_u8 << (local % 8);
             if bitmap[byte_index] & mask == 0 {
                 replacement_block = Some(block);
@@ -606,12 +607,10 @@ impl OpenedVolume {
         device.flush()?;
 
         let old_local = old_block - bitmap_base;
-        let old_byte = usize::try_from(old_local / 8)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let old_byte = usize::try_from(old_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let old_mask = 1_u8 << (old_local % 8);
         let new_local = new_block - bitmap_base;
-        let new_byte = usize::try_from(new_local / 8)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let new_byte = usize::try_from(new_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let new_mask = 1_u8 << (new_local % 8);
         if bitmap[old_byte] & old_mask == 0 || bitmap[new_byte] & new_mask != 0 {
             return Err(Error::Corrupt(
@@ -6792,8 +6791,7 @@ mod tests {
                     generation: 1,
                 };
                 let mut bytes = vec![0; 4096];
-                bytes[..crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&root.encode().unwrap());
+                bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
                 device.write_blocks(metadata_block, &bytes).unwrap();
             };
             write_root(&mut device, ObjectId(1));
@@ -6820,9 +6818,16 @@ mod tests {
                 .replace_persistent_inventory_descriptor(&mut device, &new_descriptor)
                 .unwrap();
             assert_ne!(new_block, old_block);
-            assert_eq!(volume.free_data_block_count(&mut device).unwrap(), free_before);
-            assert!(!volume.is_data_block_allocated(&mut device, old_block).unwrap());
-            assert!(volume.is_data_block_allocated(&mut device, new_block).unwrap());
+            assert_eq!(
+                volume.free_data_block_count(&mut device).unwrap(),
+                free_before
+            );
+            assert!(!volume
+                .is_data_block_allocated(&mut device, old_block)
+                .unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, new_block)
+                .unwrap());
             let found = volume
                 .discover_persistent_inventory(&mut device)
                 .unwrap()
