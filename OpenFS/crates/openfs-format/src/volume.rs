@@ -7708,6 +7708,55 @@ mod tests {
     }
 
     #[test]
+    fn locator_update_write_and_flush_failures_leave_repairable_superblocks() {
+        for (fail_write, fail_at) in [(true, 0), (true, 1), (false, 0), (false, 1)] {
+            let path = image_path(&format!("locator-update-failure-{fail_write}-{fail_at}"));
+            {
+                let image = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut device = FailNthWrite {
+                    inner: image,
+                    writes_until_failure: None,
+                    flushes_until_failure: None,
+                };
+                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let old_hint = volume.volume.layout.data_start;
+                let new_hint = old_hint + 1;
+                drop(volume);
+
+                if fail_write {
+                    device.writes_until_failure = Some(fail_at);
+                } else {
+                    device.flushes_until_failure = Some(fail_at);
+                }
+                assert!(
+                    matches!(persist_inventory_hint(&mut device, new_hint), Err(Error::Io(_))),
+                    "expected injected locator update failure at write={fail_write}, index={fail_at}"
+                );
+                drop(device);
+
+                // A crash after either superblock write/flush must not make the volume
+                // unopenable. A retry must converge both independently checksummed copies.
+                let mut reopened_device = ImageDevice::open(&path, 4096).unwrap();
+                let reopened = open_volume(&mut reopened_device).unwrap();
+                drop(reopened);
+                persist_inventory_hint(&mut reopened_device, new_hint).unwrap();
+
+                let primary = read_superblock(&mut reopened_device, 0).unwrap();
+                let backup = read_superblock(
+                    &mut reopened_device,
+                    reopened_device.block_count() - 1,
+                )
+                .unwrap();
+                assert_eq!(decode_inventory_hint(&primary), Some(new_hint));
+                assert_eq!(decode_inventory_hint(&backup), Some(new_hint));
+                decode_superblock(&primary).unwrap();
+                decode_superblock(&backup).unwrap();
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn backup_superblock_checksum_is_validated_even_when_locator_hints_may_differ() {
         let path = image_path("backup-superblock-checksum");
         {
