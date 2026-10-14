@@ -522,6 +522,119 @@ impl OpenedVolume {
         Ok(descriptor_block)
     }
 
+    /// Atomically replace a persistent descriptor without changing inventory block ownership.
+    ///
+    /// The replacement descriptor must reference exactly the same metadata and directory
+    /// blocks as the current descriptor. The new descriptor is staged in a free block in
+    /// the same allocation-bitmap page as the old descriptor, then a single journaled bitmap
+    /// image switches visibility from old to new. This keeps the descriptor swap within the
+    /// journal's currently supported single-home-block transaction and makes recovery expose
+    /// exactly one descriptor. Replacements that change block ownership require a larger
+    /// multi-page ownership transaction and are deliberately rejected.
+    pub fn replace_persistent_inventory_descriptor<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        descriptor: &PersistentInventoryDescriptor,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        let (old_block, old_descriptor) = self
+            .discover_persistent_inventory(device)?
+            .ok_or(Error::InvalidInput("no persistent inventory descriptor exists to replace"))?;
+        if old_descriptor.metadata_blocks != descriptor.metadata_blocks
+            || old_descriptor.directory_blocks != descriptor.directory_blocks
+        {
+            return Err(Error::InvalidInput(
+                "descriptor replacement cannot change inventory block ownership",
+            ));
+        }
+        if old_descriptor == *descriptor {
+            self.inventory_descriptor_cache = Some(Some((old_block, old_descriptor)));
+            return Ok(old_block);
+        }
+
+        let encoded = descriptor.encode(self.volume.block_size as usize)?;
+        let report = self.verify_persistent_inventory(
+            device,
+            descriptor.root_id,
+            &descriptor.metadata_blocks,
+            descriptor.metadata_record_count,
+            &descriptor.directory_blocks,
+            descriptor.directory_entry_count,
+        )?;
+        if !report.is_consistent() {
+            return Err(Error::InvalidInput(
+                "replacement inventory has unresolved allocation ownership anomalies",
+            ));
+        }
+
+        let layout = self.volume.layout;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
+        let bitmap_index = old_block / bits_per_bitmap_block;
+        let bitmap_block = layout.bitmap_start + bitmap_index;
+        let bitmap_base = bitmap_index * bits_per_bitmap_block;
+        let first_block = bitmap_base.max(layout.data_start);
+        let end_block = bitmap_base
+            .checked_add(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?
+            .min(layout.backup_superblock);
+        let mut bitmap = vec![0_u8; block_size];
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+
+        let mut replacement_block = None;
+        for block in first_block..end_block {
+            if block == old_block {
+                continue;
+            }
+            let local = block - bitmap_base;
+            let byte_index = usize::try_from(local / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if bitmap[byte_index] & mask == 0 {
+                replacement_block = Some(block);
+                break;
+            }
+        }
+        let new_block = replacement_block.ok_or(Error::InvalidInput(
+            "no free block shares the current descriptor bitmap page",
+        ))?;
+
+        // Stage while the block is still free. A failed write/flush leaves the old
+        // descriptor as the only allocated, discoverable one.
+        device.write_blocks(new_block, &encoded)?;
+        device.flush()?;
+
+        let old_local = old_block - bitmap_base;
+        let old_byte = usize::try_from(old_local / 8)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let old_mask = 1_u8 << (old_local % 8);
+        let new_local = new_block - bitmap_base;
+        let new_byte = usize::try_from(new_local / 8)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let new_mask = 1_u8 << (new_local % 8);
+        if bitmap[old_byte] & old_mask == 0 || bitmap[new_byte] & new_mask != 0 {
+            return Err(Error::Corrupt(
+                "descriptor allocation changed during replacement",
+            ));
+        }
+        bitmap[old_byte] &= !old_mask;
+        bitmap[new_byte] |= new_mask;
+
+        // An I/O error makes commit outcome uncertain; force callers to rediscover after
+        // reopening instead of trusting stale in-memory cache state.
+        self.inventory_descriptor_cache = None;
+        self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        )?;
+        self.inventory_descriptor_cache = Some(Some((new_block, descriptor.clone())));
+        Ok(new_block)
+    }
+
     /// Discover a unique persistent inventory descriptor by scanning allocated data blocks.
     ///
     /// The superblock has no fixed inventory region, so discovery scans allocated data
