@@ -5946,14 +5946,6 @@ mod tests {
             let mut older_block = vec![0_u8; 4096];
             older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
             device.write_blocks(layout.journal.checkpoint_b, &older_block).unwrap();
-            let older = JournalCheckpoint {
-                generation: 2, checkpoint_sequence: 9, next_sequence: 10,
-                next_transaction_id: 4, head_block: 0, tail_block: 0,
-            };
-            let older_encoded = older.encode().unwrap();
-            let mut older_block = vec![0_u8; 4096];
-            older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
-            device.write_blocks(layout.journal.checkpoint_b, &older_block).unwrap();
 
             // ID six is greater than the checkpoint's next ID, but ID five
             // cannot be skipped by the single-writer journal protocol.
