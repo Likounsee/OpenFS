@@ -313,7 +313,9 @@ mod tests {
             assert!(
                 matches!(
                     descriptor.encode(block_size),
-                    Err(Error::InvalidInput("unsupported inventory descriptor block size"))
+                    Err(Error::InvalidInput(
+                        "unsupported inventory descriptor block size"
+                    ))
                 ),
                 "encoder accepted unsupported descriptor block size {block_size}"
             );
