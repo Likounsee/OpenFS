@@ -1809,12 +1809,15 @@ mod tests {
                 ),
                 "operation {fail_at} should return the injected I/O error"
             );
-            assert!(matches!(
-                journal.commit(&mut device, &[update(0xBC)]),
-                Err(Error::InvalidInput(
-                    "journal requires recovery after a previous I/O error"
-                ))
-            ), "operation {fail_at} must poison the live writer until recovery");
+            assert!(
+                matches!(
+                    journal.commit(&mut device, &[update(0xBC)]),
+                    Err(Error::InvalidInput(
+                        "journal requires recovery after a previous I/O error"
+                    ))
+                ),
+                "operation {fail_at} must poison the live writer until recovery"
+            );
             let mut recovered_device = failing.into_inner();
             let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
                 panic!("recovery failed at operation {fail_at}: {error:?}")
