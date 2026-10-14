@@ -4379,7 +4379,7 @@ mod tests {
                     drop(recovered);
                     drop(device);
                     let mut device = ImageDevice::open(&path, block_size).unwrap();
-                    let recovered = open_volume(&mut device).unwrap();
+                    let mut recovered = open_volume(&mut device).unwrap();
                     let rediscovered = recovered
                         .discover_persistent_inventory(&mut device)
                         .unwrap();
@@ -4409,6 +4409,22 @@ mod tests {
                             "committed allocation changed after a second reopen (block size {block_size}, flush {fail_at})"
                         );
                     }
+                    // Retry after the second reopen as well. Before the commit point,
+                    // this must finish publication; after it, it must remain idempotent.
+                    let retried_block = recovered
+                        .publish_persistent_inventory(&mut device, &descriptor)
+                        .unwrap();
+                    let (published_block, published_descriptor) = recovered
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(retried_block, published_block);
+                    assert_eq!(published_descriptor, descriptor);
+                    assert_eq!(
+                        recovered.free_data_block_count(&mut device).unwrap(),
+                        free_before - 1,
+                        "retry after a second reopen must leave exactly one descriptor allocation (block size {block_size}, flush {fail_at})"
+                    );
                 }
                 fs::remove_file(path).unwrap();
             }
