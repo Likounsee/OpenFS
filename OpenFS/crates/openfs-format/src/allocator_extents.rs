@@ -1360,8 +1360,12 @@ mod allocation_bitmap_report_tests {
     }
 
     impl<D: BlockDevice> BlockDevice for CountRangeReads<D> {
-        fn block_size(&self) -> u32 { self.inner.block_size() }
-        fn block_count(&self) -> u64 { self.inner.block_count() }
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
         fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
             if output.len() > self.block_size() as usize {
                 self.multi_block_reads += 1;
@@ -1371,7 +1375,9 @@ mod allocation_bitmap_report_tests {
         fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
             self.inner.write_blocks(first_block, input)
         }
-        fn flush(&mut self) -> Result<()> { self.inner.flush() }
+        fn flush(&mut self) -> Result<()> {
+            self.inner.flush()
+        }
     }
 
     #[test]
@@ -1386,7 +1392,10 @@ mod allocation_bitmap_report_tests {
             }
             assert!(blocks.windows(2).all(|pair| pair[1] == pair[0] + 1));
 
-            let mut device = CountRangeReads { inner: image, multi_block_reads: 0 };
+            let mut device = CountRangeReads {
+                inner: image,
+                multi_block_reads: 0,
+            };
             volume.free_blocks(&mut device, &blocks).unwrap();
             assert_eq!(device.multi_block_reads, 1);
             for block in blocks {
