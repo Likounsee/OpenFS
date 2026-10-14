@@ -7063,7 +7063,7 @@ mod tests {
                     drop(device);
 
                     let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
-                    let mut reopened = open_volume(&mut reopened_device).unwrap();
+                    let reopened = open_volume(&mut reopened_device).unwrap();
                     let (descriptor_block, descriptor) = reopened
                         .discover_persistent_inventory(&mut reopened_device)
                         .unwrap()
