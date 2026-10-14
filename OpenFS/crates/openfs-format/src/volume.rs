@@ -2598,11 +2598,11 @@ mod tests {
     fn locator_and_fallback_scan_reject_invalid_populated_namespace() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        for use_locator in [true, false] {
-            let path = image_path(if use_locator {
-                "locator-invalid-populated-namespace"
-            } else {
-                "scan-invalid-populated-namespace"
+        for hint_mode in ["valid", "absent", "stale"] {
+            let path = image_path(match hint_mode {
+                "valid" => "locator-invalid-populated-namespace",
+                "absent" => "scan-invalid-populated-namespace",
+                _ => "stale-locator-invalid-populated-namespace",
             });
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
@@ -2624,8 +2624,21 @@ mod tests {
                     .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
                     .unwrap();
                 device.flush().unwrap();
-                if use_locator {
-                    crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                match hint_mode {
+                    "valid" => {
+                        crate::volume::persist_inventory_hint(&mut device, descriptor_block)
+                            .unwrap();
+                    }
+                    "stale" => {
+                        // Point the persisted hint at an allocated non-descriptor block.
+                        // Discovery must reject the hint and apply namespace validation
+                        // when the full scan finds the actual descriptor.
+                        crate::volume::persist_inventory_hint(&mut device, metadata_block)
+                            .unwrap();
+                    }
+                    _ => {}
+                }
+                if hint_mode != "absent" {
                     // Reload the volume so discovery reads the persisted hint from disk;
                     // the original in-memory volume predates this superblock update.
                     volume = open_volume(&mut device).unwrap();
@@ -2636,7 +2649,7 @@ mod tests {
                     Err(Error::Corrupt(
                         "persistent inventory descriptor contains an invalid namespace"
                     ))
-                ));
+                ), "invalid namespace was accepted with hint mode {hint_mode}");
             }
             fs::remove_file(path).unwrap();
         }
