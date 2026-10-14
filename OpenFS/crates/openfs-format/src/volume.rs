@@ -1334,6 +1334,62 @@ fn check_journal_read_only<D: BlockDevice>(
         }
         (Ok(a), Ok(b))
             if a.generation > b.generation
+                && a.generation.checked_sub(b.generation) != Some(1) =>
+        {
+            return Err(Error::Corrupt(
+                "journal checkpoint generations are not consecutive",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if b.generation > a.generation
+                && b.generation.checked_sub(a.generation) != Some(1) =>
+        {
+            return Err(Error::Corrupt(
+                "journal checkpoint generations are not consecutive",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if a.generation > b.generation
+                && a.checkpoint_sequence == b.checkpoint_sequence
+                && !(a.generation == 2 && b.generation == 1
+                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                    && b.next_transaction_id == 1) =>
+        {
+            return Err(Error::Corrupt(
+                "checkpoint generation advanced without a durable journal record",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if b.generation > a.generation
+                && a.checkpoint_sequence == b.checkpoint_sequence
+                && !(b.generation == 2 && a.generation == 1
+                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                    && b.next_transaction_id == 1) =>
+        {
+            return Err(Error::Corrupt(
+                "checkpoint generation advanced without a durable journal record",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if a.generation > b.generation
+                && a.checkpoint_sequence > b.checkpoint_sequence
+                && a.next_transaction_id == b.next_transaction_id =>
+        {
+            return Err(Error::Corrupt(
+                "journal sequence advanced without a transaction ID",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if b.generation > a.generation
+                && b.checkpoint_sequence > a.checkpoint_sequence
+                && b.next_transaction_id == a.next_transaction_id =>
+        {
+            return Err(Error::Corrupt(
+                "journal sequence advanced without a transaction ID",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if a.generation > b.generation
                 && (a.checkpoint_sequence < b.checkpoint_sequence
                     || a.next_transaction_id < b.next_transaction_id) =>
         {
