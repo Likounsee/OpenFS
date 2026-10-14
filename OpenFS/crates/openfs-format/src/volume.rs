@@ -1671,7 +1671,10 @@ mod tests {
         fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
             if self.armed {
                 self.armed = false;
+                // Preserve the bytes beyond the persisted prefix: a torn write changes
+                // only the prefix that reached storage, not the untouched tail.
                 let mut torn = vec![0_u8; input.len()];
+                self.inner.read_blocks(first_block, &mut torn)?;
                 let copied = self.prefix_len.min(input.len());
                 torn[..copied].copy_from_slice(&input[..copied]);
                 self.inner.write_blocks(first_block, &torn)?;
