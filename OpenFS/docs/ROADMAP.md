@@ -7,6 +7,52 @@ Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
+## Roadmap opérationnelle révisée — alignée sur les fonctions manquantes d'OpenFS-old
+
+**Source fonctionnelle de cette révision :** [`DIFFERENCES_OPENFS_OLD.txt`](../../DIFFERENCES_OPENFS_OLD.txt), complété par [`OLD_OPENFS_AUDIT.md`](OLD_OPENFS_AUDIT.md). Cette matrice devient le guide de portage : chaque comportement historique utile doit être réimplémenté en Rust, intégré au vrai chemin disque et testé. La présence d'un module ou d'une API seule ne valide pas une fonctionnalité.
+
+### Ordre de priorité à suivre
+
+L'ordre ci-dessous prime sur une lecture naïve des numéros de phases plus bas : il respecte les dépendances techniques et empêche d'empiler des fonctionnalités avancées sur un chemin de persistance incomplet.
+
+| Priorité | Livrable | Fonctions historiques concernées | État de départ | Condition de sortie |
+| --- | --- | --- | --- | --- |
+| **R0 — Contrats et format** | Figer les règles du format Rust, les erreurs d'E/S, le rôle de `flush`, les versions et les limites. Conserver des fixtures Rust distinctes des images C historiques. | Superblocs, CRC, géométrie, fonctionnalités, régions réservées, périphérique bloc. | **Partiellement fait** : format Rust expérimental et politique de compatibilité documentée; les golden images complètes et la stabilité de format restent à établir. | Images de référence versionnées, tests octet-par-octet et de corruption; refus explicite des images OpenFS-old non compatibles. |
+| **R1 — Transaction générale fiable** | Finaliser le contrat du journal : commit durable, capacité, erreurs à résultat incertain, replay idempotent, checkpoints et récupération avant toute exposition des objets. Étendre ensuite les transactions à plusieurs blocs. | WAL BEGIN/DATA/COMMIT, transactions, replay, checkpoints, rollback, échecs d'écriture/flush et crash cuts. | **Partiellement fait** : le journal redo existe et protège surtout des changements d'allocation; ce n'est pas encore le moteur transactionnel général du système de fichiers. | Matrice de panne write/flush/reopen/replay; état final toujours complet (ancien ou nouveau); tests exact-SHA CI; opérations refusées si l'état reste incertain. |
+| **R2 — Premier chemin persistant de bout en bout** | Implémenter une table d'objets/inodes et une racine/index canoniques, puis `create/mkdir/lookup/list` persistants; ajouter `read/write/truncate/flush/close`, extents multiples, trous creux et réouverture. | Inodes, générations, bitmap d'inodes, extents, fichiers, répertoires, lecture/écriture, EOF, sparse files, seek-data/seek-hole. | **Bloquant principal** : codecs, allocations, reconstruction et lectures de plages existent, mais pas de cycle complet de mutation durable. | Formater → créer → écrire → fermer → rouvrir → relire les mêmes octets; cohérence transactionnelle entre bitmap, inode, extents, données et répertoire; échecs injectés testés. |
+| **R3 — Namespace complet et cycle de vie** | Compléter `unlink/rmdir/rename`, remplacement atomique, liens, générations, compte de liens, objets ouverts mais supprimés et récupération des orphelins. Ajouter handles et verrouillage seulement avec des règles de durée de vie explicites. | Paths, directory operations, hard links, symlinks, open/unlink/close, file descriptors, byte-range locks, concurrence. | **Non intégré** : la validation/résolution du namespace est en mémoire; la mutation persistante complète n'existe pas. | Tests de collisions, répertoires non vides, identité d'objet après rename, open-unlink-close, concurrence déterministe et crash/reopen pour chaque opération multi-métadonnées. |
+| **R4 — Vérification complète avant réparation** | Étendre le checker en lecture seule depuis la racine persistante à tous les objets, puis ajouter scrub et diagnostics stables. Les réparations viennent après, limitées, prévalidées, explicites et transactionnelles. | FSCK, bitmap/refcounts, allocations orphelines, extents, CRC, namespace, scrub et réparation. | **Partiellement fait** : vérifications structurelles et d'inventaire présentes; pas de FSCK complet parcourant un filesystem persistant ni de réparation générale. | Checker sans écriture, diagnostics reproductibles, corruption corpus, fuzzing; toute réparation proposée a un dry-run, un journal d'actions et un second check. Refuser les corrections ambiguës. |
+| **R5 — Métadonnées et fonctionnalités avancées** | Ajouter par lots séparés les permissions/modes, UID/GID, timestamps, xattrs et ACL; puis CoW/refcounts/clone/discard; snapshots uniquement après stabilisation des références et transactions. | Access checks, ACL, xattrs, time metadata, CoW, refcounts, metadata roots, snapshots. | **Absent ou primitives non intégrées** dans le chemin persistant Rust. | Chaque famille a son format, ses limites, ses erreurs, ses tests positifs/négatifs et ses tests de crash. Ne pas annoncer les snapshots sur la seule présence de primitives CoW. |
+| **R6 — Adaptateurs OS et outils sûrs** | Stabiliser l'API portable avant l'adaptateur userspace/OS. Séparer clairement le backend bloc d'un véritable montage de filesystem. Protéger la découverte et le formatage de périphériques. | Mount/unmount, Linux/Windows/ArchiaOS, handles OS, format/check/fsck tools, USB/device workflows. | **Absent** pour le montage Rust; les outils actuels sont orientés images de développement. | Tests OS normaux create/read/write/rename/unlink/flush/unmount/remount. Refus de périphériques système, montés, ambigus ou dont l'identité change; confirmation avant toute écriture destructive. |
+| **R7 — Qualification et livraison** | Ajouter fuzz/property tests, stress, benchmarks reproductibles, guide de récupération et matrice de plateformes supportées. | Toute la suite historique de tests, CI GCC/Clang/sanitizers/Windows, crash-cut, performance et opérations. | **Incomplet** : CI Rust existe, mais fuzzing, benchmarks, montage OS et validation matérielle ne sont pas établis. | CI verte sur le SHA exact; corpus de corruption et crash cuts; preuves séparées pour image, OS et matériel; aucun claim de compatibilité ou de durabilité non démontré. |
+
+### Lots de portage à réaliser en parallèle (sans contourner les dépendances)
+
+- **Lot A — format/codec :** superblocs miroir, versions inconnues, champs réservés, géométrie/overflow, fixtures binaires et rejet explicite d'images historiques.
+- **Lot B — transaction :** journal multi-blocs, validation de tous les targets avant publication, erreurs à résultat incertain, replay répété et récupération après chaque write/flush.
+- **Lot C — données :** allocation d'extents, écritures partielles et multi-blocs, croissance/rétrécissement, trous remplis de zéros, libération uniquement après suppression durable des références.
+- **Lot D — namespace :** stockage persistant des répertoires, règles de noms/chemins, create/mkdir/rename/unlink/rmdir et identité stable des objets.
+- **Lot E — intégrité :** ownership global, orphelins, CRC/checksums, scrub lecture seule et réparations prévalidées uniquement.
+- **Lot F — runtime :** handles, open-unlink-close, locks et concurrence après que les mutations de base soient transactionnelles.
+- **Lot G — intégrations :** adaptateur OS, outils image/périphérique et validation matérielle, après stabilité du contrat portable.
+
+Les lots peuvent avancer en parallèle pour les spécifications, fixtures et tests; ils ne doivent pas exposer d'écriture utilisateur avant que R0–R2 et leur contrat de récupération soient satisfaits.
+
+### Règles de portage de la checklist historique
+
+1. `OpenFS-old` est une référence de comportements et de tests, jamais la branche cible. Toutes les modifications d'implémentation vont sur la branche `OpenFS` en Rust.
+2. Ne pas copier le format C v1.6 par défaut : le format Rust est distinct. Toute conversion doit être explicite, non destructive et validée avec des fixtures.
+3. Convertir les scénarios C utiles en tests Rust, en donnant la priorité aux échecs, corruptions, rollbacks, crash cuts et doubles pannes — pas uniquement aux chemins heureux.
+4. Une fonction ne passe à « terminée » qu'après preuve séparée de son implémentation, de son intégration, de ses tests exécutés et du CI exact-SHA pertinent. Les tests d'image ne prouvent ni montage OS ni durabilité physique.
+5. Les limites connues d'OpenFS-old restent des limites : son adaptateur WinFsp est essentiellement en lecture seule, son extent tree est peu profond, sa réparation FSCK est limitée et son dernier job Windows crash-cut a échoué par timeout. Ne pas en faire des promesses de parité.
+6. **Premier objectif utilisateur réaliste :** un fichier persistant créé, écrit, fermé, relu après réouverture et vérifié par le checker. Le montage USB réel arrive après ce jalon, pas avant.
+
+### Prochaine action prioritaire
+
+Ne plus multiplier les validations isolées du journal tant que la prochaine étape utile n'est pas reliée au chemin de fichier persistant. Après le contrat transactionnel et les prérequis de format, construire le vertical slice **racine persistante → inode/objet → entrée de répertoire → allocation d'extents → écriture/lecture → close/reopen → checker**, en couvrant plusieurs sous-fonctionnalités à la fois et en injectant des pannes dans chaque frontière de persistance.
+
+---
+
 ## Executive assessment
 
 OpenFS is currently a Rust filesystem-format and storage-engine prototype, not yet a mountable general-purpose filesystem. The Rust workspace has bounded block-device I/O, an experimental canonical layout, bitmap allocation, a bounded redo journal used for allocator changes, metadata/directory codecs, extent maps, an in-memory namespace, disk-backed inventory reconstruction, a persistent inventory descriptor, file-range reads over reconstructed metadata, and a read-only volume checker. It does not yet provide durable file or namespace mutation APIs, a mount/VFS adapter, safe USB discovery, or a repair utility.
