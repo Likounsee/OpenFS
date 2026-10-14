@@ -2676,6 +2676,90 @@ mod tests {
     }
 
     #[test]
+    fn discovery_namespace_read_failures_are_retryable() {
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        // Descriptor scan reads are 0-3; packed metadata and directory data reads
+        // occur later, after their allocation bitmap pages have been checked.
+        for fail_at in [5, 7] {
+            let path = image_path(&format!("inventory-discovery-namespace-read-failure-{fail_at}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                // Keep the descriptor first so its scan batch cannot be mistaken for
+                // either packed namespace-stream read.
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let file = MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 12,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "hello.txt".to_owned(),
+                };
+                let mut metadata_bytes = vec![0_u8; 4096];
+                metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                let mut directory_bytes = vec![0_u8; 4096];
+                directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+                device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 2,
+                    directory_blocks: vec![directory_block],
+                    directory_entry_count: 1,
+                };
+                device
+                    .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                    .unwrap();
+                device.flush().unwrap();
+
+                let mut failing = FailReadAt {
+                    inner: device,
+                    read_index: 0,
+                    fail_at,
+                };
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut failing),
+                        Err(Error::Io(_))
+                    ),
+                    "namespace discovery must propagate injected read failure at read {fail_at}"
+                );
+                let found = volume
+                    .discover_persistent_inventory(&mut failing)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(found.0, descriptor_block);
+                assert_eq!(found.1, descriptor);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
