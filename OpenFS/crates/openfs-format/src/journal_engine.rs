@@ -1819,7 +1819,7 @@ mod tests {
                 "operation {fail_at} must poison the live writer until recovery"
             );
             let mut recovered_device = failing.into_inner();
-            let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
+            let mut reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
                 panic!("recovery failed at operation {fail_at}: {error:?}")
             });
             let expected_byte = if fail_at <= 4 { 0x11 } else { 0xA5 };
@@ -1839,6 +1839,19 @@ mod tests {
                 reopened.checkpoint().checkpoint_sequence,
                 expected_sequence,
                 "unexpected checkpoint after failure at operation {fail_at}"
+            );
+
+            // Successful recovery must restore a usable writer, not merely expose
+            // a readable home image. A fresh commit must persist and remain readable.
+            reopened
+                .commit(&mut recovered_device, &[update(0xC3)])
+                .unwrap_or_else(|error| {
+                    panic!("post-recovery commit failed at operation {fail_at}: {error:?}")
+                });
+            assert_eq!(
+                read_home(&mut recovered_device),
+                vec![0xC3; BS as usize],
+                "writer did not resume after recovery at operation {fail_at}"
             );
         }
     }
