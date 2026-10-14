@@ -4233,6 +4233,8 @@ mod tests {
             device.flush().unwrap();
 
             let volume = open_volume(&mut device).unwrap();
+            assert_eq!(volume.format_version, 2);
+            assert_eq!(volume.volume.layout, VolumeLayout::calculate_for_version(4096, 256, 2).unwrap());
             assert_eq!(volume.volume.layout.data_start, 8);
             let found = volume
                 .discover_persistent_inventory(&mut device)
