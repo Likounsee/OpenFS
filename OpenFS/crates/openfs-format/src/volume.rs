@@ -811,6 +811,27 @@ impl OpenedVolume {
                             && !descriptor.metadata_blocks.contains(&block)
                             && !descriptor.directory_blocks.contains(&block)
                         {
+                            // A checksummed locator proves where the descriptor is, not
+                            // that its records form a valid namespace. Preserve the empty
+                            // inventory compatibility case, but validate populated streams
+                            // before accepting the fast path.
+                            if descriptor.metadata_record_count != 0
+                                || descriptor.directory_entry_count != 0
+                            {
+                                self.reconstruct_namespace(
+                                    device,
+                                    descriptor.root_id,
+                                    &descriptor.metadata_blocks,
+                                    descriptor.metadata_record_count,
+                                    &descriptor.directory_blocks,
+                                    descriptor.directory_entry_count,
+                                )
+                                .map_err(|_| {
+                                    Error::Corrupt(
+                                        "persistent inventory descriptor contains an invalid namespace",
+                                    )
+                                })?;
+                            }
                             return Ok(Some((block, descriptor)));
                         }
                     }
@@ -900,6 +921,26 @@ impl OpenedVolume {
                             "inventory descriptor references a free inventory block",
                         ));
                     }
+                }
+                // Apply the same namespace validation to fallback discovery as to the
+                // locator fast path. Otherwise a stale hint could turn a rejected
+                // descriptor into an accepted one merely by forcing a full scan.
+                if descriptor.metadata_record_count != 0
+                    || descriptor.directory_entry_count != 0
+                {
+                    self.reconstruct_namespace(
+                        device,
+                        descriptor.root_id,
+                        &descriptor.metadata_blocks,
+                        descriptor.metadata_record_count,
+                        &descriptor.directory_blocks,
+                        descriptor.directory_entry_count,
+                    )
+                    .map_err(|_| {
+                        Error::Corrupt(
+                            "persistent inventory descriptor contains an invalid namespace",
+                        )
+                    })?;
                 }
                 if discovered.is_some() {
                     return Err(Error::Corrupt(
@@ -2551,6 +2592,51 @@ mod tests {
             ));
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn locator_and_fallback_scan_reject_invalid_populated_namespace() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for use_locator in [true, false] {
+            let path = image_path(if use_locator {
+                "locator-invalid-populated-namespace"
+            } else {
+                "scan-invalid-populated-namespace"
+            });
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+
+                // The descriptor checksum and allocation references are valid, but the
+                // referenced metadata stream is not a valid root namespace record.
+                device.write_blocks(metadata_block, &vec![0_u8; 4096]).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                device
+                    .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
+                    .unwrap();
+                device.flush().unwrap();
+                if use_locator {
+                    crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                }
+
+                assert!(matches!(
+                    volume.discover_persistent_inventory(&mut device),
+                    Err(Error::Corrupt(
+                        "persistent inventory descriptor contains an invalid namespace"
+                    ))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
