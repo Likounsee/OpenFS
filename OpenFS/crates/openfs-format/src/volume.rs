@@ -7301,7 +7301,7 @@ mod tests {
                 for child_index in 0..64_u64 {
                     let child_id = child_index + 2;
                     let child = MetadataRecord {
-                        id: ObjectId(child_id),
+                        id: ObjectId(child_id.into()),
                         parent_id: 1,
                         kind: ObjectKind::File,
                         flags: 0,
@@ -7320,7 +7320,7 @@ mod tests {
                     }
                     let entry = DirectoryEntry {
                         parent_id: 1,
-                        object_id: child_id,
+                        object_id: child_id.into(),
                         kind: ObjectKind::File,
                         name: format!("child-{child_index}"),
                     };
