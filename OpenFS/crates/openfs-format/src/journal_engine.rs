@@ -1513,6 +1513,12 @@ mod tests {
             before,
             "oversized transaction must be rejected before any persistent write"
         );
+
+        // A preflight rejection is not an uncertain I/O result and must not poison
+        // the live journal. Prove the same instance can commit a valid transaction.
+        journal.commit(&mut device, &[update(0xA5)]).unwrap();
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+        assert_eq!(journal.checkpoint().checkpoint_sequence, 4);
     }
 
     #[test]
