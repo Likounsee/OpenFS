@@ -4300,7 +4300,9 @@ mod tests {
                         .copy_from_slice(&root.encode().unwrap());
                     metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&child.encode().unwrap());
-                    device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                    device
+                        .write_blocks(metadata_block, &metadata_bytes)
+                        .unwrap();
                     let old_descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
                         metadata_blocks: vec![metadata_block],
@@ -4316,10 +4318,8 @@ mod tests {
                         ..old_descriptor.clone()
                     };
                     device.writes_until_failure = Some(fail_at);
-                    let result = volume.replace_persistent_inventory_descriptor(
-                        &mut device,
-                        &new_descriptor,
-                    );
+                    let result = volume
+                        .replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
                     assert!(
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
                         "unexpected replacement error at block size {block_size}, write {fail_at}: {result:?}"
