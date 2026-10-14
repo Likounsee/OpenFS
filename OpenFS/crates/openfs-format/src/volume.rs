@@ -305,11 +305,7 @@ impl OpenedVolume {
     /// The operation is limited to one bitmap page so the allocation changes can be
     /// represented by a single redo image. All inputs and ownership guards are checked
     /// before the journal is modified.
-    pub fn free_blocks<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        blocks: &[u64],
-    ) -> Result<()> {
+    pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
         self.validate_device(device)?;
         if blocks.is_empty() {
             return Err(Error::InvalidInput("block-free batch must not be empty"));
