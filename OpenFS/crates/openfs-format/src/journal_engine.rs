@@ -1489,7 +1489,13 @@ mod tests {
             journal.commit(&mut device, &[bad]),
             Err(Error::InvalidInput(_))
         ));
-        let many = (0..4).map(|_| update(1)).collect::<Vec<_>>();
+        let many = (0..4)
+            .map(|index| {
+                let mut item = update(index as u8 + 1);
+                item.target_block = HOME + index;
+                item
+            })
+            .collect::<Vec<_>>();
         let before = device.bytes.lock().unwrap().clone();
         assert!(matches!(
             journal.commit(&mut device, &many),
