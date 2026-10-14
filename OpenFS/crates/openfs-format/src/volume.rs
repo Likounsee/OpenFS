@@ -2472,6 +2472,7 @@ mod tests {
                     "inventory-torn-prefix-{block_size}-{prefix_len}"
                 ));
                 let metadata_block;
+                let metadata_record;
                 let free_before;
                 let descriptor = {
                     let raw = ImageDevice::create(&path, block_size, 256).unwrap();
@@ -2492,9 +2493,10 @@ mod tests {
                         extent_root_block: None,
                         generation: 1,
                     };
+                    metadata_record = root.encode().unwrap();
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                        .copy_from_slice(&root.encode().unwrap());
+                        .copy_from_slice(&metadata_record);
                     device.write_blocks(metadata_block, &metadata_bytes).unwrap();
 
                     let descriptor = PersistentInventoryDescriptor {
@@ -2528,6 +2530,13 @@ mod tests {
                     assert!(
                         volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
                         "torn prefix {prefix_len} must not be discoverable after reopen at block size {block_size}"
+                    );
+                    let mut persisted_metadata = vec![0_u8; block_size as usize];
+                    device.read_blocks(metadata_block, &mut persisted_metadata).unwrap();
+                    assert_eq!(
+                        &persisted_metadata[..crate::METADATA_RECORD_SIZE],
+                        metadata_record.as_slice(),
+                        "torn prefix {prefix_len} changed the unrelated root metadata at block size {block_size}"
                     );
 
                     // The staged candidate is the first free block. Allocation must
