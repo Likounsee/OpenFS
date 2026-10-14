@@ -316,7 +316,9 @@ mod tests {
             assert!(
                 matches!(
                     PersistentInventoryDescriptor::decode(&bytes),
-                    Err(Error::InvalidInput("inventory descriptor has an invalid block size"))
+                    Err(Error::InvalidInput(
+                        "inventory descriptor has an invalid block size"
+                    ))
                 ),
                 "unsupported descriptor block size {block_size} was accepted"
             );
