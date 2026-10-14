@@ -1518,6 +1518,9 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
         .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
+    // A locator update can leave different but valid hints in the two copies. Decode
+    // both independently so the tolerated difference never masks a bad backup CRC.
+    decode_superblock(&backup)?;
     if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
@@ -1831,6 +1834,10 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
         .ok_or(Error::InvalidInput("empty device"))?;
     let primary = read_superblock(device, 0)?;
     let backup = read_superblock(device, last)?;
+    // Validate each copy's checksum and encoding independently before comparing them.
+    // The locator hint may legitimately differ after an interrupted backup-first update,
+    // but that exception must never allow a damaged backup checksum to go unnoticed.
+    decode_superblock(&backup)?;
     if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
@@ -7549,6 +7556,33 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn backup_superblock_checksum_is_validated_even_when_locator_hints_may_differ() {
+        let path = image_path("backup-superblock-checksum");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let backup = volume.volume.layout.backup_superblock;
+            drop(volume);
+
+            let mut bytes = vec![0_u8; 4096];
+            device.read_blocks(backup, &mut bytes).unwrap();
+            bytes[CHECKSUM_OFFSET] ^= 0x80;
+            device.write_blocks(backup, &bytes).unwrap();
+            device.flush().unwrap();
+
+            assert!(matches!(
+                open_volume(&mut device),
+                Err(Error::Corrupt("superblock CRC32C mismatch"))
+            ));
+            assert!(matches!(
+                check_volume(&mut device),
+                Err(Error::Corrupt("superblock CRC32C mismatch"))
+            ));
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
