@@ -1159,6 +1159,43 @@ mod tests {
     }
 
     #[test]
+    fn recovery_replays_durable_commit_when_newer_checkpoint_geometry_is_invalid() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+
+        // A single-block redo image uses BEGIN + two UPDATE chunks + COMMIT.
+        // Fail the first home write, after COMMIT is durable but before checkpointing.
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+
+        // Simulate a torn/semantically invalid newest checkpoint. The older copy
+        // must remain sufficient to find and replay the committed ring records.
+        let invalid = JournalCheckpoint {
+            generation: 10,
+            checkpoint_sequence: 0,
+            next_sequence: 1,
+            next_transaction_id: 1,
+            head_block: 1,
+            tail_block: 0,
+        };
+        super::write_checkpoint_block(&mut recovered, REGION.checkpoint_b, &invalid).unwrap();
+        recovered.flush().unwrap();
+
+        let reopened = open_journal(&mut recovered, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+
+        // The repaired checkpoint must be valid and recovery idempotent.
+        let reopened_again = open_journal(&mut recovered, REGION).unwrap();
+        assert_eq!(reopened_again.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+    }
+
+    #[test]
     fn format_rejects_blocks_too_small_for_checkpoint_before_writing() {
         for block_size in [52, 64, 71] {
             let inner = MemoryDevice::new();
