@@ -2626,6 +2626,9 @@ mod tests {
                 device.flush().unwrap();
                 if use_locator {
                     crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                    // Reload the volume so discovery reads the persisted hint from disk;
+                    // the original in-memory volume predates this superblock update.
+                    volume = open_volume(&mut device).unwrap();
                 }
 
                 assert!(matches!(
