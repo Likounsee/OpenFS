@@ -6788,7 +6788,9 @@ mod tests {
 
     #[test]
     fn descriptor_replacement_recovers_old_or_new_descriptor_after_write_failures() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for fail_at in 0..=6 {
@@ -6828,13 +6830,16 @@ mod tests {
                         metadata_record_count: 1, directory_blocks: vec![directory_block],
                         directory_entry_count: 0,
                     };
-                    let old_block = volume.publish_persistent_inventory(&mut device, &old_descriptor).unwrap();
+                    let old_block = volume
+                        .publish_persistent_inventory(&mut device, &old_descriptor)
+                        .unwrap();
                     let new_descriptor = PersistentInventoryDescriptor {
                         metadata_record_count: 2, directory_entry_count: 1,
                         ..old_descriptor.clone()
                     };
                     device.writes_until_failure = Some(fail_at);
-                    let result = volume.replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
+                    let result = volume
+                        .replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
                     assert!(result.is_ok() || matches!(result, Err(Error::Io(_))),
                         "unexpected replacement error at block size {block_size}, write {fail_at}: {result:?}");
                     drop(volume);
@@ -6842,13 +6847,20 @@ mod tests {
 
                     let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
                     let mut reopened = open_volume(&mut reopened_device).unwrap();
-                    let (descriptor_block, descriptor) = reopened.discover_persistent_inventory(&mut reopened_device).unwrap().unwrap();
+                    let (descriptor_block, descriptor) = reopened
+                        .discover_persistent_inventory(&mut reopened_device)
+                        .unwrap()
+                        .unwrap();
                     assert!(
                         (descriptor_block == old_block && descriptor == old_descriptor)
                             || (descriptor_block != old_block && descriptor == new_descriptor),
                         "recovery must expose exactly old or new descriptor at block size {block_size}, write {fail_at}: {descriptor:?}"
                     );
-                    assert!(reopened.verify_discovered_persistent_inventory(&mut reopened_device).unwrap().unwrap().is_consistent());
+                    assert!(reopened
+                        .verify_discovered_persistent_inventory(&mut reopened_device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent());
                 }
                 fs::remove_file(path).unwrap();
             }
