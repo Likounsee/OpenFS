@@ -6773,6 +6773,76 @@ mod tests {
     }
 
     #[test]
+    fn same_ownership_descriptor_replacement_switches_visibility_atomically() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("descriptor-same-ownership-replacement");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let write_root = |device: &mut ImageDevice, id: ObjectId| {
+                let root = MetadataRecord {
+                    id,
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut bytes = vec![0; 4096];
+                bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &bytes).unwrap();
+            };
+            write_root(&mut device, ObjectId(1));
+            let old_descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let old_block = volume
+                .publish_persistent_inventory(&mut device, &old_descriptor)
+                .unwrap();
+            let free_before = volume.free_data_block_count(&mut device).unwrap();
+
+            // The inventory blocks are stable; prepare the new root record before switching
+            // the descriptor pointer. The descriptor switch itself is a single bitmap commit.
+            write_root(&mut device, ObjectId(2));
+            let new_descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(2),
+                ..old_descriptor.clone()
+            };
+            let new_block = volume
+                .replace_persistent_inventory_descriptor(&mut device, &new_descriptor)
+                .unwrap();
+            assert_ne!(new_block, old_block);
+            assert_eq!(volume.free_data_block_count(&mut device).unwrap(), free_before);
+            assert!(!volume.is_data_block_allocated(&mut device, old_block).unwrap());
+            assert!(volume.is_data_block_allocated(&mut device, new_block).unwrap());
+            let found = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found, (new_block, new_descriptor));
+
+            drop(volume);
+            let reopened = open_volume(&mut device).unwrap();
+            assert_eq!(
+                reopened
+                    .discover_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap(),
+                (new_block, found.1)
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn repeated_descriptor_publication_is_idempotent_and_different_replacement_is_rejected() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
