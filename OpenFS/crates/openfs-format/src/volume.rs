@@ -7399,9 +7399,15 @@ mod tests {
                     assert!(reopened
                         .is_data_block_allocated(&mut reopened_device, old_block)
                         .unwrap());
+                    assert!(reopened
+                        .is_data_block_allocated(&mut reopened_device, high_metadata_block)
+                        .unwrap());
                 } else {
                     assert!(!reopened
                         .is_data_block_allocated(&mut reopened_device, old_block)
+                        .unwrap());
+                    assert!(!reopened
+                        .is_data_block_allocated(&mut reopened_device, high_metadata_block)
                         .unwrap());
                     assert!(reopened
                         .is_data_block_allocated(&mut reopened_device, found_block)
