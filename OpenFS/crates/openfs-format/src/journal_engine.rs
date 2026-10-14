@@ -1770,7 +1770,7 @@ mod tests {
             );
 
             let mut recovered_device = failing.into_inner();
-            let reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
+            let mut reopened = open_journal(&mut recovered_device, REGION).unwrap_or_else(|error| {
                 panic!("multi-block recovery failed at operation {fail_at}: {error:?}")
             });
             let committed = fail_at >= 7;
@@ -1789,6 +1789,26 @@ mod tests {
             // An abandoned BEGIN/UPDATE prefix may advance the checkpoint sequence
             // while being retired; the safety invariant here is the paired home state.
             let _checkpoint = reopened.checkpoint();
+
+            // Recovery must leave the journal able to commit another multi-target
+            // transaction, not just repair the interrupted one.
+            let follow_up = [
+                update(0xC3),
+                RedoUpdate {
+                    target_block: HOME + 1,
+                    contents: vec![0xD4; BS as usize],
+                },
+            ];
+            reopened
+                .commit(&mut recovered_device, &follow_up)
+                .unwrap_or_else(|error| {
+                    panic!("post-recovery multi-block commit failed at operation {fail_at}: {error:?}")
+                });
+            assert_eq!(read_block(&mut recovered_device, HOME), vec![0xC3; BS as usize]);
+            assert_eq!(
+                read_block(&mut recovered_device, HOME + 1),
+                vec![0xD4; BS as usize]
+            );
         }
     }
 
