@@ -1741,7 +1741,8 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
     let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
-    let inventory_descriptor_hint = decode_inventory_hint(&primary).or(decode_inventory_hint(&backup));
+    let inventory_descriptor_hint =
+        decode_inventory_hint(&primary).or(decode_inventory_hint(&backup));
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "superblock geometry does not match device geometry",
@@ -1815,8 +1816,14 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("superblock CRC32C mismatch"));
     }
-    let reserved_start = if version == VERSION { INVENTORY_HINT_OFFSET + 8 } else { 48 };
-    if bytes[reserved_start..CHECKSUM_OFFSET].iter().any(|b| *b != 0)
+    let reserved_start = if version == VERSION {
+        INVENTORY_HINT_OFFSET + 8
+    } else {
+        48
+    };
+    if bytes[reserved_start..CHECKSUM_OFFSET]
+        .iter()
+        .any(|b| *b != 0)
         || bytes[4092..].iter().any(|b| *b != 0)
     {
         return Err(Error::Corrupt("reserved superblock bytes must be zero"));
@@ -6968,7 +6975,8 @@ mod tests {
                         .copy_from_slice(&root.encode().unwrap());
                     metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&child.encode().unwrap());
-                    metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
+                    metadata_bytes
+                        [2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&second_child.encode().unwrap());
                     device
                         .write_blocks(metadata_block, &metadata_bytes)
