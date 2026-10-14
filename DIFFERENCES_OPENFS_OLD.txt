@@ -1,0 +1,393 @@
+OPENFS — DIFFÉRENCES AVEC OPENFS-OLD ET FONCTIONNALITÉS À PORTER
+====================================================================
+
+Date de l'audit : 14 octobre 2026
+Dépôt actif : Likounsee/OpenFS, branche OpenFS
+Référence historique : Likounsee/OpenFS-old, branche OpenFS
+Documents complémentaires : OpenFS/docs/OLD_OPENFS_AUDIT.md et
+OpenFS/docs/ROADMAP.md
+
+BUT DU DOCUMENT
+---------------
+Ce fichier transforme la comparaison entre l'ancienne implémentation C et la
+nouvelle implémentation Rust en liste concrète de comportements à conserver,
+à réimplémenter et à tester dans le nouveau projet.
+
+OpenFS-old est une référence historique, pas la branche de développement.
+Les changements doivent être réalisés dans OpenFS (Rust). Il ne faut pas
+copier le code C en bloc : réimplémenter les comportements derrière des types
+Rust et des interfaces plus petites, en conservant les invariants, les tests
+négatifs et les scénarios de panne utiles.
+
+RÉSUMÉ EXÉCUTIF
+---------------
+La version Rust possède déjà une base importante :
+- interface de périphérique bloc et backend de fichiers image ;
+- vérification des plages, erreurs explicites et injection de pannes d'E/S ;
+- layout de volume expérimental, superblocs primaire/miroir et bitmap ;
+- allocation/libération limitée, journal redo et checkpoints ;
+- codecs de métadonnées, entrées de répertoire et extent maps ;
+- reconstruction d'un namespace en mémoire ;
+- descripteur d'inventaire persistant, découverte et vérification de cohérence ;
+- lecture de fichiers/ranges sur des métadonnées reconstruites ;
+- outil de création et d'inspection d'images de développement.
+
+Mais le nouveau projet n'est pas encore un système de fichiers général utilisable
+par un système d'exploitation. Il manque surtout le chemin vertical persistant :
+créer un objet, l'allouer, publier ses métadonnées et ses entrées de répertoire,
+écrire/lire ses données, fermer, redémarrer, récupérer après panne et retrouver
+le même état.
+
+OpenFS-old est nettement plus avancé fonctionnellement : il contient un moteur
+C avec opérations de fichiers et de namespace, transactions, liens, cycle de
+vie des inodes, FSCK/scrub, ACL/xattrs, handles, verrous, CoW/refcounts et
+adaptateurs OS. Toutefois, l'ancien code n'est pas parfait ni automatiquement
+validé : ses documents de format dérivent, son adaptateur WinFsp est en lecture
+seule, la réparation FSCK est limitée, les arbres d'extents restent peu profonds,
+et le dernier audit historique mentionne un échec/timeout dans un job Windows.
+Il faut donc porter les comportements utiles, pas présumer que tout l'ancien
+code est prêt pour la production.
+
+RÈGLE DE COMPATIBILITÉ DU FORMAT
+-------------------------------
+La nouvelle implémentation Rust utilise un format expérimental incompatible
+avec le format historique C. Le code historique déclare le format majeur 1,
+mineur 6, tandis que certains documents anciens parlent de v1.3 ou v1.5.
+Le format Rust a son propre identifiant et son propre layout.
+
+Décision à respecter :
+- ne jamais interpréter silencieusement une image OpenFS-old comme une image
+  Rust compatible ;
+- figer et documenter le format Rust avant de s'engager sur sa stabilité ;
+- ajouter des fixtures binaires de référence et des tests de compatibilité ;
+- si la migration d'images anciennes devient nécessaire, concevoir un outil de
+  conversion explicite, vérifié et non destructif ;
+- ne pas promettre la compatibilité NTFS : OpenFS est un système de fichiers
+  distinct, inspiré par des objectifs de fiabilité et de fonctionnalités, pas
+  une implémentation du format disque NTFS.
+
+COMPARAISON DES SOUS-SYSTÈMES
+-----------------------------
+
+1. FORMATAGE, MONTAGE ET SUPERBLOCS
+Ancien :
+- sérialisation explicite little-endian, CRC32C et vérifications de géométrie ;
+- superbloc primaire et copie de secours ;
+- validation des fonctionnalités et initialisation des régions disque ;
+- cycle de montage avec validation du volume.
+
+Nouveau :
+- layout canonique expérimental, superblocs primaire/miroir, validation et
+  opérations format/open/check ;
+- les interfaces actuelles ne constituent pas encore un vrai montage OS.
+
+À remettre :
+- définir une spécification normative et versionnée du format Rust ;
+- ajouter des golden images et tests octet-par-octet ;
+- tester superbloc primaire corrompu, miroir valide, deux copies invalides,
+  champs réservés, versions inconnues, géométrie et overflow ;
+- séparer strictement formatage, ouverture, récupération et montage ;
+- ne déclarer un format stable qu'après des tests de compatibilité durables.
+
+2. ALLOCATION, INODES ET PROPRIÉTÉ DES BLOCS
+Ancien :
+- bitmap de blocs et d'inodes, réservations, allocation/libération ;
+- générations d'inodes pour limiter les réutilisations ambiguës ;
+- vérification et réparation partielle des bitmaps et des refcounts.
+
+Nouveau :
+- bitmap de blocs, allocation contiguë limitée et diagnostics de propriété ;
+- enregistrements de métadonnées avec identifiants stables ;
+- pas encore de cycle de vie persistant complet équivalent aux inodes historiques.
+
+À remettre :
+- créer une abstraction persistante d'objet/inode avec génération, type, taille,
+  liens, propriétaire, permissions et timestamps ;
+- ajouter allocation/libération d'inodes et réutilisation avec génération ;
+- garantir que bitmap, métadonnées, extents et compteurs de références évoluent
+  dans une transaction cohérente ;
+- couvrir espace plein, double libération, double allocation, références
+  pendantes, allocations orphelines, overflow et erreurs d'E/S ;
+- ne libérer aucun bloc avant d'avoir prouvé qu'il n'est plus référencé.
+
+3. FICHIERS, EXTENTS ET DONNÉES
+Ancien :
+- lecture, écriture, truncate, fichiers creux et seek-data/seek-hole ;
+- extents en ligne et prise en charge d'une feuille d'extent tree de profondeur 0 ;
+- chemins transactionnels pour certaines mutations et checksums de données.
+
+Nouveau :
+- extent maps et lectures de plages, EOF et remplissage des trous par des zéros ;
+- pas encore de création/écriture/truncate persistants et transactionnels complets.
+
+À remettre en priorité :
+- API persistante create/open/read/write/truncate/flush/close ;
+- écritures qui traversent plusieurs blocs, écritures partielles, extensions,
+  troncatures et zero-fill des trous ;
+- gestion d'extents qui se divisent, fusionnent, se déplacent ou se libèrent ;
+- fichiers creux et recherche de données/trous ;
+- checksum des données si retenu dans le format cible ;
+- limites explicites pour les extents et erreurs propres quand la capacité est
+  dépassée ;
+- tests de réouverture après chaque opération et de corruption des extents.
+
+4. RÉPERTOIRES ET NAMESPACE
+Ancien :
+- opérations de chemins, create/mkdir/unlink/rename, hard links et symlinks ;
+- validation des noms, gestion des collisions, traversée, liens et orphelins ;
+- tests de concurrence et de coupure d'alimentation pour les opérations namespace.
+
+Nouveau :
+- reconstruction et validation d'un namespace en mémoire ;
+- résolution de chemins et vérification du graphe, mais pas de mutation persistante
+  complète du namespace.
+
+À remettre :
+- create, mkdir, rmdir, unlink, rename et croissance persistante des répertoires ;
+- règles normatives sur noms, longueurs, séparateurs, chemins absolus/relatifs,
+  "."/"..", répertoires terminaux et collisions ;
+- hard links et symlinks après stabilisation du modèle d'inodes ;
+- atomicité de rename et remplacement, sans perte ni duplication de l'objet ;
+- tests qui comparent les identités d'objets et pas seulement l'existence du chemin ;
+- tests de crash/reopen pour chaque opération touchant plusieurs métadonnées.
+
+5. JOURNAL, TRANSACTIONS ET RÉCUPÉRATION
+Ancien :
+- WAL avec BEGIN/DATA/COMMIT, replay, checkpoint et état de récupération ;
+- transactions multi-blocs, API transactionnelles et nombreux tests de pannes ;
+- logique de staging/validation pour éviter de publier des données mal formées.
+
+Nouveau :
+- moteur de journal redo persistant, checkpoints et replay ;
+- utilisation actuelle limitée, notamment aux changements de bitmap/allocation ;
+- pas encore de transaction générale pour namespace, fichiers, extents et
+  métadonnées multiples.
+
+À remettre avant d'augmenter fortement la surface fonctionnelle :
+- spécifier l'état de chaque transaction et la frontière exacte du COMMIT durable ;
+- couvrir l'ordre write -> flush -> commit -> flush -> home blocks -> flush ->
+  checkpoint, selon le protocole choisi ;
+- valider tous les enregistrements d'une transaction avant de publier ses effets ;
+- gérer les échecs à chaque écriture/flush et exiger une réouverture/récupération
+  après une erreur qui rend l'état incertain ;
+- vérifier que le replay est idempotent et que les compteurs/séquences ne débordent
+  jamais avant une écriture persistante ;
+- étendre le journal à des mises à jour cohérentes de plusieurs blocs et objets ;
+- construire une matrice de crash-cuts suivie de reopen, récupération, check/FSCK
+  et d'une seconde réouverture.
+
+Scénarios C à conserver comme tests Rust :
+- échec des écritures BEGIN, DATA, COMMIT, des home blocks et des checkpoints ;
+- échec du flush avant/après commit ;
+- écritures déchirées, enregistrements malformés et séquences incohérentes ;
+- rollback qui échoue, replay qui échoue puis est retenté ;
+- crash après chaque étape de create/unlink/rename/write/truncate ;
+- aucune publication partielle si un enregistrement ultérieur est invalide.
+
+6. INVENTAIRE PERSISTANT ET DÉCOUVERTE
+État Rust :
+- descripteur d'inventaire persistant, découverte et lectures de plages bornées ;
+- la découverte actuelle scanne une région de données, ce qui n'est pas un index
+  de métadonnées à grande échelle ;
+- une coupure lors de la publication du descripteur peut laisser un orphelin
+  détectable.
+
+À remettre :
+- définir des régions/index persistants canoniques pour métadonnées, répertoires
+  et tables nécessaires, au lieu de dépendre d'un scan global ;
+- rendre la publication du descripteur atomique ou prévoir une récupération sûre ;
+- prouver qu'un descripteur partiel/stale ne peut pas être pris pour une racine
+  valide ;
+- ajouter tests de corruption, collisions, scans bornés, faux positifs et reprise
+  après échec de publication.
+
+7. FSCK, SCRUB ET RÉPARATION
+Ancien :
+- FSCK, certaines réparations de bitmap/refcounts et scrub en lecture seule ;
+- détection de corruption et rapports sur plusieurs couches.
+
+Nouveau :
+- vérificateur en lecture seule avec reconstruction du namespace, vérification
+  des extent maps et réconciliation bitmap/propriété ;
+- pas encore d'outil de réparation général ni de commande scrub complète.
+
+À remettre :
+- fournir un outil checker/fsck en lecture seule d'abord, avec rapports stables ;
+- ajouter ensuite des réparations limitées, transactionnelles et prévalidées ;
+- détecter allocations orphelines, références vers blocs libres, extents invalides,
+  cycles de namespace, inodes inaccessibles, CRC erronés et refcounts incohérents ;
+- ne jamais « réparer » en devinant : chaque correction doit être démontrable,
+  journalisée et testée sur copie ;
+- ajouter tests de double panne, de prévalidation et d'échec en cours de réparation.
+
+8. COPY-ON-WRITE, REFCOUNTS ET SNAPSHOTS
+Ancien :
+- primitives CoW et compteurs de références persistants avec variantes transactionnelles ;
+- primitives de racine/metadata-CoW ;
+- pas de cycle complet de snapshots confirmé dans l'audit historique.
+
+Nouveau :
+- aucun système CoW/refcount complet équivalent n'est intégré au moteur actuel.
+
+À remettre plus tard, après les transactions générales :
+- définir propriété et transitions de refcount exactes ;
+- faire incrément/décrément/reclaim atomiques ;
+- protéger contre overflow, underflow, double reclaim et corruption ;
+- ajouter clone/discard et tests de crash ;
+- ne développer un catalogue de snapshots qu'après stabilisation de la base CoW ;
+- ne pas annoncer snapshots complets sur la seule présence de primitives CoW.
+
+9. PERMISSIONS, ACL, XATTR ET MÉTADONNÉES
+Ancien :
+- modes POSIX-like, UID/GID, ACL, xattrs, timestamps et checks d'accès ;
+- les équivalences avec la sécurité Windows ne sont pas complètes.
+
+Nouveau :
+- modèle d'objet simplifié ; pas de système persistant complet de permissions,
+  ACL, xattrs et timestamps équivalent à l'ancien.
+
+À remettre :
+- définir un modèle de sécurité indépendant de l'OS et sa représentation disque ;
+- implémenter d'abord les métadonnées de base et les règles d'accès ;
+- ajouter ensuite ACL/xattrs, héritage, tailles maximales, erreurs et intégrité ;
+- tester les opérations autorisées/refusées, ACL corrompues et héritage ;
+- documenter explicitement les différences entre POSIX et Windows.
+
+10. HANDLES, VERROUS, ORPHELINS ET CONCURRENCE
+Ancien :
+- file descriptors/handles, références dupliquées, verrous byte-range et lifecycle ;
+- conservation des objets unlinkés tant qu'ils sont ouverts et récupération des
+  orphelins au montage ;
+- tests de concurrence sur chemins, fichiers, handles et locks.
+
+Nouveau :
+- pas de runtime monté avec handles et gestion complète du cycle de vie ouvert/
+  unlinké ; la concurrence des opérations persistantes n'est pas encore fournie.
+
+À remettre après les opérations de base :
+- handles avec références et règles de durée de vie explicites ;
+- définir le comportement open-unlink-close et la récupération des orphelins ;
+- locks par fichier/range et ordre global de prise des verrous ;
+- empêcher deadlocks, use-after-free logique, double fermeture et reclaim prématuré ;
+- tests concurrents déterministes et tests sous ThreadSanitizer côté historique
+  comme source de scénarios, adaptés aux primitives Rust.
+
+11. OUTILS, ADAPTATEURS OS ET PÉRIPHÉRIQUES
+Ancien :
+- outils de formatage d'images et de périphériques, fsck-device, tests USB ;
+- adaptateurs Linux, Windows/WinFsp et ArchiaOS ;
+- l'adaptateur Windows historique est essentiellement en lecture seule et ne
+  prouve pas un montage Windows complet en lecture/écriture.
+
+Nouveau :
+- openfs-tool se concentre sur les fichiers image de développement ;
+- pas de montage VFS/OS ni de découverte USB sûre.
+
+À remettre :
+- garder les commandes image non destructives par défaut ;
+- concevoir une API BlockDevice explicite sur tailles, E/S exactes, flush,
+  erreurs et exclusivité d'accès ;
+- ajouter une commande de périphérique seulement après détection fiable du modèle,
+  de la partition, des volumes système et des périphériques à refuser ;
+- exiger confirmation explicite avant formatage destructif ;
+- concevoir d'abord un adaptateur OS de référence et tester lecture/écriture,
+  flush, rename, unlink, erreurs et démontage ;
+- distinguer adaptateur userspace/FUSE/WinFsp et véritable intégration noyau.
+
+12. TESTS, CI, FUZZING ET BENCHMARKS
+Ancien :
+- grande suite de tests ciblant format, allocation, fichiers, chemins, journal,
+  crash, FSCK, concurrence et adaptateurs ;
+- CI GCC/Clang, Debug/Release, sanitizers et jobs Windows ;
+- l'audit historique signale au moins un timeout Windows dans le job crash-cut :
+  ne pas considérer toutes les capacités historiques comme validées sans rerun.
+
+Nouveau :
+- tests Rust et CI Linux/Windows sur format, I/O, journal, allocation, découverte,
+  codecs et vérification ;
+- couverture à renforcer pour le vrai cycle de vie persistant complet.
+
+À remettre :
+- convertir chaque scénario historique utile en test Rust déterministe ;
+- ajouter tests property-based/fuzzing pour les parseurs et octets disque arbitraires ;
+- tests d'intégration qui formatent, écrivent, ferment, rouvrent et vérifient ;
+- crash-cut automatique sur chaque point de persistance ;
+- tests de corruption et de double panne ;
+- benchmarks reproductibles avant les optimisations ;
+- garder CI format, tests, Clippy et plateformes vertes sur le SHA exact ;
+- tester la même image fixture entre versions Rust compatibles.
+
+ORDRE DE PORTAGE RECOMMANDÉ
+---------------------------
+
+PHASE 0 — CONTRATS ET FIABILITÉ
+- [ ] Choisir et figer le format Rust cible et ses règles de compatibilité.
+- [ ] Mettre CI Rust au vert sur le commit de référence.
+- [ ] Définir les contrats BlockDevice, flush, erreur d'E/S et récupération.
+- [ ] Garder les fixtures historiques séparées des fixtures Rust.
+
+PHASE 1 — VERTICAL SLICE PERSISTANT MINIMAL
+- [ ] Ouvrir/formater une image et la rouvrir après arrêt.
+- [ ] Créer un fichier/répertoire avec métadonnées et allocation persistantes.
+- [ ] Écrire, relire, tronquer, fermer, rouvrir et comparer les octets.
+- [ ] Garantir la cohérence bitmap + métadonnées + extents + répertoire.
+- [ ] Ajouter tests de panne pour chaque frontière d'écriture et de flush.
+
+PHASE 2 — NAMESPACE ET FICHIERS COMPLETS
+- [ ] mkdir/create/read/write/truncate/unlink/rename/rmdir.
+- [ ] Extents multiples, fichiers creux, croissance des répertoires.
+- [ ] Transactions multi-objets et récupération après crash.
+- [ ] Inodes/générations, compte de liens et cycle de vie persistant.
+
+PHASE 3 — RÉCUPÉRATION ET INTÉGRITÉ
+- [ ] FSCK/checker complet en lecture seule.
+- [ ] Réparation limitée, prévalidée et transactionnelle.
+- [ ] Scrub/checksums et diagnostics de propriété.
+- [ ] Orphelins et récupération au prochain open/mount.
+- [ ] Fuzzing des codecs, chemins et journal ; crash-cut suite.
+
+PHASE 4 — FONCTIONNALITÉS AVANCÉES
+- [ ] Symlinks/hard links et sémantique complète de rename/unlink.
+- [ ] Permissions, ACL, xattrs et timestamps.
+- [ ] Handles, locks et opérations concurrentes.
+- [ ] CoW/refcounts ; snapshots seulement après les bases de transaction.
+
+PHASE 5 — INTÉGRATION OS ET MATÉRIEL
+- [ ] Adaptateur OS avec vraie lecture/écriture et gestion des erreurs.
+- [ ] Outil de découverte de périphérique avec protections destructives.
+- [ ] Tests de montage/démontage, flush et récupération.
+- [ ] Validation sur périphérique jetable et matériel réel.
+- [ ] Benchmarks reproductibles et documentation utilisateur.
+
+CRITÈRES POUR DÉCLARER UNE FONCTIONNALITÉ TERMINÉE
+--------------------------------------------------
+Une API qui compile ou un codec qui passe ses tests unitaires ne suffit pas.
+Pour chaque fonctionnalité, indiquer séparément :
+
+- IMPLÉMENTÉE : code et API existent.
+- INTÉGRÉE : appelée par le vrai chemin de fonctionnement.
+- TESTÉE : scénario de régression présent et exécuté.
+- CI VALIDÉE : job pertinent vert pour le SHA précis.
+- CRASH-TESTÉE : panne/reopen/recovery validés aux points pertinents.
+- OS VALIDÉ : intégration dans un OS effectivement testée.
+- MATÉRIEL VALIDÉ : tests sur périphérique réel, sans extrapoler des tests image.
+
+Les tests d'image et les appels flush de l'hôte ne prouvent pas que le firmware
+d'un périphérique physique respecte l'ordre ou la durabilité des écritures.
+Ne jamais utiliser des données importantes pour les essais.
+
+CONCLUSION
+----------
+Le principal écart n'est pas simplement le nombre de fonctionnalités : c'est
+l'absence, dans Rust, d'un chemin persistant complet et transactionnel de bout
+en bout. La priorité est de transformer les primitives existantes en un moteur
+qui peut modifier le namespace et les fichiers de manière durable, puis rouvrir
+et récupérer proprement après panne.
+
+L'ordre le plus sûr est : contrat de format -> vertical slice persistant ->
+transactions générales -> namespace/fichiers -> FSCK/récupération -> permissions,
+handles et CoW -> adaptateurs OS et périphériques.
+
+OpenFS-old doit rester une source de comportements et de tests adversariaux,
+pas une spécification implicite du nouveau format ni une preuve que chaque
+fonction historique est prête pour la production.
