@@ -991,6 +991,28 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_checkpoint_generation_gaps() {
+        let mut device = MemoryDevice::new();
+        format_journal(&mut device, REGION).unwrap();
+        for (block_number, checkpoint) in [
+            (REGION.checkpoint_a, JournalCheckpoint {
+                generation: 4, checkpoint_sequence: 3, next_sequence: 4,
+                next_transaction_id: 2, head_block: 0, tail_block: 0,
+            }),
+            (REGION.checkpoint_b, JournalCheckpoint {
+                generation: 2, checkpoint_sequence: 0, next_sequence: 1,
+                next_transaction_id: 1, head_block: 0, tail_block: 0,
+            }),
+        ] {
+            let encoded = checkpoint.encode().unwrap();
+            let mut block = vec![0_u8; BS as usize];
+            block[..encoded.len()].copy_from_slice(&encoded);
+            device.write_blocks(block_number, &block).unwrap();
+        }
+        assert!(matches!(open_journal(&mut device, REGION), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
     fn open_uses_valid_checkpoint_copy_when_other_read_fails() {
         for fail_at in [0, 1] {
             let mut device = formatted();
