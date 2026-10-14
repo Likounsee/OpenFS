@@ -2326,6 +2326,13 @@ mod tests {
                         assert!(recovered
                             .is_data_block_allocated(&mut device, descriptor_block)
                             .unwrap());
+                        assert_eq!(
+                            recovered
+                                .publish_persistent_inventory(&mut device, &descriptor)
+                                .unwrap(),
+                            descriptor_block,
+                            "retry after an uncertain committed publication must reuse the existing descriptor (block size {block_size}, write {fail_at})"
+                        );
                     }
 
                     // Recovery must be idempotent: a second close/reopen cannot change
