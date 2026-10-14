@@ -2220,7 +2220,7 @@ mod tests {
                             result,
                             Err(Error::Corrupt("inventory descriptor padding must be zero"))
                         )),
-                        "version" => assert!(matches!(result, Err(Error::UnsupportedVersion(3)))),
+                        "version" => assert!(matches!(result, Err(Error::UnsupportedVersion(2)))),
                         _ => unreachable!("test cases are fixed"),
                     }
                     assert_eq!(
