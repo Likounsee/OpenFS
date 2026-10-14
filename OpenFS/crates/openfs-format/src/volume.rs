@@ -2612,7 +2612,7 @@ mod tests {
 
                 // The descriptor checksum and allocation references are valid, but the
                 // referenced metadata stream is not a valid root namespace record.
-                device.write_blocks(metadata_block, &vec![0_u8; 4096]).unwrap();
+                device.write_blocks(metadata_block, &[0_u8; 4096]).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
                     metadata_blocks: vec![metadata_block],
