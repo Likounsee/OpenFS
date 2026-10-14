@@ -148,7 +148,6 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         ));
     }
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
-    validate_checkpoint_geometry(&checkpoint, region)?;
     let scanned = scan_uncheckpointed_records(device, region, checkpoint.checkpoint_sequence)?;
 
     if !scanned.records.is_empty() {
@@ -402,8 +401,19 @@ fn read_checkpoint_pair<D: BlockDevice>(
     device: &mut D,
     region: JournalRegion,
 ) -> Result<(JournalCheckpoint, u8)> {
-    let first = read_checkpoint_block(device, region.checkpoint_a);
-    let second = read_checkpoint_block(device, region.checkpoint_b);
+    // A checksum-valid checkpoint can still be semantically unusable (for example,
+    // inconsistent sequence counters or unsupported ring positions). Validate each copy
+    // independently so a bad newer copy does not mask a recoverable older one.
+    let first = read_checkpoint_block(device, region.checkpoint_a)
+        .and_then(|checkpoint| {
+            validate_checkpoint_geometry(&checkpoint, region)?;
+            Ok(checkpoint)
+        });
+    let second = read_checkpoint_block(device, region.checkpoint_b)
+        .and_then(|checkpoint| {
+            validate_checkpoint_geometry(&checkpoint, region)?;
+            Ok(checkpoint)
+        });
     match (first, second) {
         // Either checkpoint copy can be unavailable independently. Preserve an I/O
         // error only when no readable copy exists; otherwise the valid copy is enough
