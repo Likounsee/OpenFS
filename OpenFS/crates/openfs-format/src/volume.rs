@@ -4395,7 +4395,7 @@ mod tests {
             let path = image_path(&format!("allocator-exhaustion-{block_size}"));
             {
                 // The minimum valid canonical geometry has exactly three data blocks.
-                let mut device = ImageDevice::create(&path, block_size, JOURNAL_RESERVED_BLOCKS + 6).unwrap();
+                let mut device = ImageDevice::create(&path, block_size, 24).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
@@ -5592,7 +5592,7 @@ mod tests {
         // Exercise every reserved bit through durable journal replay, not just
         // the primary superblock bit. A minimum-size volume keeps this matrix cheap.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let layout = VolumeLayout::calculate(block_size, JOURNAL_RESERVED_BLOCKS + 4).unwrap();
+            let layout = VolumeLayout::calculate(block_size, 22).unwrap();
             let mut corruptions = (0..layout.total_blocks)
                 .filter(|block| layout.is_reserved(*block))
                 .map(|block| ("reserved", block))
