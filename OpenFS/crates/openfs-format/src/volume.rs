@@ -5,7 +5,7 @@
 
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
-    DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRegion, MetadataRecord,
+    DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRecordKind, JournalRegion, MetadataRecord,
     Namespace, ObjectId, PersistentInventoryDescriptor, PersistentJournal, RedoUpdate,
     DIRECTORY_ENTRY_SIZE, INVENTORY_DESCRIPTOR_MAGIC, JOURNAL_CHECKPOINT_SIZE,
     METADATA_RECORD_SIZE, SUPERBLOCK_SIZE,
@@ -5815,6 +5815,49 @@ mod tests {
                     &record.encode_block(4096).unwrap(),
                 )
                 .unwrap();
+            device.flush().unwrap();
+
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+        }
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn read_only_checker_rejects_transaction_id_gaps_after_checkpoint() {
+        use crate::{JournalRecord, JournalRecordKind};
+
+        let path = image_path("checker-transaction-id-gap");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 257).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            drop(volume);
+
+            let checkpoint = JournalCheckpoint {
+                generation: 3,
+                checkpoint_sequence: 0,
+                next_sequence: 1,
+                next_transaction_id: 5,
+                head_block: 0,
+                tail_block: 0,
+            };
+            let encoded = checkpoint.encode().unwrap();
+            let mut checkpoint_block = vec![0_u8; 4096];
+            checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
+            device.write_blocks(layout.journal.checkpoint_a, &checkpoint_block).unwrap();
+
+            // ID six is greater than the checkpoint's next ID, but ID five
+            // cannot be skipped by the single-writer journal protocol.
+            let record = JournalRecord {
+                kind: JournalRecordKind::Begin,
+                sequence: 1,
+                transaction_id: 6,
+                payload: Vec::new(),
+            };
+            device.write_blocks(
+                layout.journal.ring_start,
+                &record.encode_block(4096).unwrap(),
+            ).unwrap();
             device.flush().unwrap();
 
             assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
