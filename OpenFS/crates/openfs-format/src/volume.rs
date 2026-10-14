@@ -14,12 +14,14 @@ use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
 const MAGIC: &[u8; 8] = b"OPENFS\0\0";
-const VERSION: u16 = 3;
+const VERSION: u16 = 4;
 const LEGACY_VERSION: u16 = 2;
+const PREVIOUS_VERSION: u16 = 3;
 const INVENTORY_HINT_OFFSET: usize = 48;
 const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
-const JOURNAL_RING_BLOCKS: u64 = 4;
+const JOURNAL_RING_BLOCKS: u64 = 32;
+const LEGACY_JOURNAL_RING_BLOCKS: u64 = 4;
 const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
@@ -38,6 +40,27 @@ pub struct VolumeLayout {
 
 impl VolumeLayout {
     pub fn calculate(block_size: u32, total_blocks: u64) -> Result<Self> {
+        Self::calculate_with_ring(block_size, total_blocks, JOURNAL_RING_BLOCKS)
+    }
+
+    fn calculate_for_version(
+        block_size: u32,
+        total_blocks: u64,
+        version: u16,
+    ) -> Result<Self> {
+        let ring_blocks = if version == VERSION {
+            JOURNAL_RING_BLOCKS
+        } else {
+            LEGACY_JOURNAL_RING_BLOCKS
+        };
+        Self::calculate_with_ring(block_size, total_blocks, ring_blocks)
+    }
+
+    fn calculate_with_ring(
+        block_size: u32,
+        total_blocks: u64,
+        journal_ring_blocks: u64,
+    ) -> Result<Self> {
         if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
             return Err(Error::InvalidInput("unsupported filesystem block size"));
         }
@@ -61,7 +84,7 @@ impl VolumeLayout {
             .checked_add(bitmap_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
         let data_start = journal_start
-            .checked_add(JOURNAL_RESERVED_BLOCKS)
+            .checked_add(2_u64 + journal_ring_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
         let backup_superblock = total_blocks - 1;
         if data_start >= backup_superblock {
@@ -78,7 +101,7 @@ impl VolumeLayout {
                 checkpoint_a: journal_start,
                 checkpoint_b: journal_start + 1,
                 ring_start: journal_start + 2,
-                ring_blocks: JOURNAL_RING_BLOCKS,
+                ring_blocks: journal_ring_blocks,
             },
             data_start,
             backup_superblock,
@@ -1445,7 +1468,8 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
             "superblock geometry does not match device geometry",
         ));
     }
-    let layout = VolumeLayout::calculate(block_size, total_blocks)?;
+    let version = u16::from_le_bytes([primary[8], primary[9]]);
+    let layout = VolumeLayout::calculate_for_version(block_size, total_blocks, version)?;
     validate_bitmap(device, &layout)?;
     let (
         journal_generation,
@@ -1813,7 +1837,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
         return Err(Error::Corrupt("bad superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION && version != LEGACY_VERSION {
+    if version != VERSION && version != PREVIOUS_VERSION && version != LEGACY_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
@@ -1827,7 +1851,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("superblock CRC32C mismatch"));
     }
-    let reserved_start = if version == VERSION {
+    let reserved_start = if version >= PREVIOUS_VERSION {
         INVENTORY_HINT_OFFSET + 8
     } else {
         48
@@ -1854,7 +1878,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
 }
 
 fn decode_inventory_hint(bytes: &[u8; SUPERBLOCK_SIZE]) -> Option<u64> {
-    if u16::from_le_bytes([bytes[8], bytes[9]]) != VERSION {
+    if u16::from_le_bytes([bytes[8], bytes[9]]) < PREVIOUS_VERSION {
         return None;
     }
     let hint = u64::from_le_bytes(
@@ -1869,8 +1893,10 @@ fn superblocks_match(primary: &[u8; SUPERBLOCK_SIZE], backup: &[u8; SUPERBLOCK_S
     if primary == backup {
         return true;
     }
-    if u16::from_le_bytes([primary[8], primary[9]]) != VERSION
-        || u16::from_le_bytes([backup[8], backup[9]]) != VERSION
+    let primary_version = u16::from_le_bytes([primary[8], primary[9]]);
+    let backup_version = u16::from_le_bytes([backup[8], backup[9]]);
+    if primary_version != backup_version
+        || (primary_version != VERSION && primary_version != PREVIOUS_VERSION)
     {
         return false;
     }
@@ -1891,7 +1917,7 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
     if version == LEGACY_VERSION {
         return Ok(());
     }
-    if version != VERSION {
+    if version != VERSION && version != PREVIOUS_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     for block in [last, 0] {
@@ -4085,7 +4111,7 @@ mod tests {
         );
         assert_eq!(
             u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
-            0xd05c_923e
+            0x34a7_71a5
         );
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
@@ -4133,7 +4159,7 @@ mod tests {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             assert!(matches!(
                 crate::open_legacy_volume(&mut device),
-                Err(Error::UnsupportedVersion(3))
+                Err(Error::UnsupportedVersion(4))
             ));
             let mut volume = open_volume(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
@@ -4153,7 +4179,7 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let bits_per_bitmap_block = u64::from(block_size) * 8;
             for total_blocks in [
-                12,
+                JOURNAL_RESERVED_BLOCKS + 4,
                 bits_per_bitmap_block - 1,
                 bits_per_bitmap_block,
                 bits_per_bitmap_block + 1,
@@ -7185,11 +7211,11 @@ mod tests {
     #[test]
     fn canonical_superblock_has_golden_bytes_for_every_supported_block_size() {
         let fixtures = [
-            (4096_u32, 0x7a21_e443_u32),
-            (8192_u32, 0xc72d_1d6b_u32),
-            (16_384_u32, 0xb8d8_99ca_u32),
-            (32_768_u32, 0x4733_9088_u32),
-            (65_536_u32, 0xbd09_f4fd_u32),
+            (4_096_u32, 0x9eda_07d8_u32),
+            (8_192_u32, 0x23d6_fef0_u32),
+            (16_384_u32, 0x5c23_7a51_u32),
+            (32_768_u32, 0xa3c8_7313_u32),
+            (65_536_u32, 0xf5de_50c0_u32),
         ];
         let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let features = 0x0102_0304_0506_0708_u64;
