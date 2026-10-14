@@ -3290,14 +3290,7 @@ mod tests {
                 .unwrap(),
             );
             assert!(matches!(
-                volume.read_file_range(
-                    &mut device,
-                    &namespace,
-                    &forged_maps,
-                    ObjectId(2),
-                    0,
-                    8
-                ),
+                volume.read_file_range(&mut device, &namespace, &forged_maps, ObjectId(2), 0, 8),
                 Err(Error::Corrupt(
                     "loaded extent map does not match persistent extent-map root"
                 ))
@@ -5765,10 +5758,7 @@ mod tests {
             device.read_blocks(0, &mut primary).unwrap();
             primary[100] ^= 1;
             device.write_blocks(0, &primary).unwrap();
-            assert!(matches!(
-            check_volume(&mut device),
-            Err(Error::Corrupt(_))
-        ));
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
         }
         fs::remove_file(path).unwrap();
     }
@@ -5999,13 +5989,19 @@ mod tests {
                 .write_blocks(layout.journal.checkpoint_a, &checkpoint_block)
                 .unwrap();
             let older = JournalCheckpoint {
-                generation: 2, checkpoint_sequence: 9, next_sequence: 10,
-                next_transaction_id: 4, head_block: 0, tail_block: 0,
+                generation: 2,
+                checkpoint_sequence: 9,
+                next_sequence: 10,
+                next_transaction_id: 4,
+                head_block: 0,
+                tail_block: 0,
             };
             let older_encoded = older.encode().unwrap();
             let mut older_block = vec![0_u8; 4096];
             older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
-            device.write_blocks(layout.journal.checkpoint_b, &older_block).unwrap();
+            device
+                .write_blocks(layout.journal.checkpoint_b, &older_block)
+                .unwrap();
 
             // ID six is greater than the checkpoint's next ID, but ID five
             // cannot be skipped by the single-writer journal protocol.
@@ -6511,11 +6507,10 @@ mod tests {
                     generation: 1,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
-                metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
                 device
-            .write_blocks(metadata_block, &metadata_bytes)
-            .unwrap();
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
@@ -6562,5 +6557,4 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
 }
