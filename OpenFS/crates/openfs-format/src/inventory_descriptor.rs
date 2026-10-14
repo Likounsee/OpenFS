@@ -319,6 +319,29 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_decoder_rejects_every_single_byte_mutation_of_golden_image() {
+        let descriptor = PersistentInventoryDescriptor {
+            root_id: ObjectId(1),
+            metadata_blocks: vec![],
+            metadata_record_count: 0,
+            directory_blocks: vec![],
+            directory_entry_count: 0,
+        };
+        let valid = descriptor.encode(4096).unwrap();
+
+        // Exercise every byte, including magic, version, counts, checksum, and padding.
+        // This is a deterministic corruption sweep, not a probabilistic fuzz test.
+        for offset in 0..valid.len() {
+            let mut corrupt = valid.clone();
+            corrupt[offset] ^= 0x01;
+            assert!(
+                PersistentInventoryDescriptor::decode(&corrupt).is_err(),
+                "single-byte corruption at offset {offset} was accepted"
+            );
+        }
+    }
+
+    #[test]
     fn descriptor_codec_round_trips_every_supported_block_size() {
         let expected = PersistentInventoryDescriptor {
             root_id: ObjectId(1),
