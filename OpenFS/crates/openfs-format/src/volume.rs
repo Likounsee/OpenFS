@@ -4049,14 +4049,10 @@ mod tests {
     fn canonical_rejects_primary_or_backup_superblock_mismatch_without_writes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let total_blocks = 32_u64;
-            for (label, block) in [
-                ("primary", 0_u64),
-                ("backup", total_blocks - 1),
-            ] {
+            for (label, block) in [("primary", 0_u64), ("backup", total_blocks - 1)] {
                 let path = image_path(&format!("superblock-mismatch-{label}-{block_size}"));
                 {
-                    let mut device =
-                        ImageDevice::create(&path, block_size, total_blocks).unwrap();
+                    let mut device = ImageDevice::create(&path, block_size, total_blocks).unwrap();
                     format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
 
                     let mut bytes = vec![0_u8; device.block_size() as usize];
