@@ -2007,7 +2007,9 @@ mod tests {
                 .publish_persistent_inventory(&mut device, &descriptor)
                 .unwrap();
             assert_eq!(
-                volume.publish_persistent_inventory(&mut device, &descriptor).unwrap(),
+                volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap(),
                 descriptor_block,
                 "publishing the same inventory twice must be idempotent"
             );
