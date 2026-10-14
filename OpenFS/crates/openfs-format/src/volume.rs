@@ -2456,15 +2456,17 @@ mod tests {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            // Include the full magic boundary and progressively longer torn writes.
-            let prefixes = [
-                1,
-                crate::INVENTORY_DESCRIPTOR_MAGIC.len() - 1,
-                crate::INVENTORY_DESCRIPTOR_MAGIC.len(),
+            // Exercise every non-empty prefix of the descriptor magic, then
+            // representative header, midpoint, and near-full-block tears.
+            let mut prefixes: Vec<usize> =
+                (1..=crate::INVENTORY_DESCRIPTOR_MAGIC.len()).collect();
+            prefixes.extend([
                 48,
                 block_size as usize / 2,
                 block_size as usize - 1,
-            ];
+            ]);
+            prefixes.sort_unstable();
+            prefixes.dedup();
             for prefix_len in prefixes {
                 let path = image_path(&format!(
                     "inventory-torn-prefix-{block_size}-{prefix_len}"
