@@ -396,6 +396,22 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         }
     }
     newer.sort_by_key(|(_, record)| record.sequence);
+    // The checkpoint stores the *exact* next transaction ID, not merely a lower
+    // bound. With one serialized writer, each new BEGIN must consume that ID in
+    // order; accepting gaps would hide journal corruption and desynchronize IDs.
+    let mut expected_transaction_id = next_transaction_id;
+    for (_, record) in &newer {
+        if record.kind == JournalRecordKind::Begin {
+            if record.transaction_id != expected_transaction_id {
+                return Err(Error::Corrupt(
+                    "journal transaction IDs are not contiguous after checkpoint",
+                ));
+            }
+            expected_transaction_id = expected_transaction_id
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+    }
     if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
         if malformed.iter().any(|slot| slot < last_slot) {
             return Err(Error::Corrupt(
