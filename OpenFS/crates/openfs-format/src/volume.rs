@@ -4169,6 +4169,74 @@ mod tests {
     }
 
     #[test]
+    fn version_two_volume_discovers_inventory_without_persistent_hint() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("version-two-inventory-compatibility");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut metadata_bytes = vec![0; 4096];
+            metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![metadata_block],
+                metadata_record_count: 1,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let descriptor_block = volume
+                .publish_persistent_inventory(&mut device, &descriptor)
+                .unwrap();
+            drop(volume);
+
+            // Reconstruct a version-2 layout: it has the original four-block redo ring
+            // and no locator hint. The descriptor must still be found by the compatibility
+            // scan, with the formerly version-4-only reserved blocks returned to the free set.
+            let mut bitmap = vec![0_u8; 4096];
+            device.read_blocks(1, &mut bitmap).unwrap();
+            for block in 8_u64..20 {
+                bitmap[(block / 8) as usize] &= !(1_u8 << (block % 8));
+            }
+            device.write_blocks(1, &bitmap).unwrap();
+            for superblock in [0_u64, 255] {
+                let mut bytes = vec![0_u8; 4096];
+                device.read_blocks(superblock, &mut bytes).unwrap();
+                bytes[8..10].copy_from_slice(&2_u16.to_le_bytes());
+                bytes[48..56].fill(0);
+                bytes[56..CHECKSUM_OFFSET].fill(0);
+                let checksum = crate::crc32c(&bytes[..CHECKSUM_OFFSET]);
+                bytes[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
+                    .copy_from_slice(&checksum.to_le_bytes());
+                device.write_blocks(superblock, &bytes).unwrap();
+            }
+            device.flush().unwrap();
+
+            let volume = open_volume(&mut device).unwrap();
+            assert_eq!(volume.volume.layout.data_start, 8);
+            let found = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.0, descriptor_block);
+            assert_eq!(found.1, descriptor);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn canonical_format_open_allocate_free_roundtrips_supported_block_sizes() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("block-size-{block_size}"));
