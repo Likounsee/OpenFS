@@ -983,6 +983,14 @@ mod tests {
         let mut checkpoint_block = vec![0_u8; BS as usize];
         checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
         device.write_blocks(REGION.checkpoint_a, &checkpoint_block).unwrap();
+        let older = JournalCheckpoint {
+            generation: 2, checkpoint_sequence: 9, next_sequence: 10,
+            next_transaction_id: 4, head_block: 0, tail_block: 0,
+        };
+        let older_encoded = older.encode().unwrap();
+        let mut older_block = vec![0_u8; BS as usize];
+        older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
+        device.write_blocks(REGION.checkpoint_b, &older_block).unwrap();
 
         let record = crate::JournalRecord {
             kind: crate::JournalRecordKind::Begin,
