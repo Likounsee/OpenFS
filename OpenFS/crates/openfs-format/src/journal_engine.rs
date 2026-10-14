@@ -438,16 +438,14 @@ fn read_checkpoint_pair<D: BlockDevice>(
     // A checksum-valid checkpoint can still be semantically unusable (for example,
     // inconsistent sequence counters or unsupported ring positions). Validate each copy
     // independently so a bad newer copy does not mask a recoverable older one.
-    let first = read_checkpoint_block(device, region.checkpoint_a)
-        .and_then(|checkpoint| {
-            validate_checkpoint_geometry(&checkpoint, region)?;
-            Ok(checkpoint)
-        });
-    let second = read_checkpoint_block(device, region.checkpoint_b)
-        .and_then(|checkpoint| {
-            validate_checkpoint_geometry(&checkpoint, region)?;
-            Ok(checkpoint)
-        });
+    let first = read_checkpoint_block(device, region.checkpoint_a).and_then(|checkpoint| {
+        validate_checkpoint_geometry(&checkpoint, region)?;
+        Ok(checkpoint)
+    });
+    let second = read_checkpoint_block(device, region.checkpoint_b).and_then(|checkpoint| {
+        validate_checkpoint_geometry(&checkpoint, region)?;
+        Ok(checkpoint)
+    });
     match (first, second) {
         // Either checkpoint copy can be unavailable independently. Preserve an I/O
         // error only when no readable copy exists; otherwise the valid copy is enough
@@ -458,16 +456,14 @@ fn read_checkpoint_pair<D: BlockDevice>(
             "checkpoint copies conflict at the same generation",
         )),
         (Ok(a), Ok(b))
-            if a.generation > b.generation
-                && a.generation.checked_sub(b.generation) != Some(1) =>
+            if a.generation > b.generation && a.generation.checked_sub(b.generation) != Some(1) =>
         {
             Err(Error::Corrupt(
                 "journal checkpoint generations are not consecutive",
             ))
         }
         (Ok(a), Ok(b))
-            if b.generation > a.generation
-                && b.generation.checked_sub(a.generation) != Some(1) =>
+            if b.generation > a.generation && b.generation.checked_sub(a.generation) != Some(1) =>
         {
             Err(Error::Corrupt(
                 "journal checkpoint generations are not consecutive",
@@ -476,8 +472,10 @@ fn read_checkpoint_pair<D: BlockDevice>(
         (Ok(a), Ok(b))
             if a.generation > b.generation
                 && a.checkpoint_sequence == b.checkpoint_sequence
-                && !(a.generation == 2 && b.generation == 1
-                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                && !(a.generation == 2
+                    && b.generation == 1
+                    && a.checkpoint_sequence == 0
+                    && a.next_transaction_id == 1
                     && b.next_transaction_id == 1) =>
         {
             Err(Error::Corrupt(
@@ -487,8 +485,10 @@ fn read_checkpoint_pair<D: BlockDevice>(
         (Ok(a), Ok(b))
             if b.generation > a.generation
                 && a.checkpoint_sequence == b.checkpoint_sequence
-                && !(b.generation == 2 && a.generation == 1
-                    && a.checkpoint_sequence == 0 && a.next_transaction_id == 1
+                && !(b.generation == 2
+                    && a.generation == 1
+                    && a.checkpoint_sequence == 0
+                    && a.next_transaction_id == 1
                     && b.next_transaction_id == 1) =>
         {
             Err(Error::Corrupt(
@@ -942,13 +942,19 @@ mod tests {
             .write_blocks(REGION.checkpoint_a, &checkpoint_block)
             .unwrap();
         let older = JournalCheckpoint {
-            generation: 2, checkpoint_sequence: 9, next_sequence: 10,
-            next_transaction_id: 4, head_block: 0, tail_block: 0,
+            generation: 2,
+            checkpoint_sequence: 9,
+            next_sequence: 10,
+            next_transaction_id: 4,
+            head_block: 0,
+            tail_block: 0,
         };
         let older_encoded = older.encode().unwrap();
         let mut older_block = vec![0_u8; BS as usize];
         older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
-        device.write_blocks(REGION.checkpoint_b, &older_block).unwrap();
+        device
+            .write_blocks(REGION.checkpoint_b, &older_block)
+            .unwrap();
 
         let record = JournalRecord {
             kind: JournalRecordKind::Begin,
@@ -957,7 +963,10 @@ mod tests {
             payload: Vec::new(),
         };
         device
-            .write_blocks(REGION.ring_start, &record.encode_block(BS as usize).unwrap())
+            .write_blocks(
+                REGION.ring_start,
+                &record.encode_block(BS as usize).unwrap(),
+            )
             .unwrap();
 
         assert!(matches!(
@@ -982,7 +991,9 @@ mod tests {
         let encoded = checkpoint.encode().unwrap();
         let mut checkpoint_block = vec![0_u8; BS as usize];
         checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
-        device.write_blocks(REGION.checkpoint_a, &checkpoint_block).unwrap();
+        device
+            .write_blocks(REGION.checkpoint_a, &checkpoint_block)
+            .unwrap();
         let older = JournalCheckpoint {
             generation: 2, checkpoint_sequence: 9, next_sequence: 10,
             next_transaction_id: 4, head_block: 0, tail_block: 0,
@@ -998,12 +1009,17 @@ mod tests {
             transaction_id: 6,
             payload: Vec::new(),
         };
-        device.write_blocks(
-            REGION.ring_start,
-            &record.encode_block(BS as usize).unwrap(),
-        ).unwrap();
+        device
+            .write_blocks(
+                REGION.ring_start,
+                &record.encode_block(BS as usize).unwrap(),
+            )
+            .unwrap();
 
-        assert!(matches!(open_journal(&mut device, REGION), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
@@ -1011,14 +1027,28 @@ mod tests {
         let mut device = MemoryDevice::new();
         format_journal(&mut device, REGION).unwrap();
         for (block_number, checkpoint) in [
-            (REGION.checkpoint_a, JournalCheckpoint {
-                generation: 4, checkpoint_sequence: 3, next_sequence: 4,
-                next_transaction_id: 2, head_block: 0, tail_block: 0,
-            }),
-            (REGION.checkpoint_b, JournalCheckpoint {
-                generation: 2, checkpoint_sequence: 0, next_sequence: 1,
-                next_transaction_id: 1, head_block: 0, tail_block: 0,
-            }),
+            (
+                REGION.checkpoint_a,
+                JournalCheckpoint {
+                    generation: 4,
+                    checkpoint_sequence: 3,
+                    next_sequence: 4,
+                    next_transaction_id: 2,
+                    head_block: 0,
+                    tail_block: 0,
+                },
+            ),
+            (
+                REGION.checkpoint_b,
+                JournalCheckpoint {
+                    generation: 2,
+                    checkpoint_sequence: 0,
+                    next_sequence: 1,
+                    next_transaction_id: 1,
+                    head_block: 0,
+                    tail_block: 0,
+                },
+            ),
         ] {
             let encoded = checkpoint.encode().unwrap();
             let mut block = vec![0_u8; BS as usize];
