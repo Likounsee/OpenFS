@@ -20,7 +20,7 @@ const PREVIOUS_VERSION: u16 = 3;
 const INVENTORY_HINT_OFFSET: usize = 48;
 const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
-const JOURNAL_RING_BLOCKS: u64 = 32;
+const JOURNAL_RING_BLOCKS: u64 = 16;
 const LEGACY_JOURNAL_RING_BLOCKS: u64 = 4;
 const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
@@ -671,7 +671,7 @@ impl OpenedVolume {
 
         // Assemble one redo image per affected bitmap page. A single journal COMMIT makes
         // all ownership changes visible together, including inventory pages on distant
-        // bitmap segments. Version 4 reserves enough journal slots for up to 15 page images.
+        // bitmap segments. Version 4 reserves enough journal slots for up to 7 bitmap-page images.
         let mut bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
         let changed_blocks = std::iter::once((old_block, false))
             .chain(std::iter::once((new_block, true)))
