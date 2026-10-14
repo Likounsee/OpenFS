@@ -43,7 +43,11 @@ impl VolumeLayout {
         Self::calculate_with_ring(block_size, total_blocks, JOURNAL_RING_BLOCKS)
     }
 
-    pub(crate) fn calculate_for_version(block_size: u32, total_blocks: u64, version: u16) -> Result<Self> {
+    pub(crate) fn calculate_for_version(
+        block_size: u32,
+        total_blocks: u64,
+        version: u16,
+    ) -> Result<Self> {
         let ring_blocks = if version == VERSION {
             JOURNAL_RING_BLOCKS
         } else {
