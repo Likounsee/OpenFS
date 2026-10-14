@@ -7243,132 +7243,150 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_replacement_commits_ownership_across_bitmap_pages() {
+    fn descriptor_replacement_recovers_old_or_new_across_bitmap_pages_at_each_write_boundary() {
         use crate::{
             DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
         };
 
-        let path = image_path("descriptor-replacement-multi-page");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 32_780).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let directory_block = volume.allocate_block(&mut device).unwrap();
-            let root = MetadataRecord {
-                id: ObjectId(1),
-                parent_id: 0,
-                kind: ObjectKind::Directory,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let child = MetadataRecord {
-                id: ObjectId(2),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let second_child = MetadataRecord {
-                id: ObjectId(3),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let mut metadata_bytes = vec![0_u8; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
-            metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&child.encode().unwrap());
-            metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&second_child.encode().unwrap());
-            device
-                .write_blocks(metadata_block, &metadata_bytes)
-                .unwrap();
+        // A 4 KiB bitmap page covers 32,768 blocks. Put the old descriptor on page 2,
+        // while its replacement is staged on page 1, and fail each write in turn.
+        for fail_at in 0..=12 {
+            let path = image_path(&format!("descriptor-replacement-multi-page-crash-{fail_at}"));
+            {
+                let image = ImageDevice::create(&path, 4096, 32_780).unwrap();
+                let mut device = FailNthWrite {
+                    inner: image,
+                    writes_until_failure: None,
+                };
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let child = MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let second_child = MetadataRecord {
+                    id: ObjectId(3),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0_u8; 4096];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&child.encode().unwrap());
+                metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&second_child.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
 
-            let entry = DirectoryEntry {
-                parent_id: 1,
-                object_id: 2,
-                kind: ObjectKind::File,
-                name: "child.txt".to_owned(),
-            };
-            let second_entry = DirectoryEntry {
-                parent_id: 1,
-                object_id: 3,
-                kind: ObjectKind::File,
-                name: "second.txt".to_owned(),
-            };
-            let mut directory_bytes = vec![0_u8; 4096];
-            directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
-                .copy_from_slice(&entry.encode().unwrap());
-            directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
-                .copy_from_slice(&second_entry.encode().unwrap());
-            device
-                .write_blocks(directory_block, &directory_bytes)
-                .unwrap();
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "child.txt".to_owned(),
+                };
+                let second_entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 3,
+                    kind: ObjectKind::File,
+                    name: "second.txt".to_owned(),
+                };
+                let mut directory_bytes = vec![0_u8; 4096];
+                directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
+                    .copy_from_slice(&entry.encode().unwrap());
+                directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
+                    .copy_from_slice(&second_entry.encode().unwrap());
+                device.write_blocks(directory_block, &directory_bytes).unwrap();
 
-            let old_descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![metadata_block],
-                metadata_record_count: 2,
-                directory_blocks: vec![directory_block],
-                directory_entry_count: 1,
-            };
-            // Place the current descriptor on bitmap page 2 directly so the replacement
-            // must atomically free that page and allocate its replacement on bitmap page 1.
-            let old_block = 32_770_u64;
-            let bits_per_bitmap_block = 4096_u64 * 8;
-            let bitmap_index = old_block / bits_per_bitmap_block;
-            let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
-            let mut bitmap = vec![0_u8; 4096];
-            device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-            let local = old_block % bits_per_bitmap_block;
-            bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
-            device.write_blocks(bitmap_block, &bitmap).unwrap();
-            device
-                .write_blocks(old_block, &old_descriptor.encode(4096).unwrap())
-                .unwrap();
-            device.flush().unwrap();
-            crate::volume::persist_inventory_hint(&mut device, old_block).unwrap();
+                let old_descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 2,
+                    directory_blocks: vec![directory_block],
+                    directory_entry_count: 1,
+                };
+                let old_block = 32_770_u64;
+                let bits_per_bitmap_block = 4096_u64 * 8;
+                let bitmap_index = old_block / bits_per_bitmap_block;
+                let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
+                let mut bitmap = vec![0_u8; 4096];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                let local = old_block % bits_per_bitmap_block;
+                bitmap[(local / 8) as usize] |= 1_u8 << (local % 8);
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+                device
+                    .write_blocks(old_block, &old_descriptor.encode(4096).unwrap())
+                    .unwrap();
+                device.flush().unwrap();
+                crate::volume::persist_inventory_hint(&mut device, old_block).unwrap();
 
-            let new_descriptor = PersistentInventoryDescriptor {
-                metadata_record_count: 3,
-                directory_entry_count: 2,
-                ..old_descriptor.clone()
-            };
-            let new_block = volume
-                .replace_persistent_inventory_descriptor(&mut device, &new_descriptor)
-                .unwrap();
-            assert_ne!(
-                new_block / bits_per_bitmap_block,
-                old_block / bits_per_bitmap_block
-            );
-            assert!(!volume
-                .is_data_block_allocated(&mut device, old_block)
-                .unwrap());
-            assert!(volume
-                .is_data_block_allocated(&mut device, new_block)
-                .unwrap());
-            drop(volume);
+                let new_descriptor = PersistentInventoryDescriptor {
+                    metadata_record_count: 3,
+                    directory_entry_count: 2,
+                    ..old_descriptor.clone()
+                };
+                device.writes_until_failure = Some(fail_at);
+                let result =
+                    volume.replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
+                assert!(
+                    result.is_ok() || matches!(result, Err(Error::Io(_))),
+                    "unexpected replacement error at write {fail_at}: {result:?}"
+                );
+                drop(volume);
+                drop(device);
 
-            let volume = open_volume(&mut device).unwrap();
-            let found = volume
-                .discover_persistent_inventory(&mut device)
-                .unwrap()
-                .unwrap();
-            assert_eq!(found.0, new_block);
-            assert_eq!(found.1, new_descriptor);
-            assert!(matches!(
-                volume.verify_discovered_persistent_inventory(&mut device).unwrap(),
-                Some(report) if report.is_consistent()
-            ));
+                // Recovery must publish the old descriptor before COMMIT or the new one
+                // after COMMIT, never a mixed bitmap/descriptor state.
+                let mut reopened_device = ImageDevice::open(&path, 4096).unwrap();
+                let reopened = open_volume(&mut reopened_device).unwrap();
+                let (found_block, found_descriptor) = reopened
+                    .discover_persistent_inventory(&mut reopened_device)
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    (found_block == old_block && found_descriptor == old_descriptor)
+                        || (found_block != old_block && found_descriptor == new_descriptor),
+                    "recovery exposed a mixed state at write {fail_at}: {found_descriptor:?}"
+                );
+                if found_block == old_block {
+                    assert!(reopened
+                        .is_data_block_allocated(&mut reopened_device, old_block)
+                        .unwrap());
+                } else {
+                    assert!(!reopened
+                        .is_data_block_allocated(&mut reopened_device, old_block)
+                        .unwrap());
+                    assert!(reopened
+                        .is_data_block_allocated(&mut reopened_device, found_block)
+                        .unwrap());
+                }
+                assert!(matches!(
+                    reopened
+                        .verify_discovered_persistent_inventory(&mut reopened_device)
+                        .unwrap(),
+                    Some(report) if report.is_consistent()
+                ));
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
