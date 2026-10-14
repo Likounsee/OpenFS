@@ -2583,6 +2583,49 @@ mod tests {
     }
 
     #[test]
+    fn discovery_read_failures_are_reported_and_retryable_with_a_locator() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for fail_at in 0..4 {
+            let path = image_path(&format!("inventory-discovery-read-failure-{fail_at}"));
+            {
+                let image = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut image = image;
+                let mut volume = format_volume(&mut image, *b"openfs-test-0001", 0).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let descriptor_block = volume
+                    .publish_persistent_inventory(&mut image, &descriptor)
+                    .unwrap();
+                let mut failing = FailReadAt {
+                    inner: image,
+                    read_index: 0,
+                    fail_at,
+                };
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut failing),
+                        Err(Error::Io(_))
+                    ),
+                    "discovery must propagate injected read failure at read {fail_at}"
+                );
+                let found = volume
+                    .discover_persistent_inventory(&mut failing)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(found.0, descriptor_block);
+                assert_eq!(found.1, descriptor);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
