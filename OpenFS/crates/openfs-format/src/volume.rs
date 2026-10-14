@@ -4060,7 +4060,7 @@ mod tests {
                     metadata_blocks: vec![owned_block],
                     metadata_record_count: 1,
                     directory_blocks: vec![owned_block],
-                    directory_entry_count: 0,
+                    directory_entry_count: 1,
                 };
 
                 let image_len = block_size as usize * device.block_count() as usize;
@@ -4071,10 +4071,10 @@ mod tests {
                     matches!(
                         volume.publish_persistent_inventory(&mut device, &descriptor),
                         Err(Error::InvalidInput(
-                            "inventory descriptor contains overlapping block lists"
+                            "inventory descriptor contains duplicate physical blocks"
                         ))
                     ),
-                    "cross-list block alias was accepted at block size {block_size}"
+                    "cross-list block alias was not rejected during descriptor validation at block size {block_size}"
                 );
 
                 let mut after = vec![0_u8; image_len];
