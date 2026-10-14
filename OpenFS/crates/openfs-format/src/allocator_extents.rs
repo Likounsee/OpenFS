@@ -1391,6 +1391,8 @@ mod allocation_bitmap_report_tests {
                 blocks.push(volume.allocate_block(&mut image).unwrap());
             }
             assert!(blocks.windows(2).all(|pair| pair[1] == pair[0] + 1));
+            // Warm descriptor discovery before counting reads for the free operation itself.
+            assert!(volume.discover_persistent_inventory(&mut image).unwrap().is_none());
 
             let mut device = CountRangeReads {
                 inner: image,
