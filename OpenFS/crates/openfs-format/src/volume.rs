@@ -6691,7 +6691,7 @@ mod tests {
 
     #[test]
     fn formatted_volume_image_is_deterministic_at_every_supported_block_size() {
-        let uuid = *b"openfs-golden-001";
+        let uuid = *b"openfs-golden-01";
         let features = 0x0102_0304_0506_0708_u64;
         let total_blocks = 64_u64;
 
