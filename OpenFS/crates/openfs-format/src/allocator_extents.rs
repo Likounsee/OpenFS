@@ -1326,7 +1326,11 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolume, device: &D) -> Result<
             "device geometry does not match opened volume",
         ));
     }
-    let canonical = VolumeLayout::calculate(volume.volume.block_size, volume.volume.total_blocks)?;
+    let canonical = VolumeLayout::calculate_for_version(
+        volume.volume.block_size,
+        volume.volume.total_blocks,
+        volume.format_version,
+    )?;
     if volume.volume.layout != canonical {
         return Err(Error::InvalidInput(
             "volume layout was modified after validation",
