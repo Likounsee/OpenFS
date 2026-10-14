@@ -2439,34 +2439,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_multiple_persistent_inventory_descriptors() {
+    fn rejects_multiple_persistent_inventory_descriptors_at_every_block_size() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        let path = image_path("duplicate-inventory-descriptors");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let first = volume.allocate_block(&mut device).unwrap();
-            let second = volume.allocate_block(&mut device).unwrap();
-            let descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![],
-                metadata_record_count: 0,
-                directory_blocks: vec![],
-                directory_entry_count: 0,
-            };
-            let encoded = descriptor.encode(4096).unwrap();
-            device.write_blocks(first, &encoded).unwrap();
-            device.write_blocks(second, &encoded).unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("duplicate-inventory-descriptors-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let first = volume.allocate_block(&mut device).unwrap();
+                let second = volume.allocate_block(&mut device).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let encoded = descriptor.encode(block_size as usize).unwrap();
+                device.write_blocks(first, &encoded).unwrap();
+                device.write_blocks(second, &encoded).unwrap();
 
-            assert!(matches!(
-                volume.discover_persistent_inventory(&mut device),
-                Err(Error::Corrupt(
-                    "multiple persistent inventory descriptors were discovered"
-                ))
-            ));
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut device),
+                        Err(Error::Corrupt(
+                            "multiple persistent inventory descriptors were discovered"
+                        ))
+                    ),
+                    "discovery must reject two descriptors at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
