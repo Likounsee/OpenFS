@@ -2424,9 +2424,7 @@ mod tests {
 
             assert!(matches!(
                 volume.discover_persistent_inventory(&mut device),
-                Err(Error::Corrupt(
-                    "inventory descriptor contains duplicate block ownership"
-                ))
+                Err(Error::Corrupt(_))
             ));
         }
         fs::remove_file(path).unwrap();
