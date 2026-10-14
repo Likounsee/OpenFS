@@ -1522,7 +1522,9 @@ mod tests {
         // turn, then reopen and ensure recovery never exposes a mixed pair.
         for fail_at in 0..24 {
             let mut device = formatted();
-            device.write_blocks(HOME + 1, &vec![0x22; BS as usize]).unwrap();
+            device
+                .write_blocks(HOME + 1, &vec![0x22; BS as usize])
+                .unwrap();
             device.flush().unwrap();
             let mut journal = open_journal(&mut device, REGION).unwrap();
 
@@ -1544,10 +1546,8 @@ mod tests {
             });
             let first = read_block(&mut recovered, HOME);
             let second = read_block(&mut recovered, HOME + 1);
-            let old_pair = first == vec![0x11; BS as usize]
-                && second == vec![0x22; BS as usize];
-            let new_pair = first == vec![0xA5; BS as usize]
-                && second == vec![0x5A; BS as usize];
+            let old_pair = first == vec![0x11; BS as usize] && second == vec![0x22; BS as usize];
+            let new_pair = first == vec![0xA5; BS as usize] && second == vec![0x5A; BS as usize];
             assert!(
                 old_pair || new_pair,
                 "transaction exposed a mixed state after injected I/O {fail_at}"
