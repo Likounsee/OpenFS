@@ -5891,7 +5891,7 @@ mod tests {
                 let allocated: Vec<_> = (0..layout.data_blocks())
                     .map(|_| volume.allocate_block(&mut device).unwrap())
                     .collect();
-                assert_eq!(allocated, vec![8, 9, 10]);
+                assert_eq!(allocated, vec![20, 21, 22]);
                 let checkpoint_when_full = volume.journal.checkpoint().checkpoint_sequence;
                 assert!(matches!(
                     volume.allocate_block(&mut device),
