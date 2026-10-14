@@ -4058,7 +4058,7 @@ mod tests {
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
                     metadata_blocks: vec![owned_block],
-                    metadata_record_count: 0,
+                    metadata_record_count: 1,
                     directory_blocks: vec![owned_block],
                     directory_entry_count: 0,
                 };
