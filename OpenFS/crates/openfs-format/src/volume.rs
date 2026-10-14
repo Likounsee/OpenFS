@@ -542,8 +542,16 @@ impl OpenedVolume {
                 .ok_or(Error::InvalidInput(
                     "no persistent inventory descriptor exists to replace",
                 ))?;
-        if old_descriptor.metadata_blocks != descriptor.metadata_blocks
-            || old_descriptor.directory_blocks != descriptor.directory_blocks
+        let mut old_metadata_blocks = old_descriptor.metadata_blocks.clone();
+        let mut new_metadata_blocks = descriptor.metadata_blocks.clone();
+        old_metadata_blocks.sort_unstable();
+        new_metadata_blocks.sort_unstable();
+        let mut old_directory_blocks = old_descriptor.directory_blocks.clone();
+        let mut new_directory_blocks = descriptor.directory_blocks.clone();
+        old_directory_blocks.sort_unstable();
+        new_directory_blocks.sort_unstable();
+        if old_metadata_blocks != new_metadata_blocks
+            || old_directory_blocks != new_directory_blocks
         {
             return Err(Error::InvalidInput(
                 "descriptor replacement cannot change inventory block ownership",
@@ -6786,26 +6794,35 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let write_root = |device: &mut ImageDevice, id: ObjectId| {
-                let root = MetadataRecord {
-                    id,
-                    parent_id: 0,
-                    kind: ObjectKind::Directory,
-                    flags: 0,
-                    size: 0,
-                    extent_root_block: None,
-                    generation: 1,
-                };
-                let mut bytes = vec![0; 4096];
-                bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
-                device.write_blocks(metadata_block, &bytes).unwrap();
+            let blocks = volume.allocate_blocks(&mut device, 2).unwrap();
+            let root = MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
             };
-            write_root(&mut device, ObjectId(1));
+            let child = MetadataRecord {
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            for (block, record) in blocks.iter().zip([root, child]) {
+                let mut bytes = vec![0; 4096];
+                bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&record.encode().unwrap());
+                device.write_blocks(*block, &bytes).unwrap();
+            }
             let old_descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
-                metadata_blocks: vec![metadata_block],
-                metadata_record_count: 1,
+                metadata_blocks: blocks.clone(),
+                metadata_record_count: 2,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
@@ -6814,11 +6831,10 @@ mod tests {
                 .unwrap();
             let free_before = volume.free_data_block_count(&mut device).unwrap();
 
-            // The inventory blocks are stable; prepare the new root record before switching
-            // the descriptor pointer. The descriptor switch itself is a single bitmap commit.
-            write_root(&mut device, ObjectId(2));
+            // Reordering the same physical metadata blocks changes the canonical stream
+            // descriptor without changing any data or ownership before the commit point.
             let new_descriptor = PersistentInventoryDescriptor {
-                root_id: ObjectId(2),
+                metadata_blocks: vec![blocks[1], blocks[0]],
                 ..old_descriptor.clone()
             };
             let new_block = volume
