@@ -307,8 +307,17 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_decoder_rejects_unsupported_block_sizes() {
+    fn descriptor_codec_rejects_unsupported_block_sizes() {
+        let descriptor = sample();
         for block_size in [64_usize, 128, 256, 512, 1024, 2048, 131_072] {
+            assert!(
+                matches!(
+                    descriptor.encode(block_size),
+                    Err(Error::InvalidInput("unsupported inventory descriptor block size"))
+                ),
+                "encoder accepted unsupported descriptor block size {block_size}"
+            );
+
             let mut bytes = vec![0_u8; block_size];
             if block_size >= 48 && block_size.is_power_of_two() {
                 bytes[..8].copy_from_slice(crate::INVENTORY_DESCRIPTOR_MAGIC);
