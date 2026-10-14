@@ -6794,8 +6794,11 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let records_per_block = 4096 / crate::METADATA_RECORD_SIZE;
+            let record_count = records_per_block + 1;
             let blocks = volume.allocate_blocks(&mut device, 2).unwrap();
-            let root = MetadataRecord {
+            let mut records = Vec::with_capacity(record_count);
+            records.push(MetadataRecord {
                 id: ObjectId(1),
                 parent_id: 0,
                 kind: ObjectKind::Directory,
@@ -6803,25 +6806,31 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            };
-            let child = MetadataRecord {
-                id: ObjectId(2),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            for (block, record) in blocks.iter().zip([root, child]) {
+            });
+            for id in 2..=record_count as u128 {
+                records.push(MetadataRecord {
+                    id: ObjectId(id),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                });
+            }
+            for (block_index, chunk) in records.chunks(records_per_block).enumerate() {
                 let mut bytes = vec![0; 4096];
-                bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&record.encode().unwrap());
-                device.write_blocks(*block, &bytes).unwrap();
+                for (record_index, record) in chunk.iter().enumerate() {
+                    let start = record_index * crate::METADATA_RECORD_SIZE;
+                    bytes[start..start + crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&record.encode().unwrap());
+                }
+                device.write_blocks(blocks[block_index], &bytes).unwrap();
             }
             let old_descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
                 metadata_blocks: blocks.clone(),
-                metadata_record_count: 2,
+                metadata_record_count: record_count,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
@@ -6831,7 +6840,7 @@ mod tests {
             let free_before = volume.free_data_block_count(&mut device).unwrap();
 
             // Reordering the same physical metadata blocks changes the canonical stream
-            // descriptor without changing any data or ownership before the commit point.
+            // descriptor without changing data or ownership before the commit point.
             let new_descriptor = PersistentInventoryDescriptor {
                 metadata_blocks: vec![blocks[1], blocks[0]],
                 ..old_descriptor.clone()
