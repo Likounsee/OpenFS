@@ -2536,6 +2536,9 @@ mod tests {
                         volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
                         "reusing torn staging bytes must not publish a descriptor at block size {block_size}"
                     );
+                    // Return the probe allocation so publication's strict ownership
+                    // verifier does not mistake this test-only allocation for an orphan.
+                    volume.free_block(&mut device, reused).unwrap();
 
                     let descriptor_block = volume
                         .publish_persistent_inventory(&mut device, &descriptor)
