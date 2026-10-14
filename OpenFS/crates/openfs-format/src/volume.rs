@@ -7335,8 +7335,7 @@ mod tests {
                         let first_fragment_len = 4096 - fragment_start;
                         metadata_bytes[fragment_start..]
                             .copy_from_slice(&encoded_child[..first_fragment_len]);
-                        high_metadata_bytes
-                            [..crate::METADATA_RECORD_SIZE - first_fragment_len]
+                        high_metadata_bytes[..crate::METADATA_RECORD_SIZE - first_fragment_len]
                             .copy_from_slice(&encoded_child[first_fragment_len..]);
                     }
 
