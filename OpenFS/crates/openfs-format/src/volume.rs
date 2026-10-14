@@ -6822,23 +6822,42 @@ mod tests {
                         extent_root_block: None,
                         generation: 1,
                     };
+                    let second_child = MetadataRecord {
+                        id: ObjectId(3),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    };
                     let entry = DirectoryEntry {
                         parent_id: 1,
                         object_id: 2,
                         kind: ObjectKind::File,
                         name: "child.txt".to_owned(),
                     };
+                    let second_entry = DirectoryEntry {
+                        parent_id: 1,
+                        object_id: 3,
+                        kind: ObjectKind::File,
+                        name: "second.txt".to_owned(),
+                    };
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&root.encode().unwrap());
                     metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&child.encode().unwrap());
+                    metadata_bytes[2 * crate::METADATA_RECORD_SIZE..3 * crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&second_child.encode().unwrap());
                     device
                         .write_blocks(metadata_block, &metadata_bytes)
                         .unwrap();
                     let mut directory_bytes = vec![0_u8; block_size as usize];
                     directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
                         .copy_from_slice(&entry.encode().unwrap());
+                    directory_bytes[crate::DIRECTORY_ENTRY_SIZE..2 * crate::DIRECTORY_ENTRY_SIZE]
+                        .copy_from_slice(&second_entry.encode().unwrap());
                     device
                         .write_blocks(directory_block, &directory_bytes)
                         .unwrap();
@@ -6846,16 +6865,16 @@ mod tests {
                     let old_descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
                         metadata_blocks: vec![metadata_block],
-                        metadata_record_count: 1,
+                        metadata_record_count: 2,
                         directory_blocks: vec![directory_block],
-                        directory_entry_count: 0,
+                        directory_entry_count: 1,
                     };
                     let old_block = volume
                         .publish_persistent_inventory(&mut device, &old_descriptor)
                         .unwrap();
                     let new_descriptor = PersistentInventoryDescriptor {
-                        metadata_record_count: 2,
-                        directory_entry_count: 1,
+                        metadata_record_count: 3,
+                        directory_entry_count: 2,
                         ..old_descriptor.clone()
                     };
                     device.writes_until_failure = Some(fail_at);
