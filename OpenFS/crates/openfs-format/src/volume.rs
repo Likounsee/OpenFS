@@ -4183,6 +4183,35 @@ mod tests {
     }
 
     #[test]
+    fn locator_update_refuses_to_rewrite_a_corrupt_superblock_checksum() {
+        let path = image_path("locator-update-corrupt-superblock-checksum");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let backup_block = volume.volume.layout.backup_superblock;
+            drop(volume);
+
+            let mut backup = vec![0_u8; 4096];
+            device.read_blocks(backup_block, &mut backup).unwrap();
+            backup[CHECKSUM_OFFSET] ^= 1;
+            device.write_blocks(backup_block, &backup).unwrap();
+            device.flush().unwrap();
+
+            let bytes_before = fs::read(&path).unwrap();
+            assert!(matches!(
+                persist_inventory_hint(&mut device, 42),
+                Err(Error::Corrupt("superblock CRC32C mismatch"))
+            ));
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                bytes_before,
+                "a locator update must not normalize a damaged superblock checksum"
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn canonical_superblock_has_stable_golden_bytes_and_checksum() {
         let uuid = *b"openfs-test-0001";
         let features = 0x0102_0304_0506_0708;
