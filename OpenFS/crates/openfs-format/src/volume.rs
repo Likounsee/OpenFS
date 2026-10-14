@@ -5875,8 +5875,8 @@ mod tests {
             // post-checkpoint record cannot legally reuse transaction ID one.
             let checkpoint = JournalCheckpoint {
                 generation: 3,
-                checkpoint_sequence: 0,
-                next_sequence: 1,
+                checkpoint_sequence: 12,
+                next_sequence: 13,
                 next_transaction_id: 5,
                 head_block: 0,
                 tail_block: 0,
@@ -5887,10 +5887,18 @@ mod tests {
             device
                 .write_blocks(layout.journal.checkpoint_a, &checkpoint_block)
                 .unwrap();
+            let older = JournalCheckpoint {
+                generation: 2, checkpoint_sequence: 9, next_sequence: 10,
+                next_transaction_id: 4, head_block: 0, tail_block: 0,
+            };
+            let older_encoded = older.encode().unwrap();
+            let mut older_block = vec![0_u8; 4096];
+            older_block[..older_encoded.len()].copy_from_slice(&older_encoded);
+            device.write_blocks(layout.journal.checkpoint_b, &older_block).unwrap();
 
             let record = JournalRecord {
                 kind: JournalRecordKind::Begin,
-                sequence: 1,
+                sequence: 13,
                 transaction_id: 1,
                 payload: Vec::new(),
             };
