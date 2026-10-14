@@ -4395,7 +4395,7 @@ mod tests {
             let path = image_path(&format!("allocator-exhaustion-{block_size}"));
             {
                 // The minimum valid canonical geometry has exactly three data blocks.
-                let mut device = ImageDevice::create(&path, block_size, 12).unwrap();
+                let mut device = ImageDevice::create(&path, block_size, JOURNAL_RESERVED_BLOCKS + 6).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
