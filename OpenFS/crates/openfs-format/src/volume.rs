@@ -2413,7 +2413,7 @@ mod tests {
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
                 metadata_blocks: vec![metadata_block, metadata_block],
-                metadata_record_count: 2,
+                metadata_record_count: 4096 / crate::METADATA_RECORD_SIZE + 1,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
