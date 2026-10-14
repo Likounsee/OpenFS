@@ -378,8 +378,7 @@ impl OpenedVolume {
             // as success without writing anything; never reinterpret a different
             // inventory as an idempotent retry.
             if existing_descriptor == *descriptor {
-                self.inventory_descriptor_cache =
-                    Some(Some((existing_block, existing_descriptor)));
+                self.inventory_descriptor_cache = Some(Some((existing_block, existing_descriptor)));
                 return Ok(existing_block);
             }
             return Err(Error::InvalidInput(
