@@ -396,4 +396,34 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn descriptor_has_stable_golden_bytes_and_checksum() {
+        let descriptor = PersistentInventoryDescriptor {
+            root_id: ObjectId(1),
+            metadata_blocks: vec![],
+            metadata_record_count: 0,
+            directory_blocks: vec![],
+            directory_entry_count: 0,
+        };
+        let encoded = descriptor.encode(4096).unwrap();
+
+        assert_eq!(
+            &encoded[..48],
+            &[
+                79, 70, 83, 77, 73, 78, 86, 0, 1, 0, 48, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 37, 179, 212, 0, 0, 0, 0
+            ]
+        );
+        assert_eq!(
+            u32::from_le_bytes(encoded[40..44].try_into().unwrap()),
+            0xd4b3_2501
+        );
+        assert!(encoded[48..].iter().all(|byte| *byte == 0));
+        assert_eq!(
+            PersistentInventoryDescriptor::decode(&encoded).unwrap(),
+            descriptor
+        );
+    }
+
 }
