@@ -4102,8 +4102,7 @@ mod tests {
                         inner: image,
                         writes_until_failure: None,
                     };
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let blocks = [
                         volume.allocate_block(&mut device).unwrap(),
                         volume.allocate_block(&mut device).unwrap(),
