@@ -6613,4 +6613,54 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn canonical_superblock_has_golden_bytes_for_every_supported_block_size() {
+        let fixtures = [
+            (4096_u32, 0x832c_e650_u32),
+            (8192_u32, 0x3e20_1f78_u32),
+            (16_384_u32, 0x41d5_9bd9_u32),
+            (32_768_u32, 0xbe3e_929b_u32),
+            (65_536_u32, 0x4404_f6ee_u32),
+        ];
+        let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let features = 0x0102_0304_0506_0708_u64;
+
+        for (block_size, expected_crc) in fixtures {
+            let encoded = encode_superblock(block_size, 256, features, uuid).unwrap();
+            let mut expected_header = [0_u8; 48];
+            expected_header[..8].copy_from_slice(MAGIC);
+            expected_header[8..10].copy_from_slice(&VERSION.to_le_bytes());
+            expected_header[10..12].copy_from_slice(&HEADER_SIZE.to_le_bytes());
+            expected_header[12..16].copy_from_slice(&block_size.to_le_bytes());
+            expected_header[16..24].copy_from_slice(&256_u64.to_le_bytes());
+            expected_header[24..32].copy_from_slice(&features.to_le_bytes());
+            expected_header[32..48].copy_from_slice(&uuid);
+
+            assert_eq!(
+                &encoded[..48],
+                &expected_header,
+                "golden header mismatch for block size {block_size}"
+            );
+            assert_eq!(
+                u32::from_le_bytes(encoded[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].try_into().unwrap()),
+                expected_crc,
+                "golden CRC32C mismatch for block size {block_size}"
+            );
+            assert!(
+                encoded[48..CHECKSUM_OFFSET].iter().all(|byte| *byte == 0),
+                "reserved bytes must remain zero for block size {block_size}"
+            );
+            assert!(
+                encoded[CHECKSUM_OFFSET + 4..].iter().all(|byte| *byte == 0),
+                "superblock tail must remain zero for block size {block_size}"
+            );
+            assert_eq!(
+                decode_superblock(&encoded).unwrap(),
+                (block_size, 256, features, uuid),
+                "golden superblock must round-trip for block size {block_size}"
+            );
+        }
+    }
+
 }
