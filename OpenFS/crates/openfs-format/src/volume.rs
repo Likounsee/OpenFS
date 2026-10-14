@@ -1291,7 +1291,7 @@ fn check_journal_read_only<D: BlockDevice>(
     device: &mut D,
     region: JournalRegion,
 ) -> Result<(u64, u64, u64, u64)> {
-    fn read_copy<D: BlockDevice>(device: &mut D, block_number: u64) -> Result<JournalCheckpoint> {
+    fn read_copy<D: BlockDevice>(device: &mut D, block_number: u64, region: JournalRegion) -> Result<JournalCheckpoint> {
         let mut block = vec![0_u8; device.block_size() as usize];
         device.read_blocks(block_number, &mut block)?;
         if block[JOURNAL_CHECKPOINT_SIZE..]
@@ -1300,15 +1300,50 @@ fn check_journal_read_only<D: BlockDevice>(
         {
             return Err(Error::Corrupt("checkpoint block padding must be zero"));
         }
-        JournalCheckpoint::decode(&block[..JOURNAL_CHECKPOINT_SIZE])
+        let checkpoint = JournalCheckpoint::decode(&block[..JOURNAL_CHECKPOINT_SIZE])?;
+        // Match the recovery engine: validate each copy before choosing by generation,
+        // so a checksum-valid but unusable newer copy cannot hide a valid older copy.
+        if checkpoint.head_block >= region.ring_blocks
+            || checkpoint.tail_block >= region.ring_blocks
+            || checkpoint.head_block != 0
+            || checkpoint.tail_block != 0
+        {
+            return Err(Error::Corrupt(
+                "unsupported journal checkpoint ring position",
+            ));
+        }
+        if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
+            return Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree",
+            ));
+        }
+        Ok(checkpoint)
     }
 
-    let first = read_copy(device, region.checkpoint_a);
-    let second = read_copy(device, region.checkpoint_b);
+    let first = read_copy(device, region.checkpoint_a, region);
+    let second = read_copy(device, region.checkpoint_b, region);
     let (checkpoint, _) = match (first, second) {
         (Ok(a), Ok(b)) if a.generation == b.generation && a != b => {
             return Err(Error::Corrupt(
                 "checkpoint copies conflict at the same generation",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if a.generation > b.generation
+                && (a.checkpoint_sequence < b.checkpoint_sequence
+                    || a.next_transaction_id < b.next_transaction_id) =>
+        {
+            return Err(Error::Corrupt(
+                "newer journal checkpoint regresses durable counters",
+            ));
+        }
+        (Ok(a), Ok(b))
+            if b.generation > a.generation
+                && (b.checkpoint_sequence < a.checkpoint_sequence
+                    || b.next_transaction_id < a.next_transaction_id) =>
+        {
+            return Err(Error::Corrupt(
+                "newer journal checkpoint regresses durable counters",
             ));
         }
         (Ok(a), Ok(b)) if a.generation >= b.generation => (a, 0),
@@ -1319,20 +1354,6 @@ fn check_journal_read_only<D: BlockDevice>(
             return Err(Error::Corrupt("both journal checkpoint copies are invalid"));
         }
     };
-    if checkpoint.head_block >= region.ring_blocks
-        || checkpoint.tail_block >= region.ring_blocks
-        || checkpoint.head_block != 0
-        || checkpoint.tail_block != 0
-    {
-        return Err(Error::Corrupt(
-            "unsupported journal checkpoint ring position",
-        ));
-    }
-    if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
-        return Err(Error::Corrupt(
-            "journal checkpoint sequence counters disagree",
-        ));
-    }
 
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
