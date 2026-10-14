@@ -378,6 +378,8 @@ impl OpenedVolume {
             // as success without writing anything; never reinterpret a different
             // inventory as an idempotent retry.
             if existing_descriptor == *descriptor {
+                persist_inventory_hint(device, existing_block)?;
+                self.inventory_descriptor_hint = Some(existing_block);
                 self.inventory_descriptor_cache = Some(Some((existing_block, existing_descriptor)));
                 return Ok(existing_block);
             }
@@ -518,6 +520,8 @@ impl OpenedVolume {
                 contents: bitmap,
             }],
         )?;
+        persist_inventory_hint(device, descriptor_block)?;
+        self.inventory_descriptor_hint = Some(descriptor_block);
         self.inventory_descriptor_cache = Some(Some((descriptor_block, descriptor.clone())));
         Ok(descriptor_block)
     }
@@ -645,6 +649,8 @@ impl OpenedVolume {
                 contents: bitmap,
             }],
         )?;
+        persist_inventory_hint(device, new_block)?;
+        self.inventory_descriptor_hint = Some(new_block);
         self.inventory_descriptor_cache = Some(Some((new_block, descriptor.clone())));
         Ok(new_block)
     }
@@ -666,6 +672,61 @@ impl OpenedVolume {
         // bounded batch of candidate blocks at a time.
         self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Version 3 volumes carry a checksummed descriptor-block hint in both superblocks.
+        // Validate the hint and every referenced allocation before trusting it; if stale or
+        // damaged, fall back to the full scan so interrupted hint updates remain recoverable.
+        if let Some(block) = self.inventory_descriptor_hint {
+            if block >= layout.data_start && block < layout.backup_superblock {
+                let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
+                let bitmap_index = block / bits_per_bitmap_block;
+                let mut bitmap = vec![0_u8; block_size];
+                device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                let local = block % bits_per_bitmap_block;
+                let allocated = bitmap[(local / 8) as usize] & (1_u8 << (local % 8)) != 0;
+                if allocated {
+                    let mut bytes = vec![0_u8; block_size];
+                    device.read_blocks(block, &mut bytes)?;
+                    if let Ok(descriptor) = PersistentInventoryDescriptor::decode(&bytes) {
+                        let mut references_valid = true;
+                        for referenced in descriptor
+                            .metadata_blocks
+                            .iter()
+                            .chain(descriptor.directory_blocks.iter())
+                        {
+                            if *referenced < layout.data_start
+                                || *referenced >= layout.backup_superblock
+                            {
+                                references_valid = false;
+                                break;
+                            }
+                            let reference_bitmap_index = *referenced / bits_per_bitmap_block;
+                            let mut reference_bitmap = vec![0_u8; block_size];
+                            device.read_blocks(
+                                layout.bitmap_start + reference_bitmap_index,
+                                &mut reference_bitmap,
+                            )?;
+                            let reference_local = *referenced % bits_per_bitmap_block;
+                            if reference_bitmap[(reference_local / 8) as usize]
+                                & (1_u8 << (reference_local % 8))
+                                == 0
+                            {
+                                references_valid = false;
+                                break;
+                            }
+                        }
+                        if references_valid
+                            && !descriptor.metadata_blocks.contains(&block)
+                            && !descriptor.directory_blocks.contains(&block)
+                        {
+                            return Ok(Some((block, descriptor)));
+                        }
+                    }
+                }
+            }
+        }
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
