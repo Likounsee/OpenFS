@@ -4572,6 +4572,7 @@ mod tests {
                     let mut device = FailNthWrite {
                         inner: image,
                         writes_until_failure: None,
+                        flushes_until_failure: None,
                     };
                     let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let blocks = [
@@ -7144,6 +7145,7 @@ mod tests {
                     let mut device = FailNthWrite {
                         inner: image,
                         writes_until_failure: None,
+                        flushes_until_failure: None,
                     };
                     let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
