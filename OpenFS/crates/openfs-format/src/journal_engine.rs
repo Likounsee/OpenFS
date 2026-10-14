@@ -903,6 +903,38 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_skipped_transaction_id_after_checkpoint() {
+        let mut device = MemoryDevice::new();
+        format_journal(&mut device, REGION).unwrap();
+
+        let checkpoint = JournalCheckpoint {
+            generation: 3,
+            checkpoint_sequence: 0,
+            next_sequence: 1,
+            next_transaction_id: 5,
+            head_block: 0,
+            tail_block: 0,
+        };
+        let encoded = checkpoint.encode().unwrap();
+        let mut checkpoint_block = vec![0_u8; BS as usize];
+        checkpoint_block[..encoded.len()].copy_from_slice(&encoded);
+        device.write_blocks(REGION.checkpoint_a, &checkpoint_block).unwrap();
+
+        let record = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Begin,
+            sequence: 1,
+            transaction_id: 6,
+            payload: Vec::new(),
+        };
+        device.write_blocks(
+            REGION.ring_start,
+            &record.encode_block(BS as usize).unwrap(),
+        ).unwrap();
+
+        assert!(matches!(open_journal(&mut device, REGION), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
     fn open_uses_valid_checkpoint_copy_when_other_read_fails() {
         for fail_at in [0, 1] {
             let mut device = formatted();
