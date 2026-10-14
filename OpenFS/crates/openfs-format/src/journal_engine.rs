@@ -423,6 +423,24 @@ fn read_checkpoint_pair<D: BlockDevice>(
         (Ok(a), Ok(b)) if a.generation == b.generation && a != b => Err(Error::Corrupt(
             "checkpoint copies conflict at the same generation",
         )),
+        (Ok(a), Ok(b))
+            if a.generation > b.generation
+                && (a.checkpoint_sequence < b.checkpoint_sequence
+                    || a.next_transaction_id < b.next_transaction_id) =>
+        {
+            Err(Error::Corrupt(
+                "newer journal checkpoint regresses durable counters",
+            ))
+        }
+        (Ok(a), Ok(b))
+            if b.generation > a.generation
+                && (b.checkpoint_sequence < a.checkpoint_sequence
+                    || b.next_transaction_id < a.next_transaction_id) =>
+        {
+            Err(Error::Corrupt(
+                "newer journal checkpoint regresses durable counters",
+            ))
+        }
         (Ok(a), Ok(b)) if a.generation >= b.generation => Ok((a, 0)),
         (Ok(_), Ok(b)) => Ok((b, 1)),
         (Ok(a), Err(_)) => Ok((a, 0)),
