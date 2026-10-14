@@ -2458,6 +2458,8 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             // Include the full magic boundary and progressively longer torn writes.
             let prefixes = [
+                1,
+                crate::INVENTORY_DESCRIPTOR_MAGIC.len() - 1,
                 crate::INVENTORY_DESCRIPTOR_MAGIC.len(),
                 48,
                 block_size as usize / 2,
