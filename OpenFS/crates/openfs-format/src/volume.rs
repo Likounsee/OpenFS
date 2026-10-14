@@ -4084,7 +4084,7 @@ mod tests {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             assert!(matches!(
                 crate::open_legacy_volume(&mut device),
-                Err(Error::UnsupportedVersion(2))
+                Err(Error::UnsupportedVersion(3))
             ));
             let mut volume = open_volume(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
