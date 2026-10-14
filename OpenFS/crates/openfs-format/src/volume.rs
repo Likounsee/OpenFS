@@ -7329,7 +7329,9 @@ mod tests {
                     directory_bytes[start..start + crate::DIRECTORY_ENTRY_SIZE]
                         .copy_from_slice(&encoded_entry);
                 }
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
                 device
                     .write_blocks(directory_block, &directory_bytes)
                     .unwrap();
