@@ -884,10 +884,20 @@ impl OpenedVolume {
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
         let map = extent_maps.get(&object_id);
-        if record.extent_root_block.is_some() && map.is_none() {
-            return Err(Error::Corrupt(
+        if let Some(root_block) = record.extent_root_block {
+            let loaded_map = map.ok_or(Error::Corrupt(
                 "file extent map is missing from loaded inventory",
-            ));
+            ))?;
+            // Do not trust a caller-supplied map merely because its blocks are allocated.
+            // It must match the checksummed map stored at the root named by this metadata
+            // record; otherwise a stale or substituted map could redirect reads into
+            // unrelated allocated blocks (including other filesystem metadata).
+            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
+            if loaded_map != &persisted_map {
+                return Err(Error::Corrupt(
+                    "loaded extent map does not match persistent extent-map root",
+                ));
+            }
         }
         if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
             return Err(Error::Corrupt(
@@ -3268,6 +3278,34 @@ mod tests {
             let maps = volume
                 .read_namespace_extent_maps(&mut device, &namespace)
                 .unwrap();
+
+            // An allocated-but-unrelated block is not a valid substitute for the map
+            // named by the file's on-disk metadata. Without this comparison, a caller
+            // could redirect reads by supplying a forged in-memory extent map.
+            let mut forged_maps = maps.clone();
+            forged_maps.insert(
+                ObjectId(2),
+                crate::ExtentMap::new(vec![crate::Extent {
+                    logical_start: 0,
+                    physical_start: metadata_block,
+                    block_count: 1,
+                }])
+                .unwrap(),
+            );
+            assert!(matches!(
+                volume.read_file_range(
+                    &mut device,
+                    &namespace,
+                    &forged_maps,
+                    ObjectId(2),
+                    0,
+                    8
+                ),
+                Err(Error::Corrupt(
+                    "loaded extent map does not match persistent extent-map root"
+                ))
+            ));
+
             assert!(matches!(
                 volume.read_file_range(&mut device, &namespace, &maps, ObjectId(1), 0, 8),
                 Err(Error::InvalidInput("object is not a regular file"))
