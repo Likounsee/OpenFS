@@ -2382,6 +2382,24 @@ mod tests {
                     "recovered descriptor block must be allocated at block size {block_size}"
                 );
             }
+
+            // The commit-flush error is explicitly an uncertain outcome. A second
+            // recovery must not replay the allocation twice or lose the descriptor.
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let volume = open_volume(&mut device).unwrap();
+                let (block, discovered) = volume
+                    .discover_persistent_inventory(&mut device)
+                    .unwrap()
+                    .expect("committed descriptor must survive a second recovery");
+                assert_eq!(discovered, descriptor);
+                assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before - 1,
+                    "second recovery must not apply the descriptor allocation twice at block size {block_size}"
+                );
+            }
             fs::remove_file(path).unwrap();
         }
     }
