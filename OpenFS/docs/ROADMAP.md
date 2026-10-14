@@ -421,7 +421,7 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 
 ### Recalculation
 
-The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 91, 40, 35, 21, 5, 0 and 3.
+The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 92, 40, 35, 21, 5, 0 and 3.
 
 `Global = (10×100 + 15×92 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 40.15` percent, rounded to **40%**.
 
