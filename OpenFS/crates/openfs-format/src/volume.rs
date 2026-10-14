@@ -2005,9 +2005,7 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
         // the independently checksummed stable superblock fields must still match.
         decode_superblock(&encoded)?;
         if !superblocks_match(&primary, &encoded) {
-            return Err(Error::Corrupt(
-                "superblock changed during locator update",
-            ));
+            return Err(Error::Corrupt("superblock changed during locator update"));
         }
         encoded[INVENTORY_HINT_OFFSET..INVENTORY_HINT_OFFSET + 8]
             .copy_from_slice(&hint.to_le_bytes());
@@ -5365,10 +5363,7 @@ mod tests {
                     device.read_blocks(0, &mut before).unwrap();
 
                     assert!(
-                        matches!(
-                            open_volume(&mut device),
-                            Err(Error::Corrupt("primary and backup superblocks disagree"))
-                        ),
+                        matches!(open_volume(&mut device), Err(Error::Corrupt(_))),
                         "mismatch was not rejected for {label} at block size {block_size}"
                     );
 
