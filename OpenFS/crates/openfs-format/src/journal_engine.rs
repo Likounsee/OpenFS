@@ -1516,6 +1516,52 @@ mod tests {
     }
 
     #[test]
+    fn multi_target_transaction_recovers_to_all_old_or_all_new_images() {
+        // A two-home-block transaction is the minimum useful primitive for
+        // publishing related filesystem metadata. Fail each I/O boundary in
+        // turn, then reopen and ensure recovery never exposes a mixed pair.
+        for fail_at in 0..24 {
+            let mut device = formatted();
+            device.write_blocks(HOME + 1, &vec![0x22; BS as usize]).unwrap();
+            device.flush().unwrap();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+
+            let updates = [
+                update(0xA5),
+                RedoUpdate {
+                    target_block: HOME + 1,
+                    contents: vec![0x5A; BS as usize],
+                },
+            ];
+            let mut failing = FailAt::new(device, fail_at);
+            let _ = journal.commit(&mut failing, &updates);
+            let mut recovered = failing.into_inner();
+
+            // A failed commit may have reached the durable commit point or
+            // may not have; reopening must settle on one complete outcome.
+            let _reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
+                panic!("recovery failed after injected I/O {fail_at}: {error:?}")
+            });
+            let first = read_block(&mut recovered, HOME);
+            let second = read_block(&mut recovered, HOME + 1);
+            let old_pair = first == vec![0x11; BS as usize]
+                && second == vec![0x22; BS as usize];
+            let new_pair = first == vec![0xA5; BS as usize]
+                && second == vec![0x5A; BS as usize];
+            assert!(
+                old_pair || new_pair,
+                "transaction exposed a mixed state after injected I/O {fail_at}"
+            );
+
+            // A second reopen must preserve the same settled state.
+            let settled = (first, second);
+            let _reopened_again = open_journal(&mut recovered, REGION).unwrap();
+            assert_eq!(read_block(&mut recovered, HOME), settled.0);
+            assert_eq!(read_block(&mut recovered, HOME + 1), settled.1);
+        }
+    }
+
+    #[test]
     fn open_rejects_persisted_checkpoint_sequence_gap() {
         let mut device = formatted();
         let mut checkpoint = open_journal(&mut device, REGION).unwrap().checkpoint();
