@@ -6706,7 +6706,8 @@ mod tests {
             .expect("test image size fits in usize");
 
             let first_image = {
-                let mut device = ImageDevice::create(&first_path, block_size, total_blocks).unwrap();
+                let mut device =
+                    ImageDevice::create(&first_path, block_size, total_blocks).unwrap();
                 let volume = format_volume(&mut device, uuid, features).unwrap();
                 let mut image = vec![0_u8; image_len];
                 device.read_blocks(0, &mut image).unwrap();
@@ -6734,5 +6735,4 @@ mod tests {
             fs::remove_file(second_path).unwrap();
         }
     }
-
 }
