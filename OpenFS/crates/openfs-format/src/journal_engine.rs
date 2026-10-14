@@ -55,9 +55,14 @@ impl JournalRegion {
         }
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-        if block_size < JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE {
+        // Checkpoint records are 72 bytes even when the journal-record header is
+        // smaller. Reject undersized devices here, before checkpoint padding slices
+        // or redo chunk arithmetic can panic.
+        if block_size < crate::JOURNAL_CHECKPOINT_SIZE
+            || block_size <= JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE
+        {
             return Err(Error::InvalidInput(
-                "device block is too small for journal records",
+                "device block is too small for journal checkpoints and records",
             ));
         }
         Ok(())
@@ -655,6 +660,28 @@ mod tests {
     };
     const HOME: u64 = 20;
 
+    struct SmallBlockDevice {
+        inner: MemoryDevice,
+        block_size: u32,
+    }
+    impl BlockDevice for SmallBlockDevice {
+        fn block_size(&self) -> u32 {
+            self.block_size
+        }
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+        fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
+            self.inner.read_blocks(first, output)
+        }
+        fn write_blocks(&mut self, first: u64, input: &[u8]) -> Result<()> {
+            self.inner.write_blocks(first, input)
+        }
+        fn flush(&mut self) -> Result<()> {
+            self.inner.flush()
+        }
+    }
+
     #[derive(Clone)]
     struct MemoryDevice {
         bytes: Arc<Mutex<Vec<u8>>>,
@@ -853,6 +880,20 @@ mod tests {
             assert_eq!(journal.checkpoint().generation, expected_generation);
             assert_eq!(journal.checkpoint().checkpoint_sequence, 0);
             assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+        }
+    }
+
+    #[test]
+    fn format_rejects_blocks_too_small_for_checkpoint_before_writing() {
+        for block_size in [52, 64, 71] {
+            let inner = MemoryDevice::new();
+            let before = inner.bytes.lock().unwrap().clone();
+            let mut device = SmallBlockDevice { inner, block_size };
+            assert!(matches!(
+                format_journal(&mut device, REGION),
+                Err(Error::InvalidInput(_))
+            ));
+            assert_eq!(*device.inner.bytes.lock().unwrap(), before);
         }
     }
 
