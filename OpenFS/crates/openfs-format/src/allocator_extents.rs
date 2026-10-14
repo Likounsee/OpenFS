@@ -1557,6 +1557,28 @@ mod allocation_bitmap_report_tests {
                         "cannot free a block referenced by persistent inventory descriptor"
                     ))
                 ));
+
+                // The descriptor's own block is not listed in its payload, so test its
+                // independent signature guard rather than relying on the metadata guard
+                // to reject a range before the descriptor block is reached.
+                assert!(matches!(
+                    volume.free_block(&mut device, descriptor_block),
+                    Err(Error::InvalidInput(
+                        "cannot free a persistent inventory descriptor block"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_blocks(&mut device, &[descriptor_block]),
+                    Err(Error::InvalidInput(
+                        "cannot free a persistent inventory descriptor block"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.free_contiguous_blocks(&mut device, descriptor_block, 1),
+                    Err(Error::InvalidInput(
+                        "cannot free a persistent inventory descriptor block"
+                    ))
+                ));
                 for block in [metadata_block, descriptor_block] {
                     assert!(
                         volume.is_data_block_allocated(&mut device, block).unwrap(),
