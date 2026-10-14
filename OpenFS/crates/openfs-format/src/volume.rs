@@ -2561,8 +2561,36 @@ mod tests {
                         .unwrap();
                     assert_eq!(
                         volume.discover_persistent_inventory(&mut device).unwrap(),
-                        Some((descriptor_block, descriptor)),
+                        Some((descriptor_block, descriptor.clone())),
                         "publication retry must succeed after torn prefix {prefix_len} at block size {block_size}"
+                    );
+                    assert_eq!(
+                        volume.free_data_block_count(&mut device).unwrap(),
+                        free_before - 1,
+                        "successful retry must consume exactly one descriptor block after torn prefix {prefix_len} at block size {block_size}"
+                    );
+                    drop(volume);
+                    drop(device);
+                }
+
+                // Recovery must be repeatable after the successful retry, not merely
+                // correct in the still-open instance that performed the publication.
+                {
+                    let mut device = ImageDevice::open(&path, block_size).unwrap();
+                    let mut volume = open_volume(&mut device).unwrap();
+                    assert_eq!(
+                        volume.discover_persistent_inventory(&mut device).unwrap(),
+                        Some((
+                            volume.discover_persistent_inventory(&mut device).unwrap()
+                                .expect("descriptor should remain discoverable after reopen").0,
+                            descriptor.clone(),
+                        )),
+                        "successful retry must remain discoverable after reopen at block size {block_size}"
+                    );
+                    assert_eq!(
+                        volume.free_data_block_count(&mut device).unwrap(),
+                        free_before - 1,
+                        "reopen must preserve exactly one descriptor allocation after torn prefix {prefix_len} at block size {block_size}"
                     );
                 }
                 fs::remove_file(path).unwrap();
