@@ -6688,4 +6688,51 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn formatted_volume_image_is_deterministic_at_every_supported_block_size() {
+        let uuid = *b"openfs-golden-001";
+        let features = 0x0102_0304_0506_0708_u64;
+        let total_blocks = 64_u64;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let first_path = image_path(&format!("deterministic-format-first-{block_size}"));
+            let second_path = image_path(&format!("deterministic-format-second-{block_size}"));
+            let image_len = usize::try_from(
+                u64::from(block_size)
+                    .checked_mul(total_blocks)
+                    .expect("test image size fits in u64"),
+            )
+            .expect("test image size fits in usize");
+
+            let first_image = {
+                let mut device = ImageDevice::create(&first_path, block_size, total_blocks).unwrap();
+                let volume = format_volume(&mut device, uuid, features).unwrap();
+                let mut image = vec![0_u8; image_len];
+                device.read_blocks(0, &mut image).unwrap();
+                assert_eq!(volume.volume.block_size, block_size);
+                assert!(check_volume(&mut device).is_ok());
+                image
+            };
+
+            let second_image = {
+                let mut device =
+                    ImageDevice::create(&second_path, block_size, total_blocks).unwrap();
+                let volume = format_volume(&mut device, uuid, features).unwrap();
+                let mut image = vec![0_u8; image_len];
+                device.read_blocks(0, &mut image).unwrap();
+                assert_eq!(volume.volume.block_size, block_size);
+                assert!(check_volume(&mut device).is_ok());
+                image
+            };
+
+            assert_eq!(
+                first_image, second_image,
+                "formatting must be byte-for-byte deterministic at block size {block_size}"
+            );
+            fs::remove_file(first_path).unwrap();
+            fs::remove_file(second_path).unwrap();
+        }
+    }
+
 }
