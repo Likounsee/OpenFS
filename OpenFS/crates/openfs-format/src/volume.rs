@@ -6664,6 +6664,28 @@ mod tests {
                 (block_size, 256, features, uuid),
                 "golden superblock must round-trip for block size {block_size}"
             );
+
+            // Pin the bytes emitted by the real formatter, not just the standalone codec.
+            let path = image_path(&format!("superblock-golden-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let volume = format_volume(&mut device, uuid, features).unwrap();
+                for block in [0_u64, 255_u64] {
+                    let mut on_disk = vec![0_u8; block_size as usize];
+                    device.read_blocks(block, &mut on_disk).unwrap();
+                    assert_eq!(
+                        &on_disk[..encoded.len()],
+                        &encoded,
+                        "formatted superblock differs from golden bytes at block {block}, block size {block_size}"
+                    );
+                    assert!(
+                        on_disk[encoded.len()..].iter().all(|byte| *byte == 0),
+                        "formatted superblock padding must remain zero at block {block}, block size {block_size}"
+                    );
+                }
+                drop(volume);
+            }
+            fs::remove_file(path).unwrap();
         }
     }
 }
