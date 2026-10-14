@@ -2006,12 +2006,11 @@ mod tests {
             let descriptor_block = volume
                 .publish_persistent_inventory(&mut device, &descriptor)
                 .unwrap();
-            assert!(matches!(
-                volume.publish_persistent_inventory(&mut device, &descriptor),
-                Err(Error::InvalidInput(
-                    "a persistent inventory descriptor already exists"
-                ))
-            ));
+            assert_eq!(
+                volume.publish_persistent_inventory(&mut device, &descriptor).unwrap(),
+                descriptor_block,
+                "publishing the same inventory twice must be idempotent"
+            );
 
             let found = volume
                 .discover_persistent_inventory(&mut device)
