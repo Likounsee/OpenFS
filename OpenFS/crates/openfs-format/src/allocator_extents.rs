@@ -1354,6 +1354,48 @@ mod allocation_bitmap_report_tests {
         ))
     }
 
+    struct CountRangeReads<D> {
+        inner: D,
+        multi_block_reads: usize,
+    }
+
+    impl<D: BlockDevice> BlockDevice for CountRangeReads<D> {
+        fn block_size(&self) -> u32 { self.inner.block_size() }
+        fn block_count(&self) -> u64 { self.inner.block_count() }
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
+            if output.len() > self.block_size() as usize {
+                self.multi_block_reads += 1;
+            }
+            self.inner.read_blocks(first_block, output)
+        }
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
+            self.inner.write_blocks(first_block, input)
+        }
+        fn flush(&mut self) -> Result<()> { self.inner.flush() }
+    }
+
+    #[test]
+    fn batch_free_uses_one_range_read_for_adjacent_blocks() {
+        let path = image_path("batch-free-range-read-count");
+        {
+            let mut image = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut image, *b"openfs-test-0001", 0).unwrap();
+            let mut blocks = Vec::new();
+            for _ in 0..8 {
+                blocks.push(volume.allocate_block(&mut image).unwrap());
+            }
+            assert!(blocks.windows(2).all(|pair| pair[1] == pair[0] + 1));
+
+            let mut device = CountRangeReads { inner: image, multi_block_reads: 0 };
+            volume.free_blocks(&mut device, &blocks).unwrap();
+            assert_eq!(device.multi_block_reads, 1);
+            for block in blocks {
+                assert!(!volume.is_data_block_allocated(&mut device, block).unwrap());
+            }
+        }
+        fs::remove_file(path).unwrap();
+    }
+
     struct FailNextFlush<D> {
         inner: D,
         fail_next_flush: bool,
