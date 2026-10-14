@@ -305,7 +305,11 @@ impl OpenedVolume {
     /// The operation is limited to one bitmap page so the allocation changes can be
     /// represented by a single redo image. All inputs and ownership guards are checked
     /// before the journal is modified.
-    pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
+    pub fn free_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        blocks: &[u64],
+    ) -> Result<()> {
         self.validate_device(device)?;
         if blocks.is_empty() {
             return Err(Error::InvalidInput("block-free batch must not be empty"));
@@ -4149,11 +4153,18 @@ mod tests {
                 ));
                 assert!(matches!(
                     volume.free_blocks(&mut device, &[first, u64::MAX]),
-                    Err(Error::InvalidInput("cannot free a reserved or out-of-range block"))
+                    Err(Error::InvalidInput(
+                        "cannot free a reserved or out-of-range block",
+                    ))
                 ));
-                assert_eq!(volume.free_data_block_count(&mut device).unwrap(), free_before);
+                assert_eq!(
+                    volume.free_data_block_count(&mut device).unwrap(),
+                    free_before
+                );
 
-                volume.free_blocks(&mut device, &[first, second, third]).unwrap();
+                volume
+                    .free_blocks(&mut device, &[first, second, third])
+                    .unwrap();
                 assert_eq!(
                     volume.free_data_block_count(&mut device).unwrap(),
                     free_before + 3
