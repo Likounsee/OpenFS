@@ -2586,7 +2586,9 @@ mod tests {
     fn discovery_read_failures_are_reported_and_retryable_with_a_locator() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        for fail_at in 0..4 {
+        // Discovery performs three reads for this one-block empty inventory: bitmap
+        // validation, candidate bitmap enumeration, and the candidate block batch.
+        for fail_at in 0..3 {
             let path = image_path(&format!("inventory-discovery-read-failure-{fail_at}"));
             {
                 let image = ImageDevice::create(&path, 4096, 256).unwrap();
