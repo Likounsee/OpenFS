@@ -370,9 +370,20 @@ impl OpenedVolume {
         descriptor: &PersistentInventoryDescriptor,
     ) -> Result<u64> {
         self.validate_device(device)?;
-        if self.discover_persistent_inventory(device)?.is_some() {
+        if let Some((existing_block, existing_descriptor)) =
+            self.discover_persistent_inventory(device)?
+        {
+            // Publication can have an uncertain outcome if the caller loses the
+            // response after the durable bitmap commit. Treat an identical retry
+            // as success without writing anything; never reinterpret a different
+            // inventory as an idempotent retry.
+            if existing_descriptor == *descriptor {
+                self.inventory_descriptor_cache =
+                    Some(Some((existing_block, existing_descriptor)));
+                return Ok(existing_block);
+            }
             return Err(Error::InvalidInput(
-                "a persistent inventory descriptor already exists",
+                "a different persistent inventory descriptor already exists",
             ));
         }
         let encoded = descriptor.encode(self.volume.block_size as usize)?;
@@ -6488,7 +6499,7 @@ mod tests {
     }
 
     #[test]
-    fn rejecting_descriptor_replacement_preserves_existing_image_at_every_block_size() {
+    fn repeated_descriptor_publication_is_idempotent_and_different_replacement_is_rejected() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
@@ -6526,14 +6537,23 @@ mod tests {
                 device.flush().unwrap();
                 let bytes_before = std::fs::read(&path).unwrap();
 
+                assert_eq!(
+                    volume.publish_persistent_inventory(&mut device, &descriptor).unwrap(),
+                    descriptor_block,
+                    "identical publication retry must return the existing block at block size {block_size}"
+                );
+                let different_descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(2),
+                    ..descriptor.clone()
+                };
                 assert!(
                     matches!(
-                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        volume.publish_persistent_inventory(&mut device, &different_descriptor),
                         Err(Error::InvalidInput(
-                            "a persistent inventory descriptor already exists"
+                            "a different persistent inventory descriptor already exists"
                         ))
                     ),
-                    "replacement must be refused at block size {block_size}"
+                    "a different inventory must not replace the published descriptor at block size {block_size}"
                 );
                 drop(volume);
                 drop(device);
