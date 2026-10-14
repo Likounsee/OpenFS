@@ -1999,8 +1999,7 @@ mod tests {
                 generation: 1,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
-            metadata_bytes[..crate::METADATA_RECORD_SIZE]
-                        .copy_from_slice(&root.encode().unwrap());
+            metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
             device
                 .write_blocks(metadata_block, &metadata_bytes)
                 .unwrap();
@@ -6830,7 +6829,8 @@ mod tests {
                         name: "child.txt".to_owned(),
                     };
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
-                    metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
+                    metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&root.encode().unwrap());
                     metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                         .copy_from_slice(&child.encode().unwrap());
                     device
