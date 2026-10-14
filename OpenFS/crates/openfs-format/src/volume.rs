@@ -2580,7 +2580,7 @@ mod tests {
 
             {
                 let mut device = ImageDevice::open(&path, block_size).unwrap();
-                let volume = open_volume(&mut device).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
                 assert_eq!(
                     volume.free_data_block_count(&mut device).unwrap(),
                     free_before,
@@ -2737,7 +2737,7 @@ mod tests {
                 // correct in the still-open instance that performed the publication.
                 {
                     let mut device = ImageDevice::open(&path, block_size).unwrap();
-                    let mut volume = open_volume(&mut device).unwrap();
+                    let volume = open_volume(&mut device).unwrap();
                     assert_eq!(
                         volume.discover_persistent_inventory(&mut device).unwrap(),
                         Some((descriptor_block, descriptor.clone())),
