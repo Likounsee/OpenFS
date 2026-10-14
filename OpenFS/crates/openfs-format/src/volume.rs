@@ -6815,8 +6815,7 @@ mod tests {
             };
             for (block, record) in blocks.iter().zip([root, child]) {
                 let mut bytes = vec![0; 4096];
-                bytes[..crate::METADATA_RECORD_SIZE]
-                    .copy_from_slice(&record.encode().unwrap());
+                bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&record.encode().unwrap());
                 device.write_blocks(*block, &bytes).unwrap();
             }
             let old_descriptor = PersistentInventoryDescriptor {
