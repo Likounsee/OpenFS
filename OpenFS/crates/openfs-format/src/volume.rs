@@ -2409,15 +2409,23 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let second_metadata_block = volume.allocate_block(&mut device).unwrap();
             let descriptor_block = volume.allocate_block(&mut device).unwrap();
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
-                metadata_blocks: vec![metadata_block, metadata_block],
+                metadata_blocks: vec![metadata_block, second_metadata_block],
                 metadata_record_count: 4096 / crate::METADATA_RECORD_SIZE + 1,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
-            let encoded = descriptor.encode(4096).unwrap();
+            let mut encoded = descriptor.encode(4096).unwrap();
+            // Produce a checksum-valid but ownership-invalid record: the encoder itself
+            // correctly refuses duplicate physical blocks, so corrupt the second reference
+            // after encoding and recompute the descriptor checksum.
+            encoded[56..64].copy_from_slice(&metadata_block.to_le_bytes());
+            encoded[40..44].fill(0);
+            let checksum = crate::crc32c(&encoded);
+            encoded[40..44].copy_from_slice(&checksum.to_le_bytes());
             device.write_blocks(descriptor_block, &encoded).unwrap();
             device.flush().unwrap();
             crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
