@@ -1520,22 +1520,45 @@ mod allocation_bitmap_report_tests {
                 let right_block = volume.allocate_block(&mut device).unwrap();
                 assert_eq!(metadata_block, left_block + 1);
                 assert_eq!(right_block, metadata_block + 1);
-                let root = MetadataRecord {
-                    id: ObjectId(1),
-                    parent_id: 0,
-                    kind: ObjectKind::Directory,
-                    flags: 0,
-                    size: 0,
-                    extent_root_block: None,
-                    generation: 1,
-                };
-                let mut metadata = vec![0_u8; block_size as usize];
-                metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata).unwrap();
+                let records = [
+                    MetadataRecord {
+                        id: ObjectId(1),
+                        parent_id: 0,
+                        kind: ObjectKind::Directory,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    },
+                    MetadataRecord {
+                        id: ObjectId(2),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    },
+                    MetadataRecord {
+                        id: ObjectId(3),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    },
+                ];
+                for (block, record) in [left_block, metadata_block, right_block].into_iter().zip(records) {
+                    let mut metadata = vec![0_u8; block_size as usize];
+                    metadata[..crate::METADATA_RECORD_SIZE]
+                        .copy_from_slice(&record.encode().unwrap());
+                    device.write_blocks(block, &metadata).unwrap();
+                }
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
-                    metadata_blocks: vec![metadata_block],
-                    metadata_record_count: 1,
+                    metadata_blocks: vec![left_block, metadata_block, right_block],
+                    metadata_record_count: 3,
                     directory_blocks: vec![],
                     directory_entry_count: 0,
                 };
