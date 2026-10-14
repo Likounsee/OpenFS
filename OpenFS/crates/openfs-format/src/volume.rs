@@ -300,11 +300,12 @@ impl OpenedVolume {
     /// deliberately limits a batch to one bitmap page, validates every member before
     /// writing anything, and commits the entire bitmap change as one redo transaction.
     /// Callers must remove all persistent references to these blocks before freeing them.
-    pub fn free_blocks<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        blocks: &[u64],
-    ) -> Result<()> {
+    /// Free several data blocks with one recoverable bitmap transition.
+    ///
+    /// The operation is limited to one bitmap page so the allocation changes can be
+    /// represented by a single redo image. All inputs and ownership guards are checked
+    /// before the journal is modified.
+    pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
         self.validate_device(device)?;
         if blocks.is_empty() {
             return Err(Error::InvalidInput("block-free batch must not be empty"));
@@ -332,8 +333,6 @@ impl OpenedVolume {
             bitmap_block = Some(target);
         }
 
-        // Validate all ownership guards before reading-modifying the bitmap. No home
-        // block is written until the entire batch is known to be releasable.
         let ordered: Vec<u64> = unique.into_iter().collect();
         self.ensure_inventory_blocks_releasable(device, &ordered)?;
         for block in &ordered {
@@ -350,8 +349,7 @@ impl OpenedVolume {
         for block in &ordered {
             let local = *block % bits_per_block;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte] & mask == 0 {
+            if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
                 return Err(Error::InvalidInput("data block is already free"));
             }
         }
