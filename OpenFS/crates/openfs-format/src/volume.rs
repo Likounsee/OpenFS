@@ -7742,11 +7742,8 @@ mod tests {
                 persist_inventory_hint(&mut reopened_device, new_hint).unwrap();
 
                 let primary = read_superblock(&mut reopened_device, 0).unwrap();
-                let backup = read_superblock(
-                    &mut reopened_device,
-                    reopened_device.block_count() - 1,
-                )
-                .unwrap();
+                let last_block = reopened_device.block_count() - 1;
+                let backup = read_superblock(&mut reopened_device, last_block).unwrap();
                 assert_eq!(decode_inventory_hint(&primary), Some(new_hint));
                 assert_eq!(decode_inventory_hint(&backup), Some(new_hint));
                 decode_superblock(&primary).unwrap();
