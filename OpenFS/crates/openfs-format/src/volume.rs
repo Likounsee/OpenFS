@@ -1382,6 +1382,21 @@ fn check_journal_read_only<D: BlockDevice>(
         }
     }
     newer.sort_by_key(|(_, record)| record.sequence);
+    // A checkpoint records the exact next transaction ID. Because the journal
+    // permits only one writer, BEGIN records must consume IDs without gaps.
+    let mut expected_transaction_id = checkpoint.next_transaction_id;
+    for (_, record) in &newer {
+        if record.kind == JournalRecordKind::Begin {
+            if record.transaction_id != expected_transaction_id {
+                return Err(Error::Corrupt(
+                    "journal transaction IDs are not contiguous after checkpoint",
+                ));
+            }
+            expected_transaction_id = expected_transaction_id
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+    }
     if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
         if malformed.iter().any(|slot| slot < last_slot) {
             return Err(Error::Corrupt(
