@@ -1291,7 +1291,11 @@ fn check_journal_read_only<D: BlockDevice>(
     device: &mut D,
     region: JournalRegion,
 ) -> Result<(u64, u64, u64, u64)> {
-    fn read_copy<D: BlockDevice>(device: &mut D, block_number: u64, region: JournalRegion) -> Result<JournalCheckpoint> {
+    fn read_copy<D: BlockDevice>(
+        device: &mut D,
+        block_number: u64,
+        region: JournalRegion,
+    ) -> Result<JournalCheckpoint> {
         let mut block = vec![0_u8; device.block_size() as usize];
         device.read_blocks(block_number, &mut block)?;
         if block[JOURNAL_CHECKPOINT_SIZE..]
@@ -1589,7 +1593,7 @@ mod tests {
         check_volume, decode_superblock, encode_superblock, format_volume, open_volume,
         VolumeLayout,
     };
-    use crate::{Extent, ExtentMap};
+    use crate::{Extent, ExtentMap, JournalCheckpoint};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_core::Error;
     use std::fs;
@@ -5701,6 +5705,52 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn read_only_checker_rejects_checkpoint_counter_regression() {
+        let path = image_path("checker-counter-regression");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 257).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            drop(volume);
+
+            // The lower generation claims durable progress; the higher generation
+            // must not roll either sequence or transaction IDs backward.
+            for (block, checkpoint) in [
+                (
+                    layout.journal.checkpoint_a,
+                    JournalCheckpoint {
+                        generation: 9,
+                        checkpoint_sequence: 4,
+                        next_sequence: 5,
+                        next_transaction_id: 3,
+                        head_block: 0,
+                        tail_block: 0,
+                    },
+                ),
+                (
+                    layout.journal.checkpoint_b,
+                    JournalCheckpoint {
+                        generation: 10,
+                        checkpoint_sequence: 0,
+                        next_sequence: 1,
+                        next_transaction_id: 1,
+                        head_block: 0,
+                        tail_block: 0,
+                    },
+                ),
+            ] {
+                let encoded = checkpoint.encode().unwrap();
+                let mut block_bytes = vec![0_u8; 4096];
+                block_bytes[..encoded.len()].copy_from_slice(&encoded);
+                device.write_blocks(block, &block_bytes).unwrap();
+            }
+            device.flush().unwrap();
+            assert!(matches!(check_volume(&mut device), Err(Error::Corrupt(_))));
+        }
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]
