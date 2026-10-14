@@ -4067,12 +4067,15 @@ mod tests {
                 let mut before = vec![0_u8; image_len];
                 device.read_blocks(0, &mut before).unwrap();
 
-                assert!(matches!(
-                    volume.publish_persistent_inventory(&mut device, &descriptor),
-                    Err(Error::InvalidInput(
-                        "inventory descriptor contains overlapping block lists"
-                    ))
-                ), "cross-list block alias was accepted at block size {block_size}");
+                assert!(
+                    matches!(
+                        volume.publish_persistent_inventory(&mut device, &descriptor),
+                        Err(Error::InvalidInput(
+                            "inventory descriptor contains overlapping block lists"
+                        ))
+                    ),
+                    "cross-list block alias was accepted at block size {block_size}"
+                );
 
                 let mut after = vec![0_u8; image_len];
                 device.read_blocks(0, &mut after).unwrap();
