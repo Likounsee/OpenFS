@@ -277,7 +277,9 @@ impl PersistentJournal {
         // allocating a transaction-sized intermediate representation.
         let chunk_capacity = block_size
             .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
-            .ok_or(Error::InvalidInput("device block is too small for redo chunks"))?;
+            .ok_or(Error::InvalidInput(
+                "device block is too small for redo chunks",
+            ))?;
         let chunks_per_update = block_size
             .checked_add(chunk_capacity - 1)
             .ok_or(Error::ArithmeticOverflow)?
@@ -285,7 +287,9 @@ impl PersistentJournal {
         let mut required_records = 2_u64; // BEGIN and COMMIT
         for _ in updates {
             required_records = required_records
-                .checked_add(u64::try_from(chunks_per_update).map_err(|_| Error::ArithmeticOverflow)?)
+                .checked_add(
+                    u64::try_from(chunks_per_update).map_err(|_| Error::ArithmeticOverflow)?,
+                )
                 .ok_or(Error::ArithmeticOverflow)?;
             if required_records > self.region.ring_blocks {
                 return Err(Error::InvalidInput(
