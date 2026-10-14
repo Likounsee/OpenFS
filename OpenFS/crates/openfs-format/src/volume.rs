@@ -2626,8 +2626,8 @@ mod tests {
                     // Simulate on-disk bitmap corruption directly. The public allocator
                     // now correctly refuses to create this invalid state itself.
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
-                    let bitmap_block = volume.volume.layout.bitmap_start
-                        + freed_block / bits_per_bitmap_block;
+                    let bitmap_block =
+                        volume.volume.layout.bitmap_start + freed_block / bits_per_bitmap_block;
                     let local_bit = freed_block % bits_per_bitmap_block;
                     let mut bitmap = vec![0_u8; block_size as usize];
                     device.read_blocks(bitmap_block, &mut bitmap).unwrap();
