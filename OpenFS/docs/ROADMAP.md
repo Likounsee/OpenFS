@@ -42,7 +42,7 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, layout and allocator | 15% | 88% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
+| P1 Format, layout and allocator | 15% | 90% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
 | P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
 | P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
 | P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
@@ -366,10 +366,10 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 | P1.1 Format geometry, superblocks and reserved areas | 20 | 19 | Format/open validation and layout tests exist; golden fixtures and stable format policy remain missing. |
 | P1.2 Allocation/free and persistence across reopen | 20 | 19 | Allocation/free APIs and reopen tests in `volume.rs`; broader crash-cut coverage remains incomplete. |
 | P1.3 Cross-structure block ownership | 15 | 14 | Inventory/extent ownership validation exists; regressions `discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size`, `caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size`, `caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size`, and `discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size` cover four ownership collisions at all five supported block sizes. The regression `allocator_free_apis_preserve_persistent_inventory_blocks` now also checks that single, batch, and contiguous frees refuse to release inventory-owned blocks and preserve allocation bits at all five block sizes. CI run [38541247561](https://github.com/Likounsee/OpenFS/actions/runs/38541247561) passed Linux and Windows on the same source tree; current code tree `338126f37cd4a6098184a3be9ecd89d5c67386b6` matches that validated tree. Whole-volume canonical-root traversal, descriptor replacement and all ownership transitions remain incomplete. |
-| P1.4 Persistent descriptor publication/recovery | 20 | 16 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist; safe descriptor replacement protocol is absent. |
+| P1.4 Persistent descriptor publication/recovery | 20 | 17 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist. Commit [`475ef40`](https://github.com/Likounsee/OpenFS/commit/475ef40fd8d7f01a18d78b87a5166bebbfeebd8e) adds independent single/batch/contiguous-free regressions for the descriptor block itself; the exact-SHA Linux job passed in run [38542221501](https://github.com/Likounsee/OpenFS/actions/runs/38542221501), while Windows was still running at this ledger update. Safe descriptor replacement protocol is absent. |
 | P1.5 Scalable metadata locator | 15 | 14 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
 | P1.6 Golden images and format compatibility policy | 10 | 7 | Compatibility notes exist; fixtures, version-negotiation tests and conversion are absent. |
-| **P1 total** | **100** | **89** | **89%** |
+| **P1 total** | **100** | **90** | **90%** |
 | P2.1 Journal state machine and error/poison contract | 15 | 10 | Redo/checkpoint sequencing and protected-target validation exist; no general transaction API/error contract. |
 | P2.2 Write/tear fault-injection harness | 20 | 14 | Fail/tear device wrappers and multiple prefix tests exist; exhaustive write/flush cut matrix is absent. |
 | P2.3 Replay, checkpoint and idempotence | 20 | 12 | Selected torn commit/home/checkpoint and repeated recovery tests exist; coverage is not exhaustive. |
@@ -421,11 +421,11 @@ The ledger assigns 100 normalized points within every phase. “Weight” is tas
 
 ### Recalculation
 
-The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 89, 40, 35, 21, 5, 0 and 3.
+The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 90, 40, 35, 21, 5, 0 and 3.
 
-`Global = (10×100 + 15×89 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 39.70` percent, rounded to **40%**.
+`Global = (10×100 + 15×90 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 39.85` percent, rounded to **40%**.
 
-The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **40% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 is now estimated at 89% as a provisional implementation-progress score after adding contiguous-range inventory ownership rejection and validating the same source tree on Linux and Windows; its exit gate remains blocked and it must not be called complete. A documentation-only commit does not change implementation scores.
+The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **40% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 is now estimated at 90% as a provisional implementation-progress score after validating inventory-block free protection and adding independent coverage for the descriptor block itself. The latest regression's Linux job passed; its Windows job was still in progress when this ledger was edited, so the full two-platform run is not yet confirmed. P1's exit gate remains blocked and it must not be called complete. A documentation-only commit does not change implementation scores.
 
 ## Evidence register for implemented work
 
