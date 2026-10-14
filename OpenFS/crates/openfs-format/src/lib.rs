@@ -195,3 +195,37 @@ pub use verifier::PersistentInventoryReport;
 pub use volume::{
     check_volume, format_volume, open_volume, OpenedVolume, Volume, VolumeCheckReport, VolumeLayout,
 };
+
+#[cfg(test)]
+mod superblock_golden_tests {
+    use super::{Superblock, SUPERBLOCK_SIZE};
+
+    #[test]
+    fn superblock_encoding_matches_stable_golden_bytes() {
+        let superblock = Superblock {
+            block_size: 4096,
+            total_blocks: 256,
+            features: 0x0102_0304_0506_0708,
+            uuid: [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+            ],
+        };
+        let encoded = superblock.encode().unwrap();
+        assert_eq!(encoded.len(), SUPERBLOCK_SIZE);
+        assert_eq!(
+            &encoded[..48],
+            &[
+                79, 80, 69, 78, 70, 83, 0, 0, 1, 0, 48, 0, 0, 16, 0, 0,
+                0, 1, 0, 0, 0, 0, 0, 0, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1,
+                2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+            ]
+        );
+        assert_eq!(
+            u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
+            0x8dd7_9694
+        );
+        assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
+        assert!(encoded[4092..].iter().all(|byte| *byte == 0));
+        assert_eq!(Superblock::decode(&encoded).unwrap(), superblock);
+    }
+}
