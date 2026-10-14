@@ -726,6 +726,9 @@ impl OpenedVolume {
         // An I/O error from commit can leave its decision uncertain. Drop all cached
         // discovery state; callers must reopen and let journal recovery choose old or new.
         self.inventory_descriptor_cache = None;
+        // Exact commit point: journal.commit flushes the COMMIT record before applying
+        // home bitmap pages. Before that durable flush recovery retains old ownership;
+        // after it, recovery must replay every bitmap image even if a later write/flush fails.
         self.journal.commit(device, &updates)?;
         persist_inventory_hint(device, new_block)?;
         self.inventory_descriptor_hint = Some(new_block);
