@@ -2470,6 +2470,51 @@ mod tests {
     }
 
     #[test]
+    fn discovery_finds_sparse_descriptor_near_end_of_volume_at_every_block_size() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("sparse-descriptor-near-end-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let layout = volume.volume.layout;
+                let descriptor_block = layout.backup_superblock - 1;
+                let bits_per_bitmap_block = u64::from(block_size) * 8;
+                let bitmap_block =
+                    layout.bitmap_start + descriptor_block / bits_per_bitmap_block;
+                let local_bit = descriptor_block % bits_per_bitmap_block;
+                let mut bitmap = vec![0_u8; block_size as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                bitmap[(local_bit / 8) as usize] |= 1_u8 << (local_bit % 8);
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                device
+                    .write_blocks(
+                        descriptor_block,
+                        &descriptor.encode(block_size as usize).unwrap(),
+                    )
+                    .unwrap();
+                device.flush().unwrap();
+
+                assert_eq!(
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
+                    Some((descriptor_block, descriptor)),
+                    "sparse descriptor at the final data block must be found at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
