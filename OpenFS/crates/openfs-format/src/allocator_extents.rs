@@ -1402,7 +1402,10 @@ mod allocation_bitmap_report_tests {
                 multi_block_reads: 0,
             };
             volume.free_blocks(&mut device, &blocks).unwrap();
-            assert_eq!(device.multi_block_reads, 1);
+            // One batched scan discovers the absent descriptor; the second is the
+            // single coalesced scan performed by free_blocks. Per-block guard reads
+            // would leave this count at one and add eight single-block data reads.
+            assert_eq!(device.multi_block_reads, 2);
             for block in blocks {
                 assert!(!volume.is_data_block_allocated(&mut device, block).unwrap());
             }
