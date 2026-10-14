@@ -43,7 +43,7 @@ impl VolumeLayout {
         Self::calculate_with_ring(block_size, total_blocks, JOURNAL_RING_BLOCKS)
     }
 
-    fn calculate_for_version(block_size: u32, total_blocks: u64, version: u16) -> Result<Self> {
+    pub(crate) fn calculate_for_version(block_size: u32, total_blocks: u64, version: u16) -> Result<Self> {
         let ring_blocks = if version == VERSION {
             JOURNAL_RING_BLOCKS
         } else {
@@ -139,7 +139,7 @@ pub struct Volume {
 pub struct OpenedVolume {
     pub volume: Volume,
     pub journal: PersistentJournal,
-    format_version: u16,
+    pub(crate) format_version: u16,
     // Cache descriptor discovery for allocator guards. None means not checked yet;
     // Some(None) means checked and absent; Some(Some(...)) is the validated locator.
     inventory_descriptor_cache: Option<Option<(u64, PersistentInventoryDescriptor)>>,
