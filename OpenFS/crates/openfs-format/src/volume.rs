@@ -7297,8 +7297,13 @@ mod tests {
         };
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in 0..=6 {
-                let path = image_path(&format!("descriptor-replace-crash-{block_size}-{fail_at}"));
+            for (fail_kind, fail_at) in (0..=6)
+                .map(|index| ("write", index))
+                .chain((0..=6).map(|index| ("flush", index)))
+            {
+                let path = image_path(&format!(
+                    "descriptor-replace-crash-{block_size}-{fail_kind}-{fail_at}"
+                ));
                 {
                     let image = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut device = FailNthWrite {
@@ -7383,11 +7388,17 @@ mod tests {
                         directory_entry_count: 2,
                         ..old_descriptor.clone()
                     };
-                    device.writes_until_failure = Some(fail_at);
+                    match fail_kind {
+                        "write" => device.writes_until_failure = Some(fail_at),
+                        "flush" => device.flushes_until_failure = Some(fail_at),
+                        _ => unreachable!("failure kinds are fixed"),
+                    }
                     let result = volume
                         .replace_persistent_inventory_descriptor(&mut device, &new_descriptor);
-                    assert!(result.is_ok() || matches!(result, Err(Error::Io(_))),
-                        "unexpected replacement error at block size {block_size}, write {fail_at}: {result:?}");
+                    assert!(
+                        result.is_ok() || matches!(result, Err(Error::Io(_))),
+                        "unexpected replacement error at block size {block_size}, {fail_kind} {fail_at}: {result:?}"
+                    );
                     drop(volume);
                     drop(device);
 
@@ -7400,7 +7411,7 @@ mod tests {
                     assert!(
                         (descriptor_block == old_block && descriptor == old_descriptor)
                             || (descriptor_block != old_block && descriptor == new_descriptor),
-                        "recovery must expose exactly old or new descriptor at block size {block_size}, write {fail_at}: {descriptor:?}"
+                        "recovery must expose exactly old or new descriptor at block size {block_size}, {fail_kind} {fail_at}: {descriptor:?}"
                     );
                     assert!(reopened
                         .verify_discovered_persistent_inventory(&mut reopened_device)
