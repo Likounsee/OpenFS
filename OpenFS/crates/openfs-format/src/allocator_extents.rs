@@ -1451,11 +1451,7 @@ mod allocation_bitmap_report_tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let left_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let right_block = volume.allocate_block(&mut device).unwrap();
-                assert_eq!(metadata_block, left_block + 1);
-                assert_eq!(right_block, metadata_block + 1);
                 let root = MetadataRecord {
                     id: ObjectId(1),
                     parent_id: 0,
@@ -1519,7 +1515,11 @@ mod allocation_bitmap_report_tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let left_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let right_block = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(metadata_block, left_block + 1);
+                assert_eq!(right_block, metadata_block + 1);
                 let root = MetadataRecord {
                     id: ObjectId(1),
                     parent_id: 0,
