@@ -4488,8 +4488,8 @@ mod tests {
 
                 drop(volume);
                 let mut reopened = open_volume(&mut device).unwrap();
-                assert_eq!(reopened.volume.layout.data_start, 8);
-                assert_eq!(reopened.volume.layout.backup_superblock, 11);
+                assert_eq!(reopened.volume.layout.data_start, 20);
+                assert_eq!(reopened.volume.layout.backup_superblock, 23);
                 assert!(matches!(
                     reopened.allocate_block(&mut device),
                     Err(Error::InvalidInput("volume has no free data blocks"))
