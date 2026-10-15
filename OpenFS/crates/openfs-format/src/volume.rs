@@ -1030,11 +1030,11 @@ impl OpenedVolume {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        let (_, mut namespace) = self
-            .reconstruct_discovered_namespace(device)?
-            .ok_or(Error::InvalidInput(
-                "no persistent namespace exists for file creation",
-            ))?;
+        let (_, mut namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "no persistent namespace exists for file creation",
+                ))?;
         let record = MetadataRecord {
             id: object_id,
             parent_id: parent_id.0,
@@ -1087,8 +1087,8 @@ impl OpenedVolume {
             directory_bytes.extend_from_slice(&entry.encode()?);
         }
 
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let metadata_blocks_needed = metadata_bytes
             .len()
             .checked_add(block_size - 1)
@@ -1131,7 +1131,11 @@ impl OpenedVolume {
             directory_entry_count: namespace.entry_count(),
         };
         if let Err(error) = descriptor.encode(block_size) {
-            for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+            for block in metadata_blocks
+                .iter()
+                .chain(directory_blocks.iter())
+                .copied()
+            {
                 let _ = self.free_block(device, block);
             }
             return Err(error);
@@ -1144,12 +1148,20 @@ impl OpenedVolume {
                 // staged streams after rediscovery proves the old descriptor is still active.
                 if let Ok(Some((_, active))) = self.discover_persistent_inventory(device) {
                     if active != descriptor {
-                        for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+                        for block in metadata_blocks
+                            .iter()
+                            .chain(directory_blocks.iter())
+                            .copied()
+                        {
                             let _ = self.free_block(device, block);
                         }
                     }
                 } else if let Ok(None) = self.discover_persistent_inventory(device) {
-                    for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+                    for block in metadata_blocks
+                        .iter()
+                        .chain(directory_blocks.iter())
+                        .copied()
+                    {
                         let _ = self.free_block(device, block);
                     }
                 }
@@ -1368,9 +1380,21 @@ impl OpenedVolume {
             || namespace.objects().ne(persistent_namespace.objects())
             || namespace
                 .entries()
-                .map(|entry| (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str()))
+                .map(|entry| {
+                    (
+                        entry.parent_id,
+                        entry.object_id,
+                        entry.kind,
+                        entry.name.as_str(),
+                    )
+                })
                 .ne(persistent_namespace.entries().map(|entry| {
-                    (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str())
+                    (
+                        entry.parent_id,
+                        entry.object_id,
+                        entry.kind,
+                        entry.name.as_str(),
+                    )
                 }))
         {
             return Err(Error::Corrupt(
@@ -2933,8 +2957,7 @@ mod tests {
                 generation: 1,
             };
             let mut bytes = vec![0_u8; 4096];
-            bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root_record.encode().unwrap());
+            bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
             device.write_blocks(metadata_block, &bytes).unwrap();
             volume
                 .publish_persistent_inventory(
@@ -5004,7 +5027,9 @@ mod tests {
                         (block_len * 2 - 10) as u64,
                         &[0xCC; 64],
                     ),
-                    Err(Error::InvalidInput("write range exceeds existing file size"))
+                    Err(Error::InvalidInput(
+                        "write range exceeds existing file size",
+                    ))
                 ));
                 assert_eq!(
                     volume
