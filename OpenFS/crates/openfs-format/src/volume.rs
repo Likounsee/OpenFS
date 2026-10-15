@@ -4271,6 +4271,7 @@ mod tests {
                 let directory_block = volume.allocate_block(&mut device).unwrap();
                 let extent_root = volume.allocate_block(&mut device).unwrap();
                 let data_block = volume.allocate_block(&mut device).unwrap();
+                let second_data_block = volume.allocate_block(&mut device).unwrap();
                 let block_len = block_size as usize;
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -4286,7 +4287,7 @@ mod tests {
                     parent_id: 1,
                     kind: ObjectKind::File,
                     flags: 0,
-                    size: u64::from(block_size),
+                    size: u64::from(block_size) * 2,
                     extent_root_block: Some(extent_root),
                     generation: 1,
                 };
@@ -4307,17 +4308,31 @@ mod tests {
                 device
                     .write_blocks(directory_block, &directory_bytes)
                     .unwrap();
-                let map = ExtentMap::new(vec![Extent {
-                    logical_start: 0,
-                    physical_start: data_block,
-                    block_count: 1,
-                }])
+                let map = ExtentMap::new(vec![
+                    Extent {
+                        logical_start: 0,
+                        physical_start: data_block,
+                        block_count: 1,
+                    },
+                    Extent {
+                        logical_start: 1,
+                        physical_start: second_data_block,
+                        block_count: 1,
+                    },
+                ])
                 .unwrap();
                 device
                     .write_blocks(extent_root, &map.encode_block(block_len).unwrap())
                     .unwrap();
-                let payload: Vec<u8> = (0..block_len).map(|index| (index % 251) as u8).collect();
-                device.write_blocks(data_block, &payload).unwrap();
+                let payload: Vec<u8> = (0..block_len * 2)
+                    .map(|index| (index % 251) as u8)
+                    .collect();
+                device
+                    .write_blocks(data_block, &payload[..block_len])
+                    .unwrap();
+                device
+                    .write_blocks(second_data_block, &payload[block_len..])
+                    .unwrap();
                 device.flush().unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
@@ -4353,18 +4368,21 @@ mod tests {
                 // Partial writes preserve the surrounding bytes and are visible
                 // through the normal persistent read path after a flush.
                 let replacement = vec![0xA5; 97];
+                let write_offset = block_len as u64 - 32;
                 volume
                     .write_file_range(
                         &mut device,
                         &namespace,
                         &loaded,
                         ObjectId(2),
-                        123,
+                        write_offset,
                         &replacement,
                     )
                     .unwrap();
                 let mut expected = payload.clone();
-                expected[123..123 + replacement.len()].copy_from_slice(&replacement);
+                let write_start = write_offset as usize;
+                expected[write_start..write_start + replacement.len()]
+                    .copy_from_slice(&replacement);
                 assert_eq!(
                     volume
                         .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
@@ -4377,7 +4395,7 @@ mod tests {
                         &namespace,
                         &loaded,
                         ObjectId(2),
-                        block_len as u64 - 2,
+                        (block_len * 2) as u64 - 2,
                         &[1, 2, 3],
                     ),
                     Err(Error::InvalidInput(
@@ -4399,6 +4417,9 @@ mod tests {
                 ));
                 assert!(volume
                     .is_data_block_allocated(&mut device, data_block)
+                    .unwrap());
+                assert!(volume
+                    .is_data_block_allocated(&mut device, second_data_block)
                     .unwrap());
                 assert_eq!(
                     volume
