@@ -732,7 +732,7 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::with_capacity(block_size);
-    for payload in payloads {
+    for (payload_index, payload) in payloads.iter().enumerate() {
         if payload.len() < UPDATE_CHUNK_HEADER_SIZE {
             return Err(Error::Corrupt("redo chunk header is truncated"));
         }
@@ -773,11 +773,15 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                 ));
             }
             // Transfer the reconstructed image into the result instead of cloning
-            // every byte. Allocate the next scratch buffer only after this image is
-            // complete, keeping peak memory lower for multi-block recovery plans.
+            // every byte. The final image needs no replacement scratch allocation.
+            let contents = if payload_index + 1 == payloads.len() {
+                std::mem::take(&mut current)
+            } else {
+                std::mem::replace(&mut current, Vec::with_capacity(block_size))
+            };
             updates.push(RedoUpdate {
                 target_block: target,
-                contents: std::mem::replace(&mut current, Vec::with_capacity(block_size)),
+                contents,
             });
             target_active = None;
             active_count = 0;
