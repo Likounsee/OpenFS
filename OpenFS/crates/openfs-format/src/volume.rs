@@ -1184,6 +1184,19 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("object is not a regular file"));
         }
+        // Validate namespace identity before accepting EOF or zero-length reads.
+        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "file reads require a published persistent inventory",
+            ));
+        };
+        if namespace.root_id() != persistent_namespace.root_id()
+            || namespace.objects().ne(persistent_namespace.objects())
+        {
+            return Err(Error::Corrupt(
+                "supplied namespace metadata does not match persistent inventory",
+            ));
+        }
         if length == 0 || offset >= record.size {
             return Ok(Vec::new());
         }
@@ -1225,22 +1238,6 @@ impl OpenedVolume {
         if &persisted_maps != extent_maps {
             return Err(Error::Corrupt(
                 "loaded extent maps do not match persistent namespace inventory",
-            ));
-        }
-
-        // A matching extent map is not proof that the supplied in-memory namespace
-        // is the one published on disk. Reject forged or stale metadata before
-        // returning bytes, using the same identity check as the write path.
-        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "file reads require a published persistent inventory",
-            ));
-        };
-        if namespace.root_id() != persistent_namespace.root_id()
-            || namespace.objects().ne(persistent_namespace.objects())
-        {
-            return Err(Error::Corrupt(
-                "supplied namespace metadata does not match persistent inventory",
             ));
         }
 
@@ -4461,6 +4458,21 @@ mod tests {
                         ObjectId(2),
                         0,
                         8,
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
+
+                // Even a zero-length read must not silently accept stale metadata.
+                assert!(matches!(
+                    volume.read_file_range(
+                        &mut device,
+                        &forged_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        0,
                     ),
                     Err(Error::Corrupt(
                         "supplied namespace metadata does not match persistent inventory"
