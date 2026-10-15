@@ -1218,6 +1218,16 @@ impl OpenedVolume {
             ));
         }
 
+        // Validate the complete namespace ownership graph before exposing file data.
+        // Checking only this file's map would miss a different file claiming overlapping
+        // physical blocks, allowing reads from an ambiguous/corrupt allocation graph.
+        let persisted_maps = self.read_namespace_extent_maps(device, namespace)?;
+        if &persisted_maps != extent_maps {
+            return Err(Error::Corrupt(
+                "loaded extent maps do not match persistent namespace inventory",
+            ));
+        }
+
         let mut output = vec![0_u8; read_len];
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
         for logical in first_logical..=last_logical {
