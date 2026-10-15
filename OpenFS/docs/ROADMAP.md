@@ -7,23 +7,23 @@ Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
-## Suivi d'avancement — phases P0 à P2 (mise à jour du 2026-10-15)
+## Suivi d'avancement — phases P0 à P3 (mise à jour du 2026-10-15)
 
-**Branche de travail :** `OpenFS` uniquement. Cette feuille de route utilise quatre phases, **P0, P1, P1 et P2**. Les pourcentages sont des estimations d'ingénierie fondées sur les preuves répertoriées plus bas, pas des taux de tests réussis.
+**Branche de travail :** `OpenFS` uniquement. Cette feuille de route utilise quatre phases, **P0, P1, P2 et P3**. Les pourcentages sont des estimations d'ingénierie fondées sur les preuves répertoriées plus bas, pas des taux de tests réussis.
 
 | Phase | Poids global | Avancement estimé | Périmètre / état |
 | --- | ---: | ---: | --- |
 | **P0 — Socle d'ingénierie et sécurité** | 10 % | **100 %** | Socle validé; rouvrir en cas de défaut concret de sécurité ou d'intégrité. |
 | **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **63 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
-| **P1 — Vérification, namespace persistant et E/S fichiers** | 30 % | **26 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
-| **P2 — Périphériques sûrs, intégration OS et livraison** | 25 % | **3 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
+| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **26 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
+| **P3 — Périphériques sûrs, intégration OS et livraison** | 25 % | **3 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
 | **Global pondéré** | **100 %** | **40 %** | Estimation provisoire : 40,15 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
 
 Les anciens lots sont regroupés sans faire passer du travail non réalisé pour terminé :
 - **P0** garde le socle d'ingénierie.
 - **P1** rassemble format/layout/allocateur et protocole transactionnel/récupération.
-- **P1** rassemble vérification/réparation et namespace/fichiers persistants.
-- **P2** rassemble découverte et formatage sûrs, intégration OS, compatibilité et livraison.
+- **P2** rassemble vérification/réparation et namespace/fichiers persistants.
+- **P3** rassemble découverte et formatage sûrs, intégration OS, compatibilité et livraison.
 
 ### Dernier lot de code documenté
 
@@ -37,8 +37,8 @@ Ces tests renforcent principalement **P1**. Les tests Rust, `cargo fmt` et `carg
 ### Prochaine action prioritaire
 
 1. Finir les bloqueurs de **P1** : cycle de vie/remplacement des descripteurs, propriété des blocs et contrat de transaction.
-2. Enchaîner sur **P1** : relier ces transactions au premier parcours durable `create → write → close → reopen → read`, puis vérifier le volume depuis sa racine persistante.
-3. Aborder **P2** seulement lorsque les contrats de persistance/récupération sont suffisamment stables : découverte sûre des périphériques, intégration OS et gates de livraison.
+2. Enchaîner sur **P2** : relier ces transactions au premier parcours durable `create → write → close → reopen → read`, puis vérifier le volume depuis sa racine persistante.
+3. Aborder **P3** seulement lorsque les contrats de persistance/récupération sont suffisamment stables : découverte sûre des périphériques, intégration OS et gates de livraison.
 
 Ne pas annoncer une phase terminée si sa porte de sortie n'est pas satisfaite.
 
@@ -125,9 +125,9 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, allocator, transactions and crash recovery | 35% | 63% | Combined weighted estimate from the former format/allocator and transaction phases; descriptor/ownership and general transaction work remain incomplete |
-| P1 Verification, durable namespace and file I/O | 30% | 26% | Combined weighted estimate from verification and persistent namespace/file I/O; durable mutation and whole-volume traversal remain incomplete |
-| P2 Safe device discovery, OS integration and release | 25% | 3% | Combined weighted estimate from device safety, OS integration and release hardening |
+| P1 Format/layout/allocator + transactions/recovery | 35% | 63% | Combined weighted estimate from format/allocator and transaction phases; descriptor/ownership and general transaction work remain incomplete |
+| P2 Verification/repair + durable namespace/file I/O | 30% | 26% | Combined weighted estimate from verification and persistent namespace/file I/O; durable mutation and whole-volume traversal remain incomplete |
+| P3 Safe device discovery + OS integration + release | 25% | 3% | Combined weighted estimate from device safety, OS integration and release hardening |
 | **Overall** | **100%** | **40%** | Exact weighted estimate 40.15%; rounded display 40%, not percentage of a production-ready filesystem |
 
 Status meanings:
@@ -292,7 +292,7 @@ Absent/incomplete:
 
 **Exit gate:** persisted-byte crash-cut matrix is green on Linux and Windows; each mutation recovers to one permitted complete state; replay is idempotent; journal exhaustion and uncertain I/O fail closed. Only then expand the journal to general filesystem transactions.
 
-## P1 — Read-only verifier, corruption corpus and repair design
+## P2 — Read-only verifier, corruption corpus and repair design
 **Status: Partially implemented.** This subsection is part of P1's combined 30% weight.
 
 Implemented:
@@ -317,7 +317,7 @@ Incomplete:
 
 **Exit gate:** checker covers every reachable persistent object, reports known corruption, never mutates, and malformed input is fuzzed within a documented budget. Repair remains opt-in and separate from checking.
 
-### P1 continued — Durable namespace, files and directories
+### P2 continued — Durable namespace, files and directories
 **Status: Partially implemented, read-only only — 21%. Weight: 20%.**
 
 Implemented:
@@ -346,7 +346,7 @@ Required design:
 
 **Exit gate:** image-backed create/read/write/truncate/rename/delete and directory operations survive reopen and injected crashes; checker reports no leaks, aliases or dangling references. No OS mount should precede this gate.
 
-## P2 — Safe device discovery, OS integration and release
+## P3 — Safe device discovery, OS integration and release
 **Status: Bare groundwork only.** This subsection is part of P2's combined 25% weight.
 
 The raw-file device backend is real, but it does not establish that a path is a USB device or safely selected. Opening is non-destructive; later writes can overwrite partition tables and user data. There is no end-user raw-device formatter or safe discovery flow.
@@ -361,7 +361,7 @@ Tasks:
 
 **Exit gate:** all unsafe target cases are refused, target identity is revalidated, and the dedicated hardware test record is reproducible. Image-only tests do not satisfy this gate.
 
-### P2 continued — OS integration and normal file APIs
+### P3 continued — OS integration and normal file APIs
 **Status: Not implemented.** This subsection is part of P2's combined 25% weight.
 
 No Rust mount/VFS or OS filesystem adapter was found in the current workspace. Legacy adapters are references only.
@@ -377,7 +377,7 @@ Tasks:
 
 **Exit gate:** users can create/edit/read/rename/delete files via normal OS APIs, unmount cleanly, remount and verify bytes on each claimed platform.
 
-### P2 continued — Release, compatibility and long-term reliability
+### P3 continued — Release, compatibility and long-term reliability
 **Status: Planning only.** This subsection is part of P2's combined 25% weight.
 
 Tasks:
