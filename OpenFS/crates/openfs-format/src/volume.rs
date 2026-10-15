@@ -4485,10 +4485,7 @@ mod tests {
                 let recovery_payload = vec![0x3C; 97];
                 // UPDATE records may be chunked differently for each supported block size.
                 // The record count is also the write index of the first home-block update.
-                let fail_after_commit = volume
-                    .journal
-                    .required_record_count(&device, 2)
-                    .unwrap();
+                let fail_after_commit = volume.journal.required_record_count(&device, 2).unwrap();
                 let mut failing = FailWriteAt {
                     inner: device,
                     write_index: 0,
