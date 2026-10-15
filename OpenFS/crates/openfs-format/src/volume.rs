@@ -2912,6 +2912,77 @@ mod tests {
     }
 
     #[test]
+    fn writes_initial_persistent_file_contents_and_reads_after_reopen() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("persistent-file-initial-write");
+        let expected = b"OpenFS persistent data";
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root = ObjectId(1);
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let root_record = MetadataRecord {
+                id: root,
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut bytes = vec![0_u8; 4096];
+            bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root_record.encode().unwrap());
+            device.write_blocks(metadata_block, &bytes).unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: root,
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    },
+                )
+                .unwrap();
+
+            volume
+                .create_persistent_file(&mut device, root, ObjectId(2), "hello.txt")
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/hello.txt", expected)
+                .unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/hello.txt", 0, expected.len())
+                    .unwrap(),
+                expected
+            );
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                namespace.object(ObjectId(2)).unwrap().size,
+                expected.len() as u64
+            );
+        }
+        {
+            let mut device = ImageDevice::open(&path).unwrap();
+            let reopened = open_volume(&mut device).unwrap();
+            assert_eq!(
+                reopened
+                    .read_persistent_path_range(&mut device, "/hello.txt", 0, expected.len())
+                    .unwrap(),
+                expected
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn replaces_persistent_namespace_inventory_and_survives_reopen() {
         use crate::{
             DirectoryEntry, MetadataRecord, Namespace, ObjectId, ObjectKind,
