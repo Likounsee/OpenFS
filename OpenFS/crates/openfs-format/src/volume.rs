@@ -8220,4 +8220,119 @@ mod tests {
             fs::remove_file(second_path).unwrap();
         }
     }
+    #[test]
+    fn descriptor_replacement_preserves_shared_inventory_and_publishes_new_entries() {
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind,
+            PersistentInventoryDescriptor,
+        };
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("descriptor-replacement-shared-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let child = MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "note.txt".to_owned(),
+                };
+
+                // Initially publish only the root. Then extend the same packed metadata
+                // block and add a directory stream, so replacement must retain one
+                // shared inventory block while atomically adding the new ownership.
+                let mut metadata_bytes = vec![0_u8; block_size as usize];
+                metadata_bytes[..crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&root.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                let old_descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let old_descriptor_block = volume
+                    .publish_persistent_inventory(&mut device, &old_descriptor)
+                    .unwrap();
+
+                metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
+                    .copy_from_slice(&child.encode().unwrap());
+                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                let mut directory_bytes = vec![0_u8; block_size as usize];
+                directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
+                    .copy_from_slice(&entry.encode().unwrap());
+                device.write_blocks(directory_block, &directory_bytes).unwrap();
+
+                let new_descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 2,
+                    directory_blocks: vec![directory_block],
+                    directory_entry_count: 1,
+                };
+                let new_descriptor_block = volume
+                    .replace_persistent_inventory_descriptor(&mut device, &new_descriptor)
+                    .unwrap();
+                assert_ne!(
+                    new_descriptor_block, old_descriptor_block,
+                    "replacement must publish a distinct descriptor at block size {block_size}"
+                );
+                assert!(
+                    volume.is_data_block_allocated(&mut device, metadata_block).unwrap(),
+                    "shared metadata inventory must remain allocated at block size {block_size}"
+                );
+                assert!(
+                    volume.is_data_block_allocated(&mut device, directory_block).unwrap(),
+                    "new directory inventory must remain allocated at block size {block_size}"
+                );
+                assert!(
+                    !volume.is_data_block_allocated(&mut device, old_descriptor_block).unwrap(),
+                    "old descriptor must be released at block size {block_size}"
+                );
+
+                let discovered = volume
+                    .discover_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(discovered.0, new_descriptor_block);
+                assert_eq!(discovered.1, new_descriptor);
+                let namespace = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .1;
+                assert_eq!(namespace.lookup(ObjectId(1), "note.txt").unwrap().object_id, 2);
+                assert!(volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent());
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
