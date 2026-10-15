@@ -1306,7 +1306,10 @@ mod tests {
 
         for (case, payloads) in cases {
             assert!(
-                matches!(decode_redo_updates(&payloads, BS as usize), Err(Error::Corrupt(_))),
+                matches!(
+                    decode_redo_updates(&payloads, BS as usize),
+                    Err(Error::Corrupt(_))
+                ),
                 "malformed redo framing must fail closed: {case}"
             );
         }
