@@ -5,6 +5,7 @@
 
 use openfs_core::{Error, Result};
 
+#[cfg(test)]
 use crate::crc32c;
 
 /// Journal record framing version.
@@ -297,10 +298,21 @@ fn validate_record(record: &JournalRecord) -> Result<()> {
 }
 
 fn record_checksum(bytes: &[u8]) -> u32 {
-    let mut crc_input = Vec::with_capacity(bytes.len().saturating_sub(4));
-    crc_input.extend_from_slice(&bytes[..CHECKSUM_OFFSET]);
-    crc_input.extend_from_slice(&bytes[JOURNAL_HEADER_SIZE..]);
-    crc32c(&crc_input)
+    // Hash the header before the checksum and the payload directly. Building a
+    // temporary concatenation here would allocate and copy every journal payload
+    // once during both encoding and decoding.
+    let mut crc = !0_u32;
+    for byte in bytes[..CHECKSUM_OFFSET]
+        .iter()
+        .chain(bytes[JOURNAL_HEADER_SIZE..].iter())
+    {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = 0_u32.wrapping_sub(crc & 1);
+            crc = (crc >> 1) ^ (0x82F6_3B78 & mask);
+        }
+    }
+    !crc
 }
 
 fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
