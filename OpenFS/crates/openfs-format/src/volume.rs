@@ -1446,6 +1446,28 @@ impl OpenedVolume {
         self.read_file_range(device, namespace, extent_maps, object_id, offset, length)
     }
 
+    /// Read a file range by path using only the published on-disk inventory.
+    ///
+    /// Unlike `read_path_range`, this entry point reconstructs the namespace and extent
+    /// maps itself, so callers do not need to cache or supply potentially stale metadata.
+    /// It is read-only and requires a valid persistent inventory descriptor.
+    pub fn read_persistent_path_range<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        path: &str,
+        offset: u64,
+        length: usize,
+    ) -> Result<Vec<u8>> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent path reads require a published inventory",
+            ));
+        };
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let object_id = namespace.resolve_path(path)?;
+        self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
+    }
+
     /// Load every file's extent-map page and validate global physical ownership.
     ///
     /// This detects extent runs that alias another file's map root or data, validates
@@ -4408,6 +4430,14 @@ mod tests {
                         .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
                         .unwrap(),
                     payload
+                );
+                // The public persistent-path entry point must independently rediscover
+                // metadata after reopen, rather than requiring caller-supplied caches.
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
+                        .unwrap(),
+                    payload[17..81]
                 );
 
                 // A forged in-memory record must not authorize writes even when
