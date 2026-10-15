@@ -651,7 +651,7 @@ impl OpenedVolume {
         // the multi-page journal transaction below is the sole publication commit point.
         let mut new_block = None;
         let mut candidate_bitmap = None;
-        'pages: for bitmap_index in first_bitmap..=last_bitmap {
+        for bitmap_index in first_bitmap..=last_bitmap {
             let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             let base = bitmap_index * bits_per_bitmap_block;
@@ -666,6 +666,7 @@ impl OpenedVolume {
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
                 .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut candidate_local = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
@@ -677,11 +678,15 @@ impl OpenedVolume {
                 let available = !*byte & valid_mask;
                 if available != 0 {
                     let local = (byte_index as u64) * 8 + u64::from(available.trailing_zeros());
-                    new_block = Some(base + local);
-                    // Reuse this already-read page when assembling the transaction below.
-                    candidate_bitmap = Some((bitmap_index, bitmap.clone()));
-                    break 'pages;
+                    candidate_local = Some(local);
+                    break;
                 }
+            }
+            if let Some(local) = candidate_local {
+                new_block = Some(base + local);
+                // Move the already-read page into the transaction cache without copying it.
+                candidate_bitmap = Some((bitmap_index, bitmap));
+                break;
             }
         }
         let new_block = new_block.ok_or(Error::InvalidInput(
