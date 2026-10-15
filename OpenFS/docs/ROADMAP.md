@@ -7,36 +7,40 @@ Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
-## Suivi d'avancement — phases P0 à P7 (mise à jour du 2026-10-15)
+## Suivi d'avancement — phases P0 à P2 (mise à jour du 2026-10-15)
 
-**Branche cible :** `OpenFS` uniquement. **HEAD du code avant cette mise à jour documentaire :** [`5d7ff5445475a58ff1b92137f9af3e1903fdfc90`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90). Le commit qui met à jour cette roadmap ne change pas le code du filesystem.
+**Branche de travail :** `OpenFS` uniquement. Cette feuille de route utilise quatre phases, **P0, P1, P1 et P2**. Les pourcentages sont des estimations d'ingénierie fondées sur les preuves répertoriées plus bas, pas des taux de tests réussis.
 
-La nomenclature officielle est **P0, P1, P2, P3, P4, P5, P6 et P7**. Les pourcentages ci-dessous conservent le modèle pondéré et le ledger existants de cette roadmap; ils ne doivent pas être remplacés par une seconde échelle R0–R7.
+| Phase | Poids global | Avancement estimé | Périmètre / état |
+| --- | ---: | ---: | --- |
+| **P0 — Socle d'ingénierie et sécurité** | 10 % | **100 %** | Socle validé; rouvrir en cas de défaut concret de sécurité ou d'intégrité. |
+| **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **63 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
+| **P1 — Vérification, namespace persistant et E/S fichiers** | 30 % | **26 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
+| **P2 — Périphériques sûrs, intégration OS et livraison** | 25 % | **3 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
+| **Global pondéré** | **100 %** | **40 %** | Estimation provisoire : 40,15 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
 
-| Phase | Avancement estimé | Priorité / état |
-| --- | ---: | --- |
-| **P0 — Socle d'ingénierie et sécurité** | **100 %** | Socle validé; rouvrir seulement si un défaut concret de sécurité ou d'intégrité est trouvé. |
-| **P1 — Format canonique, layout et allocateur** | **93 %** | Priorité de finition immédiate; la publication/remplacement de descripteurs et la récupération de propriété restent à fermer. |
-| **P2 — Transactions et récupération après crash** | **40 %** | Journal redo et cas de récupération ciblés présents; pas encore de transactions générales sur les métadonnées. |
-| **P3 — Vérification en lecture seule et entrées hostiles** | **35 %** | Vérifications structurelles présentes; vérification globale, fuzzing et réparation restent incomplets. |
-| **P4 — Namespace persistant et E/S fichiers** | **21 %** | Primitives et lectures présentes; mutations durables et cycle create/write/close/reopen/read restent le blocage fonctionnel principal. |
-| **P5 — Découverte sûre des périphériques et formatage** | **5 %** | Backend brut présent; découverte, protection des volumes système et formatage utilisateur sûr absents. |
-| **P6 — Intégration OS** | **0 %** | Aucun adaptateur Rust de montage/VFS utilisable n'a été validé. |
-| **P7 — Livraison, compatibilité et durcissement opérationnel** | **3 %** | Documentation et CI partielles; critères de livraison et preuves matérielles/compatibilité incomplets. |
-| **Global pondéré** | **40 %** | Estimation provisoire selon le modèle pondéré déjà défini dans cette roadmap; pas un pourcentage de préparation à la production. |
+Les anciens lots sont regroupés sans faire passer du travail non réalisé pour terminé :
+- **P0** garde le socle d'ingénierie.
+- **P1** rassemble format/layout/allocateur et protocole transactionnel/récupération.
+- **P1** rassemble vérification/réparation et namespace/fichiers persistants.
+- **P2** rassemble découverte et formatage sûrs, intégration OS, compatibilité et livraison.
 
-### Dernier lot de code depuis le précédent état documenté
+### Dernier lot de code documenté
 
 - [`53a2875`](https://github.com/Likounsee/OpenFS/commit/53a2875748363a1fa69961937547eb281ee43545) — tests des limites de capacité des chunks redo.
 - [`fffa639`](https://github.com/Likounsee/OpenFS/commit/fffa6399e12dbc1847d6cd0dd700ee49a610c434) — rejet des compteurs de séquence checkpoint incohérents.
-- [`2607070`](https://github.com/Likounsee/OpenFS/commit/2607070113f65bd9d72a79def80427fd27565ddb) — maintien du scénario de récupération d'un checkpoint corrompu sur disque.
-- [`5d7ff54`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90) — test du rejet d'un écart de séquence malgré un checksum valide.
+- [`2607070`](https://github.com/Likounsee/OpenFS/commit/2607070113f65bd9d72a79def80427fd27565ddb) — conservation du scénario de récupération d'un checkpoint corrompu sur disque.
+- [`5d7ff54`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90) — rejet d'un écart de séquence malgré un checksum valide.
 
-Ces ajouts améliorent surtout **P2**; ils ne suffisent pas, à eux seuls, à modifier le score de phase sans recalculer les critères du ledger. Les tests Rust, `cargo fmt` et `cargo clippy` n'ont pas été exécutés localement dans l'environnement de travail actuel. Les statuts/runs consultés pour le dernier SHA n'ont fourni aucun résultat exploitable : ne pas en déduire que la CI est verte.
+Ces tests renforcent principalement **P1**. Les tests Rust, `cargo fmt` et `cargo clippy` n'ont pas été exécutés localement dans l'environnement de travail utilisé pour cette mise à jour. Les statuts/runs consultés pour le dernier code n'ont pas fourni de résultat exploitable : ne pas en déduire que la CI est verte.
 
-### Prochaine action selon la roadmap
+### Prochaine action prioritaire
 
-Respecter les dépendances P1 → P2 → P4 : terminer les blocages concrets de **P1**, continuer la qualification du journal et de la récupération en **P2**, puis prioriser le premier chemin de fichiers persistant de **P4** (racine → objet/inode → entrée de répertoire → extents → lecture/écriture → close/reopen → checker). Ne pas démarrer P6/montage OS avant que le chemin de persistance et ses contrats de récupération soient suffisamment complets.
+1. Finir les bloqueurs de **P1** : cycle de vie/remplacement des descripteurs, propriété des blocs et contrat de transaction.
+2. Enchaîner sur **P1** : relier ces transactions au premier parcours durable `create → write → close → reopen → read`, puis vérifier le volume depuis sa racine persistante.
+3. Aborder **P2** seulement lorsque les contrats de persistance/récupération sont suffisamment stables : découverte sûre des périphériques, intégration OS et gates de livraison.
+
+Ne pas annoncer une phase terminée si sa porte de sortie n'est pas satisfaite.
 
 ---
 
@@ -121,16 +125,10 @@ The phase percentages estimate progress toward the explicit acceptance gates bel
 | Phase | Weight | Estimate | What the estimate means |
 | --- | ---: | ---: | --- |
 | P0 Engineering baseline | 10% | 100% | Baseline checks and development guardrails exist; this is not product readiness |
-| P1 Format, layout and allocator | 15% | 93% | Strong image-backed layout/allocator coverage; descriptor replacement and broader ownership recovery remain incomplete |
-| P2 Transactions and crash recovery | 20% | 40% | Allocator redo journal and selected torn-write/recovery cases exist; no general metadata transaction contract |
-| P3 Read-only verification and hostile input | 10% | 35% | Layout/bitmap/journal checker exists; whole-filesystem ownership checks, fuzzing and repair are incomplete |
-| P4 Persistent namespace and file I/O | 20% | 21% | Codecs, in-memory namespace, disk reconstruction and read paths exist; durable writes and mutation are absent |
-| P5 Safe device discovery and formatting | 10% | 5% | Raw-device backend exists but not discovery, exclusive ownership, target confirmation or safe end-user formatting |
-| P6 OS integration | 10% | 0% | No Rust mount/VFS adapter found |
-| P7 Release, compatibility and operational hardening | 5% | 3% | Some docs and CI exist; release gates and hardware/compatibility evidence do not |
+| P1 Format, allocator, transactions and crash recovery | 35% | 63% | Combined weighted estimate from the former format/allocator and transaction phases; descriptor/ownership and general transaction work remain incomplete |
+| P1 Verification, durable namespace and file I/O | 30% | 26% | Combined weighted estimate from verification and persistent namespace/file I/O; durable mutation and whole-volume traversal remain incomplete |
+| P2 Safe device discovery, OS integration and release | 25% | 3% | Combined weighted estimate from device safety, OS integration and release hardening |
 | **Overall** | **100%** | **40%** | Exact weighted estimate 40.15%; rounded display 40%, not percentage of a production-ready filesystem |
-
-The current estimates are deliberately lower than the older roadmap where the older numbers treated many unchecked checklist items as done. A phase can have high implementation progress and still fail its exit gate.
 
 Status meanings:
 - **Not implemented** — no usable implementation found.
@@ -223,8 +221,8 @@ Remaining rule: reopen this phase if a concrete integrity or safety defect is fo
 
 **Exit criteria:** baseline CI green on both OS jobs for the exact SHA; no known untriaged baseline blocker; contributors know how to distinguish image tests from physical-device guarantees.
 
-## P1 — Canonical format, layout and allocator
-**Status: Partially implemented; validation advancing — 93%. Weight: 15%.**
+## P1 — Canonical format, layout, allocator, transactions and crash recovery
+**Status: Partially implemented; validation advancing.** This subsection is part of P1's combined 35% weight.
 
 - **Current P1 work (2026-10-14):** [descriptor publication and ownership contract](P1_DESCRIPTOR_PUBLICATION_CONTRACT.md) documents descriptor states, the bitmap/journal commit point, ownership invariants, uncertain-I/O handling and required crash-cut evidence. Commit [`63b84cc`](https://github.com/Likounsee/OpenFS/commit/63b84cc695c5626e0f8a49896c9de636bb8d12d8). Regression `refused_descriptor_publication_preserves_exact_image_bytes_across_block_sizes` was added in [`70acfe1`](https://github.com/Likounsee/OpenFS/commit/70acfe1963eb78b3be3f4ccc8d90d44b40074b34); it checks exact image-byte preservation after rejected publication at all five block sizes. At this roadmap edit, execution and exact-SHA CI for that test are **not yet confirmed**, so it earns no validated progress credit.
 - **Format compatibility policy (2026-10-14):** [FORMAT_COMPATIBILITY_POLICY.md](FORMAT_COMPATIBILITY_POLICY.md) now specifies immutable released versions, fail-closed handling of unknown versions/features, deterministic encoding, explicit conversion, recovery compatibility and golden-fixture acceptance criteria. Commit [`6abf422`](https://github.com/Likounsee/OpenFS/commit/6abf422d8cee32a5b16661a44084fe3ba5cc3d10). This is a written policy only; binary golden fixtures, compatibility tests and conversion remain unimplemented and receive no completion credit.
@@ -262,10 +260,10 @@ Open blockers:
 
 **Exit gate:** deterministic format/open/allocate/free/reopen and corruption tests pass on Linux/Windows; descriptor lifecycle and ownership invariants have a safe recovery story; no unresolved known allocator/format corruption blocker. P1 must not be called complete while descriptor publication can leave unrecoverable ownership anomalies.
 
-## P2 — Transaction protocol and crash recovery
-**Status: Partially implemented — 40%. Weight: 20%.**
+### P1 continued — Transaction protocol and crash recovery
+**Status: Partially implemented.** This subsection is part of P1's combined 35% weight.
 
-- **Transaction/recovery contract (2026-10-14):** [P2_JOURNAL_TRANSACTION_CONTRACT.md](P2_JOURNAL_TRANSACTION_CONTRACT.md) now records the current bounded-ring state machine, commit uncertainty, recovery/retry rules, capacity preflight and explicit limits. Commit [`1a0e603`](https://github.com/Likounsee/OpenFS/commit/1a0e603136da5a03ef221e97caea0038b312b826). This is a normative documentation step, not proof of complete crash-cut coverage and not a reason to raise P2 progress by itself.
+- **Transaction/recovery contract (2026-10-14):** [P2_JOURNAL_TRANSACTION_CONTRACT.md](P2_JOURNAL_TRANSACTION_CONTRACT.md) now records the current bounded-ring state machine, commit uncertainty, recovery/retry rules, capacity preflight and explicit limits. Commit [`1a0e603`](https://github.com/Likounsee/OpenFS/commit/1a0e603136da5a03ef221e97caea0038b312b826). This is a normative documentation step, not proof of complete crash-cut coverage and not a reason to raise P1 progress by itself.
 - **Capacity preflight retry regression (2026-10-14):** commit [`34ed75e`](https://github.com/Likounsee/OpenFS/commit/34ed75e0ebf77331a2f12ae0d0704f6983fb6899) extends `rejects_journal_targets_and_ring_exhaustion`: after an oversized transaction is rejected without changing persisted bytes, a valid transaction is committed using the same journal instance. Exact-SHA CI is pending; no validation credit is awarded until both OS jobs pass.
 - **Writer poisoning after uncertain I/O (2026-10-14):** commit [`9a1456b`](https://github.com/Likounsee/OpenFS/commit/9a1456b413c637fc13f0108bf3b2d67a2fede29d) extends the per-I/O-failure recovery test: after each injected commit I/O error, another commit through the same live journal must fail with the explicit recovery-required error before the test reopens and checks recovered home bytes. Exact-SHA CI is pending; no validation credit is awarded yet.
 - **Writer resumes after recovery (2026-10-14):** commit [`07448b8`](https://github.com/Likounsee/OpenFS/commit/07448b8730cb8a4f6bf2bbc4db94846b6cacee7f) extends every injected commit-I/O failure case to reopen the journal, verify the recovered home image/checkpoint, commit a fresh transaction and verify the new data. Exact-SHA CI is pending; no validation credit until Linux and Windows pass.
@@ -285,17 +283,17 @@ Absent/incomplete:
 - Proof of physical-device durability; host flush semantics are only software ordering evidence.
 
 **Tasks and acceptance criteria**
-1. **P2.1 Normative state machine — Documented; implementation validation ongoing.** The contract records BEGIN/redo/COMMIT/home writes/flush/checkpoint states, indeterminate I/O, preflight rejection, and recovery-before-retry rules. Exhaustive fault evidence and API-wide enforcement remain incomplete.
-2. **P2.2 Fault-injection harness — Partially implemented.** Existing tests inject selected write/flush failures and torn prefixes, reopen after each cut, and compare home state. New regression explicitly requires a live writer to fail closed after each injected commit I/O error; broad block-size/partial-write cross-product remains incomplete.
-3. **P2.3 Recovery correctness — Partially implemented.** Repeat replay and inject failures during replay/checkpoint. Committed transactions must be replayed completely and idempotently; uncommitted transactions must not be published.
-4. **P2.4 Capacity design — Partially implemented.** Current four-slot ring capacity is preflighted before writes and oversize rejection preserves image bytes; a follow-up regression verifies a valid commit still works after rejection. A larger/versioned journal and general transaction-capacity design remain unimplemented.
-5. **P2.5 Namespace transaction — Not implemented.** Atomic create/rename/delete must update namespace records, directory indexes, extent ownership and bitmap in a defined order. Crash outcomes must be exactly old or new state, not mixed state.
-6. **P2.6 Durability contract — Partially documented.** Distinguish process crash, OS crash, power loss and hardware that lies about flush; hardware guarantees require dedicated devices and test plans.
+1. **P1.7 Normative state machine — Documented; implementation validation ongoing.** The contract records BEGIN/redo/COMMIT/home writes/flush/checkpoint states, indeterminate I/O, preflight rejection, and recovery-before-retry rules. Exhaustive fault evidence and API-wide enforcement remain incomplete.
+2. **P1.8 Fault-injection harness — Partially implemented.** Existing tests inject selected write/flush failures and torn prefixes, reopen after each cut, and compare home state. New regression explicitly requires a live writer to fail closed after each injected commit I/O error; broad block-size/partial-write cross-product remains incomplete.
+3. **P1.9 Recovery correctness — Partially implemented.** Repeat replay and inject failures during replay/checkpoint. Committed transactions must be replayed completely and idempotently; uncommitted transactions must not be published.
+4. **P1.10 Capacity design — Partially implemented.** Current four-slot ring capacity is preflighted before writes and oversize rejection preserves image bytes; a follow-up regression verifies a valid commit still works after rejection. A larger/versioned journal and general transaction-capacity design remain unimplemented.
+5. **P1.11 Namespace transaction — Not implemented.** Atomic create/rename/delete must update namespace records, directory indexes, extent ownership and bitmap in a defined order. Crash outcomes must be exactly old or new state, not mixed state.
+6. **P1.12 Durability contract — Partially documented.** Distinguish process crash, OS crash, power loss and hardware that lies about flush; hardware guarantees require dedicated devices and test plans.
 
 **Exit gate:** persisted-byte crash-cut matrix is green on Linux and Windows; each mutation recovers to one permitted complete state; replay is idempotent; journal exhaustion and uncertain I/O fail closed. Only then expand the journal to general filesystem transactions.
 
-## P3 — Read-only verifier, corruption corpus and repair design
-**Status: Partially implemented — 35%. Weight: 10%.**
+## P1 — Read-only verifier, corruption corpus and repair design
+**Status: Partially implemented.** This subsection is part of P1's combined 30% weight.
 
 Implemented:
 - check_volume validates superblocks, canonical layout, bitmap reserved/padding invariants, allocation totals and journal/checkpoint state without replay or modifying the image.
@@ -310,16 +308,16 @@ Incomplete:
 - Read-only check and writable open are distinct: check must never replay or repair silently.
 
 **Tasks and acceptance criteria**
-1. **P3.1 Read-only structural check — Partially validated.** Corrupt each superblock/checkpoint/bitmap/journal field and verify deterministic diagnostics, no writes and no panic.
-2. **P3.2 Full object traversal — Blocked by P4 metadata locator.** Validate every object, parent/reachability edge, directory record, extent map, allocated block and owner count from disk.
-3. **P3.3 Diagnostics contract — Not implemented.** Stable machine-readable codes, block/object identifiers, deterministic ordering and severity; avoid opaque error-only output for recoverable ownership anomalies.
-4. **P3.4 Fuzzing — Not implemented.** Add bounded fuzz targets for superblock, journal/checkpoint, metadata/directory codecs, extent-map and descriptor decoders. Keep discovered failures as regression fixtures.
-5. **P3.5 Repair planning — Not implemented.** Read-only scan first; explicit dry-run report, narrow repair set, backup/rollback policy and second verification pass before any repair write.
-6. **P3.6 Data integrity — Not implemented.** Decide whether the new format needs data checksums, then specify their on-disk coverage and transaction semantics before enabling them.
+1. **P2.1 Read-only structural check — Partially validated.** Corrupt each superblock/checkpoint/bitmap/journal field and verify deterministic diagnostics, no writes and no panic.
+2. **P2.2 Full object traversal — Blocked by P2 metadata locator.** Validate every object, parent/reachability edge, directory record, extent map, allocated block and owner count from disk.
+3. **P2.3 Diagnostics contract — Not implemented.** Stable machine-readable codes, block/object identifiers, deterministic ordering and severity; avoid opaque error-only output for recoverable ownership anomalies.
+4. **P2.4 Fuzzing — Not implemented.** Add bounded fuzz targets for superblock, journal/checkpoint, metadata/directory codecs, extent-map and descriptor decoders. Keep discovered failures as regression fixtures.
+5. **P2.5 Repair planning — Not implemented.** Read-only scan first; explicit dry-run report, narrow repair set, backup/rollback policy and second verification pass before any repair write.
+6. **P2.6 Data integrity — Not implemented.** Decide whether the new format needs data checksums, then specify their on-disk coverage and transaction semantics before enabling them.
 
 **Exit gate:** checker covers every reachable persistent object, reports known corruption, never mutates, and malformed input is fuzzed within a documented budget. Repair remains opt-in and separate from checking.
 
-## P4 — Durable namespace, files and directories
+### P1 continued — Durable namespace, files and directories
 **Status: Partially implemented, read-only only — 21%. Weight: 20%.**
 
 Implemented:
@@ -336,60 +334,60 @@ Required design:
 - Keep data blocks and metadata publication transactionally consistent; do not release an old block before the new metadata no longer references it.
 
 **Tasks and acceptance criteria**
-1. **P4.1 Canonical metadata locator/root — Not implemented.** Versioned root points to bounded metadata and directory structures; validate all pointers before use.
-2. **P4.2 Durable read-only mount model — Partially implemented.** Open from only on-disk roots without caller-supplied block lists; remount must reconstruct the same object graph.
-3. **P4.3 Durable create/mkdir — Not implemented.** Allocate IDs and blocks, publish parent entry and metadata atomically; failure/reopen must show either absent or complete object.
-4. **P4.4 Durable write/truncate — Not implemented.** Test empty/large/fragmented/sparse files, partial blocks, overwrite, grow/shrink, no-space and every I/O failure. Old data must remain readable or a documented committed new version must be complete.
-5. **P4.5 Durable rename/unlink/rmdir — Not implemented.** Test collisions, moving directories, non-empty directories, same-name cases, stale references, link counts when supported and crash cuts.
-6. **P4.6 Directory growth and large inventories — Not implemented.** Test capacity boundaries, pagination, bounded memory and no duplicate/lost entries.
-7. **P4.7 Semantics — Partially implemented in memory only.** Path resolution, rename/remove validation and case-sensitivity behavior have in-memory coverage; durable on-disk semantics and the full first-release contract remain undefined. Specify path normalization, absolute/relative paths, trailing separators, name encoding, timestamps, permissions and file type behavior.
-8. **P4.8 Read API exists; durable write API not implemented.** Range/content/path reads and shared errors exist, but there is no complete durable mutation API or handle lifecycle. Distinguish EOF, no-space, corruption, unsupported operation and I/O failure.
-9. **P4.9 Persistent end-to-end tests — Not implemented.** Create nested trees, write known bytes, close/reopen, read, rename, delete, verify ownership, and inject failures after every durable step.
+1. **P2.8 Canonical metadata locator/root — Not implemented.** Versioned root points to bounded metadata and directory structures; validate all pointers before use.
+2. **P2.9 Durable read-only mount model — Partially implemented.** Open from only on-disk roots without caller-supplied block lists; remount must reconstruct the same object graph.
+3. **P2.10 Durable create/mkdir — Not implemented.** Allocate IDs and blocks, publish parent entry and metadata atomically; failure/reopen must show either absent or complete object.
+4. **P2.11 Durable write/truncate — Not implemented.** Test empty/large/fragmented/sparse files, partial blocks, overwrite, grow/shrink, no-space and every I/O failure. Old data must remain readable or a documented committed new version must be complete.
+5. **P2.12 Durable rename/unlink/rmdir — Not implemented.** Test collisions, moving directories, non-empty directories, same-name cases, stale references, link counts when supported and crash cuts.
+6. **P2.13 Directory growth and large inventories — Not implemented.** Test capacity boundaries, pagination, bounded memory and no duplicate/lost entries.
+7. **P2.14 Semantics — Partially implemented in memory only.** Path resolution, rename/remove validation and case-sensitivity behavior have in-memory coverage; durable on-disk semantics and the full first-release contract remain undefined. Specify path normalization, absolute/relative paths, trailing separators, name encoding, timestamps, permissions and file type behavior.
+8. **P2.15 Read API exists; durable write API not implemented.** Range/content/path reads and shared errors exist, but there is no complete durable mutation API or handle lifecycle. Distinguish EOF, no-space, corruption, unsupported operation and I/O failure.
+9. **P2.16 Persistent end-to-end tests — Not implemented.** Create nested trees, write known bytes, close/reopen, read, rename, delete, verify ownership, and inject failures after every durable step.
 
 **Exit gate:** image-backed create/read/write/truncate/rename/delete and directory operations survive reopen and injected crashes; checker reports no leaks, aliases or dangling references. No OS mount should precede this gate.
 
-## P5 — Safe device discovery and destructive formatting
-**Status: Bare groundwork only — 5%. Weight: 10%.**
+## P2 — Safe device discovery, OS integration and release
+**Status: Bare groundwork only.** This subsection is part of P2's combined 25% weight.
 
 The raw-file device backend is real, but it does not establish that a path is a USB device or safely selected. Opening is non-destructive; later writes can overwrite partition tables and user data. There is no end-user raw-device formatter or safe discovery flow.
 
 Tasks:
-1. **P5.1 Read-only discovery — Not implemented.** Per-OS identity, serial/device path, removable status, exact capacity, sector geometry, partition table and mounted/system-volume status.
-2. **P5.2 Exclusive ownership — Not implemented.** Acquire OS-supported exclusive access; reject mounted, busy, boot/system, ambiguous, unsupported or changed devices.
-3. **P5.3 Dry-run plan — Not implemented.** Show exact stable identity, capacity, partitions and every destructive action before any write.
-4. **P5.4 Explicit confirmation — Not implemented.** Revalidate identity/geometry immediately before format; no default target and no path-name heuristics.
-5. **P5.5 Mocked refusal tests — Not implemented.** Prove no writes occur for every unsafe/ambiguous condition.
-6. **P5.6 Hardware validation — Blocked.** Only after P1–P4 gates: dedicated expendable USB, disconnect/reconnect, format/open/reopen, read/write, flush, removal during I/O and checker pass. Never test on valuable or system disks.
+1. **P3.1 Read-only discovery — Not implemented.** Per-OS identity, serial/device path, removable status, exact capacity, sector geometry, partition table and mounted/system-volume status.
+2. **P3.2 Exclusive ownership — Not implemented.** Acquire OS-supported exclusive access; reject mounted, busy, boot/system, ambiguous, unsupported or changed devices.
+3. **P3.3 Dry-run plan — Not implemented.** Show exact stable identity, capacity, partitions and every destructive action before any write.
+4. **P3.4 Explicit confirmation — Not implemented.** Revalidate identity/geometry immediately before format; no default target and no path-name heuristics.
+5. **P3.5 Mocked refusal tests — Not implemented.** Prove no writes occur for every unsafe/ambiguous condition.
+6. **P3.6 Hardware validation — Blocked.** Only after P1–P2 gates: dedicated expendable USB, disconnect/reconnect, format/open/reopen, read/write, flush, removal during I/O and checker pass. Never test on valuable or system disks.
 
 **Exit gate:** all unsafe target cases are refused, target identity is revalidated, and the dedicated hardware test record is reproducible. Image-only tests do not satisfy this gate.
 
-## P6 — OS integration and normal file APIs
-**Status: Not implemented — 0%. Weight: 10%.**
+### P2 continued — OS integration and normal file APIs
+**Status: Not implemented.** This subsection is part of P2's combined 25% weight.
 
 No Rust mount/VFS or OS filesystem adapter was found in the current workspace. Legacy adapters are references only.
 
 Tasks:
-1. **P6.1 Choose Windows route — Blocked by P4.** Document WinFsp or other chosen integration, privilege/signing/installer requirements, error mapping and failure modes.
-2. **P6.2 Adapter contract — Not implemented.** Map file operations, handles, flush, unmount and device removal to stable core APIs without OS assumptions in the format crate.
-3. **P6.3 Safe lifecycle — Not implemented.** Prevent unmount races, reject operations after shutdown starts, drain in-flight operations and report dirty/failed state.
-4. **P6.4 Windows integration — Not implemented.** Integration tests through normal OS APIs, not direct library calls alone.
-5. **P6.5 Linux adapter — Not implemented.** Separate mount/userspace adapter, permissions/error semantics and unmount tests.
-6. **P6.6 ArchiaOS VFS/block integration — Not implemented.** Port only after the portable contract stabilizes.
-7. **P6.7 ARM64 — Deferred.** Build/test where target and runner support are available; do not claim support from architecture-neutral source alone.
+1. **P3.7 Choose Windows route — Blocked by P4.** Document WinFsp or other chosen integration, privilege/signing/installer requirements, error mapping and failure modes.
+2. **P3.8 Adapter contract — Not implemented.** Map file operations, handles, flush, unmount and device removal to stable core APIs without OS assumptions in the format crate.
+3. **P3.9 Safe lifecycle — Not implemented.** Prevent unmount races, reject operations after shutdown starts, drain in-flight operations and report dirty/failed state.
+4. **P3.10 Windows integration — Not implemented.** Integration tests through normal OS APIs, not direct library calls alone.
+5. **P3.11 Linux adapter — Not implemented.** Separate mount/userspace adapter, permissions/error semantics and unmount tests.
+6. **P3.12 ArchiaOS VFS/block integration — Not implemented.** Port only after the portable contract stabilizes.
+7. **P3.13 ARM64 — Deferred.** Build/test where target and runner support are available; do not claim support from architecture-neutral source alone.
 
 **Exit gate:** users can create/edit/read/rename/delete files via normal OS APIs, unmount cleanly, remount and verify bytes on each claimed platform.
 
-## P7 — Release, compatibility and long-term reliability
-**Status: Planning only — 3%. Weight: 5%.**
+### P2 continued — Release, compatibility and long-term reliability
+**Status: Planning only.** This subsection is part of P2's combined 25% weight.
 
 Tasks:
-1. **P7.1 Format version policy — Partially documented.** Define feature negotiation, incompatibility rejection, golden fixtures, migration rules and no implicit conversion. Rust draft is not compatible with legacy C v1.x.
-2. **P7.2 Upgrade/conversion — Not implemented / optional.** If conversion is added, use a separate read-only source and new target image, validate both, and never overwrite the only copy.
-3. **P7.3 Stress and resource limits — Not implemented.** Large-volume, fragmentation, many-file, near-full, repeated mount/unmount and sustained I/O tests.
-4. **P7.4 Fuzz/sanitizer matrix — Not implemented for Rust.** Add fuzzing, Miri where appropriate, sanitizer-equivalent checks and minimized regression cases.
-5. **P7.5 Benchmarks — Not implemented as a release gate.** Establish correctness-preserving baselines for sequential/random I/O, metadata operations, fragmented reads and checker throughput; avoid premature tuning.
-6. **P7.6 Security review — Not implemented.** Hostile image inputs, resource exhaustion, symlink/path traversal once supported, concurrent external modification and raw-device privilege boundaries.
-7. **P7.7 Release operations — Not implemented.** Reproducible builds, signed artifacts where appropriate, support matrix, known limitations, recovery guide and rollback/recovery instructions.
+1. **P3.14 Format version policy — Partially documented.** Define feature negotiation, incompatibility rejection, golden fixtures, migration rules and no implicit conversion. Rust draft is not compatible with legacy C v1.x.
+2. **P3.15 Upgrade/conversion — Not implemented / optional.** If conversion is added, use a separate read-only source and new target image, validate both, and never overwrite the only copy.
+3. **P3.16 Stress and resource limits — Not implemented.** Large-volume, fragmentation, many-file, near-full, repeated mount/unmount and sustained I/O tests.
+4. **P3.17 Fuzz/sanitizer matrix — Not implemented for Rust.** Add fuzzing, Miri where appropriate, sanitizer-equivalent checks and minimized regression cases.
+5. **P3.18 Benchmarks — Not implemented as a release gate.** Establish correctness-preserving baselines for sequential/random I/O, metadata operations, fragmented reads and checker throughput; avoid premature tuning.
+6. **P3.19 Security review — Not implemented.** Hostile image inputs, resource exhaustion, symlink/path traversal once supported, concurrent external modification and raw-device privilege boundaries.
+7. **P3.20 Release operations — Not implemented.** Reproducible builds, signed artifacts where appropriate, support matrix, known limitations, recovery guide and rollback/recovery instructions.
 
 **Exit gate:** all earlier exit gates pass, no known data-loss blocker remains, compatibility and recovery behavior are documented, and the supported OS/device matrix is validated.
 
@@ -410,15 +408,16 @@ These requirements apply to every phase and must not be deferred to release:
 
 ## Immediate execution order
 
-1. **P1/P2 first deliverable — descriptor commit/recovery contract:** write down the descriptor states and single commit point; specify allocation ownership before/after publication; define how open behaves after any write or flush error. Do not add persistent mutation APIs before this contract is reviewed.
-2. **P1/P2 proof step:** add a fault-injection case for every descriptor/journal write and flush boundary, preserve the exact image bytes, remount after each cut, and assert one unambiguous descriptor with no unexplained allocation. Include repeated recovery and the five supported block sizes; record test names and exact-SHA Linux/Windows results. If a case cannot establish old-or-new state, mark it blocked rather than increasing progress.
-3. **P2 follow-up:** expand persisted-byte crash cuts for every journal write, flush, checkpoint and replay failure, including repeated recovery; keep Linux/Windows CI green on exact SHAs.
-4. **P3:** finish read-only diagnostics and malformed-input corpus, then add bounded fuzz targets.
-5. **P4:** define a canonical metadata root/index and implement a minimal durable vertical slice: create file, write bytes, reopen, read bytes, check ownership. Add mkdir/rename/unlink only after this path is transactional.
-6. **P3/P4:** build whole-volume verification from the canonical root and add explicit repair design only after checker coverage.
-7. **P5:** build mocked read-only device discovery/refusal logic; destructive formatting remains unavailable until the data-integrity gates pass.
-8. **P6:** choose the Windows adapter and integrate only against the stable persistent API; then Linux and ArchiaOS.
-9. **P7:** add stress/fuzz/benchmark/release validation after correctness gates, not in place of them.
+1. **P1 — Finish format/ownership blockers:** preserve descriptor publication invariants, define safe descriptor replacement, close allocator ownership gaps and keep exact-image preservation regressions.
+2. **P1 — Prove transaction recovery:** expand write/flush/checkpoint/replay fault cuts, including repeated recovery and the supported block sizes; record exact-SHA Linux/Windows CI evidence.
+3. **P2 — Persistent file vertical slice:** define the canonical metadata root/index, then implement create → write → close → reopen → read with ownership verification and crash-cut tests.
+4. **P2 — Whole-volume verification:** traverse objects from the persistent root, add deterministic diagnostics and bounded malformed-input/fuzz coverage; design repair only after the checker is trustworthy.
+5. **P3 — Safe device workflow:** implement read-only device identity/discovery, refusal of mounted/system/ambiguous targets, dry-run and explicit confirmation before destructive formatting.
+6. **P3 — OS integration and release gates:** choose the Windows adapter only after the durable core is stable, then add OS API tests, lifecycle safety, stress/fuzz/benchmark gates and support/recovery documentation.
+
+Do not bypass phase dependencies to chase a later feature. Physical-device testing must use dedicated expendable media and never a valuable or system disk.
+
+---
 
 ## Required format for future progress reports
 
@@ -434,82 +433,21 @@ Every development update must report:
 Never mark a phase complete while its exit gate is false. Never report the latest successful CI for a different SHA as validation of a new change. Do not modify the main branch or OpenFS-old as part of this roadmap.
 
 
-## Reproducible task-weight ledger (source of truth for percentages)
+## Consolidated four-phase progress ledger (source of truth for percentages)
 
-The ledger assigns 100 normalized points within every phase. “Weight” is task importance within its phase; “earned” is the current evidence-based estimate, not a claim that all task acceptance criteria pass. Task IDs refer to the numbered tasks in the phase sections above. Where a phase's narrative includes extra cross-cutting work, it is included in the closest task and must not be scored a second time.
+The former eight-phase estimates are consolidated into four phases. The combined phase scores are weighted by their previous global phase weights; the task details remain in the phase descriptions above and in the evidence register below.
 
-| Phase/task | Task weight / 100 | Earned points | Current evidence and reason for credit |
-| --- | ---: | ---: | --- |
-| P0.1 Workspace, crate boundaries and error model | 25 | 25 | Workspace manifests and public crate sources exist; the architecture builds in the tested workspace. |
-| P0.2 Bounded block I/O and device abstractions | 20 | 20 | `openfs-core` and `openfs-block`; image/raw-file device and fault-injection implementations. |
-| P0.3 Format encoding and geometry validation | 20 | 20 | `openfs-format/src/lib.rs`, `volume.rs`; format/open and malformed geometry tests. |
-| P0.4 Non-destructive development image behavior | 15 | 15 | `openfs-tool/src/main.rs`; overwrite-refusal and size-boundary tests. |
-| P0.5 Cross-platform baseline CI | 10 | 10 | Exact-SHA Linux and Windows formatting, workspace tests and Clippy pass in run 38379103899. |
-| P0.6 Contributor safety/evidence contract | 10 | 10 | Existing development docs and this roadmap's explicit evidence policy; reopen if a concrete gap is found. |
-| **P0 total** | **100** | **100** | **100%** |
-| P1.1 Format geometry, superblocks and reserved areas | 20 | 19 | Format/open validation and layout tests exist; golden fixtures and stable format policy remain missing. |
-| P1.2 Allocation/free and persistence across reopen | 20 | 19 | Allocation/free APIs and reopen tests in `volume.rs`; broader crash-cut coverage remains incomplete. |
-| P1.3 Cross-structure block ownership | 15 | 14 | Inventory/extent ownership validation exists; regressions `discovered_verification_rejects_file_data_aliasing_descriptor_at_every_block_size`, `caller_supplied_inventory_rejects_metadata_directory_block_alias_at_every_block_size`, `caller_supplied_inventory_rejects_file_data_aliasing_metadata_at_every_block_size`, and `discovery_rejects_descriptor_aliasing_its_inventory_at_every_block_size` cover four ownership collisions at all five supported block sizes. The regression `allocator_free_apis_preserve_persistent_inventory_blocks` now also checks that single, batch, and contiguous frees refuse to release inventory-owned blocks and preserve allocation bits at all five block sizes. CI run [38541247561](https://github.com/Likounsee/OpenFS/actions/runs/38541247561) passed Linux and Windows on the earlier ownership-guard source tree. The batched descriptor-range guard and multi-block-free integration are validated on Linux and Windows by exact-SHA run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630). Whole-volume canonical-root traversal, descriptor replacement and all ownership transitions remain incomplete. |
-| P1.4 Persistent descriptor publication/recovery | 20 | 19 | Discovery, ambiguity rejection, failed-write recovery, stale-stage cleanup across all four allocation paths, and protection from generic free APIs exist. Commits [`475ef40`](https://github.com/Likounsee/OpenFS/commit/475ef40fd8d7f01a18d78b87a5166bebbfeebd8e), [`f884ca2`](https://github.com/Likounsee/OpenFS/commit/f884ca2ef47fdef7404a45d0359a4fe318c94fe4), and [`9db8789`](https://github.com/Likounsee/OpenFS/commit/9db8789a632dda9176628d86c59201b9c652c13f) cover descriptor-only frees and bounded range scans for contiguous and multi-block frees. Regression `descriptor_range_guard_scans_across_bounded_read_batches` checks the 64-block boundary at all five supported block sizes. Exact-SHA CI run [38543713630](https://github.com/Likounsee/OpenFS/actions/runs/38543713630) passed formatting, workspace tests and Clippy on Linux and Windows. One provisional point is credited for bounded batch-free descriptor checks; safe descriptor replacement remains absent and blocks completion. |
-| P1.5 Scalable metadata locator | 15 | 14 | Descriptor scan works, including batched reads, but scans the data region and is not a final scalable index. |
-| P1.6 Golden images and format compatibility policy | 10 | 8 | Added an exact 4096-byte superblock golden encoding with fixed CRC32C and zero-padding assertions (`superblock_encoding_matches_stable_golden_bytes`). Linux CI passed at exact SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee`; Windows is pending. Full-volume golden images, version-negotiation policy/tests and conversion remain absent. One provisional point credits the new stable byte fixture only. |
-| **P1 total** | **100** | **93** | **93%** |
-| P2.1 Journal state machine and error/poison contract | 15 | 10 | Redo/checkpoint sequencing and protected-target validation exist; no general transaction API/error contract. |
-| P2.2 Write/tear fault-injection harness | 20 | 14 | Fail/tear device wrappers and multiple prefix tests exist; exhaustive write/flush cut matrix is absent. |
-| P2.3 Replay, checkpoint and idempotence | 20 | 12 | Selected torn commit/home/checkpoint and repeated recovery tests exist; coverage is not exhaustive. |
-| P2.4 Transaction capacity and journal expansion design | 20 | 0 | Four-block ring remains bounded; no general capacity design or implementation. |
-| P2.5 Atomic namespace/file transactions | 20 | 0 | Persistent create/write/rename/delete are not implemented. |
-| P2.6 Process/OS/power-loss durability contract | 5 | 4 | Documentation distinguishes software tests from hardware durability; physical evidence is absent. |
-| **P2 total** | **100** | **40** | **40%** |
-| P3.1 Read-only structural volume check | 20 | 12 | `check_volume` and CLI check exist; only the covered corruption cases are evidenced. |
-| P3.2 Full persistent object traversal | 20 | 8 | Inventory-based verification exists, but canonical root discovery/full-volume traversal is blocked. |
-| P3.3 Stable diagnostics and machine-readable report | 15 | 5 | Reports/errors identify some anomalies; stable diagnostic-code contract is not complete. |
-| P3.4 Bounded parser fuzz targets and corpus | 15 | 0 | No Rust fuzz target/CI budget was found in the audited tree. |
-| P3.5 Explicit repair plan/apply protocol | 15 | 0 | No repair utility or dry-run/apply protocol found. |
-| P3.6 Data-checksum policy and validation | 10 | 5 | The limitation is documented; no general persistent file-data checksum scheme is implemented. |
-| P3.7 Corruption regression coverage | 5 | 5 | Multiple format, bitmap, journal, descriptor and namespace corruption regressions exist; coverage remains bounded to those cases. |
-| **P3 total** | **100** | **35** | **35%** |
-| P4.1 Canonical metadata root/locator | 10 | 4 | Persistent descriptor and discovery are a starting point, not a canonical scalable root/index. |
-| P4.2 Read-only reconstruction from disk | 10 | 5 | Descriptor-driven inventory reads and namespace reconstruction exist; no durable mount lifecycle. |
-| P4.3 Durable create/mkdir | 15 | 0 | In-memory namespace insertion is not durable creation. |
-| P4.4 Durable write/truncate | 20 | 0 | File range/content reads exist; persistent writes and truncation do not. |
-| P4.5 Durable rename/unlink/rmdir | 15 | 0 | In-memory namespace operations exist; persistent mutations do not. |
-| P4.6 Directory growth and large inventory support | 10 | 0 | No durable directory-growth path found. |
-| P4.7 In-memory namespace/path semantics | 10 | 5 | In-memory path resolution, rename/remove validation and case-sensitivity tests exist; durable semantics remain undefined and unintegrated. |
-| P4.8 Read APIs and shared errors | 5 | 5 | `read_file_range`, `read_file_contents` and `read_path_range` plus shared errors exist; no durable write/mutation API or complete handle lifecycle exists. Credit applies only to the implemented read surface. |
-| P4.9 Persistent end-to-end mutation tests | 5 | 2 | Image-backed reconstruction/read tests exist, but create-write-close-reopen-read mutation tests cannot pass before mutation exists. |
-| **P4 total** | **100** | **21** | **21%** |
-| P5.1 Read-only device discovery/identity | 20 | 2 | Raw-file backend exists; OS-level removable-device identity/discovery is absent. |
-| P5.2 Exclusive access and system-volume refusal | 20 | 0 | No implementation found. |
-| P5.3 Destructive-operation dry run | 15 | 0 | No implementation found. |
-| P5.4 Explicit confirmation and identity revalidation | 15 | 0 | No implementation found. |
-| P5.5 Mocked safety/refusal tests | 15 | 0 | No discovery/refusal workflow to test. |
-| P5.6 Dedicated physical-device validation | 15 | 3 | Hardware test requirements are documented, but no hardware execution evidence exists; documentation alone receives only minimal planning credit. |
-| **P5 total** | **100** | **5** | **5%** |
-| P6.1 First OS adapter selection and contract | 15 | 0 | No Rust mount/VFS adapter found. |
-| P6.2 Stable core-to-OS operation mapping | 20 | 0 | Blocked by persistent mutation API. |
-| P6.3 Mount/unmount and in-flight operation lifecycle | 15 | 0 | No adapter lifecycle found. |
-| P6.4 Windows normal-file-API integration | 20 | 0 | No Windows adapter found. |
-| P6.5 Linux adapter and integration tests | 15 | 0 | No Linux adapter found. |
-| P6.6 ArchiaOS integration | 10 | 0 | No Rust ArchiaOS VFS/block integration found. |
-| P6.7 ARM64 target evidence | 5 | 0 | No target/runner validation evidence found. |
-| **P6 total** | **100** | **0** | **0%** |
-| P7.1 Format version/feature policy | 15 | 3 | Compatibility constraints are documented; no frozen release contract/golden fixture suite. |
-| P7.2 Safe conversion/migration | 10 | 0 | No converter found; remains conditional on whether migration is in scope. |
-| P7.3 Stress, scale and resource-limit tests | 20 | 0 | No dedicated stress/scale release gate found. |
-| P7.4 Fuzz/sanitizer evidence for Rust | 15 | 0 | No Rust fuzz/sanitizer CI found. |
-| P7.5 Performance benchmarks | 15 | 0 | No benchmark gate found. |
-| P7.6 Security review and threat-model validation | 15 | 0 | Requirements are listed, but no completed review evidence found. |
-| P7.7 Reproducible release/support/recovery artifacts | 10 | 0 | No release-grade evidence found. |
-| **P7 total** | **100** | **3** | **3%** |
+| Phase | Global weight | Calculation from former task groups | Earned phase score |
+| --- | ---: | --- | ---: |
+| P0 — Engineering baseline | 10% | Existing P0 ledger: 100/100 | 100% |
+| P1 — Format/layout/allocator + transactions/recovery | 35% | (15 × 93 + 20 × 40) / 35 | 63% |
+| P2 — Verifier/repair + durable namespace/file I/O | 30% | (10 × 35 + 20 × 21) / 30 | 26% |
+| P3 — Safe device discovery + OS integration + release | 25% | (10 × 5 + 10 × 0 + 5 × 3) / 25 | 3% |
+| **Global** | **100%** | **(10×100 + 15×93 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 40.15%** | **40%** |
 
-### Recalculation
+The combined scores are rounded only for display. The global result retains the prior weighted estimate. Some partial task awards remain expert estimates rather than a complete criterion-by-criterion calculation, so 40% remains provisional. A documentation-only change does not change implementation scores. The former phase IDs have been consolidated as follows: former P0→P0; former P1/P2→P1; former P3/P4→P2; former P5/P6/P7→P3. Contract document filenames such as `P2_JOURNAL_TRANSACTION_CONTRACT.md` are historical paths and are intentionally unchanged.
 
-The phase weights are P0=10, P1=15, P2=20, P3=10, P4=20, P5=10, P6=10 and P7=5; they sum to 100. Earned phase points in the current provisional ledger are respectively 100, 93, 40, 35, 21, 5, 0 and 3.
-
-`Global = (10×100 + 15×93 + 20×40 + 10×35 + 20×21 + 10×5 + 10×0 + 5×3) / 100 = 40.30` percent, rounded to **40%**.
-
-The arithmetic is reproducible; some partial task awards are not yet fully derivable from criterion-level subweights. Accordingly, **40% is a provisional weighted estimate** until those subcriteria are published. The former P4 estimate of 24% is corrected to **21%** because durable mutation and end-to-end mutation acceptance criteria are absent. P1 is now estimated at 93% as a provisional implementation-progress score. The one-point adjustment for P1.6 credits the newly added stable superblock golden-byte fixture and CRC32C/padding assertions; exact-SHA Linux CI passed in [run 38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632), while Windows is pending. The descriptor single-byte corruption sweep is also added and Linux-validated in [run 38545516508](https://github.com/Likounsee/OpenFS/actions/runs/38545516508), with both platforms now passed for that earlier exact SHA. Full-volume golden images, version negotiation, descriptor replacement and broader ownership recovery remain incomplete. P1's exit gate remains blocked and it must not be called complete. A documentation-only commit does not change implementation scores.
+---
 
 ## Evidence register for implemented work
 
@@ -526,22 +464,22 @@ These references are intended to make important claims quickly auditable without
 
 Evidence vocabulary is mandatory: **Implemented** means code/API exists; **Integrated** means connected to the intended end-to-end path; **Test added** means a matching test exists in source; **Test executed** means a recorded runner actually ran it; **CI validated** means the relevant job succeeded on the exact cited SHA; **Non vérifié** means evidence does not cover the claim; **Bloqué** means a safety prerequisite or unresolved defect prevents progression. For historical commits whose exact run cannot be retrieved, treat the run reference above as historical recorded evidence and do not extrapolate its result to later SHAs.
 
-## Dependency matrix (P1–P7)
+## Dependency matrix (P1–P3)
 
 | Blocked phase/task | Required dependency | Technical reason | Objective unblock condition and proof | Phases unblocked |
 | --- | --- | --- | --- | --- |
-| P1.3–P1.4 ownership and descriptor lifecycle | P2.1 transaction state machine plus explicit descriptor/root ownership invariants | Allocation can commit before descriptor publication; failed publication can leave a detectable allocated orphan, and replacement cannot safely choose between old/new descriptors without a commit point. | Written state machine and on-disk ownership contract; injected failure at each write/flush boundary; reopen yields one unambiguous committed descriptor and no unexplained allocation. | P4 durable root and mutations; P3 full traversal. |
-| P2.2–P2.5 transaction/recovery | P2.1 error/commit contract and P1 protected layout | A journal with a bounded ring and selected recovery tests cannot safely provide multi-object atomicity until capacity, replay and uncertain-I/O behavior are specified. | Crash-cut matrix for every journal/flush/checkpoint/replay boundary; repeat replay; compare persisted bytes and require old-or-new state only; prove writes are refused after indeterminate recovery. | P4 mutations; later P6 adapter. |
-| P4.1–P4.2 canonical root and reconstruction | P1 descriptor lifecycle plus P2 commit protocol | Reads currently depend on inventory/descriptor structures and cannot establish a durable, scalable root locator under mutation. | Versioned root/index discoverable without caller-supplied lists; reopen reconstructs identical graph; malformed pointers fail closed; large/sparse image test. | P3 whole-volume verifier; P4 durable mutations; P6 API adapter planning. |
-| P4.3–P4.6 durable file/namespace operations | P4.1 root, P2 atomic transaction semantics, P1 ownership/allocation contract | Create/write/truncate/rename/delete must update object records, directory entries, extent maps and allocation ownership atomically. | For each operation, injected failure at each persistent step; reopen is old or new complete state; checker finds no alias, dangling pointer or leak. | P3 full traversal; P6 OS integration. |
-| P3.2–P3.5 full verification/repair | P4.1 root and defined ownership/reference model; checker remains read-only | Without a canonical root, a full traversal cannot find all objects. Repair before reliable diagnostics and ownership reconstruction risks making corruption worse. | Read-only scan covers every reachable object; deterministic diagnostics and byte-for-byte image preservation; repairs, if later added, require explicit preview/apply and post-check. | P5 safety confidence; P7 release gate. |
-| P5.1–P5.5 safe discovery/format | P4 durable API for useful use; OS-specific identity/partition APIs and destructive safety policy | A raw path is not proof of a removable USB identity; writing can overwrite system/partition data. | Mocked tests refuse mounted/system/ambiguous/changed devices; revalidate stable identity and geometry immediately before confirmation and first write. | Physical test stage and P7 operational release, not core image development. |
-| P6.1–P6.6 OS integration | P4 durable APIs and error semantics; P2 flush/uncertain-I/O contract; P3 diagnostics for failure handling | OS callbacks need stable semantics for file operations, flush, shutdown, errors and failed recovery. | Normal OS file API integration tests for create/read/write/rename/delete, clean unmount/remount and byte verification on the claimed OS. | P7 release qualification for that OS. |
-| P7.1–P7.7 compatibility and release | P1 format/version contract, P2 recovery evidence, P3 checker, P4 functional API, P5/P6 claimed platform validation | A release cannot promise compatibility, data safety or platform support from source presence or image-only unit tests. | Versioned golden images; compatibility/rejection tests; stress/fuzz results; recovery guide; supported-platform matrix; no unresolved data-loss blocker. | Public/production release. |
+| P1.3–P1.4 ownership and descriptor lifecycle | P1.7 transaction state machine plus explicit descriptor/root ownership invariants | Allocation can commit before descriptor publication; failed publication can leave a detectable allocated orphan, and replacement cannot safely choose between old/new descriptors without a commit point. | Written state machine and on-disk ownership contract; injected failure at each write/flush boundary; reopen yields one unambiguous committed descriptor and no unexplained allocation. | P2 durable root and mutations; P2 full traversal. |
+| P1.8–P1.11 transaction/recovery | P1.7 error/commit contract and P1 protected layout | A journal with a bounded ring and selected recovery tests cannot safely provide multi-object atomicity until capacity, replay and uncertain-I/O behavior are specified. | Crash-cut matrix for every journal/flush/checkpoint/replay boundary; repeat replay; compare persisted bytes and require old-or-new state only; prove writes are refused after indeterminate recovery. | P2 mutations; later P3 adapter. |
+| P2.8–P2.9 canonical root and reconstruction | P1 descriptor lifecycle plus P1 commit protocol | Reads currently depend on inventory/descriptor structures and cannot establish a durable, scalable root locator under mutation. | Versioned root/index discoverable without caller-supplied lists; reopen reconstructs identical graph; malformed pointers fail closed; large/sparse image test. | P2 whole-volume verifier; P2 durable mutations; P3 API adapter planning. |
+| P2.10–P2.13 durable file/namespace operations | P2.8 root, P1 atomic transaction semantics, P1 ownership/allocation contract | Create/write/truncate/rename/delete must update object records, directory entries, extent maps and allocation ownership atomically. | For each operation, injected failure at each persistent step; reopen is old or new complete state; checker finds no alias, dangling pointer or leak. | P2 full traversal; P3 OS integration. |
+| P2.2–P2.5 full verification/repair | P2.8 root and defined ownership/reference model; checker remains read-only | Without a canonical root, a full traversal cannot find all objects. Repair before reliable diagnostics and ownership reconstruction risks making corruption worse. | Read-only scan covers every reachable object; deterministic diagnostics and byte-for-byte image preservation; repairs, if later added, require explicit preview/apply and post-check. | P3 safety confidence; P3 release gate. |
+| P3.1–P3.5 safe discovery/format | P2 durable API for useful use; OS-specific identity/partition APIs and destructive safety policy | A raw path is not proof of a removable USB identity; writing can overwrite system/partition data. | Mocked tests refuse mounted/system/ambiguous/changed devices; revalidate stable identity and geometry immediately before confirmation and first write. | Physical test stage and P3 operational release, not core image development. |
+| P3.7–P3.12 OS integration | P2 durable APIs and error semantics; P1 flush/uncertain-I/O contract; P2 diagnostics for failure handling | OS callbacks need stable semantics for file operations, flush, shutdown, errors and failed recovery. | Normal OS file API integration tests for create/read/write/rename/delete, clean unmount/remount and byte verification on the claimed OS. | P3 release qualification for that OS. |
+| P3.14–P3.20 compatibility and release | P1 format/version contract, P1 recovery evidence, P2 checker, P2 functional API, P3/P3 claimed platform validation | A release cannot promise compatibility, data safety or platform support from source presence or image-only unit tests. | Versioned golden images; compatibility/rejection tests; stress/fuzz results; recovery guide; supported-platform matrix; no unresolved data-loss blocker. | Public/production release. |
 
 The dependencies are gates, not a requirement to stop all parallel work: tests, fuzz harness design, diagnostics design, OS-adapter research and mocked discovery can proceed in parallel as long as they do not expose unsafe mutation or claim unsupported behavior.
 
-## First usable filesystem milestones
+## First usable filesystem milestones (P0–P3)
 
 These milestones are acceptance gates, not assertions that the milestone has already been reached.
 
