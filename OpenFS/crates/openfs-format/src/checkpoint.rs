@@ -97,9 +97,9 @@ impl JournalCheckpoint {
                 "journal checkpoint generation must be non-zero",
             ));
         }
-        if self.next_sequence == 0 || self.next_sequence <= self.checkpoint_sequence {
+        if self.checkpoint_sequence.checked_add(1) != Some(self.next_sequence) {
             return Err(Error::InvalidInput(
-                "next journal sequence must exceed checkpoint sequence",
+                "next journal sequence must immediately follow checkpoint sequence",
             ));
         }
         if self.next_transaction_id == 0 {
@@ -255,6 +255,18 @@ mod tests {
             tail_block: 0,
         };
         assert!(matches!(impossible.encode(), Err(Error::InvalidInput(_))));
+    }
+
+    #[test]
+    fn rejects_sequence_gaps_even_when_next_sequence_is_greater() {
+        let mut checkpoint = sample();
+        checkpoint.next_sequence = checkpoint.checkpoint_sequence + 2;
+        assert!(matches!(checkpoint.encode(), Err(Error::InvalidInput(_))));
+
+        let mut checkpoint = sample();
+        checkpoint.checkpoint_sequence = u64::MAX;
+        checkpoint.next_sequence = u64::MAX;
+        assert!(matches!(checkpoint.encode(), Err(Error::InvalidInput(_))));
     }
 
     #[test]
