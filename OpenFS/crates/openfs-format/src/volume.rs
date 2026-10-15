@@ -1175,8 +1175,8 @@ impl OpenedVolume {
         device: &mut D,
         bytes: &[u8],
     ) -> Result<Vec<u64>> {
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let block_count = bytes
             .len()
             .checked_add(block_size - 1)
