@@ -1477,11 +1477,15 @@ mod tests {
         for block_size in [minimum - 1, minimum] {
             assert!(matches!(
                 encode_redo_chunks(&image, block_size),
-                Err(Error::InvalidInput("device block is too small for redo chunks"))
+                Err(Error::InvalidInput(
+                    "device block is too small for redo chunks"
+                ))
             ));
             assert!(matches!(
                 decode_redo_updates(&[], block_size),
-                Err(Error::InvalidInput("device block is too small for redo chunks"))
+                Err(Error::InvalidInput(
+                    "device block is too small for redo chunks"
+                ))
             ));
         }
     }
