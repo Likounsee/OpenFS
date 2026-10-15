@@ -7,6 +7,38 @@ Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
+## Suivi d'avancement — mise à jour du 2026-10-15
+
+**Branche cible :** `OpenFS` uniquement. **HEAD de référence :** [`5d7ff5445475a58ff1b92137f9af3e1903fdfc90`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90).
+
+Ces pourcentages sont des estimations d'avancement de l'ingénierie, pas des taux de tests réussis. Ils ne remplacent pas les conditions de sortie détaillées de chaque étape.
+
+| Étape | Avancement estimé | État concret / blocage |
+| --- | ---: | --- |
+| **R0 — Contrats et format** | **55 %** | Codec/checkpoints et contrôles de cohérence renforcés; golden images complètes et stabilité du format toujours à prouver. |
+| **R1 — Transaction générale fiable** | **40 %** | Journal redo, récupération et checkpoints présents; transactions générales multi-blocs et qualification exhaustive des erreurs write/flush/reopen encore manquantes. |
+| **R2 — Premier chemin persistant de bout en bout** | **25 %** | Primitives d'inventaire, codecs et lectures existent; le parcours durable create → write → close → reopen → read n'est pas encore complet. |
+| **R3 — Namespace et cycle de vie** | **15 %** | Namespace et opérations en mémoire disponibles, mais mutations persistantes complètes et garanties de durée de vie non achevées. |
+| **R4 — Vérification avant réparation** | **25 %** | Contrôles structurels et d'inventaire disponibles; checker complet parcourant la racine persistante et réparations sûres restent à faire. |
+| **R5 — Métadonnées avancées** | **5 %** | Primitives limitées; permissions, ACL, xattrs, CoW et snapshots ne sont pas des fonctionnalités intégrées complètes. |
+| **R6 — Adaptateurs OS et outils sûrs** | **5 %** | Outils d'images et backend bloc disponibles; pas de montage de filesystem Rust utilisable validé. |
+| **R7 — Qualification et livraison** | **20 %** | CI/configuration de tests existe, mais fuzzing, stress, benchmarks reproductibles et qualification multi-plateforme restent incomplets. |
+
+### Dernier lot intégré
+
+- `53a2875` — couverture des frontières de capacité des chunks redo.
+- `fffa639` — rejet des compteurs de séquence checkpoint incohérents.
+- `2607070` — conservation du scénario de récupération sur checkpoint corrompu persisté.
+- `5d7ff54` — test du rejet d'un écart de séquence avec checksum valide.
+
+**Validation à ne pas surestimer :** dans l'environnement de travail actuel, les tests Rust, `cargo fmt` et `cargo clippy` n'ont pas été exécutés. Les contrôles de statut et les runs de workflow consultés pour le HEAD ci-dessus n'ont fourni aucun résultat exploitable; cela ne signifie pas que la CI est verte.
+
+### Prochaine action obligatoire
+
+Suivre la prochaine action déjà définie dans cette roadmap : **connecter le contrat transactionnel au premier chemin persistant complet** (racine → objet/inode → entrée de répertoire → extents → lecture/écriture → close/reopen → checker), en ajoutant des injections de panne aux frontières de persistance. Ne pas continuer à accumuler des tests isolés du journal si cela ne débloque pas ce parcours. Ne pas commencer le montage OS avant d'avoir satisfait les prérequis R0–R2.
+
+---
+
 ## Roadmap opérationnelle révisée — alignée sur les fonctions manquantes d'OpenFS-old
 
 **Source fonctionnelle de cette révision :** [`DIFFERENCES_OPENFS_OLD.txt`](../../DIFFERENCES_OPENFS_OLD.txt), complété par [`OLD_OPENFS_AUDIT.md`](OLD_OPENFS_AUDIT.md). Cette matrice devient le guide de portage : chaque comportement historique utile doit être réimplémenté en Rust, intégré au vrai chemin disque et testé. La présence d'un module ou d'une API seule ne valide pas une fonctionnalité.
