@@ -813,7 +813,8 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, JournalCheckpoint,
+        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, open_journal_protected,
+        JournalCheckpoint,
         JournalRegion, RedoUpdate,
     };
     use openfs_block::BlockDevice;
@@ -2284,7 +2285,7 @@ mod tests {
     #[test]
     fn preflight_rejections_leave_journal_and_image_unchanged() {
         let mut device = formatted();
-        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut journal = open_journal_protected(&mut device, REGION, &[HOME + 1]).unwrap();
 
         let duplicate_target = [update(0x22), update(0x33)];
         let wrong_sized_image = [RedoUpdate {
@@ -2295,15 +2296,23 @@ mod tests {
             target_block: REGION.ring_start,
             contents: vec![0x55; BS as usize],
         }];
+        let protected_target = [RedoUpdate {
+            target_block: HOME + 1,
+            contents: vec![0x66; BS as usize],
+        }];
 
         for (label, invalid_updates) in [
             ("duplicate targets", duplicate_target.as_slice()),
             ("wrong-sized redo image", wrong_sized_image.as_slice()),
             ("journal metadata target", journal_target.as_slice()),
+            ("protected volume target", protected_target.as_slice()),
         ] {
             let before = device.bytes.lock().unwrap().clone();
             assert!(
-                matches!(journal.commit(&mut device, invalid_updates), Err(Error::InvalidInput(_))),
+                matches!(
+                    journal.commit(&mut device, invalid_updates),
+                    Err(Error::InvalidInput(_))
+                ),
                 "{label} must be rejected during preflight"
             );
             assert_eq!(
@@ -2321,5 +2330,4 @@ mod tests {
         assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
         assert_eq!(read_home(&mut device), vec![0xA6; BS as usize]);
     }
-
 }
