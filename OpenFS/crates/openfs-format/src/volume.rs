@@ -1468,6 +1468,28 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
+    /// Write a bounded range to a file resolved from the published on-disk inventory.
+    ///
+    /// The namespace and extent maps are reconstructed from disk rather than supplied by
+    /// the caller. This operation never allocates or extends a file; ranges crossing EOF
+    /// or touching sparse holes are rejected by the validated range-write path.
+    pub fn write_persistent_path_range<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<()> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent path writes require a published inventory",
+            ));
+        };
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let object_id = namespace.resolve_path(path)?;
+        self.write_file_range(device, &namespace, &extent_maps, object_id, offset, data)
+    }
+
     /// Load every file's extent-map page and validate global physical ownership.
     ///
     /// This detects extent runs that alias another file's map root or data, validates
@@ -4433,6 +4455,17 @@ mod tests {
                 );
                 // The public persistent-path entry point must independently rediscover
                 // metadata after reopen, rather than requiring caller-supplied caches.
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
+                        .unwrap(),
+                    payload[17..81]
+                );
+                // Path-based writes resolve their own persistent metadata and retain the
+                // same bounded-write semantics as the lower-level object-ID interface.
+                volume
+                    .write_persistent_path_range(&mut device, "/payload.bin", 17, &payload[17..81])
+                    .unwrap();
                 assert_eq!(
                     volume
                         .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
