@@ -447,7 +447,9 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
             Err(_) => malformed.push(slot),
         }
     }
-    newer.sort_by_key(|(_, record)| record.sequence);
+    // Sequence numbers are validated for strict continuity by recovery planning;
+    // an unstable in-place sort avoids the scratch allocation of stable sorting.
+    newer.sort_unstable_by_key(|(_, record)| record.sequence);
     // The checkpoint stores the *exact* next transaction ID, not merely a lower
     // bound. With one serialized writer, each new BEGIN must consume that ID in
     // order; accepting gaps would hide journal corruption and desynchronize IDs.
