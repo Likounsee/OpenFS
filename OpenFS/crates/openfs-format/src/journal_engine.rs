@@ -1963,12 +1963,17 @@ mod tests {
     #[test]
     fn open_rejects_persisted_checkpoint_sequence_gap() {
         let mut device = formatted();
-        let mut checkpoint = open_journal(&mut device, REGION).unwrap().checkpoint();
-        checkpoint.next_sequence += 1;
-        // Both copies are validly encoded and have the same generation, but
-        // their counters claim a sequence gap that the read-only checker rejects.
-        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &checkpoint).unwrap();
-        super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &checkpoint).unwrap();
+        let checkpoint = open_journal(&mut device, REGION).unwrap().checkpoint();
+        let mut encoded = checkpoint.encode().unwrap();
+        // Forge a checksum-valid but semantically inconsistent on-disk record:
+        // the public codec now rejects this state before it can be emitted.
+        encoded[32..40].copy_from_slice(&(checkpoint.next_sequence + 1).to_le_bytes());
+        let checksum = super::crc32c(&encoded[..64]);
+        encoded[64..68].copy_from_slice(&checksum.to_le_bytes());
+        let mut block = vec![0_u8; BS as usize];
+        block[..encoded.len()].copy_from_slice(&encoded);
+        device.write_blocks(REGION.checkpoint_a, &block).unwrap();
+        device.write_blocks(REGION.checkpoint_b, &block).unwrap();
         device.flush().unwrap();
 
         assert!(matches!(
