@@ -725,9 +725,10 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
         / chunk_size;
     let expected_count_u16 =
         u16::try_from(expected_count).map_err(|_| Error::ArithmeticOverflow)?;
+    // Keep decoded images in one contiguous collection. The target list would
+    // duplicate one u64 per image; sorting the images themselves is sufficient
+    // because a committed transaction may not target the same home block twice.
     let mut updates = Vec::new();
-    // A contiguous vector avoids allocating one tree node per recovered target.
-    let mut targets = Vec::new();
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::with_capacity(block_size);
@@ -771,7 +772,6 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                     "redo image has incorrect reconstructed size",
                 ));
             }
-            targets.push(target);
             // Transfer the reconstructed image into the result instead of cloning
             // every byte. Allocate the next scratch buffer only after this image is
             // complete, keeping peak memory lower for multi-block recovery plans.
@@ -786,8 +786,11 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     if target_active.is_some() {
         return Err(Error::Corrupt("redo image is missing one or more chunks"));
     }
-    targets.sort_unstable();
-    if targets.windows(2).any(|pair| pair[0] == pair[1]) {
+    updates.sort_unstable_by_key(|update| update.target_block);
+    if updates
+        .windows(2)
+        .any(|pair| pair[0].target_block == pair[1].target_block)
+    {
         return Err(Error::Corrupt(
             "redo transaction contains duplicate targets",
         ));
@@ -1282,6 +1285,27 @@ mod tests {
                 "redo transaction contains duplicate targets"
             ))
         ));
+    }
+
+    #[test]
+    fn decoded_redo_sorts_images_without_a_duplicate_target_buffer() {
+        let mut first = update(0xA5);
+        first.target_block = HOME + 1;
+        let second = update(0x5A);
+        let payloads: Vec<Vec<u8>> = encode_redo_chunks(&first, BS as usize)
+            .unwrap()
+            .into_iter()
+            .chain(encode_redo_chunks(&second, BS as usize).unwrap())
+            .collect();
+
+        let decoded = decode_redo_updates(&payloads, BS as usize).unwrap();
+        assert_eq!(
+            decoded.iter().map(|update| update.target_block).collect::<Vec<_>>(),
+            vec![HOME, HOME + 1],
+            "recovery images should be ordered in-place before duplicate validation"
+        );
+        assert_eq!(decoded[0].contents, vec![0x5A; BS as usize]);
+        assert_eq!(decoded[1].contents, vec![0xA5; BS as usize]);
     }
 
     #[test]
