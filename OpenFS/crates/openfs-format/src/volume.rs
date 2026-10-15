@@ -4491,8 +4491,17 @@ mod tests {
                     .read_namespace_extent_maps(&mut device, &namespace)
                     .unwrap();
 
-                // A write crossing EOF is rejected before any part of the range is
-                // committed, and previously persisted bytes remain unchanged.
+                // Snapshot the exact in-file prefix that an invalid cross-EOF write
+                // would corrupt if it were partially applied.
+                let before_eof_write = volume
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/payload.bin",
+                        (block_len * 2 - 10) as u64,
+                        10,
+                    )
+                    .unwrap();
+                assert_eq!(before_eof_write.len(), 10);
                 assert!(matches!(
                     volume.write_persistent_path_range(
                         &mut device,
@@ -4502,6 +4511,17 @@ mod tests {
                     ),
                     Err(Error::InvalidInput("write range exceeds existing file size"))
                 ));
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/payload.bin",
+                            (block_len * 2 - 10) as u64,
+                            10,
+                        )
+                        .unwrap(),
+                    before_eof_write
+                );
                 assert_eq!(
                     volume
                         .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
