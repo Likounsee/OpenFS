@@ -2762,6 +2762,66 @@ mod tests {
     }
 
     #[test]
+    fn creates_empty_persistent_file_and_finds_it_after_reopen() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("persistent-empty-file-create");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root = ObjectId(1);
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let root_record = MetadataRecord {
+                id: root,
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut bytes = vec![0_u8; 4096];
+            bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root_record.encode().unwrap());
+            device.write_blocks(metadata_block, &bytes).unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: root,
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(
+                volume
+                    .create_persistent_file(&mut device, root, ObjectId(2), "hello.txt")
+                    .unwrap(),
+                ObjectId(2)
+            );
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
+
+            drop(volume);
+            let reopened = open_volume(&mut device).unwrap();
+            let (_, namespace) = reopened
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn replaces_persistent_namespace_inventory_and_survives_reopen() {
         use crate::{
             DirectoryEntry, MetadataRecord, Namespace, ObjectId, ObjectKind,
