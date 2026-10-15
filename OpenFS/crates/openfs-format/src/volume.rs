@@ -4393,6 +4393,26 @@ mod tests {
                         .unwrap(),
                     expected
                 );
+
+                // A successful write must remain visible after closing the volume
+                // and rediscovering the namespace from its on-disk descriptor.
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                let (_, namespace) = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .expect("persistent namespace must survive write and reopen");
+                let loaded = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
+                assert_eq!(
+                    volume
+                        .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                        .unwrap(),
+                    expected,
+                    "written bytes must survive close/reopen at block size {block_size}"
+                );
+
                 assert!(matches!(
                     volume.write_file_range(
                         &mut device,
