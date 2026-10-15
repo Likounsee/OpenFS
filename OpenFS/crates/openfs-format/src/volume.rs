@@ -4445,139 +4445,140 @@ mod tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let directory_block = volume.allocate_block(&mut device).unwrap();
-            let first_root = volume.allocate_block(&mut device).unwrap();
-            let second_root = volume.allocate_block(&mut device).unwrap();
-            let shared_data = volume.allocate_block(&mut device).unwrap();
-            let root = MetadataRecord {
-                id: ObjectId(1),
-                parent_id: 0,
-                kind: ObjectKind::Directory,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let first = MetadataRecord {
-                id: ObjectId(2),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: u64::from(block_size),
-                extent_root_block: Some(first_root),
-                generation: 1,
-            };
-            let second = MetadataRecord {
-                id: ObjectId(3),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: u64::from(block_size),
-                extent_root_block: Some(second_root),
-                generation: 1,
-            };
-            let mut metadata_bytes = vec![0_u8; block_size as usize];
-            for (index, record) in [root, first, second].iter().enumerate() {
-                metadata_bytes[index * 80..(index + 1) * 80]
-                    .copy_from_slice(&record.encode().unwrap());
-            }
-            device
-                .write_blocks(metadata_block, &metadata_bytes)
-                .unwrap();
-            let entries = [
-                DirectoryEntry {
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let first_root = volume.allocate_block(&mut device).unwrap();
+                let second_root = volume.allocate_block(&mut device).unwrap();
+                let shared_data = volume.allocate_block(&mut device).unwrap();
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let first = MetadataRecord {
+                    id: ObjectId(2),
                     parent_id: 1,
-                    object_id: 2,
                     kind: ObjectKind::File,
-                    name: "first.bin".to_owned(),
-                },
-                DirectoryEntry {
+                    flags: 0,
+                    size: u64::from(block_size),
+                    extent_root_block: Some(first_root),
+                    generation: 1,
+                };
+                let second = MetadataRecord {
+                    id: ObjectId(3),
                     parent_id: 1,
-                    object_id: 3,
                     kind: ObjectKind::File,
-                    name: "second.bin".to_owned(),
-                },
-            ];
-            let mut directory_bytes = vec![0_u8; block_size as usize];
-            for (index, entry) in entries.iter().enumerate() {
-                directory_bytes[index * 128..(index + 1) * 128]
-                    .copy_from_slice(&entry.encode().unwrap());
-            }
-            device
-                .write_blocks(directory_block, &directory_bytes)
+                    flags: 0,
+                    size: u64::from(block_size),
+                    extent_root_block: Some(second_root),
+                    generation: 1,
+                };
+                let mut metadata_bytes = vec![0_u8; block_size as usize];
+                for (index, record) in [root, first, second].iter().enumerate() {
+                    metadata_bytes[index * 80..(index + 1) * 80]
+                        .copy_from_slice(&record.encode().unwrap());
+                }
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
+                let entries = [
+                    DirectoryEntry {
+                        parent_id: 1,
+                        object_id: 2,
+                        kind: ObjectKind::File,
+                        name: "first.bin".to_owned(),
+                    },
+                    DirectoryEntry {
+                        parent_id: 1,
+                        object_id: 3,
+                        kind: ObjectKind::File,
+                        name: "second.bin".to_owned(),
+                    },
+                ];
+                let mut directory_bytes = vec![0_u8; block_size as usize];
+                for (index, entry) in entries.iter().enumerate() {
+                    directory_bytes[index * 128..(index + 1) * 128]
+                        .copy_from_slice(&entry.encode().unwrap());
+                }
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: shared_data,
+                    block_count: 1,
+                }])
+                .unwrap()
+                .encode_block(block_size as usize)
                 .unwrap();
-            let map = ExtentMap::new(vec![Extent {
-                logical_start: 0,
-                physical_start: shared_data,
-                block_count: 1,
-            }])
-            .unwrap()
-            .encode_block(block_size as usize)
-            .unwrap();
-            device.write_blocks(first_root, &map).unwrap();
-            device.write_blocks(second_root, &map).unwrap();
+                device.write_blocks(first_root, &map).unwrap();
+                device.write_blocks(second_root, &map).unwrap();
 
-            let namespace = volume
-                .reconstruct_namespace(
-                    &mut device,
-                    ObjectId(1),
-                    &[metadata_block],
-                    3,
-                    &[directory_block],
-                    2,
-                )
-                .unwrap();
-            assert!(matches!(
-                volume.read_namespace_extent_maps(&mut device, &namespace),
-                Err(Error::Corrupt(
-                    "files claim overlapping physical data blocks"
-                ))
-            ));
+                let namespace = volume
+                    .reconstruct_namespace(
+                        &mut device,
+                        ObjectId(1),
+                        &[metadata_block],
+                        3,
+                        &[directory_block],
+                        2,
+                    )
+                    .unwrap();
+                assert!(matches!(
+                    volume.read_namespace_extent_maps(&mut device, &namespace),
+                    Err(Error::Corrupt(
+                        "files claim overlapping physical data blocks"
+                    ))
+                ));
 
-            // A read of one otherwise-valid file must also fail if another file's
-            // persistent map claims the same physical data block.
-            let first_map = volume
-                .read_extent_map(&mut device, first_root, 4096)
-                .unwrap();
-            let partial_inventory = std::collections::BTreeMap::from([(ObjectId(2), first_map)]);
-            assert!(matches!(
-                volume.read_file_range(
-                    &mut device,
-                    &namespace,
-                    &partial_inventory,
-                    ObjectId(2),
-                    0,
-                    8
-                ),
-                Err(Error::Corrupt(
-                    "files claim overlapping physical data blocks"
-                ))
-            ));
+                // A read of one otherwise-valid file must also fail if another file's
+                // persistent map claims the same physical data block.
+                let first_map = volume
+                    .read_extent_map(&mut device, first_root, u64::from(block_size))
+                    .unwrap();
+                let partial_inventory = std::collections::BTreeMap::from([(ObjectId(2), first_map)]);
+                assert!(matches!(
+                    volume.read_file_range(
+                        &mut device,
+                        &namespace,
+                        &partial_inventory,
+                        ObjectId(2),
+                        0,
+                        8
+                    ),
+                    Err(Error::Corrupt(
+                        "files claim overlapping physical data blocks"
+                    ))
+                ));
 
-            // Writes must run the same whole-namespace ownership check before
-            // touching data, or a corrupt alias could overwrite another file.
-            // BlockDevice reads require whole-block buffers, even when the assertion
-            // below only cares about the prefix being protected from a rejected write.
-            let before = vec![0_u8; block_size as usize];
-            let mut after = vec![0_u8; block_size as usize];
-            device.read_blocks(shared_data, &mut after).unwrap();
-            assert_eq!(after, before);
-            assert!(matches!(
-                volume.write_file_range(
-                    &mut device,
-                    &namespace,
-                    &partial_inventory,
-                    ObjectId(2),
-                    0,
-                    &[0xCC; 8]
-                ),
-                Err(Error::Corrupt(
-                    "files claim overlapping physical data blocks"
-                ))
-            ));
-            device.read_blocks(shared_data, &mut after).unwrap();
-            assert_eq!(after, before, "rejected write must not modify aliased data");
+                // Writes must run the same whole-namespace ownership check before
+                // touching data, or a corrupt alias could overwrite another file.
+                // BlockDevice reads require whole-block buffers, even when the assertion
+                // below only cares about the prefix being protected from a rejected write.
+                let before = vec![0_u8; block_size as usize];
+                let mut after = vec![0_u8; block_size as usize];
+                device.read_blocks(shared_data, &mut after).unwrap();
+                assert_eq!(after, before);
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut device,
+                        &namespace,
+                        &partial_inventory,
+                        ObjectId(2),
+                        0,
+                        &[0xCC; 8]
+                    ),
+                    Err(Error::Corrupt(
+                        "files claim overlapping physical data blocks"
+                    ))
+                ));
+                device.read_blocks(shared_data, &mut after).unwrap();
+                assert_eq!(after, before, "rejected write must not modify aliased data");
+
             }
             fs::remove_file(path).unwrap();
         }
