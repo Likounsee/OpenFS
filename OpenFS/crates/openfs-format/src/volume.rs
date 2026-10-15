@@ -1017,6 +1017,44 @@ impl OpenedVolume {
         Ok(Some((descriptor_block, namespace)))
     }
 
+    /// Create an empty file in the persistent namespace.
+    ///
+    /// The namespace inventory is reconstructed from disk, updated in memory, and then
+    /// published through copy-on-write inventory replacement. This makes the empty file
+    /// discoverable after reopening the volume. File data allocation and non-empty writes
+    /// are deliberately separate operations and are not performed here.
+    pub fn create_persistent_file<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        parent_id: ObjectId,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        let (_, mut namespace) = self
+            .reconstruct_discovered_namespace(device)?
+            .ok_or(Error::InvalidInput(
+                "no persistent namespace exists for file creation",
+            ))?;
+        let record = MetadataRecord {
+            id: object_id,
+            parent_id: parent_id.0,
+            kind: crate::ObjectKind::File,
+            flags: 0,
+            size: 0,
+            extent_root_block: None,
+            generation: 1,
+        };
+        let entry = DirectoryEntry {
+            parent_id: parent_id.0,
+            object_id: object_id.0,
+            kind: crate::ObjectKind::File,
+            name: name.to_owned(),
+        };
+        namespace.insert(entry, record)?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(object_id)
+    }
+
     /// Persist a complete in-memory namespace by copy-on-write inventory replacement.
     ///
     /// Fresh metadata and directory streams are allocated and flushed before the descriptor
