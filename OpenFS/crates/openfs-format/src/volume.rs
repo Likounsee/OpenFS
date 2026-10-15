@@ -1288,7 +1288,9 @@ impl OpenedVolume {
             .checked_add(write_len)
             .ok_or(Error::ArithmeticOverflow)?;
         if offset >= record.size || end > record.size {
-            return Err(Error::InvalidInput("write range exceeds existing file size"));
+            return Err(Error::InvalidInput(
+                "write range exceeds existing file size",
+            ));
         }
 
         let map = extent_maps.get(&object_id);
@@ -4378,7 +4380,9 @@ mod tests {
                         block_len as u64 - 2,
                         &[1, 2, 3],
                     ),
-                    Err(Error::InvalidInput("write range exceeds existing file size"))
+                    Err(Error::InvalidInput(
+                        "write range exceeds existing file size"
+                    ))
                 ));
 
                 assert!(matches!(
