@@ -245,6 +245,11 @@ pub fn plan_recovery(
                 if transaction.transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal COMMIT transaction ID mismatch"));
                 }
+                if transaction.updates.is_empty() {
+                    return Err(Error::Corrupt(
+                        "committed journal transaction contains no redo updates",
+                    ));
+                }
                 completed.push(transaction);
             }
             JournalRecordKind::Abort => {
@@ -582,6 +587,18 @@ mod tests {
                 updates: vec![b"redo-a".to_vec(), b"redo-b".to_vec()],
             }]
         );
+    }
+
+    #[test]
+    fn recovery_plan_rejects_committed_transaction_without_updates() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 1, 1, b""),
+            record(JournalRecordKind::Commit, 2, 1, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&records, 0),
+            Err(Error::Corrupt("committed journal transaction contains no redo updates"))
+        ));
     }
 
     #[test]
