@@ -4483,10 +4483,16 @@ mod tests {
                 // completed by normal reopen/recovery, never exposed as a partial write.
                 let recovery_offset = block_len as u64 - 16;
                 let recovery_payload = vec![0x3C; 97];
+                // UPDATE records may be chunked differently for each supported block size.
+                // The record count is also the write index of the first home-block update.
+                let fail_after_commit = volume
+                    .journal
+                    .required_record_count(&device, 2)
+                    .unwrap();
                 let mut failing = FailWriteAt {
                     inner: device,
                     write_index: 0,
-                    fail_at: 4, // BEGIN, two UPDATEs, COMMIT; first home write fails.
+                    fail_at: fail_after_commit,
                 };
                 assert!(matches!(
                     volume.write_file_range(
