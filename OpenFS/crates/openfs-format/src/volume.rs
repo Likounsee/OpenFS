@@ -2697,7 +2697,8 @@ mod tests {
 
         // Descriptor discovery reads are followed by packed metadata and directory reads.
         // These indices target the namespace-stream reads in this fixture.
-        for fail_at in [3] {
+        {
+            let fail_at = 3;
             let path = image_path(&format!(
                 "inventory-discovery-namespace-read-failure-{fail_at}"
             ));
