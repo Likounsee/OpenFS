@@ -4491,6 +4491,24 @@ mod tests {
                     .read_namespace_extent_maps(&mut device, &namespace)
                     .unwrap();
 
+                // A write crossing EOF is rejected before any part of the range is
+                // committed, and previously persisted bytes remain unchanged.
+                assert!(matches!(
+                    volume.write_persistent_path_range(
+                        &mut device,
+                        "/payload.bin",
+                        (block_len * 2 - 10) as u64,
+                        &[0xCC; 64],
+                    ),
+                    Err(Error::InvalidInput("write range exceeds existing file size"))
+                ));
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
+                        .unwrap(),
+                    replacement
+                );
+
                 // A forged in-memory record must not authorize writes even when
                 // its extent map still matches the real on-disk map.
                 let mut forged_file = namespace.object(ObjectId(2)).unwrap().clone();
