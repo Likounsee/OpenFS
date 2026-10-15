@@ -650,6 +650,7 @@ impl OpenedVolume {
         // The replacement descriptor may live on any bitmap page. Stage it while free;
         // the multi-page journal transaction below is the sole publication commit point.
         let mut new_block = None;
+        let mut candidate_bitmap = None;
         'pages: for bitmap_index in first_bitmap..=last_bitmap {
             let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
@@ -677,6 +678,8 @@ impl OpenedVolume {
                 if available != 0 {
                     let local = (byte_index as u64) * 8 + u64::from(available.trailing_zeros());
                     new_block = Some(base + local);
+                    // Reuse this already-read page when assembling the transaction below.
+                    candidate_bitmap = Some((bitmap_index, bitmap.clone()));
                     break 'pages;
                 }
             }
@@ -689,6 +692,9 @@ impl OpenedVolume {
         // bitmap segments. Preflight the bounded ring before staging descriptor bytes, so
         // an oversized transition is rejected without modifying the image.
         let mut bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+        if let Some((bitmap_index, bitmap)) = candidate_bitmap {
+            bitmaps.insert(bitmap_index, bitmap);
+        }
         let changed_blocks = std::iter::once((old_block, false))
             .chain(std::iter::once((new_block, true)))
             .chain(released_blocks.iter().copied().map(|block| (block, false)));
