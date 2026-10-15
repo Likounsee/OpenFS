@@ -999,6 +999,66 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_post_checkpoint_record_after_empty_ring_slot() {
+        let mut device = formatted();
+        let record = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Begin,
+            sequence: 1,
+            transaction_id: 1,
+            payload: Vec::new(),
+        };
+        device
+            .write_blocks(
+                REGION.ring_start + 1,
+                &record.encode_block(BS as usize).unwrap(),
+            )
+            .unwrap();
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt(
+                "post-checkpoint journal records are not contiguous from ring start"
+            ))
+        ));
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+    }
+
+    #[test]
+    fn open_rejects_duplicate_post_checkpoint_record_sequences() {
+        let mut device = formatted();
+        let begin = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Begin,
+            sequence: 1,
+            transaction_id: 1,
+            payload: Vec::new(),
+        };
+        let update = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Update,
+            sequence: 1,
+            transaction_id: 1,
+            payload: vec![0xA5],
+        };
+        for (slot, record) in [begin, update].iter().enumerate() {
+            device
+                .write_blocks(
+                    REGION.ring_start + slot as u64,
+                    &record.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+        }
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt(
+                "journal sequence is not contiguous after checkpoint"
+            ))
+        ));
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+    }
+
+    #[test]
     fn open_rejects_post_checkpoint_transaction_id_reuse() {
         use crate::{JournalRecord, JournalRecordKind};
 
