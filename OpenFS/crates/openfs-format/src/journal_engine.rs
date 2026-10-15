@@ -1493,6 +1493,30 @@ mod tests {
     }
 
     #[test]
+    fn redo_chunk_round_trip_covers_small_block_capacity_boundaries() {
+        // The chunk payload capacity is block_size - journal header - chunk header.
+        // Exercise the smallest legal capacity and sizes immediately around it,
+        // as well as a normal filesystem block, to catch off-by-one final chunks.
+        for block_size in [53_usize, 54, 63, 64, 71, 72, 4096] {
+            let contents = (0..block_size)
+                .map(|index| (index.wrapping_mul(37) & 0xff) as u8)
+                .collect::<Vec<_>>();
+            let update = RedoUpdate {
+                target_block: 7,
+                contents: contents.clone(),
+            };
+            let chunks = encode_redo_chunks(&update, block_size).unwrap();
+            let decoded = decode_redo_updates(&chunks, block_size).unwrap();
+            assert_eq!(decoded.len(), 1, "block size {block_size}");
+            assert_eq!(decoded[0].target_block, 7, "block size {block_size}");
+            assert_eq!(
+                decoded[0].contents, contents,
+                "redo image changed across chunk boundary for block size {block_size}"
+            );
+        }
+    }
+
+    #[test]
     fn decoded_redo_rejects_malformed_chunk_framing() {
         let valid = encode_redo_chunks(&update(0xA5), BS as usize).unwrap();
 
