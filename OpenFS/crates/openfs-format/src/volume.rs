@@ -4392,11 +4392,11 @@ mod tests {
                 forged_file.generation += 1;
                 let forged_namespace = crate::Namespace::from_records(
                     namespace.root_id(),
-                    [
-                        namespace.object(ObjectId(1)).unwrap().clone(),
-                        forged_file,
-                    ],
-                    [namespace.lookup(ObjectId(1), "payload.bin").unwrap().clone()],
+                    [namespace.object(ObjectId(1)).unwrap().clone(), forged_file],
+                    [namespace
+                        .lookup(ObjectId(1), "payload.bin")
+                        .unwrap()
+                        .clone()],
                 )
                 .unwrap();
                 let mut before_forged_write = vec![0_u8; block_len];
