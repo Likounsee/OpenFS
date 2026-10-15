@@ -734,7 +734,9 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     // Keep decoded images in one contiguous collection. The target list would
     // duplicate one u64 per image; sorting the images themselves is sufficient
     // because a committed transaction may not target the same home block twice.
-    let mut updates = Vec::new();
+    // Each complete image consumes exactly expected_count chunks. Reserving
+    // the maximum possible image count avoids repeated growth during recovery.
+    let mut updates = Vec::with_capacity(payloads.len() / expected_count);
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::with_capacity(block_size);
