@@ -32,6 +32,8 @@ Les anciens lots sont regroupés sans faire passer du travail non réalisé pour
 - [`f039c36`](https://github.com/Likounsee/OpenFS/commit/f039c36cf9db32f52eba63d15f123f9f0092334b) — ajoute une régression pour les lectures et écritures avec un nom de répertoire falsifié. Le test est présent dans la source, mais son exécution et la CI exacte-SHA ne sont pas confirmées.
 - Ces corrections renforcent la validation d'intégrité du chemin d'E/S persistant. Elles ne réalisent pas la création durable de fichiers et ne justifient pas à elles seules une hausse des pourcentages P1/P2.
 
+- `d88e757` / `346ca8c` — ajoute `replace_persistent_namespace_inventory` : sérialisation déterministe du namespace, allocation et flush des nouveaux flux de métadonnées/répertoires, puis bascule copy-on-write via le remplacement transactionnel du descripteur. Le test ajouté couvre la persistance d'une nouvelle entrée et sa reconstruction après réouverture. Cette primitive ne crée pas encore les extents ni le contenu d'un fichier. Les tests et la CI de ce SHA ne sont pas confirmés; aucun pourcentage n'est augmenté sur la seule présence du code.
+
 
 - [`53a2875`](https://github.com/Likounsee/OpenFS/commit/53a2875748363a1fa69961937547eb281ee43545) — tests des limites de capacité des chunks redo.
 - [`fffa639`](https://github.com/Likounsee/OpenFS/commit/fffa6399e12dbc1847d6cd0dd700ee49a610c434) — rejet des compteurs de séquence checkpoint incohérents.
@@ -42,8 +44,8 @@ Ces tests renforcent principalement **P1**. Les tests Rust, `cargo fmt` et `carg
 
 ### Prochaine action prioritaire
 
-1. Finir les bloqueurs de **P1** : cycle de vie/remplacement des descripteurs, propriété des blocs et contrat de transaction.
-2. Enchaîner sur **P2** : relier ces transactions au premier parcours durable `create → write → close → reopen → read`, puis vérifier le volume depuis sa racine persistante.
+1. Valider par tests et CI exacte-SHA le remplacement copy-on-write du namespace, notamment les erreurs d'écriture/flush et le résultat incertain du commit.
+2. Enchaîner sur **P2** : créer durablement un objet fichier, allouer/persister ses extents et ses données, puis relier `create → write → close → reopen → read` et vérifier depuis la racine persistante.
 3. Aborder **P3** seulement lorsque les contrats de persistance/récupération sont suffisamment stables : découverte sûre des périphériques, intégration OS et gates de livraison.
 
 Ne pas annoncer une phase terminée si sa porte de sortie n'est pas satisfaite.
