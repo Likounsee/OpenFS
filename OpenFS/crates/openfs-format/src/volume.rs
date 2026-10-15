@@ -4554,6 +4554,47 @@ mod tests {
                         .clone()],
                 )
                 .unwrap();
+
+                // Matching object records are insufficient: a caller-supplied namespace
+                // with a forged directory name must not pass persistent identity checks.
+                let mut renamed_entry = namespace
+                    .lookup(ObjectId(1), "payload.bin")
+                    .unwrap()
+                    .clone();
+                renamed_entry.name = "renamed.bin".to_owned();
+                let forged_directory_namespace = crate::Namespace::from_records(
+                    namespace.root_id(),
+                    namespace.objects().cloned(),
+                    [renamed_entry],
+                )
+                .unwrap();
+                assert!(matches!(
+                    volume.read_file_range(
+                        &mut device,
+                        &forged_directory_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        8,
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut device,
+                        &forged_directory_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        &[0xCC; 8],
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
+
                 let mut before_forged_write = vec![0_u8; block_len];
                 device
                     .read_blocks(data_block, &mut before_forged_write)
