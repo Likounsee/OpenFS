@@ -1400,6 +1400,7 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
         }
         self.journal.commit(device, &updates)?;
+        Ok(())
     }
 
     /// Read the complete logical contents of a file, including zero-filled sparse holes.
@@ -4382,7 +4383,7 @@ mod tests {
                 // Metadata, extent maps, and file bytes survive reopen and are
                 // rediscovered from the on-disk inventory descriptor.
                 drop(volume);
-                let volume = open_volume(&mut device).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
                 let (_, namespace) = volume
                     .reconstruct_discovered_namespace(&mut device)
                     .unwrap()
