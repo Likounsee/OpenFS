@@ -2280,4 +2280,46 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn preflight_rejections_leave_journal_and_image_unchanged() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+
+        let duplicate_target = [update(0x22), update(0x33)];
+        let wrong_sized_image = [RedoUpdate {
+            target_block: HOME,
+            contents: vec![0x44; BS as usize - 1],
+        }];
+        let journal_target = [RedoUpdate {
+            target_block: REGION.ring_start,
+            contents: vec![0x55; BS as usize],
+        }];
+
+        for (label, invalid_updates) in [
+            ("duplicate targets", duplicate_target.as_slice()),
+            ("wrong-sized redo image", wrong_sized_image.as_slice()),
+            ("journal metadata target", journal_target.as_slice()),
+        ] {
+            let before = device.bytes.lock().unwrap().clone();
+            assert!(
+                matches!(journal.commit(&mut device, invalid_updates), Err(Error::InvalidInput(_))),
+                "{label} must be rejected during preflight"
+            );
+            assert_eq!(
+                *device.bytes.lock().unwrap(),
+                before,
+                "{label} must not modify any persistent byte"
+            );
+        }
+
+        // Validation errors occur before the writer is poisoned. A valid operation
+        // should work immediately without reopening or running recovery.
+        journal.commit(&mut device, &[update(0xA6)]).unwrap();
+        assert_eq!(read_home(&mut device), vec![0xA6; BS as usize]);
+        let reopened = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut device), vec![0xA6; BS as usize]);
+    }
+
 }
