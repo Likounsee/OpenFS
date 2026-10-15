@@ -87,6 +87,13 @@ impl JournalCheckpoint {
             head_block: get_u64(bytes, 48),
             tail_block: get_u64(bytes, 56),
         };
+        // Encoding rejects caller-supplied invalid state; decoding persisted bytes
+        // must report semantic corruption, not an invalid API argument.
+        if checkpoint.checkpoint_sequence.checked_add(1) != Some(checkpoint.next_sequence) {
+            return Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree",
+            ));
+        }
         checkpoint.validate()?;
         Ok(checkpoint)
     }
@@ -276,7 +283,9 @@ mod tests {
         refresh_checksum(&mut bytes);
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::InvalidInput(_))
+            Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree"
+            ))
         ));
     }
 
