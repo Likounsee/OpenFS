@@ -249,11 +249,7 @@ impl PersistentJournal {
         self.region.validate(device)?;
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-        let chunk_capacity = block_size
-            .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
-            .ok_or(Error::InvalidInput(
-                "device block is too small for redo chunks",
-            ))?;
+        let chunk_capacity = redo_chunk_size(block_size)?;
         let chunks_per_update = block_size
             .checked_add(chunk_capacity - 1)
             .ok_or(Error::ArithmeticOverflow)?
