@@ -4457,6 +4457,50 @@ mod tests {
     }
 
     #[test]
+    fn locator_update_rejects_primary_corruption_and_superblock_field_mismatch() {
+        for damage in ["primary-checksum", "stable-field-mismatch"] {
+            let path = image_path(&format!("locator-update-{damage}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                drop(volume);
+
+                let mut primary = vec![0_u8; 4096];
+                device.read_blocks(0, &mut primary).unwrap();
+                let expected_error = if damage == "primary-checksum" {
+                    primary[CHECKSUM_OFFSET] ^= 1;
+                    "superblock CRC32C mismatch"
+                } else {
+                    // Keep the primary copy internally valid while changing a stable
+                    // field that must match the independently checksummed backup.
+                    primary[24] ^= 1;
+                    let checksum = super::crc32c(&primary[..CHECKSUM_OFFSET]);
+                    primary[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4]
+                        .copy_from_slice(&checksum.to_le_bytes());
+                    "primary and backup superblocks disagree before locator update"
+                };
+                device.write_blocks(0, &primary).unwrap();
+                device.flush().unwrap();
+
+                let bytes_before = fs::read(&path).unwrap();
+                assert!(
+                    matches!(
+                        super::persist_inventory_hint(&mut device, 42),
+                        Err(Error::Corrupt(message)) if message == expected_error
+                    ),
+                    "locator update must reject {damage}"
+                );
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    bytes_before,
+                    "locator update must not write either superblock after detecting {damage}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn canonical_superblock_has_stable_golden_bytes_and_checksum() {
         let uuid = *b"openfs-test-0001";
         let features = 0x0102_0304_0506_0708;
