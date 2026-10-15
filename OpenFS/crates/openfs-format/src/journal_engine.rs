@@ -813,9 +813,8 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_redo_updates, encode_redo_chunks, format_journal, open_journal, open_journal_protected,
-        JournalCheckpoint,
-        JournalRegion, RedoUpdate,
+        decode_redo_updates, encode_redo_chunks, format_journal, open_journal,
+        open_journal_protected, JournalCheckpoint, JournalRegion, RedoUpdate,
     };
     use openfs_block::BlockDevice;
     use openfs_core::{Error, Result};
