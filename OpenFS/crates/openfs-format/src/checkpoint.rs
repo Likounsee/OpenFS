@@ -296,7 +296,9 @@ mod tests {
         refresh_checksum(&mut bytes);
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::InvalidInput(_))
+            Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree"
+            ))
         ));
 
         let mut bytes = sample().encode().unwrap();
