@@ -362,14 +362,18 @@ impl OpenedVolume {
         };
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         for block in blocks {
-            if namespace.objects().any(|record| record.extent_root_block == Some(*block)) {
+            if namespace
+                .objects()
+                .any(|record| record.extent_root_block == Some(*block))
+            {
                 return Err(Error::InvalidInput(
                     "cannot free a block referenced by a file extent map",
                 ));
             }
             for map in extent_maps.values() {
                 for extent in map.extents() {
-                    let end = extent.physical_start
+                    let end = extent
+                        .physical_start
                         .checked_add(extent.block_count)
                         .ok_or(Error::ArithmeticOverflow)?;
                     if *block >= extent.physical_start && *block < end {
@@ -4246,9 +4250,13 @@ mod tests {
                         "cannot free a block owned by persistent file data"
                     ))
                 ));
-                assert!(volume.is_data_block_allocated(&mut device, data_block).unwrap());
+                assert!(volume
+                    .is_data_block_allocated(&mut device, data_block)
+                    .unwrap());
                 assert_eq!(
-                    volume.read_file_contents(&mut device, &namespace, &loaded, ObjectId(2)).unwrap(),
+                    volume
+                        .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                        .unwrap(),
                     payload
                 );
             }
