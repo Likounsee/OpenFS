@@ -1475,7 +1475,7 @@ mod tests {
 
     #[test]
     fn redo_chunk_helpers_reject_zero_payload_capacity_without_panicking() {
-        let block_size = JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE;
+        let block_size = super::JOURNAL_HEADER_SIZE + super::UPDATE_CHUNK_HEADER_SIZE;
         let image = update(0xA5);
 
         assert!(matches!(
