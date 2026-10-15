@@ -4540,7 +4540,8 @@ mod tests {
                 let first_map = volume
                     .read_extent_map(&mut device, first_root, u64::from(block_size))
                     .unwrap();
-                let partial_inventory = std::collections::BTreeMap::from([(ObjectId(2), first_map)]);
+                let partial_inventory =
+                    std::collections::BTreeMap::from([(ObjectId(2), first_map)]);
                 assert!(matches!(
                     volume.read_file_range(
                         &mut device,
@@ -4578,7 +4579,6 @@ mod tests {
                 ));
                 device.read_blocks(shared_data, &mut after).unwrap();
                 assert_eq!(after, before, "rejected write must not modify aliased data");
-
             }
             fs::remove_file(path).unwrap();
         }
