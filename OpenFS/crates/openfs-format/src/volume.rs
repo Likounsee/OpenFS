@@ -1669,7 +1669,9 @@ impl OpenedVolume {
     ) -> Result<()> {
         self.validate_device(device)?;
         if data.is_empty() {
-            return Err(Error::InvalidInput("initial file contents must not be empty"));
+            return Err(Error::InvalidInput(
+                "initial file contents must not be empty",
+            ));
         }
         let block_size = self.volume.block_size as usize;
         if data.len() > block_size {
@@ -1677,11 +1679,11 @@ impl OpenedVolume {
                 "initial persistent file contents must fit in one block",
             ));
         }
-        let (_, namespace) = self
-            .reconstruct_discovered_namespace(device)?
-            .ok_or(Error::InvalidInput(
-                "persistent file writes require a published inventory",
-            ))?;
+        let (_, namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "persistent file writes require a published inventory",
+                ))?;
         let object_id = namespace.resolve_path(path)?;
         let existing = namespace
             .object(object_id)
@@ -2854,8 +2856,7 @@ mod tests {
                 generation: 1,
             };
             let mut bytes = vec![0_u8; 4096];
-            bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root_record.encode().unwrap());
+            bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
             device.write_blocks(metadata_block, &bytes).unwrap();
             volume
                 .publish_persistent_inventory(
@@ -3007,7 +3008,9 @@ mod tests {
             let mut initial_bytes = vec![0_u8; 4096];
             initial_bytes[..crate::METADATA_RECORD_SIZE]
                 .copy_from_slice(&root_record.encode().unwrap());
-            device.write_blocks(initial_metadata_block, &initial_bytes).unwrap();
+            device
+                .write_blocks(initial_metadata_block, &initial_bytes)
+                .unwrap();
             volume
                 .publish_persistent_inventory(
                     &mut device,
@@ -3049,7 +3052,10 @@ mod tests {
                 .reconstruct_discovered_namespace(&mut device)
                 .unwrap()
                 .unwrap();
-            assert_eq!(reopened_namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(
+                reopened_namespace.resolve_path("/hello.txt").unwrap(),
+                ObjectId(2)
+            );
             assert_eq!(reopened_namespace.object_count(), 2);
             assert_eq!(reopened_namespace.entry_count(), 1);
 
