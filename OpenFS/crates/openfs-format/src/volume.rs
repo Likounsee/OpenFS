@@ -4551,6 +4551,28 @@ mod tests {
                     "files claim overlapping physical data blocks"
                 ))
             ));
+
+            // Writes must run the same whole-namespace ownership check before
+            // touching data, or a corrupt alias could overwrite another file.
+            let before = vec![0_u8; 8];
+            let mut after = vec![0_u8; 8];
+            device.read_blocks(shared_data, &mut after).unwrap();
+            assert_eq!(after, before);
+            assert!(matches!(
+                volume.write_file_range(
+                    &mut device,
+                    &namespace,
+                    &partial_inventory,
+                    ObjectId(2),
+                    0,
+                    &[0xCC; 8]
+                ),
+                Err(Error::Corrupt(
+                    "files claim overlapping physical data blocks"
+                ))
+            ));
+            device.read_blocks(shared_data, &mut after).unwrap();
+            assert_eq!(after, before, "rejected write must not modify aliased data");
         }
         fs::remove_file(path).unwrap();
     }
