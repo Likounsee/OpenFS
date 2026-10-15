@@ -1304,6 +1304,20 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("object is not a regular file"));
         }
+        // Even a no-op write must not accept stale or caller-forged namespace
+        // metadata. Validate the persistent identity before the empty-data fast path.
+        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "file writes require a published persistent inventory",
+            ));
+        };
+        if namespace.root_id() != persistent_namespace.root_id()
+            || namespace.objects().ne(persistent_namespace.objects())
+        {
+            return Err(Error::Corrupt(
+                "supplied namespace metadata does not match persistent inventory",
+            ));
+        }
         if data.is_empty() {
             return Ok(());
         }
@@ -1324,22 +1338,6 @@ impl OpenedVolume {
         if &persisted_maps != extent_maps {
             return Err(Error::Corrupt(
                 "loaded extent maps do not match persistent namespace inventory",
-            ));
-        }
-
-        // Writes are allowed only against metadata reconstructed from the published
-        // on-disk inventory. Otherwise a caller could forge an in-memory file record
-        // (for example, changing its generation or extent root) while reusing valid maps.
-        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "file writes require a published persistent inventory",
-            ));
-        };
-        if namespace.root_id() != persistent_namespace.root_id()
-            || namespace.objects().ne(persistent_namespace.objects())
-        {
-            return Err(Error::Corrupt(
-                "supplied namespace metadata does not match persistent inventory",
             ));
         }
 
@@ -4473,6 +4471,21 @@ mod tests {
                         ObjectId(2),
                         0,
                         0,
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
+
+                // Empty writes are no-ops only for the actual persistent namespace.
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut device,
+                        &forged_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        &[],
                     ),
                     Err(Error::Corrupt(
                         "supplied namespace metadata does not match persistent inventory"
