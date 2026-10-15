@@ -2760,6 +2760,41 @@ mod tests {
     }
 
     #[test]
+    fn out_of_range_locator_does_not_hide_discoverable_inventory() {
+        use crate::{ObjectId, PersistentInventoryDescriptor};
+
+        let path = image_path("out-of-range-inventory-locator");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let descriptor_block = volume
+                .publish_persistent_inventory(&mut device, &descriptor)
+                .unwrap();
+
+            // A damaged/stale locator may point beyond the device. The hint is advisory;
+            // authoritative discovery must still find the unique allocated descriptor.
+            let invalid_hint = device.block_count() + 17;
+            crate::volume::persist_inventory_hint(&mut device, invalid_hint).unwrap();
+            volume = open_volume(&mut device).unwrap();
+            assert_eq!(volume.inventory_descriptor_hint, Some(invalid_hint));
+
+            let discovered = volume
+                .discover_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(discovered, (descriptor_block, descriptor));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
