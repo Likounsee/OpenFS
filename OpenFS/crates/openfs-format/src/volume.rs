@@ -1654,6 +1654,79 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
+    /// Write initial contents to an existing empty persistent file using one data block.
+    ///
+    /// This is the first allocation-backed write path: files are limited to one filesystem
+    /// block for now. Data and the checksummed extent map are written before a copy-on-write
+    /// namespace inventory publishes the new size and extent root. A failed publication may
+    /// leave allocated but unreachable blocks; it must never free them speculatively because
+    /// an I/O error can occur after the new inventory becomes durable.
+    pub fn write_persistent_file_contents<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        if data.is_empty() {
+            return Err(Error::InvalidInput("initial file contents must not be empty"));
+        }
+        let block_size = self.volume.block_size as usize;
+        if data.len() > block_size {
+            return Err(Error::InvalidInput(
+                "initial persistent file contents must fit in one block",
+            ));
+        }
+        let (_, namespace) = self
+            .reconstruct_discovered_namespace(device)?
+            .ok_or(Error::InvalidInput(
+                "persistent file writes require a published inventory",
+            ))?;
+        let object_id = namespace.resolve_path(path)?;
+        let existing = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if existing.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        if existing.size != 0 || existing.extent_root_block.is_some() {
+            return Err(Error::InvalidInput(
+                "initial contents can only be written to an empty file",
+            ));
+        }
+
+        // Allocate and initialize data before publishing any metadata that can reference it.
+        let data_block = self.allocate_block(device)?;
+        let mut data_bytes = vec![0_u8; block_size];
+        data_bytes[..data.len()].copy_from_slice(data);
+        device.write_blocks(data_block, &data_bytes)?;
+
+        let extent_root = self.allocate_block(device)?;
+        let extent_map = ExtentMap::new(vec![crate::Extent {
+            logical_start: 0,
+            physical_start: data_block,
+            block_count: 1,
+        }])?;
+        let extent_bytes = extent_map.encode_block(block_size)?;
+        device.write_blocks(extent_root, &extent_bytes)?;
+
+        let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+        let updated = records
+            .iter_mut()
+            .find(|record| record.id == object_id)
+            .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
+        updated.size = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+        updated.extent_root_block = Some(extent_root);
+        updated.generation = updated
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let entries = namespace.entries().cloned().collect::<Vec<_>>();
+        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+        self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+        Ok(())
+    }
+
     /// Write a bounded range to a file resolved from the published on-disk inventory.
     ///
     /// The namespace and extent maps are reconstructed from disk rather than supplied by
