@@ -2731,7 +2731,6 @@ mod tests {
                 // either packed namespace-stream read.
                 let descriptor_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let directory_block = volume.allocate_block(&mut device).unwrap();
 
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -8278,6 +8277,9 @@ mod tests {
                 let old_descriptor_block = volume
                     .publish_persistent_inventory(&mut device, &old_descriptor)
                     .unwrap();
+                // Do not allocate the new directory block until it is about to be
+                // published; otherwise it is an orphan under the old descriptor.
+                let directory_block = volume.allocate_block(&mut device).unwrap();
 
                 metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&child.encode().unwrap());
