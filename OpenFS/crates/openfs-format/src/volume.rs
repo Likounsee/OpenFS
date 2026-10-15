@@ -4536,7 +4536,9 @@ mod tests {
 
             // A read of one otherwise-valid file must also fail if another file's
             // persistent map claims the same physical data block.
-            let first_map = volume.read_extent_map(&mut device, first_root, 4096).unwrap();
+            let first_map = volume
+                .read_extent_map(&mut device, first_root, 4096)
+                .unwrap();
             let partial_inventory = std::collections::BTreeMap::from([(ObjectId(2), first_map)]);
             assert!(matches!(
                 volume.read_file_range(
