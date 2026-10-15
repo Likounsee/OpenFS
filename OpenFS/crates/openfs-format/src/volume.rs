@@ -1017,6 +1017,145 @@ impl OpenedVolume {
         Ok(Some((descriptor_block, namespace)))
     }
 
+    /// Persist a complete in-memory namespace by copy-on-write inventory replacement.
+    ///
+    /// Fresh metadata and directory streams are allocated and flushed before the descriptor
+    /// transaction publishes them. The previous inventory remains authoritative until that
+    /// transaction commits. If publication returns an error with an uncertain outcome, the
+    /// descriptor is rediscovered before deciding whether staged blocks can be released.
+    ///
+    /// This persists namespace metadata only; it does not allocate file extents or persist
+    /// file contents. Callers must supply a validated namespace whose file extents already
+    /// have valid on-disk ownership.
+    pub fn replace_persistent_namespace_inventory<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: &Namespace,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        namespace.validate()?;
+        if self.discover_persistent_inventory(device)?.is_none() {
+            return Err(Error::InvalidInput(
+                "no persistent inventory descriptor exists to replace",
+            ));
+        }
+
+        let mut metadata_bytes = Vec::new();
+        for record in namespace.objects() {
+            metadata_bytes.extend_from_slice(&record.encode()?);
+        }
+        let mut directory_bytes = Vec::new();
+        for entry in namespace.entries() {
+            directory_bytes.extend_from_slice(&entry.encode()?);
+        }
+
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let metadata_blocks_needed = metadata_bytes
+            .len()
+            .checked_add(block_size - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / block_size;
+        let directory_blocks_needed = directory_bytes
+            .len()
+            .checked_add(block_size - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / block_size;
+        let descriptor_capacity = block_size
+            .checked_sub(48)
+            .ok_or(Error::ArithmeticOverflow)?
+            / 8;
+        if metadata_blocks_needed
+            .checked_add(directory_blocks_needed)
+            .ok_or(Error::ArithmeticOverflow)?
+            > descriptor_capacity
+        {
+            return Err(Error::InvalidInput(
+                "namespace inventory exceeds descriptor block capacity",
+            ));
+        }
+
+        let metadata_blocks = self.stage_packed_inventory(device, &metadata_bytes)?;
+        let directory_blocks = match self.stage_packed_inventory(device, &directory_bytes) {
+            Ok(blocks) => blocks,
+            Err(error) => {
+                for block in metadata_blocks.iter().copied() {
+                    let _ = self.free_block(device, block);
+                }
+                return Err(error);
+            }
+        };
+        let descriptor = PersistentInventoryDescriptor {
+            root_id: namespace.root_id(),
+            metadata_blocks: metadata_blocks.clone(),
+            metadata_record_count: namespace.object_count(),
+            directory_blocks: directory_blocks.clone(),
+            directory_entry_count: namespace.entry_count(),
+        };
+        if let Err(error) = descriptor.encode(block_size) {
+            for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+                let _ = self.free_block(device, block);
+            }
+            return Err(error);
+        }
+
+        match self.replace_persistent_inventory_descriptor(device, &descriptor) {
+            Ok(block) => Ok(block),
+            Err(error) => {
+                // A journal I/O error can mean either side of the commit point. Only free
+                // staged streams after rediscovery proves the old descriptor is still active.
+                if let Ok(Some((_, active))) = self.discover_persistent_inventory(device) {
+                    if active != descriptor {
+                        for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+                            let _ = self.free_block(device, block);
+                        }
+                    }
+                } else if let Ok(None) = self.discover_persistent_inventory(device) {
+                    for block in metadata_blocks.iter().chain(directory_blocks.iter()).copied() {
+                        let _ = self.free_block(device, block);
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn stage_packed_inventory<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        bytes: &[u8],
+    ) -> Result<Vec<u64>> {
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        if bytes.len() % if bytes.is_empty() { 1 } else { bytes.len() } != 0 {
+            return Err(Error::InvalidInput("invalid packed inventory stream"));
+        }
+        let block_count = bytes
+            .len()
+            .checked_add(block_size - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / block_size;
+        let mut blocks = Vec::with_capacity(block_count);
+        let result = (|| {
+            for chunk in bytes.chunks(block_size) {
+                let block = self.allocate_block(device)?;
+                blocks.push(block);
+                let mut padded = vec![0_u8; block_size];
+                padded[..chunk.len()].copy_from_slice(chunk);
+                device.write_blocks(block, &padded)?;
+            }
+            device.flush()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            for block in blocks.iter().copied() {
+                let _ = self.free_block(device, block);
+            }
+            return Err(error);
+        }
+        Ok(blocks)
+    }
+
     /// Read a caller-located, packed metadata inventory from allocated data blocks.
     ///
     /// The blocks are supplied in stream order and must contain exactly enough blocks
