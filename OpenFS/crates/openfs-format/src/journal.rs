@@ -379,6 +379,27 @@ mod tests {
     }
 
     #[test]
+    fn streaming_checksum_matches_shared_crc32c_for_varied_payload_lengths() {
+        for payload_len in [0, 1, 2, 7, 31, 255, 4096, JOURNAL_MAX_PAYLOAD_SIZE] {
+            let payload = (0..payload_len)
+                .map(|index| (index.wrapping_mul(37) & 0xff) as u8)
+                .collect::<Vec<_>>();
+            let record = sample(JournalRecordKind::Update, &payload);
+            let encoded = record.encode().unwrap();
+
+            let mut reference_input = Vec::with_capacity(36 + payload.len());
+            reference_input.extend_from_slice(&encoded[..36]);
+            reference_input.extend_from_slice(&encoded[JOURNAL_HEADER_SIZE..]);
+            assert_eq!(
+                super::record_checksum(&encoded),
+                super::crc32c(&reference_input),
+                "CRC mismatch for payload length {payload_len}"
+            );
+            assert_eq!(JournalRecord::decode(&encoded).unwrap(), record);
+        }
+    }
+
+    #[test]
     fn round_trips_all_record_kinds() {
         for (kind, payload) in [
             (JournalRecordKind::Begin, &[][..]),
