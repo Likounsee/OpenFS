@@ -2814,6 +2814,18 @@ mod tests {
             assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
             assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
 
+            // A newly created empty file has no allocated data extents. A write
+            // must fail without changing its persistent metadata or publishing a
+            // partially initialized file.
+            assert!(volume
+                .write_persistent_path_range(&mut device, "/hello.txt", 0, b"x")
+                .is_err());
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
+
             drop(volume);
             let reopened = open_volume(&mut device).unwrap();
             let (_, namespace) = reopened
@@ -2821,6 +2833,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
         }
         fs::remove_file(path).unwrap();
     }
