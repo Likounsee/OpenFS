@@ -1192,6 +1192,12 @@ impl OpenedVolume {
         };
         if namespace.root_id() != persistent_namespace.root_id()
             || namespace.objects().ne(persistent_namespace.objects())
+            || namespace
+                .entries()
+                .map(|entry| (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str()))
+                .ne(persistent_namespace.entries().map(|entry| {
+                    (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str())
+                }))
         {
             return Err(Error::Corrupt(
                 "supplied namespace metadata does not match persistent inventory",
@@ -1313,6 +1319,12 @@ impl OpenedVolume {
         };
         if namespace.root_id() != persistent_namespace.root_id()
             || namespace.objects().ne(persistent_namespace.objects())
+            || namespace
+                .entries()
+                .map(|entry| (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str()))
+                .ne(persistent_namespace.entries().map(|entry| {
+                    (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str())
+                }))
         {
             return Err(Error::Corrupt(
                 "supplied namespace metadata does not match persistent inventory",
