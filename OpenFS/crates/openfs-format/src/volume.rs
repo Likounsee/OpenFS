@@ -4444,7 +4444,7 @@ mod tests {
             let path = image_path(&format!("persistent-extent-map-alias-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let directory_block = volume.allocate_block(&mut device).unwrap();
                 let first_root = volume.allocate_block(&mut device).unwrap();
