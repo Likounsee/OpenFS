@@ -4167,7 +4167,14 @@ mod tests {
             device
                 .write_blocks(extent_root, &map.encode_block(4096).unwrap())
                 .unwrap();
+            let payload: Vec<u8> = (0..4096).map(|index| (index % 251) as u8).collect();
+            device.write_blocks(data_block, &payload).unwrap();
+            device.flush().unwrap();
 
+            // The metadata, extent map, and file bytes must remain readable after
+            // closing the original handle and reopening the formatted volume.
+            drop(volume);
+            let mut volume = open_volume(&mut device).unwrap();
             let namespace = volume
                 .reconstruct_namespace(
                     &mut device,
@@ -4182,6 +4189,12 @@ mod tests {
                 .read_namespace_extent_maps(&mut device, &namespace)
                 .unwrap();
             assert_eq!(loaded.get(&ObjectId(2)).unwrap(), &map);
+            assert_eq!(
+                volume
+                    .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                    .unwrap(),
+                payload
+            );
 
             volume.free_block(&mut device, data_block).unwrap();
             assert!(matches!(
