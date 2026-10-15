@@ -597,7 +597,9 @@ mod tests {
         ];
         assert!(matches!(
             plan_recovery(&records, 0),
-            Err(Error::Corrupt("committed journal transaction contains no redo updates"))
+            Err(Error::Corrupt(
+                "committed journal transaction contains no redo updates"
+            ))
         ));
     }
 
