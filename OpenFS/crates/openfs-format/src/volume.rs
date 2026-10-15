@@ -1228,6 +1228,22 @@ impl OpenedVolume {
             ));
         }
 
+        // A matching extent map is not proof that the supplied in-memory namespace
+        // is the one published on disk. Reject forged or stale metadata before
+        // returning bytes, using the same identity check as the write path.
+        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "file reads require a published persistent inventory",
+            ));
+        };
+        if namespace.root_id() != persistent_namespace.root_id()
+            || namespace.objects().ne(persistent_namespace.objects())
+        {
+            return Err(Error::Corrupt(
+                "supplied namespace metadata does not match persistent inventory",
+            ));
+        }
+
         let mut output = vec![0_u8; read_len];
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
         for logical in first_logical..=last_logical {
@@ -4434,6 +4450,22 @@ mod tests {
                     .read_blocks(data_block, &mut after_forged_write)
                     .unwrap();
                 assert_eq!(after_forged_write, before_forged_write);
+
+                // Reads must also reject caller-supplied metadata that is not the
+                // namespace published on disk, even when its extent map is unchanged.
+                assert!(matches!(
+                    volume.read_file_range(
+                        &mut device,
+                        &forged_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        8,
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
 
                 // Partial writes preserve the surrounding bytes and are visible
                 // through the normal persistent read path after a flush.
