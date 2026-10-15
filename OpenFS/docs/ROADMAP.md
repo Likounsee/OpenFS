@@ -325,7 +325,9 @@ Implemented:
 - Checksummed extent-map pages, sparse logical mapping, extent coalescing, bounds/alias validation and physical range removal in memory.
 - In-memory namespace create/lookup/list/path/rename/remove validation.
 - Disk-backed inventory readers, descriptor-based discovery, namespace reconstruction, extent-map loading, and file range/content/path reads including fragmented extents, sparse zero-fill and EOF handling.
-- Tests for malformed records, graph inconsistencies, ownership aliases, free blocks and read failures. The Rust public surface does not currently expose persistent create/write/truncate/rename/delete.
+- A bounded `write_file_range` primitive now overwrites existing allocated extents, preserves bytes outside partial-block writes, validates the persisted extent map and allocation bitmap, rejects sparse holes and writes past EOF, and flushes data before returning success.
+- Tests cover persistent namespace discovery after reopen, writes spanning two physical extents across all supported block sizes, and refusal to free blocks still owned by file extents.
+- The complete persistent mutation lifecycle is still absent: no durable create/truncate/rename/unlink API, no allocation or extension for writes, and no transactional old-or-new guarantee for multi-block data writes.
 
 Required design:
 - Choose the persistent metadata root/index and allocation/ownership model.
@@ -337,11 +339,11 @@ Required design:
 1. **P2.8 Canonical metadata locator/root — Not implemented.** Versioned root points to bounded metadata and directory structures; validate all pointers before use.
 2. **P2.9 Durable read-only mount model — Partially implemented.** Open from only on-disk roots without caller-supplied block lists; remount must reconstruct the same object graph.
 3. **P2.10 Durable create/mkdir — Not implemented.** Allocate IDs and blocks, publish parent entry and metadata atomically; failure/reopen must show either absent or complete object.
-4. **P2.11 Durable write/truncate — Not implemented.** Test empty/large/fragmented/sparse files, partial blocks, overwrite, grow/shrink, no-space and every I/O failure. Old data must remain readable or a documented committed new version must be complete.
+4. **P2.11 Durable write/truncate — Partial primitive only.** `write_file_range` overwrites bytes within an existing file's already-allocated extents and rejects EOF overflow or sparse holes. Still required: allocation, extension/truncation, transactional metadata updates, and failure recovery across multi-block writes. Test empty/large/fragmented/sparse files, partial blocks, grow/shrink, no-space and every I/O failure; old data must remain readable or a documented committed new version must be complete.
 5. **P2.12 Durable rename/unlink/rmdir — Not implemented.** Test collisions, moving directories, non-empty directories, same-name cases, stale references, link counts when supported and crash cuts.
 6. **P2.13 Directory growth and large inventories — Not implemented.** Test capacity boundaries, pagination, bounded memory and no duplicate/lost entries.
 7. **P2.14 Semantics — Partially implemented in memory only.** Path resolution, rename/remove validation and case-sensitivity behavior have in-memory coverage; durable on-disk semantics and the full first-release contract remain undefined. Specify path normalization, absolute/relative paths, trailing separators, name encoding, timestamps, permissions and file type behavior.
-8. **P2.15 Read API exists; durable write API not implemented.** Range/content/path reads and shared errors exist, but there is no complete durable mutation API or handle lifecycle. Distinguish EOF, no-space, corruption, unsupported operation and I/O failure.
+8. **P2.15 Read API plus bounded write primitive.** Range/content/path reads and `write_file_range` exist, but there is no complete durable mutation API or handle lifecycle. Distinguish EOF, no-space, corruption, unsupported operation and I/O failure; document that a device error during a multi-block data write may leave a prefix updated.
 9. **P2.16 Persistent end-to-end tests — Not implemented.** Create nested trees, write known bytes, close/reopen, read, rename, delete, verify ownership, and inject failures after every durable step.
 
 **Exit gate:** image-backed create/read/write/truncate/rename/delete and directory operations survive reopen and injected crashes; checker reports no leaks, aliases or dangling references. No OS mount should precede this gate.
