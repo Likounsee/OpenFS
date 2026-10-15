@@ -1968,7 +1968,7 @@ mod tests {
         // Forge a checksum-valid but semantically inconsistent on-disk record:
         // the public codec now rejects this state before it can be emitted.
         encoded[32..40].copy_from_slice(&(checkpoint.next_sequence + 1).to_le_bytes());
-        let checksum = super::crc32c(&encoded[..64]);
+        let checksum = crate::crc32c(&encoded[..64]);
         encoded[64..68].copy_from_slice(&checksum.to_le_bytes());
         let mut block = vec![0_u8; BS as usize];
         block[..encoded.len()].copy_from_slice(&encoded);
