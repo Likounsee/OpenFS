@@ -431,7 +431,9 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
 ) -> Result<ScannedRecords> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
-    let mut malformed = Vec::new();
+    // Only the earliest malformed slot matters: it must not precede a later
+    // valid record. Tracking one index avoids a second allocation for bad slots.
+    let mut first_malformed_slot = None;
     // Reuse one scratch block for the bounded ring scan. Decoding owns its payload,
     // so the next read can safely overwrite this buffer without cloning the block.
     let mut block = vec![0_u8; block_size];
@@ -450,7 +452,11 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
                 }
                 newer.push((slot, record));
             }
-            Err(_) => malformed.push(slot),
+            Err(_) => {
+                first_malformed_slot = Some(
+                    first_malformed_slot.map_or(slot, |first: u64| first.min(slot)),
+                );
+            }
         }
     }
     // Sequence numbers are validated for strict continuity by recovery planning;
@@ -473,7 +479,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         }
     }
     if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
-        if malformed.iter().any(|slot| slot < last_slot) {
+        if first_malformed_slot.is_some_and(|slot| slot < *last_slot) {
             return Err(Error::Corrupt(
                 "malformed journal block appears before a later valid record",
             ));
