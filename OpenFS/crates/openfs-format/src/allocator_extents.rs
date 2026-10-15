@@ -2246,6 +2246,8 @@ mod allocation_bitmap_report_tests {
                 assert!(!report.is_consistent());
             }
             fs::remove_file(path).unwrap();
+        }
+    }
 
     #[test]
     fn ownership_report_bounds_both_diagnostic_samples_without_losing_totals() {
@@ -2270,10 +2272,19 @@ mod allocation_bitmap_report_tests {
                     .extent_map_ownership_report(&mut device, &[(&map, 80)])
                     .unwrap();
 
-                assert_eq!(report.orphaned_allocation_count, 20, "block_size={block_size}");
-                assert_eq!(report.orphaned_allocations.len(), 20, "block_size={block_size}");
+                assert_eq!(
+                    report.orphaned_allocation_count, 20,
+                    "block_size={block_size}"
+                );
+                assert_eq!(
+                    report.orphaned_allocations.len(), 20,
+                    "block_size={block_size}"
+                );
                 assert!(!report.orphaned_allocations_truncated);
-                assert_eq!(report.dangling_reference_count, 80, "block_size={block_size}");
+                assert_eq!(
+                    report.dangling_reference_count, 80,
+                    "block_size={block_size}"
+                );
                 assert_eq!(
                     report.dangling_references,
                     allocated[..64],
@@ -2283,8 +2294,6 @@ mod allocation_bitmap_report_tests {
                 assert!(!report.is_consistent());
             }
             fs::remove_file(path).unwrap();
-        }
-    }
         }
     }
 }
