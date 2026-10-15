@@ -558,15 +558,13 @@ impl OpenedVolume {
         Ok(descriptor_block)
     }
 
-    /// Atomically replace a persistent descriptor without changing inventory block ownership.
+    /// Atomically replace a persistent descriptor and reconcile its block ownership.
     ///
-    /// The replacement descriptor must reference exactly the same metadata and directory
-    /// blocks as the current descriptor. The new descriptor is staged in a free block in
-    /// the same allocation-bitmap page as the old descriptor, then a single journaled bitmap
-    /// image switches visibility from old to new. This keeps the descriptor swap within the
-    /// journal's currently supported single-home-block transaction and makes recovery expose
-    /// exactly one descriptor. Replacements that change block ownership require a larger
-    /// multi-page ownership transaction and are deliberately rejected.
+    /// The replacement descriptor is verified against the current volume before any writes.
+    /// Blocks removed from the inventory and the old descriptor are released, while a new
+    /// descriptor block is allocated. A single journal transaction updates every affected
+    /// bitmap page, and its capacity is checked before the new descriptor is staged. Recovery
+    /// therefore exposes either the old or new descriptor with a matching ownership state.
     pub fn replace_persistent_inventory_descriptor<D: BlockDevice>(
         &mut self,
         device: &mut D,
