@@ -2724,6 +2724,88 @@ mod tests {
     }
 
     #[test]
+    fn replaces_persistent_namespace_inventory_and_survives_reopen() {
+        use crate::{
+            DirectoryEntry, MetadataRecord, Namespace, ObjectId, ObjectKind,
+            PersistentInventoryDescriptor,
+        };
+
+        let path = image_path("namespace-inventory-copy-on-write");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root = ObjectId(1);
+            let initial_metadata_block = volume.allocate_block(&mut device).unwrap();
+            let root_record = MetadataRecord {
+                id: root,
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut initial_bytes = vec![0_u8; 4096];
+            initial_bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root_record.encode().unwrap());
+            device.write_blocks(initial_metadata_block, &initial_bytes).unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: root,
+                        metadata_blocks: vec![initial_metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    },
+                )
+                .unwrap();
+
+            let mut namespace = Namespace::new(root).unwrap();
+            namespace
+                .insert(
+                    DirectoryEntry {
+                        parent_id: 1,
+                        object_id: 2,
+                        kind: ObjectKind::File,
+                        name: "hello.txt".to_owned(),
+                    },
+                    MetadataRecord {
+                        id: ObjectId(2),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size: 0,
+                        extent_root_block: None,
+                        generation: 1,
+                    },
+                )
+                .unwrap();
+
+            volume
+                .replace_persistent_namespace_inventory(&mut device, &namespace)
+                .unwrap();
+            let (_, reopened_namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(reopened_namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(reopened_namespace.object_count(), 2);
+            assert_eq!(reopened_namespace.entry_count(), 1);
+
+            drop(volume);
+            let reopened = open_volume(&mut device).unwrap();
+            let (_, persisted) = reopened
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(persisted.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn discovers_unique_persistent_inventory_descriptor() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
