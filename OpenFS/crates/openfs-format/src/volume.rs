@@ -2595,10 +2595,23 @@ mod tests {
                 let image = ImageDevice::create(&path, 4096, 256).unwrap();
                 let mut image = image;
                 let mut volume = format_volume(&mut image, *b"openfs-test-0001", 0).unwrap();
+                let root_block = volume.allocate_block(&mut image).unwrap();
+                let root = crate::MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: crate::ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let mut root_bytes = vec![0_u8; 4096];
+                root_bytes[..80].copy_from_slice(&root.encode().unwrap());
+                image.write_blocks(root_block, &root_bytes).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
-                    metadata_blocks: vec![],
-                    metadata_record_count: 0,
+                    metadata_blocks: vec![root_block],
+                    metadata_record_count: 1,
                     directory_blocks: vec![],
                     directory_entry_count: 0,
                 };
@@ -2682,9 +2695,9 @@ mod tests {
             DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
         };
 
-        // Descriptor scan reads are 0-3; packed metadata and directory data reads
-        // occur later, after their allocation bitmap pages have been checked.
-        for fail_at in [5, 7] {
+        // Descriptor discovery reads are followed by packed metadata and directory reads.
+        // These indices target the namespace-stream reads in this fixture.
+        for fail_at in [3, 4] {
             let path = image_path(&format!(
                 "inventory-discovery-namespace-read-failure-{fail_at}"
             ));
@@ -2776,10 +2789,23 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root_block = volume.allocate_block(&mut device).unwrap();
+            let root = crate::MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: crate::ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut root_bytes = vec![0_u8; 4096];
+            root_bytes[..80].copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(root_block, &root_bytes).unwrap();
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
-                metadata_blocks: vec![],
-                metadata_record_count: 0,
+                metadata_blocks: vec![root_block],
+                metadata_record_count: 1,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
@@ -2811,10 +2837,23 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root_block = volume.allocate_block(&mut device).unwrap();
+            let root = crate::MetadataRecord {
+                id: ObjectId(1),
+                parent_id: 0,
+                kind: crate::ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut root_bytes = vec![0_u8; 4096];
+            root_bytes[..80].copy_from_slice(&root.encode().unwrap());
+            device.write_blocks(root_block, &root_bytes).unwrap();
             let descriptor = PersistentInventoryDescriptor {
                 root_id: ObjectId(1),
-                metadata_blocks: vec![],
-                metadata_record_count: 0,
+                metadata_blocks: vec![root_block],
+                metadata_record_count: 1,
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
