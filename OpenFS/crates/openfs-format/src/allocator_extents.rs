@@ -2277,7 +2277,8 @@ mod allocation_bitmap_report_tests {
                     "block_size={block_size}"
                 );
                 assert_eq!(
-                    report.orphaned_allocations.len(), 20,
+                    report.orphaned_allocations.len(),
+                    20,
                     "block_size={block_size}"
                 );
                 assert!(!report.orphaned_allocations_truncated);
