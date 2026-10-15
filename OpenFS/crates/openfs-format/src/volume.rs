@@ -1257,6 +1257,116 @@ impl OpenedVolume {
         Ok(output)
     }
 
+    /// Write bytes into an existing file's already-allocated extents.
+    ///
+    /// This operation does not extend files, allocate blocks, or update metadata. It
+    /// rejects ranges that cross EOF or touch sparse holes before writing any bytes.
+    /// Data blocks are flushed before success is returned, but a device I/O failure
+    /// during a multi-block write can still leave a prefix updated; metadata journaling
+    /// does not make file-data writes atomic.
+    pub fn write_file_range<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        namespace: &Namespace,
+        extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
+        object_id: ObjectId,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("file object does not exist"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("object is not a regular file"));
+        }
+        if data.is_empty() {
+            return Ok(());
+        }
+        let write_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+        let end = offset
+            .checked_add(write_len)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if offset >= record.size || end > record.size {
+            return Err(Error::InvalidInput("write range exceeds existing file size"));
+        }
+
+        let map = extent_maps.get(&object_id);
+        if let Some(root_block) = record.extent_root_block {
+            let loaded_map = map.ok_or(Error::Corrupt(
+                "file extent map is missing from loaded inventory",
+            ))?;
+            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
+            if loaded_map != &persisted_map {
+                return Err(Error::Corrupt(
+                    "loaded extent map does not match persistent extent-map root",
+                ));
+            }
+        } else if map.is_some_and(|value| !value.is_empty()) {
+            return Err(Error::Corrupt(
+                "file has extents without a persistent extent-map root",
+            ));
+        }
+
+        let block_size = u64::from(self.volume.block_size);
+        let first_logical = offset / block_size;
+        let last_logical = (end - 1) / block_size;
+        let map = map.ok_or(Error::InvalidInput(
+            "cannot write into a sparse hole without allocating extents",
+        ))?;
+
+        // Validate every target block before the first write so sparse holes and
+        // stale/free extent references cannot cause a partially applied logical write.
+        for logical in first_logical..=last_logical {
+            let physical = map.physical_block(logical).ok_or(Error::InvalidInput(
+                "cannot write into a sparse hole without allocating extents",
+            ))?;
+            if physical < self.volume.layout.data_start
+                || physical >= self.volume.layout.backup_superblock
+            {
+                return Err(Error::Corrupt("file extent points outside the data region"));
+            }
+            if !self.is_data_block_allocated(device, physical)? {
+                return Err(Error::Corrupt("file extent points to a free data block"));
+            }
+        }
+
+        let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
+        let mut source_offset = 0_usize;
+        for logical in first_logical..=last_logical {
+            let block_start = logical
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let copy_start = offset.max(block_start);
+            let copy_end = end.min(
+                block_start
+                    .checked_add(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let within_start =
+                usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let within_end =
+                usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let chunk_len = within_end - within_start;
+            let physical = map
+                .physical_block(logical)
+                .expect("target extents were validated before writing");
+            if within_start == 0 && within_end == block_buffer.len() {
+                block_buffer.copy_from_slice(&data[source_offset..source_offset + chunk_len]);
+            } else {
+                device.read_blocks(physical, &mut block_buffer)?;
+                block_buffer[within_start..within_end]
+                    .copy_from_slice(&data[source_offset..source_offset + chunk_len]);
+            }
+            device.write_blocks(physical, &block_buffer)?;
+            source_offset = source_offset
+                .checked_add(chunk_len)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+        device.flush()?;
+        Ok(())
+    }
+
     /// Read the complete logical contents of a file, including zero-filled sparse holes.
     ///
     /// This allocates a buffer of the file's full byte length; prefer read_file_range for
@@ -4237,6 +4347,39 @@ mod tests {
                         .unwrap(),
                     payload
                 );
+
+                // Partial writes preserve the surrounding bytes and are visible
+                // through the normal persistent read path after a flush.
+                let replacement = vec![0xA5; 97];
+                volume
+                    .write_file_range(
+                        &mut device,
+                        &namespace,
+                        &loaded,
+                        ObjectId(2),
+                        123,
+                        &replacement,
+                    )
+                    .unwrap();
+                let mut expected = payload.clone();
+                expected[123..123 + replacement.len()].copy_from_slice(&replacement);
+                assert_eq!(
+                    volume
+                        .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                        .unwrap(),
+                    expected
+                );
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut device,
+                        &namespace,
+                        &loaded,
+                        ObjectId(2),
+                        block_len as u64 - 2,
+                        &[1, 2, 3],
+                    ),
+                    Err(Error::InvalidInput("write range exceeds existing file size"))
+                ));
 
                 assert!(matches!(
                     volume.free_block(&mut device, extent_root),
