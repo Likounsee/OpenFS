@@ -1271,6 +1271,46 @@ mod tests {
     }
 
     #[test]
+    fn decoded_redo_rejects_malformed_chunk_framing() {
+        let valid = encode_redo_chunks(&update(0xA5), BS as usize).unwrap();
+
+        let mut cases = Vec::new();
+
+        let mut truncated_header = valid.clone();
+        truncated_header[0].truncate(super::UPDATE_CHUNK_HEADER_SIZE - 1);
+        cases.push(("truncated header", truncated_header));
+
+        let mut invalid_count = valid.clone();
+        invalid_count[0][10..12].copy_from_slice(&1_u16.to_le_bytes());
+        cases.push(("invalid chunk count", invalid_count));
+
+        let mut invalid_index = valid.clone();
+        invalid_index[0][8..10].copy_from_slice(&2_u16.to_le_bytes());
+        cases.push(("out-of-range chunk index", invalid_index));
+
+        let mut mismatched_target = valid.clone();
+        mismatched_target[1][..8].copy_from_slice(&(HOME + 1).to_le_bytes());
+        cases.push(("target changes mid-image", mismatched_target));
+
+        let mut invalid_length = valid.clone();
+        invalid_length[1].pop();
+        cases.push(("truncated data", invalid_length));
+
+        cases.push(("missing final chunk", valid[..1].to_vec()));
+
+        let mut out_of_order = valid.clone();
+        out_of_order.reverse();
+        cases.push(("out-of-order chunks", out_of_order));
+
+        for (case, payloads) in cases {
+            assert!(
+                matches!(decode_redo_updates(&payloads, BS as usize), Err(Error::Corrupt(_))),
+                "malformed redo framing must fail closed: {case}"
+            );
+        }
+    }
+
+    #[test]
     fn duplicate_redo_targets_are_rejected_before_any_persistent_write() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
