@@ -1334,6 +1334,62 @@ mod tests {
     }
 
     #[test]
+    fn recovery_rejects_persisted_duplicate_targets_before_any_home_write() {
+        use crate::{JournalRecord, JournalRecordKind};
+
+        let mut device = formatted();
+        let first = update(0xA5);
+        let second = update(0x5A);
+        let chunks = encode_redo_chunks(&first, BS as usize)
+            .unwrap()
+            .into_iter()
+            .chain(encode_redo_chunks(&second, BS as usize).unwrap())
+            .collect::<Vec<_>>();
+        let mut records = Vec::new();
+        records.push(JournalRecord {
+            kind: JournalRecordKind::Begin,
+            sequence: 1,
+            transaction_id: 1,
+            payload: Vec::new(),
+        });
+        for (index, payload) in chunks.into_iter().enumerate() {
+            records.push(JournalRecord {
+                kind: JournalRecordKind::Update,
+                sequence: index as u64 + 2,
+                transaction_id: 1,
+                payload,
+            });
+        }
+        records.push(JournalRecord {
+            kind: JournalRecordKind::Commit,
+            sequence: records.len() as u64 + 1,
+            transaction_id: 1,
+            payload: Vec::new(),
+        });
+        for (slot, record) in records.iter().enumerate() {
+            device
+                .write_blocks(
+                    REGION.ring_start + slot as u64,
+                    &record.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+        }
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt(
+                "redo transaction contains duplicate targets"
+            ))
+        ));
+        assert_eq!(
+            read_home(&mut device),
+            vec![0x11; BS as usize],
+            "corrupt duplicate-target transaction must not replay either image"
+        );
+    }
+
+    #[test]
     fn decoded_redo_rejects_duplicate_targets_from_persisted_records() {
         let first = encode_redo_chunks(&update(0xA5), BS as usize).unwrap();
         let second = encode_redo_chunks(&update(0x5A), BS as usize).unwrap();
