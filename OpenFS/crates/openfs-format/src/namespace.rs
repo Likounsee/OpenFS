@@ -576,6 +576,14 @@ impl Namespace {
         })
     }
 
+    /// Iterate all directory entries in deterministic (parent ID, name) order.
+    ///
+    /// This read-only view lets storage APIs compare the complete namespace graph,
+    /// not only object metadata, against the inventory reconstructed from disk.
+    pub fn entries(&self) -> impl Iterator<Item = &DirectoryEntry> {
+        self.names.values()
+    }
+
     pub fn object_count(&self) -> usize {
         self.objects.len()
     }
