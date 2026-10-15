@@ -294,6 +294,12 @@ impl PersistentJournal {
         self.region.validate(device)?;
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Reject transactions that cannot fit before walking every target or
+        // allocating the duplicate-detection set. The journal has a fixed ring, so
+        // an oversized caller-provided slice must not trigger unbounded extra work.
+        let required_records = self.required_record_count(device, updates.len())?;
+
         let mut targets = std::collections::BTreeSet::new();
         for update in updates {
             if update.contents.len() != block_size {
@@ -309,12 +315,6 @@ impl PersistentJournal {
                 ));
             }
         }
-
-        // Bound work and allocation before constructing the record vector. A caller
-        // can supply an arbitrarily large update slice, but this journal only has a
-        // fixed number of slots and must reject oversized transactions without
-        // allocating a transaction-sized intermediate representation.
-        let required_records = self.required_record_count(device, updates.len())?;
 
         let transaction_id = self.checkpoint.next_transaction_id;
         let mut sequence = self.checkpoint.next_sequence;
@@ -1555,7 +1555,7 @@ mod tests {
     fn transaction_capacity_preflight_rejects_oversized_redo_without_mutation() {
         let mut device = MemoryDevice::new();
         format_journal(&mut device, REGION).unwrap();
-        let journal = open_journal(&mut device, REGION).unwrap();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
         let before = device.bytes.lock().unwrap().clone();
 
         // A 4096-byte redo image needs two ring records; BEGIN and COMMIT
@@ -1563,6 +1563,16 @@ mod tests {
         assert_eq!(journal.required_record_count(&device, 3).unwrap(), 8);
         assert!(matches!(
             journal.required_record_count(&device, 4),
+            Err(Error::InvalidInput(
+                "transaction does not fit in the bounded journal ring"
+            ))
+        ));
+
+        // Capacity is checked before duplicate-target validation, which would
+        // otherwise allocate and walk an arbitrarily large target set.
+        let oversized = vec![update(0x33); 4];
+        assert!(matches!(
+            journal.commit(&mut device, &oversized),
             Err(Error::InvalidInput(
                 "transaction does not fit in the bounded journal ring"
             ))
