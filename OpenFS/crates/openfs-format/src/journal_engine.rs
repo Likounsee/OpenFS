@@ -359,7 +359,9 @@ impl PersistentJournal {
         );
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         if encoded.len() != required_records {
-            return Err(Error::Corrupt("journal record count preflight disagrees with encoding"));
+            return Err(Error::Corrupt(
+                "journal record count preflight disagrees with encoding",
+            ));
         }
 
         // Preflight counters before the first persistent write. Overflow after a
