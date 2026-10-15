@@ -367,7 +367,7 @@ Tasks:
 No Rust mount/VFS or OS filesystem adapter was found in the current workspace. Legacy adapters are references only.
 
 Tasks:
-1. **P3.7 Choose Windows route — Blocked by P4.** Document WinFsp or other chosen integration, privilege/signing/installer requirements, error mapping and failure modes.
+1. **P3.7 Choose Windows route — Blocked by P2** Document WinFsp or other chosen integration, privilege/signing/installer requirements, error mapping and failure modes.
 2. **P3.8 Adapter contract — Not implemented.** Map file operations, handles, flush, unmount and device removal to stable core APIs without OS assumptions in the format crate.
 3. **P3.9 Safe lifecycle — Not implemented.** Prevent unmount races, reject operations after shutdown starts, drain in-flight operations and report dirty/failed state.
 4. **P3.10 Windows integration — Not implemented.** Integration tests through normal OS APIs, not direct library calls alone.
