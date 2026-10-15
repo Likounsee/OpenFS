@@ -1167,6 +1167,38 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_newer_checkpoint_with_regressed_counters() {
+        let mut device = formatted();
+        let newer = JournalCheckpoint {
+            generation: 3,
+            checkpoint_sequence: 4,
+            next_sequence: 5,
+            next_transaction_id: 2,
+            head_block: 0,
+            tail_block: 0,
+        };
+        let older = JournalCheckpoint {
+            generation: 2,
+            checkpoint_sequence: 8,
+            next_sequence: 9,
+            next_transaction_id: 3,
+            head_block: 0,
+            tail_block: 0,
+        };
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_a, &newer).unwrap();
+        super::write_checkpoint_block(&mut device, REGION.checkpoint_b, &older).unwrap();
+        device.flush().unwrap();
+
+        assert!(matches!(
+            open_journal(&mut device, REGION),
+            Err(Error::Corrupt(
+                "newer journal checkpoint regresses durable counters"
+            ))
+        ));
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+    }
+
+    #[test]
     fn open_rejects_checkpoint_generation_gaps() {
         let mut device = MemoryDevice::new();
         format_journal(&mut device, REGION).unwrap();
