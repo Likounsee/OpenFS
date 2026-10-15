@@ -1470,18 +1470,20 @@ mod tests {
     }
 
     #[test]
-    fn redo_chunk_helpers_reject_zero_payload_capacity_without_panicking() {
-        let block_size = super::JOURNAL_HEADER_SIZE + super::UPDATE_CHUNK_HEADER_SIZE;
+    fn redo_chunk_helpers_reject_insufficient_payload_capacity_without_panicking() {
+        let minimum = super::JOURNAL_HEADER_SIZE + super::UPDATE_CHUNK_HEADER_SIZE;
         let image = update(0xA5);
 
-        assert!(matches!(
-            encode_redo_chunks(&image, block_size),
-            Err(Error::InvalidInput("device block is too small for redo chunks"))
-        ));
-        assert!(matches!(
-            decode_redo_updates(&[], block_size),
-            Err(Error::InvalidInput("device block is too small for redo chunks"))
-        ));
+        for block_size in [minimum - 1, minimum] {
+            assert!(matches!(
+                encode_redo_chunks(&image, block_size),
+                Err(Error::InvalidInput("device block is too small for redo chunks"))
+            ));
+            assert!(matches!(
+                decode_redo_updates(&[], block_size),
+                Err(Error::InvalidInput("device block is too small for redo chunks"))
+            ));
+        }
     }
 
     #[test]
