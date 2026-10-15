@@ -1519,9 +1519,21 @@ impl OpenedVolume {
             || namespace.objects().ne(persistent_namespace.objects())
             || namespace
                 .entries()
-                .map(|entry| (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str()))
+                .map(|entry| {
+                    (
+                        entry.parent_id,
+                        entry.object_id,
+                        entry.kind,
+                        entry.name.as_str(),
+                    )
+                })
                 .ne(persistent_namespace.entries().map(|entry| {
-                    (entry.parent_id, entry.object_id, entry.kind, entry.name.as_str())
+                    (
+                        entry.parent_id,
+                        entry.object_id,
+                        entry.kind,
+                        entry.name.as_str(),
+                    )
                 }))
         {
             return Err(Error::Corrupt(
