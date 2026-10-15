@@ -2803,6 +2803,10 @@ mod tests {
                     .unwrap(),
                 ObjectId(2)
             );
+            // A duplicate name must fail before publishing a replacement inventory.
+            assert!(volume
+                .create_persistent_file(&mut device, root, ObjectId(3), "hello.txt")
+                .is_err());
             let (_, namespace) = volume
                 .reconstruct_discovered_namespace(&mut device)
                 .unwrap()
