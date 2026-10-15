@@ -4370,7 +4370,7 @@ mod tests {
                 // Metadata, extent maps, and file bytes survive reopen and are
                 // rediscovered from the on-disk inventory descriptor.
                 drop(volume);
-                let mut volume = open_volume(&mut device).unwrap();
+                let volume = open_volume(&mut device).unwrap();
                 let (_, namespace) = volume
                     .reconstruct_discovered_namespace(&mut device)
                     .unwrap()
