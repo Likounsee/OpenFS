@@ -1293,22 +1293,16 @@ impl OpenedVolume {
             ));
         }
 
-        let map = extent_maps.get(&object_id);
-        if let Some(root_block) = record.extent_root_block {
-            let loaded_map = map.ok_or(Error::Corrupt(
-                "file extent map is missing from loaded inventory",
-            ))?;
-            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
-            if loaded_map != &persisted_map {
-                return Err(Error::Corrupt(
-                    "loaded extent map does not match persistent extent-map root",
-                ));
-            }
-        } else if map.is_some_and(|value| !value.is_empty()) {
+        // Validate the complete persistent ownership graph, not just the target
+        // file's map. A corrupt map that aliases another file's data must never be
+        // allowed to redirect writes into another object's blocks.
+        let persisted_maps = self.read_namespace_extent_maps(device, namespace)?;
+        if &persisted_maps != extent_maps {
             return Err(Error::Corrupt(
-                "file has extents without a persistent extent-map root",
+                "loaded extent maps do not match persistent namespace inventory",
             ));
         }
+        let map = persisted_maps.get(&object_id);
 
         let block_size = u64::from(self.volume.block_size);
         let first_logical = offset / block_size;
