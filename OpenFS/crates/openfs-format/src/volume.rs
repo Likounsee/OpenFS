@@ -4463,15 +4463,33 @@ mod tests {
                 );
                 // Path-based writes resolve their own persistent metadata and retain the
                 // same bounded-write semantics as the lower-level object-ID interface.
+                let replacement = [0xA5; 64];
                 volume
-                    .write_persistent_path_range(&mut device, "/payload.bin", 17, &payload[17..81])
+                    .write_persistent_path_range(&mut device, "/payload.bin", 17, &replacement)
                     .unwrap();
                 assert_eq!(
                     volume
                         .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
                         .unwrap(),
-                    payload[17..81]
+                    replacement
                 );
+
+                // The path-based update must survive closing and reopening the volume.
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 17, 64)
+                        .unwrap(),
+                    replacement
+                );
+                let (_, namespace) = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .expect("persistent namespace must survive write and reopen");
+                let loaded = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
 
                 // A forged in-memory record must not authorize writes even when
                 // its extent map still matches the real on-disk map.
