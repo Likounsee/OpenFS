@@ -4556,8 +4556,10 @@ mod tests {
 
             // Writes must run the same whole-namespace ownership check before
             // touching data, or a corrupt alias could overwrite another file.
-            let before = vec![0_u8; 8];
-            let mut after = vec![0_u8; 8];
+            // BlockDevice reads require whole-block buffers, even when the assertion
+            // below only cares about the prefix being protected from a rejected write.
+            let before = vec![0_u8; 4096];
+            let mut after = vec![0_u8; 4096];
             device.read_blocks(shared_data, &mut after).unwrap();
             assert_eq!(after, before);
             assert!(matches!(
