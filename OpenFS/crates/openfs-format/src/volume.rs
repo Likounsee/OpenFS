@@ -1271,11 +1271,12 @@ impl OpenedVolume {
     ///
     /// This operation does not extend files, allocate blocks, or update metadata. It
     /// rejects ranges that cross EOF or touch sparse holes before writing any bytes.
-    /// Data blocks are flushed before success is returned, but a device I/O failure
-    /// during a multi-block write can still leave a prefix updated; metadata journaling
-    /// does not make file-data writes atomic.
+    /// The complete set of touched data blocks is committed through the redo journal.
+    /// Ranges that exceed journal capacity are rejected before any data write. If I/O
+    /// fails after the commit record is durable, drop this volume and reopen it so journal
+    /// recovery can finish applying the transaction before further mutations.
     pub fn write_file_range<D: BlockDevice>(
-        &self,
+        &mut self,
         device: &mut D,
         namespace: &Namespace,
         extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
@@ -1354,7 +1355,16 @@ impl OpenedVolume {
             }
         }
 
-        let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
+        let block_len = self.volume.block_size as usize;
+        let touched_blocks = usize::try_from(last_logical - first_logical + 1)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        // Capacity is checked before staging or modifying any data block. A bounded
+        // journal must never accept a prefix of a logical write just because the tail
+        // of the range cannot fit in the ring.
+        self.journal.required_record_count(device, touched_blocks)?;
+
+        let mut updates = Vec::with_capacity(touched_blocks);
+        let mut block_buffer = vec![0_u8; block_len];
         let mut source_offset = 0_usize;
         for logical in first_logical..=last_logical {
             let block_start = logical
@@ -1374,20 +1384,22 @@ impl OpenedVolume {
             let physical = map
                 .physical_block(logical)
                 .expect("target extents were validated before writing");
-            if within_start == 0 && within_end == block_buffer.len() {
+            if within_start == 0 && within_end == block_len {
                 block_buffer.copy_from_slice(&data[source_offset..source_offset + chunk_len]);
             } else {
                 device.read_blocks(physical, &mut block_buffer)?;
                 block_buffer[within_start..within_end]
                     .copy_from_slice(&data[source_offset..source_offset + chunk_len]);
             }
-            device.write_blocks(physical, &block_buffer)?;
+            updates.push(RedoUpdate {
+                target_block: physical,
+                contents: block_buffer.clone(),
+            });
             source_offset = source_offset
                 .checked_add(chunk_len)
                 .ok_or(Error::ArithmeticOverflow)?;
         }
-        device.flush()?;
-        Ok(())
+        self.journal.commit(device, &updates)?;
     }
 
     /// Read the complete logical contents of a file, including zero-filled sparse holes.
