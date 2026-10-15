@@ -270,6 +270,17 @@ mod tests {
     }
 
     #[test]
+    fn decoder_rejects_checksum_valid_sequence_gap() {
+        let mut bytes = sample().encode().unwrap();
+        bytes[32..40].copy_from_slice(&10_u64.to_le_bytes());
+        refresh_checksum(&mut bytes);
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
     fn rejects_invalid_sequences_and_identifiers_even_with_valid_checksum() {
         let mut bytes = sample().encode().unwrap();
         bytes[32..40].copy_from_slice(&8_u64.to_le_bytes());
