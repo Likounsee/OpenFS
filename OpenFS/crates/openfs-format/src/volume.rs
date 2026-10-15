@@ -1312,6 +1312,23 @@ impl OpenedVolume {
                 "loaded extent maps do not match persistent namespace inventory",
             ));
         }
+
+        // Writes are allowed only against metadata reconstructed from the published
+        // on-disk inventory. Otherwise a caller could forge an in-memory file record
+        // (for example, changing its generation or extent root) while reusing valid maps.
+        let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "file writes require a published persistent inventory",
+            ));
+        };
+        if namespace.root_id() != persistent_namespace.root_id()
+            || namespace.objects().ne(persistent_namespace.objects())
+        {
+            return Err(Error::Corrupt(
+                "supplied namespace metadata does not match persistent inventory",
+            ));
+        }
+
         let map = persisted_maps.get(&object_id);
 
         let block_size = u64::from(self.volume.block_size);
@@ -4368,6 +4385,42 @@ mod tests {
                         .unwrap(),
                     payload
                 );
+
+                // A forged in-memory record must not authorize writes even when
+                // its extent map still matches the real on-disk map.
+                let mut forged_file = namespace.object(ObjectId(2)).unwrap().clone();
+                forged_file.generation += 1;
+                let forged_namespace = crate::Namespace::from_records(
+                    namespace.root_id(),
+                    [
+                        namespace.object(ObjectId(1)).unwrap().clone(),
+                        forged_file,
+                    ],
+                    [namespace.lookup(ObjectId(1), "payload.bin").unwrap().clone()],
+                )
+                .unwrap();
+                let mut before_forged_write = vec![0_u8; block_len];
+                device
+                    .read_blocks(data_block, &mut before_forged_write)
+                    .unwrap();
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut device,
+                        &forged_namespace,
+                        &loaded,
+                        ObjectId(2),
+                        0,
+                        &[0xCC; 8],
+                    ),
+                    Err(Error::Corrupt(
+                        "supplied namespace metadata does not match persistent inventory"
+                    ))
+                ));
+                let mut after_forged_write = vec![0_u8; block_len];
+                device
+                    .read_blocks(data_block, &mut after_forged_write)
+                    .unwrap();
+                assert_eq!(after_forged_write, before_forged_write);
 
                 // Partial writes preserve the surrounding bytes and are visible
                 // through the normal persistent read path after a flush.
