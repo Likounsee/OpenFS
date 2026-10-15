@@ -8281,7 +8281,9 @@ mod tests {
 
                 metadata_bytes[crate::METADATA_RECORD_SIZE..2 * crate::METADATA_RECORD_SIZE]
                     .copy_from_slice(&child.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
                 let mut directory_bytes = vec![0_u8; block_size as usize];
                 directory_bytes[..crate::DIRECTORY_ENTRY_SIZE]
                     .copy_from_slice(&entry.encode().unwrap());
