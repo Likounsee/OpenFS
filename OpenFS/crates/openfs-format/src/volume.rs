@@ -4115,94 +4115,97 @@ mod tests {
     fn reads_persistent_extent_maps_and_checks_bitmap_ownership() {
         use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 
-        let path = image_path("persistent-extent-map-read");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let metadata_block = volume.allocate_block(&mut device).unwrap();
-            let directory_block = volume.allocate_block(&mut device).unwrap();
-            let extent_root = volume.allocate_block(&mut device).unwrap();
-            let data_block = volume.allocate_block(&mut device).unwrap();
-            let root = MetadataRecord {
-                id: ObjectId(1),
-                parent_id: 0,
-                kind: ObjectKind::Directory,
-                flags: 0,
-                size: 0,
-                extent_root_block: None,
-                generation: 1,
-            };
-            let file = MetadataRecord {
-                id: ObjectId(2),
-                parent_id: 1,
-                kind: ObjectKind::File,
-                flags: 0,
-                size: 4096,
-                extent_root_block: Some(extent_root),
-                generation: 1,
-            };
-            let entry = DirectoryEntry {
-                parent_id: 1,
-                object_id: 2,
-                kind: ObjectKind::File,
-                name: "payload.bin".to_owned(),
-            };
-            let mut metadata_bytes = vec![0_u8; 4096];
-            metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
-            metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-            device
-                .write_blocks(metadata_block, &metadata_bytes)
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-extent-map-read-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
+                let extent_root = volume.allocate_block(&mut device).unwrap();
+                let data_block = volume.allocate_block(&mut device).unwrap();
+                let block_len = block_size as usize;
+                let root = MetadataRecord {
+                    id: ObjectId(1),
+                    parent_id: 0,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                };
+                let file = MetadataRecord {
+                    id: ObjectId(2),
+                    parent_id: 1,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: u64::from(block_size),
+                    extent_root_block: Some(extent_root),
+                    generation: 1,
+                };
+                let entry = DirectoryEntry {
+                    parent_id: 1,
+                    object_id: 2,
+                    kind: ObjectKind::File,
+                    name: "payload.bin".to_owned(),
+                };
+                let mut metadata_bytes = vec![0_u8; block_len];
+                metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
+                metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
+                let mut directory_bytes = vec![0_u8; block_len];
+                directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: data_block,
+                    block_count: 1,
+                }])
                 .unwrap();
-            let mut directory_bytes = vec![0_u8; 4096];
-            directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-            device
-                .write_blocks(directory_block, &directory_bytes)
-                .unwrap();
-            let map = ExtentMap::new(vec![Extent {
-                logical_start: 0,
-                physical_start: data_block,
-                block_count: 1,
-            }])
-            .unwrap();
-            device
-                .write_blocks(extent_root, &map.encode_block(4096).unwrap())
-                .unwrap();
-            let payload: Vec<u8> = (0..4096).map(|index| (index % 251) as u8).collect();
-            device.write_blocks(data_block, &payload).unwrap();
-            device.flush().unwrap();
+                device
+                    .write_blocks(extent_root, &map.encode_block(block_len).unwrap())
+                    .unwrap();
+                let payload: Vec<u8> = (0..block_len).map(|index| (index % 251) as u8).collect();
+                device.write_blocks(data_block, &payload).unwrap();
+                device.flush().unwrap();
 
-            // The metadata, extent map, and file bytes must remain readable after
-            // closing the original handle and reopening the formatted volume.
-            drop(volume);
-            let mut volume = open_volume(&mut device).unwrap();
-            let namespace = volume
-                .reconstruct_namespace(
-                    &mut device,
-                    ObjectId(1),
-                    &[metadata_block],
-                    2,
-                    &[directory_block],
-                    1,
-                )
-                .unwrap();
-            let loaded = volume
-                .read_namespace_extent_maps(&mut device, &namespace)
-                .unwrap();
-            assert_eq!(loaded.get(&ObjectId(2)).unwrap(), &map);
-            assert_eq!(
-                volume
-                    .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
-                    .unwrap(),
-                payload
-            );
+                // Metadata, extent maps, and file bytes survive reopen at every
+                // supported block size, not just the 4 KiB development default.
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                let namespace = volume
+                    .reconstruct_namespace(
+                        &mut device,
+                        ObjectId(1),
+                        &[metadata_block],
+                        2,
+                        &[directory_block],
+                        1,
+                    )
+                    .unwrap();
+                let loaded = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
+                assert_eq!(loaded.get(&ObjectId(2)).unwrap(), &map);
+                assert_eq!(
+                    volume
+                        .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                        .unwrap(),
+                    payload
+                );
 
-            volume.free_block(&mut device, data_block).unwrap();
-            assert!(matches!(
-                volume.read_namespace_extent_maps(&mut device, &namespace),
-                Err(Error::Corrupt("file extent points to a free data block"))
-            ));
+                volume.free_block(&mut device, data_block).unwrap();
+                assert!(matches!(
+                    volume.read_namespace_extent_maps(&mut device, &namespace),
+                    Err(Error::Corrupt("file extent points to a free data block"))
+                ));
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
