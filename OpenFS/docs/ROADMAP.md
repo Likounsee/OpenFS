@@ -7,35 +7,36 @@ Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
-## Suivi d'avancement — mise à jour du 2026-10-15
+## Suivi d'avancement — phases P0 à P7 (mise à jour du 2026-10-15)
 
-**Branche cible :** `OpenFS` uniquement. **HEAD de référence :** [`5d7ff5445475a58ff1b92137f9af3e1903fdfc90`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90).
+**Branche cible :** `OpenFS` uniquement. **HEAD du code avant cette mise à jour documentaire :** [`5d7ff5445475a58ff1b92137f9af3e1903fdfc90`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90). Le commit qui met à jour cette roadmap ne change pas le code du filesystem.
 
-Ces pourcentages sont des estimations d'avancement de l'ingénierie, pas des taux de tests réussis. Ils ne remplacent pas les conditions de sortie détaillées de chaque étape.
+La nomenclature officielle est **P0, P1, P2, P3, P4, P5, P6 et P7**. Les pourcentages ci-dessous conservent le modèle pondéré et le ledger existants de cette roadmap; ils ne doivent pas être remplacés par une seconde échelle R0–R7.
 
-| Étape | Avancement estimé | État concret / blocage |
+| Phase | Avancement estimé | Priorité / état |
 | --- | ---: | --- |
-| **R0 — Contrats et format** | **55 %** | Codec/checkpoints et contrôles de cohérence renforcés; golden images complètes et stabilité du format toujours à prouver. |
-| **R1 — Transaction générale fiable** | **40 %** | Journal redo, récupération et checkpoints présents; transactions générales multi-blocs et qualification exhaustive des erreurs write/flush/reopen encore manquantes. |
-| **R2 — Premier chemin persistant de bout en bout** | **25 %** | Primitives d'inventaire, codecs et lectures existent; le parcours durable create → write → close → reopen → read n'est pas encore complet. |
-| **R3 — Namespace et cycle de vie** | **15 %** | Namespace et opérations en mémoire disponibles, mais mutations persistantes complètes et garanties de durée de vie non achevées. |
-| **R4 — Vérification avant réparation** | **25 %** | Contrôles structurels et d'inventaire disponibles; checker complet parcourant la racine persistante et réparations sûres restent à faire. |
-| **R5 — Métadonnées avancées** | **5 %** | Primitives limitées; permissions, ACL, xattrs, CoW et snapshots ne sont pas des fonctionnalités intégrées complètes. |
-| **R6 — Adaptateurs OS et outils sûrs** | **5 %** | Outils d'images et backend bloc disponibles; pas de montage de filesystem Rust utilisable validé. |
-| **R7 — Qualification et livraison** | **20 %** | CI/configuration de tests existe, mais fuzzing, stress, benchmarks reproductibles et qualification multi-plateforme restent incomplets. |
+| **P0 — Socle d'ingénierie et sécurité** | **100 %** | Socle validé; rouvrir seulement si un défaut concret de sécurité ou d'intégrité est trouvé. |
+| **P1 — Format canonique, layout et allocateur** | **93 %** | Priorité de finition immédiate; la publication/remplacement de descripteurs et la récupération de propriété restent à fermer. |
+| **P2 — Transactions et récupération après crash** | **40 %** | Journal redo et cas de récupération ciblés présents; pas encore de transactions générales sur les métadonnées. |
+| **P3 — Vérification en lecture seule et entrées hostiles** | **35 %** | Vérifications structurelles présentes; vérification globale, fuzzing et réparation restent incomplets. |
+| **P4 — Namespace persistant et E/S fichiers** | **21 %** | Primitives et lectures présentes; mutations durables et cycle create/write/close/reopen/read restent le blocage fonctionnel principal. |
+| **P5 — Découverte sûre des périphériques et formatage** | **5 %** | Backend brut présent; découverte, protection des volumes système et formatage utilisateur sûr absents. |
+| **P6 — Intégration OS** | **0 %** | Aucun adaptateur Rust de montage/VFS utilisable n'a été validé. |
+| **P7 — Livraison, compatibilité et durcissement opérationnel** | **3 %** | Documentation et CI partielles; critères de livraison et preuves matérielles/compatibilité incomplets. |
+| **Global pondéré** | **40 %** | Estimation provisoire selon le modèle pondéré déjà défini dans cette roadmap; pas un pourcentage de préparation à la production. |
 
-### Dernier lot intégré
+### Dernier lot de code depuis le précédent état documenté
 
-- `53a2875` — couverture des frontières de capacité des chunks redo.
-- `fffa639` — rejet des compteurs de séquence checkpoint incohérents.
-- `2607070` — conservation du scénario de récupération sur checkpoint corrompu persisté.
-- `5d7ff54` — test du rejet d'un écart de séquence avec checksum valide.
+- [`53a2875`](https://github.com/Likounsee/OpenFS/commit/53a2875748363a1fa69961937547eb281ee43545) — tests des limites de capacité des chunks redo.
+- [`fffa639`](https://github.com/Likounsee/OpenFS/commit/fffa6399e12dbc1847d6cd0dd700ee49a610c434) — rejet des compteurs de séquence checkpoint incohérents.
+- [`2607070`](https://github.com/Likounsee/OpenFS/commit/2607070113f65bd9d72a79def80427fd27565ddb) — maintien du scénario de récupération d'un checkpoint corrompu sur disque.
+- [`5d7ff54`](https://github.com/Likounsee/OpenFS/commit/5d7ff5445475a58ff1b92137f9af3e1903fdfc90) — test du rejet d'un écart de séquence malgré un checksum valide.
 
-**Validation à ne pas surestimer :** dans l'environnement de travail actuel, les tests Rust, `cargo fmt` et `cargo clippy` n'ont pas été exécutés. Les contrôles de statut et les runs de workflow consultés pour le HEAD ci-dessus n'ont fourni aucun résultat exploitable; cela ne signifie pas que la CI est verte.
+Ces ajouts améliorent surtout **P2**; ils ne suffisent pas, à eux seuls, à modifier le score de phase sans recalculer les critères du ledger. Les tests Rust, `cargo fmt` et `cargo clippy` n'ont pas été exécutés localement dans l'environnement de travail actuel. Les statuts/runs consultés pour le dernier SHA n'ont fourni aucun résultat exploitable : ne pas en déduire que la CI est verte.
 
-### Prochaine action obligatoire
+### Prochaine action selon la roadmap
 
-Suivre la prochaine action déjà définie dans cette roadmap : **connecter le contrat transactionnel au premier chemin persistant complet** (racine → objet/inode → entrée de répertoire → extents → lecture/écriture → close/reopen → checker), en ajoutant des injections de panne aux frontières de persistance. Ne pas continuer à accumuler des tests isolés du journal si cela ne débloque pas ce parcours. Ne pas commencer le montage OS avant d'avoir satisfait les prérequis R0–R2.
+Respecter les dépendances P1 → P2 → P4 : terminer les blocages concrets de **P1**, continuer la qualification du journal et de la récupération en **P2**, puis prioriser le premier chemin de fichiers persistant de **P4** (racine → objet/inode → entrée de répertoire → extents → lecture/écriture → close/reopen → checker). Ne pas démarrer P6/montage OS avant que le chemin de persistance et ses contrats de récupération soient suffisamment complets.
 
 ---
 
