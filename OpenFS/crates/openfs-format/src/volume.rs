@@ -4440,9 +4440,10 @@ mod tests {
     fn namespace_extent_maps_reject_cross_file_physical_aliases() {
         use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 
-        let path = image_path("persistent-extent-map-alias");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-extent-map-alias-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let directory_block = volume.allocate_block(&mut device).unwrap();
@@ -4463,7 +4464,7 @@ mod tests {
                 parent_id: 1,
                 kind: ObjectKind::File,
                 flags: 0,
-                size: 4096,
+                size: u64::from(block_size),
                 extent_root_block: Some(first_root),
                 generation: 1,
             };
@@ -4472,11 +4473,11 @@ mod tests {
                 parent_id: 1,
                 kind: ObjectKind::File,
                 flags: 0,
-                size: 4096,
+                size: u64::from(block_size),
                 extent_root_block: Some(second_root),
                 generation: 1,
             };
-            let mut metadata_bytes = vec![0_u8; 4096];
+            let mut metadata_bytes = vec![0_u8; block_size as usize];
             for (index, record) in [root, first, second].iter().enumerate() {
                 metadata_bytes[index * 80..(index + 1) * 80]
                     .copy_from_slice(&record.encode().unwrap());
@@ -4498,7 +4499,7 @@ mod tests {
                     name: "second.bin".to_owned(),
                 },
             ];
-            let mut directory_bytes = vec![0_u8; 4096];
+            let mut directory_bytes = vec![0_u8; block_size as usize];
             for (index, entry) in entries.iter().enumerate() {
                 directory_bytes[index * 128..(index + 1) * 128]
                     .copy_from_slice(&entry.encode().unwrap());
@@ -4512,7 +4513,7 @@ mod tests {
                 block_count: 1,
             }])
             .unwrap()
-            .encode_block(4096)
+            .encode_block(block_size as usize)
             .unwrap();
             device.write_blocks(first_root, &map).unwrap();
             device.write_blocks(second_root, &map).unwrap();
@@ -4558,8 +4559,8 @@ mod tests {
             // touching data, or a corrupt alias could overwrite another file.
             // BlockDevice reads require whole-block buffers, even when the assertion
             // below only cares about the prefix being protected from a rejected write.
-            let before = vec![0_u8; 4096];
-            let mut after = vec![0_u8; 4096];
+            let before = vec![0_u8; block_size as usize];
+            let mut after = vec![0_u8; block_size as usize];
             device.read_blocks(shared_data, &mut after).unwrap();
             assert_eq!(after, before);
             assert!(matches!(
@@ -4577,8 +4578,9 @@ mod tests {
             ));
             device.read_blocks(shared_data, &mut after).unwrap();
             assert_eq!(after, before, "rejected write must not modify aliased data");
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
