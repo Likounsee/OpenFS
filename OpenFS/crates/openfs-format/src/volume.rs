@@ -659,11 +659,24 @@ impl OpenedVolume {
                 base.checked_add(bits_per_bitmap_block)
                     .ok_or(Error::ArithmeticOverflow)?,
             );
-            for block in first..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                    new_block = Some(block);
+            let local_start = first - base;
+            let local_end = end - base;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
+                }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let available = !*byte & valid_mask;
+                if available != 0 {
+                    let local = (byte_index as u64) * 8 + u64::from(available.trailing_zeros());
+                    new_block = Some(base + local);
                     break 'pages;
                 }
             }
