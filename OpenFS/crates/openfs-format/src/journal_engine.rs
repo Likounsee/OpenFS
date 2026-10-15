@@ -748,13 +748,15 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                     "redo transaction contains duplicate targets",
                 ));
             }
+            // Transfer the reconstructed image into the result instead of cloning
+            // every byte. Allocate the next scratch buffer only after this image is
+            // complete, keeping peak memory lower for multi-block recovery plans.
             updates.push(RedoUpdate {
                 target_block: target,
-                contents: current.clone(),
+                contents: std::mem::replace(&mut current, Vec::with_capacity(block_size)),
             });
             target_active = None;
             active_count = 0;
-            current.clear();
         }
     }
     if target_active.is_some() {
