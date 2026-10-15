@@ -4404,7 +4404,7 @@ mod tests {
                     volume
                         .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
                         .unwrap(),
-                    payload
+                    expected
                 );
             }
             fs::remove_file(path).unwrap();
