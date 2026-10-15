@@ -27,6 +27,12 @@ Les anciens lots sont regroupés sans faire passer du travail non réalisé pour
 
 ### Dernier lot de code documenté
 
+- [`f9869e7`](https://github.com/Likounsee/OpenFS/commit/f9869e7aa7cc4ff3ef05617724300142b5e63e58) — expose les entrées du namespace dans un ordre déterministe pour permettre la validation du graphe complet.
+- [`78550e4`](https://github.com/Likounsee/OpenFS/commit/78550e4b46fdaa0faa9a1fbd3b4527da7c39213d) — les chemins de lecture/écriture persistants rejettent désormais un namespace dont les entrées de répertoire diffèrent du disque, même si les enregistrements d'objets correspondent.
+- [`f039c36`](https://github.com/Likounsee/OpenFS/commit/f039c36cf9db32f52eba63d15f123f9f0092334b) — ajoute une régression pour les lectures et écritures avec un nom de répertoire falsifié. Le test est présent dans la source, mais son exécution et la CI exacte-SHA ne sont pas confirmées.
+- Ces corrections renforcent la validation d'intégrité du chemin d'E/S persistant. Elles ne réalisent pas la création durable de fichiers et ne justifient pas à elles seules une hausse des pourcentages P1/P2.
+
+
 - [`53a2875`](https://github.com/Likounsee/OpenFS/commit/53a2875748363a1fa69961937547eb281ee43545) — tests des limites de capacité des chunks redo.
 - [`fffa639`](https://github.com/Likounsee/OpenFS/commit/fffa6399e12dbc1847d6cd0dd700ee49a610c434) — rejet des compteurs de séquence checkpoint incohérents.
 - [`2607070`](https://github.com/Likounsee/OpenFS/commit/2607070113f65bd9d72a79def80427fd27565ddb) — conservation du scénario de récupération d'un checkpoint corrompu sur disque.
