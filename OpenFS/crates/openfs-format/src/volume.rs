@@ -4113,7 +4113,9 @@ mod tests {
 
     #[test]
     fn reads_persistent_extent_maps_and_checks_bitmap_ownership() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("persistent-extent-map-read-{block_size}"));
@@ -4173,20 +4175,25 @@ mod tests {
                 device.write_blocks(data_block, &payload).unwrap();
                 device.flush().unwrap();
 
-                // Metadata, extent maps, and file bytes survive reopen at every
-                // supported block size, not just the 4 KiB development default.
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 2,
+                    directory_blocks: vec![directory_block],
+                    directory_entry_count: 1,
+                };
+                volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+
+                // Metadata, extent maps, and file bytes survive reopen and are
+                // rediscovered from the on-disk inventory descriptor.
                 drop(volume);
                 let mut volume = open_volume(&mut device).unwrap();
-                let namespace = volume
-                    .reconstruct_namespace(
-                        &mut device,
-                        ObjectId(1),
-                        &[metadata_block],
-                        2,
-                        &[directory_block],
-                        1,
-                    )
-                    .unwrap();
+                let (_, namespace) = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .expect("persistent namespace must be discoverable after reopen");
                 let loaded = volume
                     .read_namespace_extent_maps(&mut device, &namespace)
                     .unwrap();
