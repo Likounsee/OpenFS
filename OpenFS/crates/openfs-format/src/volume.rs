@@ -343,6 +343,7 @@ impl OpenedVolume {
         else {
             return Ok(());
         };
+        let descriptor = descriptor.clone();
         if blocks.iter().any(|block| {
             descriptor.metadata_blocks.contains(block)
                 || descriptor.directory_blocks.contains(block)
@@ -350,6 +351,34 @@ impl OpenedVolume {
             return Err(Error::InvalidInput(
                 "cannot free a block referenced by persistent inventory descriptor",
             ));
+        }
+
+        // The descriptor is the entry point to persistent file ownership. Do not
+        // release extent-map roots or data blocks while metadata still references them.
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::Corrupt(
+                "persistent inventory disappeared during block-release validation",
+            ));
+        };
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        for block in blocks {
+            if namespace.objects().any(|record| record.extent_root_block == Some(*block)) {
+                return Err(Error::InvalidInput(
+                    "cannot free a block referenced by a file extent map",
+                ));
+            }
+            for map in extent_maps.values() {
+                for extent in map.extents() {
+                    let end = extent.physical_start
+                        .checked_add(extent.block_count)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if *block >= extent.physical_start && *block < end {
+                        return Err(Error::InvalidInput(
+                            "cannot free a block owned by persistent file data",
+                        ));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -4205,11 +4234,23 @@ mod tests {
                     payload
                 );
 
-                volume.free_block(&mut device, data_block).unwrap();
                 assert!(matches!(
-                    volume.read_namespace_extent_maps(&mut device, &namespace),
-                    Err(Error::Corrupt("file extent points to a free data block"))
+                    volume.free_block(&mut device, extent_root),
+                    Err(Error::InvalidInput(
+                        "cannot free a block referenced by a file extent map"
+                    ))
                 ));
+                assert!(matches!(
+                    volume.free_block(&mut device, data_block),
+                    Err(Error::InvalidInput(
+                        "cannot free a block owned by persistent file data"
+                    ))
+                ));
+                assert!(volume.is_data_block_allocated(&mut device, data_block).unwrap());
+                assert_eq!(
+                    volume.read_file_contents(&mut device, &namespace, &loaded, ObjectId(2)).unwrap(),
+                    payload
+                );
             }
             fs::remove_file(path).unwrap();
         }
