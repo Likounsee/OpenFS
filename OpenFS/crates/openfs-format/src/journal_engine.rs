@@ -1360,7 +1360,10 @@ mod tests {
 
         let decoded = decode_redo_updates(&payloads, BS as usize).unwrap();
         assert_eq!(
-            decoded.iter().map(|update| update.target_block).collect::<Vec<_>>(),
+            decoded
+                .iter()
+                .map(|update| update.target_block)
+                .collect::<Vec<_>>(),
             vec![HOME, HOME + 1],
             "recovery images should be ordered in-place before duplicate validation"
         );
