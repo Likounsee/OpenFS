@@ -1342,7 +1342,7 @@ fn validate_device<D: BlockDevice>(volume: &OpenedVolume, device: &D) -> Result<
 #[cfg(test)]
 mod allocation_bitmap_report_tests {
     use super::*;
-    use crate::format_volume;
+    use crate::{format_volume, Extent, ExtentMap};
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2260,8 +2260,14 @@ mod allocation_bitmap_report_tests {
                 // 80 owners point to blocks that have been freed, while 20
                 // still-allocated blocks have no owner.
                 volume.free_blocks(&mut device, &allocated[..80]).unwrap();
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: allocated[0],
+                    block_count: 80,
+                }])
+                .unwrap();
                 let report = volume
-                    .allocation_ownership_report(&mut device, &allocated[..80])
+                    .extent_map_ownership_report(&mut device, &[(&map, 80)])
                     .unwrap();
 
                 assert_eq!(report.orphaned_allocation_count, 20, "block_size={block_size}");
