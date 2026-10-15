@@ -689,10 +689,22 @@ fn validate_protected_target(protected_blocks: &[u64], target: u64) -> Result<()
     Ok(())
 }
 
-fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<u8>>> {
+fn redo_chunk_size(block_size: usize) -> Result<usize> {
     let chunk_size = block_size
         .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
-        .ok_or(Error::ArithmeticOverflow)?;
+        .ok_or(Error::InvalidInput(
+            "device block is too small for redo chunks",
+        ))?;
+    if chunk_size == 0 {
+        return Err(Error::InvalidInput(
+            "device block is too small for redo chunks",
+        ));
+    }
+    Ok(chunk_size)
+}
+
+fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<u8>>> {
+    let chunk_size = redo_chunk_size(block_size)?;
     let count = update
         .contents
         .len()
@@ -716,9 +728,7 @@ fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<
 }
 
 fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<RedoUpdate>> {
-    let chunk_size = block_size
-        .checked_sub(JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE)
-        .ok_or(Error::ArithmeticOverflow)?;
+    let chunk_size = redo_chunk_size(block_size)?;
     let expected_count = block_size
         .checked_add(chunk_size - 1)
         .ok_or(Error::ArithmeticOverflow)?
@@ -1461,6 +1471,21 @@ mod tests {
         );
         assert_eq!(decoded[0].contents, vec![0x5A; BS as usize]);
         assert_eq!(decoded[1].contents, vec![0xA5; BS as usize]);
+    }
+
+    #[test]
+    fn redo_chunk_helpers_reject_zero_payload_capacity_without_panicking() {
+        let block_size = JOURNAL_HEADER_SIZE + UPDATE_CHUNK_HEADER_SIZE;
+        let image = update(0xA5);
+
+        assert!(matches!(
+            encode_redo_chunks(&image, block_size),
+            Err(Error::InvalidInput("device block is too small for redo chunks"))
+        ));
+        assert!(matches!(
+            decode_redo_updates(&[], block_size),
+            Err(Error::InvalidInput("device block is too small for redo chunks"))
+        ));
     }
 
     #[test]
