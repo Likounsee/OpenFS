@@ -2731,6 +2731,7 @@ mod tests {
                 // either packed namespace-stream read.
                 let descriptor_block = volume.allocate_block(&mut device).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
+                let directory_block = volume.allocate_block(&mut device).unwrap();
 
                 let root = MetadataRecord {
                     id: ObjectId(1),
