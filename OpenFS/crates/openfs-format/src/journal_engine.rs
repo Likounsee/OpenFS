@@ -318,33 +318,49 @@ impl PersistentJournal {
 
         let transaction_id = self.checkpoint.next_transaction_id;
         let mut sequence = self.checkpoint.next_sequence;
-        let mut records = Vec::with_capacity(required_records);
-        records.push(JournalRecord {
-            kind: JournalRecordKind::Begin,
-            sequence,
-            transaction_id,
-            payload: Vec::new(),
-        });
+        // Encode records as they are built instead of retaining a second full copy
+        // of every UPDATE payload in a JournalRecord vector. The complete encoded
+        // transaction is still prepared before the first persistent write, so a
+        // validation/encoding error cannot leave a partial transaction on disk.
+        let mut encoded = Vec::with_capacity(required_records);
+        encoded.push(
+            JournalRecord {
+                kind: JournalRecordKind::Begin,
+                sequence,
+                transaction_id,
+                payload: Vec::new(),
+            }
+            .encode_block(block_size)?,
+        );
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         for update in updates {
             for payload in encode_redo_chunks(update, block_size)? {
-                records.push(JournalRecord {
-                    kind: JournalRecordKind::Update,
-                    sequence,
-                    transaction_id,
-                    payload,
-                });
+                encoded.push(
+                    JournalRecord {
+                        kind: JournalRecordKind::Update,
+                        sequence,
+                        transaction_id,
+                        payload,
+                    }
+                    .encode_block(block_size)?,
+                );
                 sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
             }
         }
         let commit_sequence = sequence;
-        records.push(JournalRecord {
-            kind: JournalRecordKind::Commit,
-            sequence,
-            transaction_id,
-            payload: Vec::new(),
-        });
+        encoded.push(
+            JournalRecord {
+                kind: JournalRecordKind::Commit,
+                sequence,
+                transaction_id,
+                payload: Vec::new(),
+            }
+            .encode_block(block_size)?,
+        );
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        if encoded.len() != required_records {
+            return Err(Error::Corrupt("journal record count preflight disagrees with encoding"));
+        }
 
         // Preflight counters before the first persistent write. Overflow after a
         // durable COMMIT would otherwise strand recovery before checkpoint publication.
@@ -356,10 +372,6 @@ impl PersistentJournal {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        let encoded = records
-            .iter()
-            .map(|record| record.encode_block(block_size))
-            .collect::<Result<Vec<_>>>()?;
 
         // From here on persistence may be uncertain after any error.
         self.recovery_required = true;
