@@ -2970,7 +2970,7 @@ mod tests {
             );
         }
         {
-            let mut device = ImageDevice::open(&path).unwrap();
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
             let reopened = open_volume(&mut device).unwrap();
             assert_eq!(
                 reopened
