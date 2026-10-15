@@ -300,7 +300,9 @@ impl PersistentJournal {
         // an oversized caller-provided slice must not trigger unbounded extra work.
         let required_records = self.required_record_count(device, updates.len())?;
 
-        let mut targets = std::collections::BTreeSet::new();
+        // A contiguous vector avoids one tree-node allocation per target. Sort
+        // only after all targets pass validation, then detect duplicates in-place.
+        let mut targets = Vec::with_capacity(updates.len());
         for update in updates {
             if update.contents.len() != block_size {
                 return Err(Error::InvalidInput(
@@ -309,11 +311,13 @@ impl PersistentJournal {
             }
             validate_home_target(device, self.region, update.target_block, block_size)?;
             validate_protected_target(&self.protected_blocks, update.target_block)?;
-            if !targets.insert(update.target_block) {
-                return Err(Error::InvalidInput(
-                    "transaction contains duplicate redo targets",
-                ));
-            }
+            targets.push(update.target_block);
+        }
+        targets.sort_unstable();
+        if targets.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "transaction contains duplicate redo targets",
+            ));
         }
 
         let transaction_id = self.checkpoint.next_transaction_id;
