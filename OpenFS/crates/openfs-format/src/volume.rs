@@ -8232,7 +8232,6 @@ mod tests {
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
 
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
-                let directory_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
                     parent_id: 0,
