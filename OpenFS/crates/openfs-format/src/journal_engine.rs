@@ -453,9 +453,8 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
                 newer.push((slot, record));
             }
             Err(_) => {
-                first_malformed_slot = Some(
-                    first_malformed_slot.map_or(slot, |first: u64| first.min(slot)),
-                );
+                first_malformed_slot =
+                    Some(first_malformed_slot.map_or(slot, |first: u64| first.min(slot)));
             }
         }
     }
