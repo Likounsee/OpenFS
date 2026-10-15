@@ -4479,6 +4479,47 @@ mod tests {
                     "written bytes must survive close/reopen at block size {block_size}"
                 );
 
+                // A durable COMMIT followed by a failed home-block write must be
+                // completed by normal reopen/recovery, never exposed as a partial write.
+                let recovery_offset = block_len as u64 - 16;
+                let recovery_payload = vec![0x3C; 97];
+                let mut failing = FailWriteAt {
+                    inner: device,
+                    write_index: 0,
+                    fail_at: 4, // BEGIN, two UPDATEs, COMMIT; first home write fails.
+                };
+                assert!(matches!(
+                    volume.write_file_range(
+                        &mut failing,
+                        &namespace,
+                        &loaded,
+                        ObjectId(2),
+                        recovery_offset,
+                        &recovery_payload,
+                    ),
+                    Err(Error::Io(_))
+                ));
+                drop(volume);
+                let mut device = failing.inner;
+                let mut volume = open_volume(&mut device).unwrap();
+                let (_, namespace) = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .expect("committed file write must remain discoverable after recovery");
+                let loaded = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
+                let recovery_start = usize::try_from(recovery_offset).unwrap();
+                expected[recovery_start..recovery_start + recovery_payload.len()]
+                    .copy_from_slice(&recovery_payload);
+                assert_eq!(
+                    volume
+                        .read_file_contents(&mut device, &namespace, &loaded, ObjectId(2))
+                        .unwrap(),
+                    expected,
+                    "reopen must replay every block of a committed write at block size {block_size}"
+                );
+
                 assert!(matches!(
                     volume.write_file_range(
                         &mut device,
