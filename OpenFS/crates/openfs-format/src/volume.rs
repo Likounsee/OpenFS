@@ -1127,9 +1127,6 @@ impl OpenedVolume {
     ) -> Result<Vec<u64>> {
         let block_size = usize::try_from(self.volume.block_size)
             .map_err(|_| Error::ArithmeticOverflow)?;
-        if bytes.len() % if bytes.is_empty() { 1 } else { bytes.len() } != 0 {
-            return Err(Error::InvalidInput("invalid packed inventory stream"));
-        }
         let block_count = bytes
             .len()
             .checked_add(block_size - 1)
