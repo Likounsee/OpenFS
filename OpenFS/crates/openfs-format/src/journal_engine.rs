@@ -414,8 +414,10 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
     let mut malformed = Vec::new();
+    // Reuse one scratch block for the bounded ring scan. Decoding owns its payload,
+    // so the next read can safely overwrite this buffer without cloning the block.
+    let mut block = vec![0_u8; block_size];
     for slot in 0..region.ring_blocks {
-        let mut block = vec![0_u8; block_size];
         device.read_blocks(region.ring_start + slot, &mut block)?;
         if block.iter().all(|byte| *byte == 0) {
             continue;
