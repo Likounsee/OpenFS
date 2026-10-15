@@ -721,7 +721,8 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     let expected_count_u16 =
         u16::try_from(expected_count).map_err(|_| Error::ArithmeticOverflow)?;
     let mut updates = Vec::new();
-    let mut targets = std::collections::BTreeSet::new();
+    // A contiguous vector avoids allocating one tree node per recovered target.
+    let mut targets = Vec::new();
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::with_capacity(block_size);
@@ -765,11 +766,7 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                     "redo image has incorrect reconstructed size",
                 ));
             }
-            if !targets.insert(target) {
-                return Err(Error::Corrupt(
-                    "redo transaction contains duplicate targets",
-                ));
-            }
+            targets.push(target);
             // Transfer the reconstructed image into the result instead of cloning
             // every byte. Allocate the next scratch buffer only after this image is
             // complete, keeping peak memory lower for multi-block recovery plans.
@@ -783,6 +780,12 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     }
     if target_active.is_some() {
         return Err(Error::Corrupt("redo image is missing one or more chunks"));
+    }
+    targets.sort_unstable();
+    if targets.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(Error::Corrupt(
+            "redo transaction contains duplicate targets",
+        ));
     }
     Ok(updates)
 }
