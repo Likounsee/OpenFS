@@ -8329,7 +8329,7 @@ mod tests {
                 // Reopen the volume before rediscovery to prove the replacement is durable
                 // through the normal open/recovery path, not only in the original handle.
                 drop(volume);
-                let mut volume = open_volume(&mut device).unwrap();
+                let volume = open_volume(&mut device).unwrap();
 
                 let discovered = volume
                     .discover_persistent_inventory(&mut device)
