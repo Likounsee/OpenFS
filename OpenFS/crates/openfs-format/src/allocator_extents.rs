@@ -2246,6 +2246,39 @@ mod allocation_bitmap_report_tests {
                 assert!(!report.is_consistent());
             }
             fs::remove_file(path).unwrap();
+
+    #[test]
+    fn ownership_report_bounds_both_diagnostic_samples_without_losing_totals() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("ownership-report-bounded-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let allocated = volume.allocate_blocks(&mut device, 100).unwrap();
+
+                // More than the 64-entry diagnostic cap in each direction:
+                // 80 owners point to blocks that have been freed, while 20
+                // still-allocated blocks have no owner.
+                volume.free_blocks(&mut device, &allocated[..80]).unwrap();
+                let report = volume
+                    .allocation_ownership_report(&mut device, &allocated[..80])
+                    .unwrap();
+
+                assert_eq!(report.orphaned_allocation_count, 20, "block_size={block_size}");
+                assert_eq!(report.orphaned_allocations.len(), 20, "block_size={block_size}");
+                assert!(!report.orphaned_allocations_truncated);
+                assert_eq!(report.dangling_reference_count, 80, "block_size={block_size}");
+                assert_eq!(
+                    report.dangling_references,
+                    allocated[..64],
+                    "dangling sample must stay deterministic and capped for block_size={block_size}"
+                );
+                assert!(report.dangling_references_truncated);
+                assert!(!report.is_consistent());
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
         }
     }
 }
