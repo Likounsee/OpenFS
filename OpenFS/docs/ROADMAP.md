@@ -245,7 +245,7 @@ Implemented:
 
 Open blockers:
 - The initial descriptor publication now has an explicit visibility point and tested old-or-complete recovery for journal write failures, flush failures, and torn-prefix staging writes. This does not prove physical-device power-loss behavior and does not solve general multi-object transactions.
-- Safe descriptor replacement is absent; overwriting/duplicating descriptors is not a supported update protocol.
+- Descriptor replacement is implemented with one journal COMMIT covering the new descriptor allocation, old descriptor release and obsolete inventory-block release across affected bitmap pages. Regression tests cover write-failure recovery and cross-bitmap-page transitions; the latest exact-SHA run for this test batch is still pending Windows completion. The canonical locator still scans the data region, and general namespace mutation remains unsupported.
 - Discovery scans the whole data region and is not suitable as a final scalable metadata locator.
 - Ownership checking depends on the current inventory representation; no full durable namespace mutation path uses it yet.
 - Golden image fixtures and an explicit stable format release contract remain prerequisites before format freeze.
@@ -254,7 +254,7 @@ Open blockers:
 1. **P1.1 Format invariants — Implemented; validation ongoing.** Keep golden fixtures for each supported block size; malformed geometry, reserved bytes, version, backup mismatch, overflow and truncated image must fail closed without writes.
 2. **P1.2 Allocator invariants — Implemented; CI validated for recorded batches.** Every successful allocate/free must persist across reopen; no reserved/double-free/out-of-range allocation; exhaustion must not advance the checkpoint or corrupt prior allocations.
 3. **P1.3 Ownership contract — Partially implemented; allocator free protection validated.** Define the owner of each metadata block, extent root and data block. Reject aliases, dangling references, allocated orphans and freeing blocks still referenced by the persistent inventory. Extent-root/data ownership transitions remain incomplete.
-4. **P1.4 Descriptor lifecycle — Partially implemented / blocked on transaction design.** Design a versioned descriptor/index publication protocol. Test failures at allocation commit, descriptor write prefixes, flush, reopen and repeated discovery. No replacement until a single unambiguous committed descriptor can be recovered.
+4. **P1.4 Descriptor lifecycle — Replacement implemented; broader lifecycle remains incomplete.** `replace_persistent_inventory_descriptor` stages and flushes the replacement while free, preflights bounded journal capacity, then atomically switches bitmap ownership through one journal COMMIT. Tests cover write-failure recovery, cross-bitmap-page transitions, and idempotent repeated publication/replacement. Remaining work: scalable canonical locator/index, golden volume fixtures and general persistent namespace transactions. Do not treat this as format-freeze or physical-device durability evidence.
 5. **P1.5 Metadata locator scalability — Not implemented.** Replace full-data-region scan with a canonical locator/index before scale claims; test descriptor discovery when metadata is sparse and near the end of large images.
 6. **P1.6 Format compatibility — Partially documented.** Add golden images and explicit version-change rules before writing durable namespace mutations.
 
