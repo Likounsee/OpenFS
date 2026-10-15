@@ -852,9 +852,7 @@ impl OpenedVolume {
                 // Apply the same namespace validation to fallback discovery as to the
                 // locator fast path. Otherwise a stale hint could turn a rejected
                 // descriptor into an accepted one merely by forcing a full scan.
-                if descriptor.metadata_record_count != 0
-                    || descriptor.directory_entry_count != 0
-                {
+                if descriptor.metadata_record_count != 0 || descriptor.directory_entry_count != 0 {
                     self.reconstruct_namespace(
                         device,
                         descriptor.root_id,
@@ -2560,8 +2558,7 @@ mod tests {
                         // Point the persisted hint at an allocated non-descriptor block.
                         // Discovery must reject the hint and apply namespace validation
                         // when the full scan finds the actual descriptor.
-                        crate::volume::persist_inventory_hint(&mut device, metadata_block)
-                            .unwrap();
+                        crate::volume::persist_inventory_hint(&mut device, metadata_block).unwrap();
                     }
                     _ => {}
                 }
@@ -2571,12 +2568,15 @@ mod tests {
                     volume = open_volume(&mut device).unwrap();
                 }
 
-                assert!(matches!(
-                    volume.discover_persistent_inventory(&mut device),
-                    Err(Error::Corrupt(
-                        "persistent inventory descriptor contains an invalid namespace"
-                    ))
-                ), "invalid namespace was accepted with hint mode {hint_mode}");
+                assert!(
+                    matches!(
+                        volume.discover_persistent_inventory(&mut device),
+                        Err(Error::Corrupt(
+                            "persistent inventory descriptor contains an invalid namespace"
+                        ))
+                    ),
+                    "invalid namespace was accepted with hint mode {hint_mode}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
@@ -2677,12 +2677,16 @@ mod tests {
 
     #[test]
     fn discovery_namespace_read_failures_are_retryable() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
 
         // Descriptor scan reads are 0-3; packed metadata and directory data reads
         // occur later, after their allocation bitmap pages have been checked.
         for fail_at in [5, 7] {
-            let path = image_path(&format!("inventory-discovery-namespace-read-failure-{fail_at}"));
+            let path = image_path(&format!(
+                "inventory-discovery-namespace-read-failure-{fail_at}"
+            ));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
@@ -2719,10 +2723,14 @@ mod tests {
                 let mut metadata_bytes = vec![0_u8; 4096];
                 metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
                 metadata_bytes[80..160].copy_from_slice(&file.encode().unwrap());
-                device.write_blocks(metadata_block, &metadata_bytes).unwrap();
+                device
+                    .write_blocks(metadata_block, &metadata_bytes)
+                    .unwrap();
                 let mut directory_bytes = vec![0_u8; 4096];
                 directory_bytes[..128].copy_from_slice(&entry.encode().unwrap());
-                device.write_blocks(directory_block, &directory_bytes).unwrap();
+                device
+                    .write_blocks(directory_block, &directory_bytes)
+                    .unwrap();
 
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
