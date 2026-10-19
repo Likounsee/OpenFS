@@ -2975,33 +2975,55 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     device: &mut D,
     layout: &VolumeLayout,
 ) -> Result<bool> {
+    const SCAN_BATCH_BLOCKS: u64 = 64;
+
     let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
-    let first_bitmap = layout.data_start / bits_per_bitmap_block;
-    let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
     let mut found = false;
-    for bitmap_index in first_bitmap..=last_bitmap {
-        let bitmap_base = bitmap_index * bits_per_bitmap_block;
-        let start = layout.data_start.max(bitmap_base);
-        let end = layout
+    // Cache only bitmap pages needed by descriptor references. A descriptor can span
+    // many pages, but the cache remains bounded to the current candidate's references.
+    let mut reference_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
+    let mut batch_start = layout.data_start;
+
+    while batch_start < layout.backup_superblock {
+        let batch_end = layout
             .backup_superblock
-            .min(bitmap_base + bits_per_bitmap_block);
-        let mut bitmap = vec![0_u8; block_size];
-        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-        for block in start..end {
-            let local = block - bitmap_base;
-            if bitmap[usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?]
-                & (1_u8 << (local % 8))
-                == 0
-            {
+            .min(batch_start.saturating_add(SCAN_BATCH_BLOCKS));
+        let first_bitmap_index = batch_start / bits_per_bitmap_block;
+        let last_bitmap_index = (batch_end - 1) / bits_per_bitmap_block;
+        let mut allocated = std::collections::BTreeSet::new();
+        for bitmap_index in first_bitmap_index..=last_bitmap_index {
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_base = bitmap_index * bits_per_bitmap_block;
+            let start = batch_start.max(bitmap_base);
+            let end = batch_end.min(bitmap_base.saturating_add(bits_per_bitmap_block));
+            for block in start..end {
+                let local = block - bitmap_base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                    allocated.insert(block);
+                }
+            }
+        }
+
+        let block_count = usize::try_from(batch_end - batch_start)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let byte_count = block_count
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut contents = vec![0_u8; byte_count];
+        device.read_blocks(batch_start, &mut contents)?;
+        for block in allocated {
+            let offset = usize::try_from(block - batch_start)
+                .map_err(|_| Error::ArithmeticOverflow)?
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let block_contents = &contents[offset..offset + block_size];
+            if !block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
                 continue;
             }
-            let mut contents = vec![0_u8; block_size];
-            device.read_blocks(block, &mut contents)?;
-            if !contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                continue;
-            }
-            let descriptor = PersistentInventoryDescriptor::decode(&contents)?;
+            let descriptor = PersistentInventoryDescriptor::decode(block_contents)?;
             if found {
                 return Err(Error::Corrupt(
                     "multiple persistent inventory descriptors were discovered",
@@ -3022,13 +3044,19 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                         "persistent inventory descriptor has invalid block ownership",
                     ));
                 }
-                let index = *inventory_block / bits_per_bitmap_block;
+                let bitmap_index = *inventory_block / bits_per_bitmap_block;
+                if !reference_bitmaps.contains_key(&bitmap_index) {
+                    let mut bitmap = vec![0_u8; block_size];
+                    device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                    reference_bitmaps.insert(bitmap_index, bitmap);
+                }
                 let local_bit = *inventory_block % bits_per_bitmap_block;
-                let mut reference_bitmap = vec![0_u8; block_size];
-                device.read_blocks(layout.bitmap_start + index, &mut reference_bitmap)?;
                 let byte_index =
                     usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if reference_bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
+                if reference_bitmaps[&bitmap_index][byte_index]
+                    & (1_u8 << (local_bit % 8))
+                    == 0
+                {
                     return Err(Error::Corrupt(
                         "persistent inventory descriptor references a free block",
                     ));
@@ -3036,6 +3064,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             }
             found = true;
         }
+        batch_start = batch_end;
     }
     Ok(found)
 }
