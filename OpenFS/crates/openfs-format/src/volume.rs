@@ -1849,11 +1849,13 @@ impl OpenedVolume {
         Ok(())
     }
 
-    /// Write a bounded range to a file resolved from the published on-disk inventory.
+    /// Write bytes to a file resolved from the published on-disk inventory.
     ///
     /// The namespace and extent maps are reconstructed from disk rather than supplied by
-    /// the caller. This operation never allocates or extends a file; ranges crossing EOF
-    /// or touching sparse holes are rejected by the validated range-write path.
+    /// the caller. Writes inside the existing file must stay within its allocated extents.
+    /// A write beginning at EOF appends data and may allocate new extents when the final
+    /// allocated block has insufficient space. Sparse-hole writes and ranges beyond EOF
+    /// that do not begin exactly at EOF are rejected.
     pub fn write_persistent_path_range<D: BlockDevice>(
         &mut self,
         device: &mut D,
