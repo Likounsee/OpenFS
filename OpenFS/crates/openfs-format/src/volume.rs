@@ -2356,17 +2356,25 @@ impl OpenedVolume {
             // after disk inspection proves that the old version is still authoritative.
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
-                    if active
-                        .object(object_id)
-                        .is_some_and(|item| item.extent_root_block == new_root) =>
+                    if active.object(object_id).is_some_and(|item| {
+                        item.extent_root_block == new_root
+                            && item.size == new_size
+                            && item.generation == next_generation
+                    }) =>
                 {
+                    // The new generation is authoritative despite the reported I/O
+                    // error. Keep its root and return the original publication error.
                     return Err(error);
                 }
                 Ok(Some((_, active)))
-                    if active
-                        .object(object_id)
-                        .is_some_and(|item| item.extent_root_block != new_root) =>
+                    if active.object(object_id).is_some_and(|item| {
+                        item.extent_root_block == old_root
+                            && item.size == record.size
+                            && item.generation == record.generation
+                    }) =>
                 {
+                    // Only the exact old generation proves that the staged root is
+                    // unreachable and can safely be reclaimed.
                     if let Some(root) = new_root {
                         if self.reclaim_persistent_blocks(device, &[root]).is_err() {
                             return Err(Error::Corrupt(
@@ -2376,7 +2384,9 @@ impl OpenedVolume {
                     }
                     return Err(error);
                 }
-                _ => return Err(error),
+                _ => Err(Error::Corrupt(
+                    "truncation publication outcome is uncertain; staged and previous storage were retained",
+                ))?,
             }
         }
 
@@ -3108,9 +3118,13 @@ impl OpenedVolume {
         }
         owned_ranges.sort_unstable_by_key(|(start, end, owner)| (*start, *end, *owner));
         for pair in owned_ranges.windows(2) {
-            if pair[0].1 > pair[1].0 && pair[0].2 != pair[1].2 {
+            // Physical blocks must have exactly one logical owner. Checking only
+            // cross-file overlaps misses two extents in the same file that alias
+            // the same storage, which can make writes to one logical range silently
+            // corrupt another range in that file.
+            if pair[0].1 > pair[1].0 {
                 return Err(Error::Corrupt(
-                    "files claim overlapping physical data blocks",
+                    "file extents claim overlapping physical data blocks",
                 ));
             }
         }
