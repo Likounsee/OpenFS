@@ -2940,18 +2940,24 @@ mod tests {
             assert!(volume
                 .create_persistent_file(&mut device, root, ObjectId(3), "hello.txt")
                 .is_err());
+            // Rename must publish the directory entry and parent metadata as one
+            // inventory replacement, and the old path must stop resolving.
+            volume
+                .rename_persistent_object(&mut device, ObjectId(2), root, "renamed.txt")
+                .unwrap();
             let (_, namespace) = volume
                 .reconstruct_discovered_namespace(&mut device)
                 .unwrap()
                 .unwrap();
-            assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
-            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
+            assert!(namespace.resolve_path("/hello.txt").is_err());
+            assert_eq!(namespace.resolve_path("/renamed.txt").unwrap(), ObjectId(2));
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().generation, 2);
 
             // A newly created empty file has no allocated data extents. A write
             // must fail without changing its persistent metadata or publishing a
             // partially initialized file.
             assert!(volume
-                .write_persistent_path_range(&mut device, "/hello.txt", 0, b"x")
+                .write_persistent_path_range(&mut device, "/renamed.txt", 0, b"x")
                 .is_err());
             let (_, namespace) = volume
                 .reconstruct_discovered_namespace(&mut device)
@@ -2965,7 +2971,7 @@ mod tests {
                 .reconstruct_discovered_namespace(&mut device)
                 .unwrap()
                 .unwrap();
-            assert_eq!(namespace.resolve_path("/hello.txt").unwrap(), ObjectId(2));
+            assert_eq!(namespace.resolve_path("/renamed.txt").unwrap(), ObjectId(2));
             assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
         }
         fs::remove_file(path).unwrap();
