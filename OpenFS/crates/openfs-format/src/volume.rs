@@ -3203,21 +3203,48 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 .checked_add(bits_per_bitmap_block)
                 .ok_or(Error::ArithmeticOverflow)?,
         );
-        for block in scan_start..scan_end {
-            while owner_index < owned_ranges.len() && owned_ranges[owner_index].1 <= block {
-                owner_index += 1;
+        let first_byte = usize::try_from((scan_start - bitmap_base) / 8)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let end_byte = usize::try_from(
+            (scan_end - bitmap_base)
+                .checked_add(7)
+                .ok_or(Error::ArithmeticOverflow)?
+                / 8,
+        )
+        .map_err(|_| Error::ArithmeticOverflow)?;
+        for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            let byte_base = bitmap_base
+                .checked_add(
+                    u64::try_from(byte_index)
+                        .map_err(|_| Error::ArithmeticOverflow)?
+                        .checked_mul(8)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                )
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut valid_mask = u8::MAX;
+            if byte_index == first_byte {
+                valid_mask &= u8::MAX << ((scan_start - bitmap_base) % 8);
             }
-            let local_bit = block - bitmap_base;
-            let byte_index = usize::try_from(local_bit / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-            let allocated = bitmap[byte_index] & (1_u8 << (local_bit % 8)) != 0;
-            let owned = owner_index < owned_ranges.len()
-                && owned_ranges[owner_index].0 <= block
-                && block < owned_ranges[owner_index].1;
-            if allocated && !owned {
-                return Err(Error::Corrupt(
-                    "allocation bitmap contains an allocated data block with no persistent owner",
-                ));
+            if byte_index + 1 == end_byte && (scan_end - bitmap_base) % 8 != 0 {
+                valid_mask &= (1_u8 << ((scan_end - bitmap_base) % 8)) - 1;
+            }
+            let mut allocated_bits = *byte & valid_mask;
+            while allocated_bits != 0 {
+                let block = byte_base
+                    .checked_add(u64::from(allocated_bits.trailing_zeros()))
+                    .ok_or(Error::ArithmeticOverflow)?;
+                while owner_index < owned_ranges.len() && owned_ranges[owner_index].1 <= block {
+                    owner_index += 1;
+                }
+                let owned = owner_index < owned_ranges.len()
+                    && owned_ranges[owner_index].0 <= block
+                    && block < owned_ranges[owner_index].1;
+                if !owned {
+                    return Err(Error::Corrupt(
+                        "allocation bitmap contains an allocated data block with no persistent owner",
+                    ));
+                }
+                allocated_bits &= allocated_bits - 1;
             }
         }
     }
