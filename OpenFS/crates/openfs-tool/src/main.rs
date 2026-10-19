@@ -167,7 +167,9 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
             "WARNING: the journal contains {} record(s) beyond its checkpoint.",
             report.pending_journal_records
         );
-        println!("Because this check is read-only, it did not replay or discard any journal records.");
+        println!(
+            "Because this check is read-only, it did not replay or discard any journal records."
+        );
     }
     if report.recoverable_transactions > 0 {
         println!(
