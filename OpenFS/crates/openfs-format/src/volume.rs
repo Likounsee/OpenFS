@@ -1055,11 +1055,11 @@ impl OpenedVolume {
         Ok(object_id)
     }
 
-    /// Remove an empty persistent file or an empty directory.
+    /// Remove a persistent file or an empty directory.
     ///
-    /// Objects that own file extents are rejected until extent reclamation can be
-    /// included in the same durable transaction. This avoids making allocated data
-    /// unreachable or freeing it before the namespace removal is committed.
+    /// For files with allocated data, the validated extent map is captured first. The
+    /// namespace removal is published before any file block is freed, so a failed or
+    /// uncertain publication cannot leave a still-referenced block available to the allocator.
     pub fn remove_persistent_empty_object<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1072,16 +1072,66 @@ impl OpenedVolume {
         };
         let record = namespace
             .object(object_id)
+            .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
-        if record.kind == crate::ObjectKind::File
-            && (record.size != 0 || record.extent_root_block.is_some())
-        {
-            return Err(Error::InvalidInput(
-                "file data must be reclaimed transactionally before removal",
+        let mut reclaim_blocks = Vec::new();
+        if record.kind == crate::ObjectKind::File {
+            if let Some(root) = record.extent_root_block {
+                let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+                let map = extent_maps
+                    .get(&object_id)
+                    .ok_or(Error::Corrupt("file extent map is missing"))?;
+                for extent in map.extents() {
+                    for delta in 0..extent.block_count {
+                        reclaim_blocks.push(
+                            extent
+                                .physical_start
+                                .checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        );
+                    }
+                }
+                reclaim_blocks.push(root);
+            } else if record.size != 0 {
+                return Err(Error::Corrupt("non-empty file is missing its extent-map root"));
+            }
+        }
+
+        namespace.remove(object_id)?;
+        let publication = self.replace_persistent_namespace_inventory(device, &namespace);
+        if let Err(error) = publication {
+            // A reported I/O error can occur after the descriptor was committed. Only
+            // reclaim blocks if rediscovery proves the removed object is no longer live.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active))) if active.object(object_id).is_none() => {
+                    let mut cleanup_failed = false;
+                    for block in reclaim_blocks.iter().copied() {
+                        if self.free_block(device, block).is_err() {
+                            cleanup_failed = true;
+                        }
+                    }
+                    if cleanup_failed {
+                        return Err(Error::Corrupt(
+                            "file was removed but some of its blocks could not be reclaimed",
+                        ));
+                    }
+                }
+                _ => return Err(error),
+            }
+            return Err(error);
+        }
+
+        let mut cleanup_failed = false;
+        for block in reclaim_blocks {
+            if self.free_block(device, block).is_err() {
+                cleanup_failed = true;
+            }
+        }
+        if cleanup_failed {
+            return Err(Error::Corrupt(
+                "file was removed but some of its blocks could not be reclaimed",
             ));
         }
-        namespace.remove(object_id)?;
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
         Ok(())
     }
 
