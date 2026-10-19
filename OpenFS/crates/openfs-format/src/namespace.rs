@@ -432,9 +432,10 @@ impl Namespace {
 
     fn entry_name_for(&self, parent_id: ObjectId, object_id: ObjectId) -> Result<String> {
         self.names
-            .iter()
-            .find_map(|((parent, _), entry)| {
-                (*parent == parent_id && entry.object_id == object_id.0).then(|| entry.name.clone())
+            .range((parent_id, String::new())..)
+            .take_while(|((parent, _), _)| *parent == parent_id)
+            .find_map(|((_, name), entry)| {
+                (entry.object_id == object_id.0).then(|| name.clone())
             })
             .ok_or(Error::Corrupt("object has no matching directory entry"))
     }
