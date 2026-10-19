@@ -1087,7 +1087,7 @@ impl OpenedVolume {
                     let after_run = first_bit + width;
                     let run_mask = ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
                     free_bits &= !run_mask;
-                    if after_run < valid_bits {
+                    if u64::from(after_run) < valid_bits {
                         stats.free_extent_count = stats
                             .free_extent_count
                             .checked_add(1)
