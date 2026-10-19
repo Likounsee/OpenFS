@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openfs_block::ImageDevice;
+use openfs_block::{BlockDevice, ImageDevice};
 use openfs_format::{check_volume, format_volume, open_volume};
 
 const BLOCK_SIZE: u32 = 4096;
@@ -212,13 +212,19 @@ fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> 
 
     println!("OpenFS image recovery path completed.");
     println!("UUID: {}", format_uuid(volume.volume.uuid));
-    println!("Journal records remaining after recovery: {}", report.pending_journal_records);
+    println!(
+        "Journal records remaining after recovery: {}",
+        report.pending_journal_records
+    );
     println!(
         "Recoverable committed transactions remaining: {}",
         report.recoverable_transactions
     );
     if report.pending_journal_records > 0 || report.recoverable_transactions > 0 {
-        return Err("journal entries remain after recovery; preserve the image and investigate before use".into());
+        return Err(
+            "journal entries remain after recovery; preserve the image and investigate before use"
+                .into(),
+        );
     }
     println!("Journal checkpoint is current; this command does not validate file ownership or namespace integrity.");
     Ok(())
