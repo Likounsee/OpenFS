@@ -1743,13 +1743,12 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
-    /// Write initial contents to an existing empty persistent file using one data block.
+    /// Write initial contents to an empty persistent file, spanning multiple blocks if needed.
     ///
-    /// This is the first allocation-backed write path: files are limited to one filesystem
-    /// block for now. Data and the checksummed extent map are written before a copy-on-write
-    /// namespace inventory publishes the new size and extent root. A failed publication may
-    /// leave allocated but unreachable blocks; it must never free them speculatively because
-    /// an I/O error can occur after the new inventory becomes durable.
+    /// Data blocks and the checksummed extent map are initialized before copy-on-write
+    /// namespace publication. Allocations are rolled back if staging fails before publication;
+    /// after publication starts, an I/O error may have an uncertain commit outcome, so staged
+    /// blocks are deliberately retained rather than risking freeing live file data.
     pub fn write_persistent_file_contents<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1763,11 +1762,6 @@ impl OpenedVolume {
             ));
         }
         let block_size = self.volume.block_size as usize;
-        if data.len() > block_size {
-            return Err(Error::InvalidInput(
-                "initial persistent file contents must fit in one block",
-            ));
-        }
         let (_, namespace) =
             self.reconstruct_discovered_namespace(device)?
                 .ok_or(Error::InvalidInput(
@@ -1786,20 +1780,57 @@ impl OpenedVolume {
             ));
         }
 
-        // Allocate and initialize data before publishing any metadata that can reference it.
-        let data_block = self.allocate_block(device)?;
-        let mut data_bytes = vec![0_u8; block_size];
-        data_bytes[..data.len()].copy_from_slice(data);
-        device.write_blocks(data_block, &data_bytes)?;
+        let block_count = data
+            .len()
+            .checked_add(block_size - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / block_size;
+        let extent_capacity = block_size
+            .checked_sub(20)
+            .ok_or(Error::ArithmeticOverflow)?
+            / 24;
+        // In the worst case every physical block is discontiguous and needs its own extent.
+        // Reject impossible maps before allocating anything.
+        if block_count > extent_capacity {
+            return Err(Error::InvalidInput(
+                "file contents require more extents than fit in one extent-map block",
+            ));
+        }
 
-        let extent_root = self.allocate_block(device)?;
-        let extent_map = ExtentMap::new(vec![crate::Extent {
-            logical_start: 0,
-            physical_start: data_block,
-            block_count: 1,
-        }])?;
-        let extent_bytes = extent_map.encode_block(block_size)?;
-        device.write_blocks(extent_root, &extent_bytes)?;
+        let mut allocated = Vec::with_capacity(block_count.saturating_add(1));
+        let staged = (|| -> Result<u64> {
+            let mut extent_map = ExtentMap::default();
+            for (index, chunk) in data.chunks(block_size).enumerate() {
+                let block = self.allocate_block(device)?;
+                allocated.push(block);
+                let mut bytes = vec![0_u8; block_size];
+                bytes[..chunk.len()].copy_from_slice(chunk);
+                device.write_blocks(block, &bytes)?;
+                extent_map.push_coalescing(crate::Extent {
+                    logical_start: u64::try_from(index).map_err(|_| Error::ArithmeticOverflow)?,
+                    physical_start: block,
+                    block_count: 1,
+                })?;
+            }
+
+            let extent_bytes = extent_map.encode_block(block_size)?;
+            let extent_root = self.allocate_block(device)?;
+            allocated.push(extent_root);
+            device.write_blocks(extent_root, &extent_bytes)?;
+            device.flush()?;
+            Ok(extent_root)
+        })();
+
+        let extent_root = match staged {
+            Ok(root) => root,
+            Err(error) => {
+                // No published namespace can reference these allocations yet.
+                for block in allocated.iter().copied().rev() {
+                    let _ = self.free_block(device, block);
+                }
+                return Err(error);
+            }
+        };
 
         let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
         let updated = records
