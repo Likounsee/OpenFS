@@ -1,5 +1,10 @@
 name: Rust CI
 
+# Prevent stale runs from occupying the limited GitHub-hosted runner queue.
+concurrency:
+  group: openfs-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [OpenFS]
@@ -14,6 +19,7 @@ jobs:
   linux:
     name: Rust checks (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: OpenFS
@@ -32,6 +38,7 @@ jobs:
   windows:
     name: Rust checks (Windows)
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: OpenFS
