@@ -2236,7 +2236,8 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
         {
             // Publication can fail after its commit point. Only reclaim the staged root
             // after disk inspection proves that the old version is still authoritative.
