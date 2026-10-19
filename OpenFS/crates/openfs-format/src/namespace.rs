@@ -149,7 +149,7 @@ impl Namespace {
     pub fn children(&self, parent_id: ObjectId) -> impl Iterator<Item = &DirectoryEntry> {
         self.names
             .range((parent_id, String::new())..)
-            .take_while(move |((candidate_parent, _), _)| *candidate_parent == parent_id)
+            .take_while(move |((candidate_parent, _), _)| **candidate_parent == parent_id)
             .map(|(_, entry)| entry)
     }
 
