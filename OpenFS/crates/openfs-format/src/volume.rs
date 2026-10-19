@@ -5468,7 +5468,9 @@ mod tests {
                             directory_entry_count: 2,
                         },
                     ),
-                    Err(Error::Corrupt("files claim overlapping physical data blocks"))
+                    Err(Error::Corrupt(
+                        "files claim overlapping physical data blocks"
+                    ))
                 ));
 
                 // A read of one otherwise-valid file must also fail if another file's
