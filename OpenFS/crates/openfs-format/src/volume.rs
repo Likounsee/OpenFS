@@ -3796,7 +3796,13 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(namespace.resolve_path("/renamed.txt").unwrap(), ObjectId(2));
-            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 1);
+            assert_eq!(
+                reopened
+                    .read_persistent_path_range(&mut device, "/renamed.txt", 0, 1)
+                    .unwrap(),
+                b"x"
+            );
         }
         fs::remove_file(path).unwrap();
     }
