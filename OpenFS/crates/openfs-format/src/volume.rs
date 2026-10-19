@@ -1785,18 +1785,6 @@ impl OpenedVolume {
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
-        let extent_capacity = block_size
-            .checked_sub(20)
-            .ok_or(Error::ArithmeticOverflow)?
-            / 24;
-        // In the worst case every physical block is discontiguous and needs its own extent.
-        // Reject impossible maps before allocating anything.
-        if block_count > extent_capacity {
-            return Err(Error::InvalidInput(
-                "file contents require more extents than fit in one extent-map block",
-            ));
-        }
-
         let mut allocated = Vec::with_capacity(block_count.saturating_add(1));
         let staged = (|| -> Result<u64> {
             let mut extent_map = ExtentMap::default();
