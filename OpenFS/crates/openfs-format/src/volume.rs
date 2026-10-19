@@ -1031,9 +1031,7 @@ impl OpenedVolume {
         self.validate_device(device)?;
         ObjectId::new(root_id.0)?;
         if self.discover_persistent_inventory(device)?.is_some() {
-            return Err(Error::InvalidInput(
-                "a persistent namespace already exists",
-            ));
+            return Err(Error::InvalidInput("a persistent namespace already exists"));
         }
 
         let root = MetadataRecord {
@@ -1046,8 +1044,8 @@ impl OpenedVolume {
             generation: 1,
         };
         let encoded = root.encode()?;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut contents = vec![0_u8; block_size];
         contents[..encoded.len()].copy_from_slice(&encoded);
 
@@ -1058,7 +1056,10 @@ impl OpenedVolume {
             device.write_blocks(root_block, &contents)?;
             device.flush()
         })() {
-            if self.reclaim_persistent_blocks(device, &[root_block]).is_err() {
+            if self
+                .reclaim_persistent_blocks(device, &[root_block])
+                .is_err()
+            {
                 return Err(Error::Corrupt(
                     "failed to reclaim staged root metadata after initialization I/O failure",
                 ));
@@ -1086,7 +1087,10 @@ impl OpenedVolume {
                     return Ok(());
                 }
                 Ok(None) => {
-                    if self.reclaim_persistent_blocks(device, &[root_block]).is_err() {
+                    if self
+                        .reclaim_persistent_blocks(device, &[root_block])
+                        .is_err()
+                    {
                         return Err(Error::Corrupt(
                             "namespace initialization failed and staged root metadata could not be reclaimed",
                         ));
