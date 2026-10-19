@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::ImageDevice;
-use openfs_format::{check_volume, format_volume};
+use openfs_format::{check_volume, format_volume, open_volume};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -55,6 +55,17 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 return Err("too many arguments".into());
             }
             check_image(Path::new(&path), block_size)
+        }
+        Some("recover-image") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = args
+                .next()
+                .ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?
+                .parse::<u32>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            recover_image(Path::new(&path), block_size)
         }
         _ => {
             print_usage();
@@ -183,6 +194,36 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+/// Explicitly open an image through the journal recovery path.
+///
+/// Unlike check-image, this command may write recovered home blocks and a journal
+/// checkpoint. Users should keep a copy of the image before running it.
+fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
+        return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
+    }
+
+    let mut device = ImageDevice::open(path, block_size)?;
+    println!("WARNING: recover-image may modify the image while replaying the journal.");
+    println!("Path: {}", path.display());
+    let volume = open_volume(&mut device)?;
+    device.flush()?;
+    let report = check_volume(&mut device)?;
+
+    println!("OpenFS image recovery path completed.");
+    println!("UUID: {}", format_uuid(volume.volume.uuid));
+    println!("Journal records remaining after recovery: {}", report.pending_journal_records);
+    println!(
+        "Recoverable committed transactions remaining: {}",
+        report.recoverable_transactions
+    );
+    if report.pending_journal_records > 0 || report.recoverable_transactions > 0 {
+        return Err("journal entries remain after recovery; preserve the image and investigate before use".into());
+    }
+    println!("Journal checkpoint is current; this command does not validate file ownership or namespace integrity.");
+    Ok(())
+}
+
 fn development_uuid() -> [u8; 16] {
     // A volume label only; this is not a cryptographic random identifier.
     let time = SystemTime::now()
@@ -213,9 +254,11 @@ fn print_usage() {
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
+    eprintln!("  openfs recover-image <path> <block-size>");
     eprintln!(
         "check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536."
     );
+    eprintln!("recover-image may modify an image while replaying the journal; back it up first.");
     eprintln!("create-image refuses to overwrite an existing file.");
 }
 
