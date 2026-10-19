@@ -478,9 +478,24 @@ fn read_namespace_file(
     if record.kind != ObjectKind::File {
         return Err("path is not a regular file".into());
     }
-    let length = usize::try_from(record.size).map_err(|_| "file is too large for this host")?;
-    let data = volume.read_persistent_path_range(&mut device, target, 0, length)?;
-    std::io::Write::write_all(&mut std::io::stdout().lock(), &data)?;
+    // Stream large files to stdout instead of requiring a single allocation equal
+    // to the file size. This keeps cat usable for files larger than host RAM limits.
+    const CHUNK_SIZE: usize = 1024 * 1024;
+    let mut stdout = std::io::stdout().lock();
+    let mut offset = 0_u64;
+    while offset < record.size {
+        let remaining = record.size - offset;
+        let chunk_len = usize::try_from(remaining.min(CHUNK_SIZE as u64))?;
+        let bytes = volume.read_persistent_path_range(&mut device, target, offset, chunk_len)?;
+        if bytes.len() != chunk_len {
+            return Err("short read while printing persistent file".into());
+        }
+        stdout.write_all(&bytes)?;
+        offset = offset
+            .checked_add(u64::try_from(bytes.len())?)
+            .ok_or("file output offset overflow")?;
+    }
+    stdout.flush()?;
     Ok(())
 }
 
