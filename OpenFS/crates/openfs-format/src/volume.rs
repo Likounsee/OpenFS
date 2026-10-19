@@ -1336,6 +1336,7 @@ impl OpenedVolume {
         new_parent_id: ObjectId,
         new_name: &str,
     ) -> Result<()> {
+        self.validate_device(device)?;
         let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent rename requires a published inventory",
