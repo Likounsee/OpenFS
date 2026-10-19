@@ -6212,7 +6212,9 @@ mod tests {
                 .map(|index| ("write", index))
                 .chain((0..=6).map(|index| ("flush", index)))
             {
-                let path = image_path(&format!("batch-free-crash-{block_size}-{fail_kind}-{fail_at}"));
+                let path = image_path(&format!(
+                    "batch-free-crash-{block_size}-{fail_kind}-{fail_at}"
+                ));
                 {
                     let image = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut device = FailNthWrite {
