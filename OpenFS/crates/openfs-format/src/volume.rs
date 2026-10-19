@@ -2998,11 +2998,45 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             let bitmap_base = bitmap_index * bits_per_bitmap_block;
             let start = batch_start.max(bitmap_base);
             let end = batch_end.min(bitmap_base.saturating_add(bits_per_bitmap_block));
-            for block in start..end {
-                let local = block - bitmap_base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+            let first_byte = usize::try_from((start - bitmap_base) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                (end - bitmap_base)
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, value) in bitmap
+                .iter()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
+                let byte_base = bitmap_base
+                    .checked_add(
+                        u64::try_from(byte_index)
+                            .map_err(|_| Error::ArithmeticOverflow)?
+                            .checked_mul(8)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    )
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let mut bits = *value;
+                let lower_bit = start.saturating_sub(byte_base).min(8);
+                if lower_bit > 0 {
+                    bits &= u8::MAX << lower_bit;
+                }
+                let upper_bit = end.saturating_sub(byte_base).min(8);
+                if upper_bit < 8 {
+                    bits &= (1_u8 << upper_bit) - 1;
+                }
+                while bits != 0 {
+                    let bit = u64::from(bits.trailing_zeros());
+                    let block = byte_base
+                        .checked_add(bit)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     allocated.insert(block);
+                    bits &= bits - 1;
                 }
             }
         }
