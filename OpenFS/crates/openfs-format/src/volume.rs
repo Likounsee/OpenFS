@@ -2700,8 +2700,13 @@ impl OpenedVolume {
             // partial block cannot expose bytes from the preceding chunk.
             let mut bytes = vec![0_u8; block_size];
             for (index, chunk) in data.chunks(block_size).enumerate() {
-                bytes.fill(0);
                 bytes[..chunk.len()].copy_from_slice(chunk);
+                if chunk.len() < block_size {
+                    // Full chunks overwrite the whole buffer. Only the final partial
+                    // chunk needs clearing, avoiding an unnecessary full-block memset
+                    // for every complete block in large replacements.
+                    bytes[chunk.len()..].fill(0);
+                }
                 let block = self.allocate_block(device)?;
                 allocated.push(block);
                 device.write_blocks(block, &bytes)?;
@@ -7148,7 +7153,7 @@ mod tests {
                 assert!(matches!(
                     volume.read_namespace_extent_maps(&mut device, &namespace),
                     Err(Error::Corrupt(
-                        "files claim overlapping physical data blocks"
+                        "file extents claim overlapping physical data blocks"
                     ))
                 ));
 
@@ -7166,7 +7171,7 @@ mod tests {
                         },
                     ),
                     Err(Error::Corrupt(
-                        "files claim overlapping physical data blocks"
+                        "file extents claim overlapping physical data blocks"
                     ))
                 ));
 
