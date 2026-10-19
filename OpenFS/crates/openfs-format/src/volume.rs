@@ -4894,11 +4894,16 @@ mod tests {
                     "file extent map is missing from loaded inventory"
                 ))
             ));
-            volume.free_block(&mut device, data_block).unwrap();
+            // Persistent ownership prevents freeing data still referenced by a file.
             assert!(matches!(
-                volume.read_file_range(&mut device, &namespace, &maps, ObjectId(2), 0, 8),
-                Err(Error::Corrupt("file extent points to a free data block"))
+                volume.free_block(&mut device, data_block),
+                Err(Error::InvalidInput("cannot free a block owned by persistent file data"))
             ));
+            assert!(volume.is_data_block_allocated(&mut device, data_block).unwrap());
+            assert_eq!(
+                volume.read_file_range(&mut device, &namespace, &maps, ObjectId(2), 0, 8).unwrap(),
+                vec![0xCD; 8]
+            );
         }
         fs::remove_file(path).unwrap();
     }
@@ -5227,7 +5232,6 @@ mod tests {
                     )
                     .unwrap();
                 let mut expected = payload.clone();
-                expected[17..81].copy_from_slice(&replacement);
                 let write_start = write_offset as usize;
                 expected[write_start..write_start + replacement.len()]
                     .copy_from_slice(&replacement);
@@ -5428,8 +5432,10 @@ mod tests {
                 device.write_blocks(first_root, &map).unwrap();
                 device.write_blocks(second_root, &map).unwrap();
 
-                volume
-                    .publish_persistent_inventory(
+                // Publication must reject cross-file physical aliases before making
+                // an invalid inventory durable.
+                assert!(matches!(
+                    volume.publish_persistent_inventory(
                         &mut device,
                         &PersistentInventoryDescriptor {
                             root_id: ObjectId(1),
@@ -5438,23 +5444,8 @@ mod tests {
                             directory_blocks: vec![directory_block],
                             directory_entry_count: 2,
                         },
-                    )
-                    .unwrap();
-                let namespace = volume
-                    .reconstruct_namespace(
-                        &mut device,
-                        ObjectId(1),
-                        &[metadata_block],
-                        3,
-                        &[directory_block],
-                        2,
-                    )
-                    .unwrap();
-                assert!(matches!(
-                    volume.read_namespace_extent_maps(&mut device, &namespace),
-                    Err(Error::Corrupt(
-                        "files claim overlapping physical data blocks"
-                    ))
+                    ),
+                    Err(Error::Corrupt("files claim overlapping physical data blocks"))
                 ));
 
                 // A read of one otherwise-valid file must also fail if another file's
