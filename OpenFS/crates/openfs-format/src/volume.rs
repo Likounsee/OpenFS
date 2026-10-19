@@ -1867,24 +1867,6 @@ impl OpenedVolume {
             }
         }
 
-        // Clear bytes beyond the new EOF in the retained final block. This prevents
-        // truncated contents from reappearing if the file is appended to later.
-        let remainder = usize::try_from(new_size % block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
-        if remainder != 0 {
-            if let Some(physical) = updated_map.physical_block(new_size / block_size) {
-                let mut contents = vec![0_u8; block_size_usize];
-                device.read_blocks(physical, &mut contents)?;
-                contents[remainder..].fill(0);
-                self.journal.commit(
-                    device,
-                    &[RedoUpdate {
-                        target_block: physical,
-                        contents,
-                    }],
-                )?;
-            }
-        }
 
         let old_root = record.extent_root_block;
         let new_root = if updated_map.is_empty() {
@@ -1912,12 +1894,23 @@ impl OpenedVolume {
         updated.generation = next_generation;
         let entries = namespace.entries().cloned().collect::<Vec<_>>();
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
-        if let Err(error) =
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)
-        {
-            // Publication may have committed despite an I/O error. Do not free either
-            // generation's blocks unless rediscovery can prove which map is active.
-            return Err(error);
+        self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+
+        // Clear bytes beyond EOF only after publishing the shorter length. Doing this
+        // earlier could corrupt the still-authoritative old file if publication failed.
+        if remainder != 0 {
+            if let Some(physical) = updated_map.physical_block(new_size / block_size) {
+                let mut contents = vec![0_u8; block_size_usize];
+                device.read_blocks(physical, &mut contents)?;
+                contents[remainder..].fill(0);
+                self.journal.commit(
+                    device,
+                    &[RedoUpdate {
+                        target_block: physical,
+                        contents,
+                    }],
+                )?;
+            }
         }
 
         if let Some(root) = old_root {
