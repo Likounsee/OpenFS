@@ -1450,12 +1450,18 @@ impl OpenedVolume {
             directory_entry_count: namespace.entry_count(),
         };
         if let Err(error) = descriptor.encode(block_size) {
-            for block in metadata_blocks
+            let staged_blocks: Vec<u64> = metadata_blocks
                 .iter()
                 .chain(directory_blocks.iter())
                 .copied()
+                .collect();
+            if self
+                .reclaim_persistent_blocks(device, &staged_blocks)
+                .is_err()
             {
-                let _ = self.free_block(device, block);
+                return Err(Error::Corrupt(
+                    "failed to reclaim inventory blocks after descriptor validation failed",
+                ));
             }
             return Err(error);
         }
@@ -1467,21 +1473,33 @@ impl OpenedVolume {
                 // staged streams after rediscovery proves the old descriptor is still active.
                 if let Ok(Some((_, active))) = self.discover_persistent_inventory(device) {
                     if active != descriptor {
-                        for block in metadata_blocks
+                        let staged_blocks: Vec<u64> = metadata_blocks
                             .iter()
                             .chain(directory_blocks.iter())
                             .copied()
+                            .collect();
+                        if self
+                            .reclaim_persistent_blocks(device, &staged_blocks)
+                            .is_err()
                         {
-                            let _ = self.free_block(device, block);
+                            return Err(Error::Corrupt(
+                                "inventory publication failed and staged blocks could not be reclaimed",
+                            ));
                         }
                     }
                 } else if let Ok(None) = self.discover_persistent_inventory(device) {
-                    for block in metadata_blocks
+                    let staged_blocks: Vec<u64> = metadata_blocks
                         .iter()
                         .chain(directory_blocks.iter())
                         .copied()
+                        .collect();
+                    if self
+                        .reclaim_persistent_blocks(device, &staged_blocks)
+                        .is_err()
                     {
-                        let _ = self.free_block(device, block);
+                        return Err(Error::Corrupt(
+                            "inventory publication failed and staged blocks could not be reclaimed",
+                        ));
                     }
                 }
                 Err(error)
