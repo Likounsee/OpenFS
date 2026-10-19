@@ -116,6 +116,16 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             export_namespace_file(Path::new(&path), block_size, &target, Path::new(&output))
         }
+        Some("import") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let input = args.next().ok_or("missing host input path")?;
+            let target = args.next().ok_or("missing namespace file path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            import_host_file(Path::new(&path), block_size, Path::new(&input), &target)
+        }
         Some("stat") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -468,6 +478,40 @@ fn export_namespace_file(
     Ok(())
 }
 
+/// Import a host file into an existing OpenFS regular file.
+fn import_host_file(
+    image_path: &Path,
+    block_size: u32,
+    input_path: &Path,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    // Read before opening the volume for mutation: host-side read failures must not
+    // leave a truncated or partially replaced OpenFS file.
+    let data = fs::read(input_path)?;
+    let mut device = ImageDevice::open(image_path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("file metadata is missing")?;
+    if record.kind != ObjectKind::File {
+        return Err("path is not a regular file".into());
+    }
+
+    volume.write_persistent_file_contents(&mut device, target, &data)?;
+    device.flush()?;
+    println!(
+        "Imported '{}' ({} bytes) into '{}'.",
+        input_path.display(),
+        data.len(),
+        target
+    );
+    Ok(())
+}
+
 fn stat_namespace_entry(
     path: &Path,
     block_size: u32,
@@ -703,6 +747,7 @@ fn print_usage() {
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
+    eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs append <image> <block-size> <file-path> <text...>");
