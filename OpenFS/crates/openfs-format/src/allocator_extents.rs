@@ -18,14 +18,35 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
     blocks: &[u64],
 ) -> Result<()> {
     let mut changed = false;
-    let mut contents = vec![0_u8; block_size as usize];
-    for block in blocks {
-        device.read_blocks(*block, &mut contents)?;
-        if contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-            contents.fill(0);
-            device.write_blocks(*block, &contents)?;
-            changed = true;
+    let block_bytes = block_size as usize;
+    // Allocation paths provide blocks in ascending order. Read contiguous runs in
+    // bounded batches so allocating a large extent does not issue one read per block.
+    let mut cursor = 0_usize;
+    while cursor < blocks.len() {
+        let run_start = cursor;
+        let mut run_end = cursor + 1;
+        while run_end < blocks.len()
+            && run_end - run_start < 64
+            && blocks[run_end - 1].checked_add(1) == Some(blocks[run_end])
+        {
+            run_end += 1;
         }
+        let run_count = run_end - run_start;
+        let byte_count = run_count
+            .checked_mul(block_bytes)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut contents = vec![0_u8; byte_count];
+        device.read_blocks(blocks[run_start], &mut contents)?;
+        for (offset, block_contents) in contents.chunks_exact(block_bytes).enumerate() {
+            if block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                let mut cleared = vec![0_u8; block_bytes];
+                let block = blocks[run_start + offset];
+                device.write_blocks(block, &cleared)?;
+                cleared.fill(0);
+                changed = true;
+            }
+        }
+        cursor = run_end;
     }
     if changed {
         // Scrubbing must be durable before the bitmap commit makes these blocks
