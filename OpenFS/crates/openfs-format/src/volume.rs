@@ -4657,7 +4657,7 @@ mod tests {
 
     #[test]
     fn reads_file_ranges_across_fragmented_extents_and_sparse_holes() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         let path = image_path("file-range-sparse-read");
         {
@@ -4717,6 +4717,18 @@ mod tests {
             device
                 .write_blocks(extent_root, &map.encode_block(4096).unwrap())
                 .unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 2,
+                        directory_blocks: vec![directory_block],
+                        directory_entry_count: 1,
+                    },
+                )
+                .unwrap();
             let namespace = volume
                 .reconstruct_namespace(
                     &mut device,
@@ -4759,7 +4771,7 @@ mod tests {
 
     #[test]
     fn file_reads_reject_directories_missing_maps_and_freed_extents() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
         use std::collections::BTreeMap;
 
         let path = image_path("file-range-invalid");
@@ -4811,6 +4823,18 @@ mod tests {
                 .write_blocks(extent_root, &map.encode_block(4096).unwrap())
                 .unwrap();
             device.write_blocks(data_block, &vec![0xCD; 4096]).unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: ObjectId(1),
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 2,
+                        directory_blocks: vec![directory_block],
+                        directory_entry_count: 1,
+                    },
+                )
+                .unwrap();
             let namespace = volume
                 .reconstruct_namespace(
                     &mut device,
@@ -5199,6 +5223,7 @@ mod tests {
                     )
                     .unwrap();
                 let mut expected = payload.clone();
+                expected[17..81].copy_from_slice(&replacement);
                 let write_start = write_offset as usize;
                 expected[write_start..write_start + replacement.len()]
                     .copy_from_slice(&replacement);
@@ -5317,7 +5342,7 @@ mod tests {
 
     #[test]
     fn namespace_extent_maps_reject_cross_file_physical_aliases() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
+        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("persistent-extent-map-alias-{block_size}"));
@@ -5397,6 +5422,18 @@ mod tests {
                 device.write_blocks(first_root, &map).unwrap();
                 device.write_blocks(second_root, &map).unwrap();
 
+                volume
+                    .publish_persistent_inventory(
+                        &mut device,
+                        &PersistentInventoryDescriptor {
+                            root_id: ObjectId(1),
+                            metadata_blocks: vec![metadata_block],
+                            metadata_record_count: 3,
+                            directory_blocks: vec![directory_block],
+                            directory_entry_count: 2,
+                        },
+                    )
+                    .unwrap();
                 let namespace = volume
                     .reconstruct_namespace(
                         &mut device,
