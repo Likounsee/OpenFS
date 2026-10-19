@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::{BlockDevice, ImageDevice};
-use openfs_format::{check_volume, format_volume, open_volume, ObjectId};
+use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -77,6 +77,60 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 return Err("too many arguments".into());
             }
             initialize_namespace_image(Path::new(&path), block_size)
+        }
+        Some("mkdir") | Some("touch") => {
+            let command = args.next().ok_or("missing command")?;
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            create_namespace_entry(Path::new(&path), block_size, &target, command == "mkdir")
+        }
+        Some("ls") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().unwrap_or_else(|| "/".to_owned());
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            list_namespace(Path::new(&path), block_size, &target)
+        }
+        Some("cat") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            read_namespace_file(Path::new(&path), block_size, &target)
+        }
+        Some("write") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let data = args.collect::<Vec<_>>().join(" ");
+            write_namespace_file(Path::new(&path), block_size, &target, data.as_bytes())
+        }
+        Some("rm") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            remove_namespace_entry(Path::new(&path), block_size, &target)
+        }
+        Some("mv") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let old_path = args.next().ok_or("missing source path")?;
+            let new_path = args.next().ok_or("missing destination path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            move_namespace_entry(Path::new(&path), block_size, &old_path, &new_path)
         }
         _ => {
             print_usage();
@@ -208,6 +262,176 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+fn parse_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError>> {
+    let block_size = value.ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?.parse::<u32>()?;
+    if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
+        return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
+    }
+    Ok(block_size)
+}
+
+fn split_parent_path(path: &str) -> Result<(&str, &str), Box<dyn StdError>> {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("the namespace root cannot be used as a new entry name".into());
+    }
+    let (parent, name) = match trimmed.rsplit_once('/') {
+        Some(("", name)) => ("/", name),
+        Some((parent, name)) => (parent, name),
+        None => ("/", trimmed),
+    };
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("invalid final path component".into());
+    }
+    Ok((parent, name))
+}
+
+fn create_namespace_entry(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    directory: bool,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (parent_path, name) = split_parent_path(target)?;
+    let parent_id = namespace.resolve_path(parent_path)?;
+    let next_id = namespace
+        .objects()
+        .map(|record| record.id.0)
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or("object ID space exhausted")?;
+    let object_id = ObjectId::new(next_id)?;
+    if directory {
+        volume.create_persistent_directory(&mut device, parent_id, object_id, name)?;
+    } else {
+        volume.create_persistent_file(&mut device, parent_id, object_id, name)?;
+    }
+    device.flush()?;
+    println!(
+        "Created {} '{}' (object ID {}).",
+        if directory { "directory" } else { "file" },
+        target,
+        object_id.0
+    );
+    Ok(())
+}
+
+fn list_namespace(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let directory_id = namespace.resolve_path(target)?;
+    let record = namespace
+        .object(directory_id)
+        .ok_or("directory metadata is missing")?;
+    if record.kind != ObjectKind::Directory {
+        return Err("path is not a directory".into());
+    }
+    for entry in namespace.children(directory_id) {
+        let kind = match entry.kind {
+            ObjectKind::Directory => "dir ",
+            ObjectKind::File => "file",
+        };
+        println!("{kind}\t{}\t{}", entry.object_id, entry.name);
+    }
+    Ok(())
+}
+
+fn read_namespace_file(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    let record = namespace.object(object_id).ok_or("file metadata is missing")?;
+    if record.kind != ObjectKind::File {
+        return Err("path is not a regular file".into());
+    }
+    let length = usize::try_from(record.size).map_err(|_| "file is too large for this host")?;
+    let data = volume.read_persistent_path_range(&mut device, target, 0, length)?;
+    std::io::Write::write_all(&mut std::io::stdout().lock(), &data)?;
+    Ok(())
+}
+
+fn write_namespace_file(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    data: &[u8],
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.write_persistent_file_contents(&mut device, target, data)?;
+    device.flush()?;
+    println!("Wrote {} byte(s) to '{}'.", data.len(), target);
+    Ok(())
+}
+
+fn remove_namespace_entry(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    if object_id == namespace.root_id() {
+        return Err("cannot remove the namespace root".into());
+    }
+    let record = namespace.object(object_id).ok_or("object metadata is missing")?;
+    if record.kind == ObjectKind::Directory {
+        volume.remove_persistent_tree(&mut device, object_id)?;
+    } else {
+        volume.remove_persistent_object(&mut device, object_id)?;
+    }
+    device.flush()?;
+    println!("Removed '{target}'.");
+    Ok(())
+}
+
+fn move_namespace_entry(
+    path: &Path,
+    block_size: u32,
+    source: &str,
+    destination: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(source)?;
+    if object_id == namespace.root_id() {
+        return Err("cannot move the namespace root".into());
+    }
+    let (parent_path, name) = split_parent_path(destination)?;
+    let parent_id = namespace.resolve_path(parent_path)?;
+    volume.rename_persistent_object(&mut device, object_id, parent_id, name)?;
+    device.flush()?;
+    println!("Moved '{source}' to '{destination}'.");
+    Ok(())
+}
+
 /// Create the first persistent root namespace in an existing development image.
 fn initialize_namespace_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
@@ -296,6 +520,13 @@ fn print_usage() {
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs recover-image <path> <block-size>");
     eprintln!("  openfs init-namespace <path> <block-size>");
+    eprintln!("  openfs mkdir <image> <block-size> <path>");
+    eprintln!("  openfs touch <image> <block-size> <path>");
+    eprintln!("  openfs ls <image> <block-size> [path]");
+    eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
+    eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
+    eprintln!("  openfs rm <image> <block-size> <path>");
     eprintln!(
         "check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536."
     );
