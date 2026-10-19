@@ -2119,12 +2119,13 @@ impl OpenedVolume {
 
         let updated_namespace = (|| -> Result<Namespace> {
             let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-            let updated = records
-                .iter_mut()
-                .find(|item| item.id == object_id)
-                .ok_or(Error::Corrupt(
-                    "file metadata disappeared during truncation",
-                ))?;
+            let updated =
+                records
+                    .iter_mut()
+                    .find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt(
+                        "file metadata disappeared during truncation",
+                    ))?;
             updated.size = new_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
@@ -2145,8 +2146,7 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) =
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
         {
             // Publication can fail after its commit point. Only reclaim the staged root
             // after disk inspection proves that the old version is still authoritative.
