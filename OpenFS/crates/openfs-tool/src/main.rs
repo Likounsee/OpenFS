@@ -112,8 +112,14 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     println!("Free data blocks: {}", report.free_data_blocks);
     println!("UUID: {}", format_uuid(report.uuid));
     println!("Format: OpenFS journaled filesystem");
-    println!("Pending journal records: {}", report.pending_journal_records);
-    println!("Recoverable committed transactions: {}", report.recoverable_transactions);
+    println!(
+        "Pending journal records: {}",
+        report.pending_journal_records
+    );
+    println!(
+        "Recoverable committed transactions: {}",
+        report.recoverable_transactions
+    );
     println!("This inspection does not validate file ownership or namespace integrity.");
     Ok(())
 }
