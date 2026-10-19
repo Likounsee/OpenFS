@@ -4897,11 +4897,17 @@ mod tests {
             // Persistent ownership prevents freeing data still referenced by a file.
             assert!(matches!(
                 volume.free_block(&mut device, data_block),
-                Err(Error::InvalidInput("cannot free a block owned by persistent file data"))
+                Err(Error::InvalidInput(
+                    "cannot free a block owned by persistent file data"
+                ))
             ));
-            assert!(volume.is_data_block_allocated(&mut device, data_block).unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, data_block)
+                .unwrap());
             assert_eq!(
-                volume.read_file_range(&mut device, &namespace, &maps, ObjectId(2), 0, 8).unwrap(),
+                volume
+                    .read_file_range(&mut device, &namespace, &maps, ObjectId(2), 0, 8)
+                    .unwrap(),
                 vec![0xCD; 8]
             );
         }
@@ -5444,7 +5450,9 @@ mod tests {
                     .unwrap();
                 assert!(matches!(
                     volume.read_namespace_extent_maps(&mut device, &namespace),
-                    Err(Error::Corrupt("files claim overlapping physical data blocks"))
+                    Err(Error::Corrupt(
+                        "files claim overlapping physical data blocks"
+                    ))
                 ));
 
                 // Publication must also reject the alias before making an invalid
