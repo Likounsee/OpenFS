@@ -6206,10 +6206,13 @@ mod tests {
     }
 
     #[test]
-    fn allocator_batch_free_recovers_all_or_none_after_each_journal_write_failure() {
+    fn allocator_batch_free_recovers_all_or_none_after_write_and_flush_failures() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in 0..=6 {
-                let path = image_path(&format!("batch-free-crash-{block_size}-{fail_at}"));
+            for (fail_kind, fail_at) in (0..=6)
+                .map(|index| ("write", index))
+                .chain((0..=6).map(|index| ("flush", index)))
+            {
+                let path = image_path(&format!("batch-free-crash-{block_size}-{fail_kind}-{fail_at}"));
                 {
                     let image = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut device = FailNthWrite {
@@ -6223,12 +6226,16 @@ mod tests {
                         volume.allocate_block(&mut device).unwrap(),
                         volume.allocate_block(&mut device).unwrap(),
                     ];
-                    device.writes_until_failure = Some(fail_at);
+                    match fail_kind {
+                        "write" => device.writes_until_failure = Some(fail_at),
+                        "flush" => device.flushes_until_failure = Some(fail_at),
+                        _ => unreachable!("failure kinds are fixed"),
+                    }
 
                     let result = volume.free_blocks(&mut device, &blocks);
                     assert!(
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
-                        "unexpected batch-free error at block size {block_size}, write {fail_at}: {result:?}"
+                        "unexpected batch-free error at block size {block_size}, {fail_kind} {fail_at}: {result:?}"
                     );
                     drop(volume);
                     drop(device);
@@ -6242,7 +6249,7 @@ mod tests {
                     });
                     assert!(
                         states == [true, true, true] || states == [false, false, false],
-                        "batch free must recover all blocks allocated or all free; block size {block_size}, write {fail_at}, states {states:?}"
+                        "batch free must recover all blocks allocated or all free; block size {block_size}, {fail_kind} {fail_at}, states {states:?}"
                     );
                     drop(reopened);
                     drop(reopened_device);
@@ -6258,7 +6265,7 @@ mod tests {
                     });
                     assert_eq!(
                         second_states, states,
-                        "reopening after recovery must be idempotent at block size {block_size}, write {fail_at}"
+                        "reopening after recovery must be idempotent at block size {block_size}, {fail_kind} {fail_at}"
                     );
                 }
                 fs::remove_file(path).unwrap();
