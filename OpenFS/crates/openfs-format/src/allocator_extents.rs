@@ -124,7 +124,6 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
     Ok(())
 }
 
-
 /// Read-only snapshot of usable data-space capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AllocationStats {
@@ -377,7 +376,8 @@ impl OpenedVolume {
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = layout.data_start.max(base);
         let segment_end = layout.backup_superblock.min(
-            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+            base.checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in &sorted {
@@ -472,7 +472,8 @@ impl OpenedVolume {
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = layout.data_start.max(base);
         let segment_end = layout.backup_superblock.min(
-            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+            base.checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in start_block..end_block {
@@ -616,7 +617,8 @@ impl OpenedVolume {
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
         let segment_end = self.volume.layout.backup_superblock.min(
-            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+            base.checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in start..end {
@@ -767,7 +769,8 @@ impl OpenedVolume {
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
                         Some(mut extent)
-                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
+                            if extent.start_block.checked_add(extent.block_count)
+                                == Some(block) =>
                         {
                             extent.block_count = extent
                                 .block_count
@@ -789,8 +792,7 @@ impl OpenedVolume {
                             });
                         }
                     }
-                    let run_mask =
-                        ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
+                    let run_mask = ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
                     free_bits &= !run_mask;
                 }
             }
@@ -872,7 +874,8 @@ impl OpenedVolume {
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
                         Some(mut extent)
-                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
+                            if extent.start_block.checked_add(extent.block_count)
+                                == Some(block) =>
                         {
                             extent.block_count = extent
                                 .block_count
@@ -901,8 +904,7 @@ impl OpenedVolume {
                             });
                         }
                     }
-                    let run_mask =
-                        ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
+                    let run_mask = ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
                     free_bits &= !run_mask;
                 }
             }
@@ -959,7 +961,8 @@ impl OpenedVolume {
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
         let segment_end = self.volume.layout.backup_superblock.min(
-            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+            base.checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in extent.start_block..end {
@@ -1022,9 +1025,8 @@ impl OpenedVolume {
             let end_data_bit = end - base;
             let first_data_byte =
                 usize::try_from(first_data_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_data_byte =
-                usize::try_from(end_data_bit.saturating_add(7) / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_data_byte = usize::try_from(end_data_bit.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
             let first_local = start - base;
             let end_local = end - base;
             let mut run_len = 0_u64;
@@ -1083,8 +1085,7 @@ impl OpenedVolume {
                     }
 
                     let after_run = first_bit + width;
-                    let run_mask =
-                        ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
+                    let run_mask = ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
                     free_bits &= !run_mask;
                     if after_run < valid_bits {
                         stats.free_extent_count = stats
@@ -1117,8 +1118,7 @@ impl OpenedVolume {
                     .free_extent_count
                     .checked_add(1)
                     .ok_or(Error::ArithmeticOverflow)?;
-                stats.largest_free_extent_blocks =
-                    stats.largest_free_extent_blocks.max(run_len);
+                stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
             }
         }
 
