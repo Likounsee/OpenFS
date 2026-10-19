@@ -1092,6 +1092,43 @@ impl OpenedVolume {
         Ok(object_id)
     }
 
+    /// Reclaim a set of blocks with one journal transaction per bitmap segment.
+    ///
+    /// File deletion, recursive removal, truncation, and replacement can retire many
+    /// blocks at once. Freeing each block independently needlessly rewrites the same
+    /// bitmap and journal for every block. Validate the complete list before mutating it,
+    /// then delegate each segment to the allocator's atomic batch-free operation.
+    fn reclaim_persistent_blocks<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        blocks: &[u64],
+    ) -> Result<()> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        let bits_per_block = u64::from(self.volume.block_size)
+            .checked_mul(8)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut sorted = blocks.to_vec();
+        sorted.sort_unstable();
+        if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Corrupt(
+                "persistent storage reclamation contains duplicate blocks",
+            ));
+        }
+        let mut start = 0;
+        while start < sorted.len() {
+            let bitmap_segment = sorted[start] / bits_per_block;
+            let mut end = start + 1;
+            while end < sorted.len() && sorted[end] / bits_per_block == bitmap_segment {
+                end += 1;
+            }
+            self.free_blocks(device, &sorted[start..end])?;
+            start = end;
+        }
+        Ok(())
+    }
+
     /// Remove a persistent file or an empty directory.
     ///
     /// For files with allocated data, the validated extent map is captured first. The
@@ -1143,13 +1180,7 @@ impl OpenedVolume {
             // reclaim blocks if rediscovery proves the removed object is no longer live.
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active))) if active.object(object_id).is_none() => {
-                    let mut cleanup_failed = false;
-                    for block in reclaim_blocks.iter().copied() {
-                        if self.free_block(device, block).is_err() {
-                            cleanup_failed = true;
-                        }
-                    }
-                    if cleanup_failed {
+                    if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
                         return Err(Error::Corrupt(
                             "file was removed but some of its blocks could not be reclaimed",
                         ));
@@ -1162,13 +1193,7 @@ impl OpenedVolume {
             }
         }
 
-        let mut cleanup_failed = false;
-        for block in reclaim_blocks {
-            if self.free_block(device, block).is_err() {
-                cleanup_failed = true;
-            }
-        }
-        if cleanup_failed {
+        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
             return Err(Error::Corrupt(
                 "file was removed but some of its blocks could not be reclaimed",
             ));
@@ -1281,13 +1306,7 @@ impl OpenedVolume {
                 Ok(Some((_, active)))
                     if removed_ids.iter().all(|id| active.object(*id).is_none()) =>
                 {
-                    let mut cleanup_failed = false;
-                    for block in reclaim_blocks.iter().copied() {
-                        if self.free_block(device, block).is_err() {
-                            cleanup_failed = true;
-                        }
-                    }
-                    if cleanup_failed {
+                    if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
                         return Err(Error::Corrupt(
                             "tree was removed but some file blocks could not be reclaimed",
                         ));
@@ -1298,13 +1317,7 @@ impl OpenedVolume {
             }
         }
 
-        let mut cleanup_failed = false;
-        for block in reclaim_blocks {
-            if self.free_block(device, block).is_err() {
-                cleanup_failed = true;
-            }
-        }
-        if cleanup_failed {
+        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
             return Err(Error::Corrupt(
                 "tree was removed but some file blocks could not be reclaimed",
             ));
@@ -2094,13 +2107,7 @@ impl OpenedVolume {
         if let Some(root) = old_root {
             reclaim_blocks.push(root);
         }
-        let mut cleanup_failed = false;
-        for block in reclaim_blocks {
-            if self.free_block(device, block).is_err() {
-                cleanup_failed = true;
-            }
-        }
-        if cleanup_failed {
+        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
             return Err(Error::Corrupt(
                 "file was truncated but some old blocks could not be reclaimed",
             ));
@@ -2234,13 +2241,7 @@ impl OpenedVolume {
         // allocations in that case; a leak is preferable to freeing blocks still in use.
         self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
 
-        let mut cleanup_failed = false;
-        for block in reclaim_blocks {
-            if self.free_block(device, block).is_err() {
-                cleanup_failed = true;
-            }
-        }
-        if cleanup_failed {
+        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
             return Err(Error::Corrupt(
                 "file contents were replaced but some old blocks could not be reclaimed",
             ));
