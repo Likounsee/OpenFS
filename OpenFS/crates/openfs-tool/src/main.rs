@@ -162,12 +162,19 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
         "Recoverable committed transactions: {}",
         report.recoverable_transactions
     );
+    if report.pending_journal_records > 0 {
+        println!(
+            "WARNING: the journal contains {} record(s) beyond its checkpoint.",
+            report.pending_journal_records
+        );
+        println!("Because this check is read-only, it did not replay or discard any journal records.");
+    }
     if report.recoverable_transactions > 0 {
         println!(
             "WARNING: {} committed journal transaction(s) may need recovery.",
             report.recoverable_transactions
         );
-        println!("This read-only check did not replay them; open the volume through the recovery path before normal use.");
+        println!("Open the volume through the recovery path before normal use.");
     }
     println!("The check validates superblocks, geometry, bitmap invariants, and journal framing.");
     println!("It does not validate file ownership or namespace integrity.");
