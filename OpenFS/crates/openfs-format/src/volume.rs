@@ -5432,8 +5432,23 @@ mod tests {
                 device.write_blocks(first_root, &map).unwrap();
                 device.write_blocks(second_root, &map).unwrap();
 
-                // Publication must reject cross-file physical aliases before making
-                // an invalid inventory durable.
+                let namespace = volume
+                    .reconstruct_namespace(
+                        &mut device,
+                        ObjectId(1),
+                        &[metadata_block],
+                        3,
+                        &[directory_block],
+                        2,
+                    )
+                    .unwrap();
+                assert!(matches!(
+                    volume.read_namespace_extent_maps(&mut device, &namespace),
+                    Err(Error::Corrupt("files claim overlapping physical data blocks"))
+                ));
+
+                // Publication must also reject the alias before making an invalid
+                // inventory durable.
                 assert!(matches!(
                     volume.publish_persistent_inventory(
                         &mut device,
