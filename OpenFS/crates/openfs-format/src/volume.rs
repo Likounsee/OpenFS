@@ -1055,6 +1055,43 @@ impl OpenedVolume {
         Ok(object_id)
     }
 
+    /// Create an empty directory in the persistent namespace.
+    ///
+    /// The directory entry and metadata record are validated together and published as a
+    /// copy-on-write inventory, so the directory becomes visible only when the new inventory
+    /// descriptor is committed. Directory creation allocates no data extents.
+    pub fn create_persistent_directory<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        parent_id: ObjectId,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        let (_, mut namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "no persistent namespace exists for directory creation",
+                ))?;
+        let record = MetadataRecord {
+            id: object_id,
+            parent_id: parent_id.0,
+            kind: crate::ObjectKind::Directory,
+            flags: 0,
+            size: 0,
+            extent_root_block: None,
+            generation: 1,
+        };
+        let entry = DirectoryEntry {
+            parent_id: parent_id.0,
+            object_id: object_id.0,
+            kind: crate::ObjectKind::Directory,
+            name: name.to_owned(),
+        };
+        namespace.insert(entry, record)?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(object_id)
+    }
+
     /// Remove a persistent file or an empty directory.
     ///
     /// For files with allocated data, the validated extent map is captured first. The
