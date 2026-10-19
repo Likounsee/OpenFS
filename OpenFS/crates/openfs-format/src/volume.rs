@@ -1875,67 +1875,159 @@ impl OpenedVolume {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
 
-        // Permit a safe append into the unused tail of the last already-allocated block.
-        // No new extent ownership is introduced, so the existing map root remains valid.
+        // Appends that fit in the current final block need no extent-map replacement.
+        // Larger appends stage new data and a new extent root before publishing the new size.
         if !data.is_empty() && offset == record.size {
             let block_size = u64::from(self.volume.block_size);
-            let end = offset
-                .checked_add(u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let in_block_u64 = offset % block_size;
-            let append_end_in_block = in_block_u64
-                .checked_add(u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?)
-                .ok_or(Error::ArithmeticOverflow)?;
-            if record.size % block_size == 0
-                || append_end_in_block > block_size
-                || record.extent_root_block.is_none()
-            {
-                return Err(Error::InvalidInput(
-                    "append exceeds the existing allocated final block",
-                ));
-            }
+            let data_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+            let end = offset.checked_add(data_len).ok_or(Error::ArithmeticOverflow)?;
+            let old_root = record.extent_root_block.ok_or(Error::Corrupt(
+                "non-empty file is missing its extent-map root",
+            ))?;
             let map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
-            let logical_block = offset / block_size;
-            let physical_block = map
-                .physical_block(logical_block)
-                .ok_or(Error::InvalidInput(
-                    "append would extend into a sparse hole",
-                ))?;
-            let in_block =
-                usize::try_from(offset % block_size).map_err(|_| Error::ArithmeticOverflow)?;
-            let next_generation = record
-                .generation
-                .checked_add(1)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let mut block = vec![0_u8; self.volume.block_size as usize];
-            device.read_blocks(physical_block, &mut block)?;
-            let finish = in_block
-                .checked_add(data.len())
-                .ok_or(Error::ArithmeticOverflow)?;
-            block[in_block..finish].copy_from_slice(data);
-            // Use the journal for the data block too; a direct device write could leave
-            // a torn append if power is lost before the new file size is published.
-            self.journal.commit(
-                device,
-                &[RedoUpdate {
+
+            let tail_offset = offset % block_size;
+            let tail_capacity = if tail_offset == 0 { 0 } else { block_size - tail_offset };
+            if tail_capacity > 0 && data_len <= tail_capacity {
+                let physical_block = map
+                    .physical_block(offset / block_size)
+                    .ok_or(Error::InvalidInput("append would extend into a sparse hole"))?;
+                let in_block = usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?;
+                let mut block = vec![0_u8; self.volume.block_size as usize];
+                device.read_blocks(physical_block, &mut block)?;
+                let finish = in_block.checked_add(data.len()).ok_or(Error::ArithmeticOverflow)?;
+                block[in_block..finish].copy_from_slice(data);
+                self.journal.commit(device, &[RedoUpdate {
                     target_block: physical_block,
                     contents: block,
-                }],
-            )?;
+                }])?;
+
+                let next_generation = record.generation.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+                let updated = records.iter_mut().find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
+                updated.size = end;
+                updated.generation = next_generation;
+                let entries = namespace.entries().cloned().collect::<Vec<_>>();
+                let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+                self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+                return Ok(());
+            }
+
+            let next_generation = record.generation.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            let block_size_usize = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+            let mut allocated = Vec::new();
+            let staged = (|| -> Result<u64> {
+                let mut updated_map = map.clone();
+                let mut consumed = 0_usize;
+                let mut next_logical = offset / block_size;
+
+                if tail_capacity > 0 {
+                    let physical = map.physical_block(next_logical)
+                        .ok_or(Error::InvalidInput("append would extend into a sparse hole"))?;
+                    let tail_bytes = usize::try_from(tail_capacity.min(data_len))
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let tail_offset_usize = usize::try_from(tail_offset)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let mut block = vec![0_u8; block_size_usize];
+                    device.read_blocks(physical, &mut block)?;
+                    let finish = tail_offset_usize.checked_add(tail_bytes)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    block[tail_offset_usize..finish].copy_from_slice(&data[..tail_bytes]);
+                    self.journal.commit(device, &[RedoUpdate {
+                        target_block: physical,
+                        contents: block,
+                    }])?;
+                    consumed = tail_bytes;
+                    next_logical = next_logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                }
+
+                for chunk in data[consumed..].chunks(block_size_usize) {
+                    let block = self.allocate_block(device)?;
+                    allocated.push(block);
+                    let mut contents = vec![0_u8; block_size_usize];
+                    contents[..chunk.len()].copy_from_slice(chunk);
+                    device.write_blocks(block, &contents)?;
+                    updated_map.insert_coalescing(crate::Extent {
+                        logical_start: next_logical,
+                        physical_start: block,
+                        block_count: 1,
+                    })?;
+                    next_logical = next_logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                }
+
+                let encoded = updated_map.encode_block(block_size_usize)?;
+                let new_root = self.allocate_block(device)?;
+                allocated.push(new_root);
+                device.write_blocks(new_root, &encoded)?;
+                device.flush()?;
+                Ok(new_root)
+            })();
+
+            let new_root = match staged {
+                Ok(root) => root,
+                Err(error) => {
+                    let mut rollback_failed = false;
+                    for block in allocated.iter().copied().rev() {
+                        if self.free_block(device, block).is_err() {
+                            rollback_failed = true;
+                        }
+                    }
+                    if rollback_failed {
+                        return Err(Error::Corrupt("failed to roll back staged append allocations"));
+                    }
+                    return Err(error);
+                }
+            };
 
             let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-            let updated = records
-                .iter_mut()
-                .find(|item| item.id == object_id)
+            let updated = records.iter_mut().find(|item| item.id == object_id)
                 .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
             updated.size = end;
+            updated.extent_root_block = Some(new_root);
             updated.generation = next_generation;
             let entries = namespace.entries().cloned().collect::<Vec<_>>();
             let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
-            return Ok(());
+
+            match self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+                Ok(_) => {
+                    // Publication has removed the old root from the live namespace, so it
+                    // is now safe to release. If freeing fails, the new file remains valid.
+                    self.free_block(device, old_root)?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    // The journal may have committed despite a later I/O error. Rediscover
+                    // before deciding whether staged allocations are safe to roll back.
+                    match self.reconstruct_discovered_namespace(device) {
+                        Ok(Some((_, active))) if active.object(object_id)
+                            .is_some_and(|item| item.extent_root_block == Some(new_root)) =>
+                        {
+                            let _ = self.free_block(device, old_root);
+                            return Err(error);
+                        }
+                        Ok(Some((_, active))) if active.object(object_id)
+                            .is_some_and(|item| item.extent_root_block == Some(old_root)) =>
+                        {
+                            let mut rollback_failed = false;
+                            for block in allocated.iter().copied().rev() {
+                                if self.free_block(device, block).is_err() {
+                                    rollback_failed = true;
+                                }
+                            }
+                            if rollback_failed {
+                                return Err(Error::Corrupt("failed to roll back unpublished append allocations"));
+                            }
+                            return Err(error);
+                        }
+                        _ => return Err(Error::Corrupt(
+                            "append publication outcome is uncertain; staged blocks were retained",
+                        )),
+                    }
+                }
+            }
         }
 
         self.write_file_range(device, &namespace, &extent_maps, object_id, offset, data)
