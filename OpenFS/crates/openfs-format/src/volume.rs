@@ -1206,17 +1206,27 @@ impl OpenedVolume {
 
         // Resolve descendants from metadata, not from path strings, so unusual valid names
         // cannot make a child escape the subtree calculation.
-        let mut removed_ids = std::collections::BTreeSet::new();
-        removed_ids.insert(object_id);
-        loop {
-            let before = removed_ids.len();
-            for record in namespace.objects() {
-                if removed_ids.contains(&ObjectId(record.parent_id)) {
-                    removed_ids.insert(record.id);
-                }
+        // Build parent-to-children adjacency once, then walk the subtree. Repeatedly
+        // rescanning every metadata record for each depth makes deep trees quadratic.
+        let mut children_by_parent: std::collections::BTreeMap<
+            ObjectId,
+            Vec<ObjectId>,
+        > = std::collections::BTreeMap::new();
+        for record in namespace.objects() {
+            if record.id != namespace.root_id() {
+                let parent = ObjectId::new(record.parent_id)
+                    .map_err(|_| Error::Corrupt("subtree object has an invalid parent"))?;
+                children_by_parent.entry(parent).or_default().push(record.id);
             }
-            if removed_ids.len() == before {
-                break;
+        }
+        let mut removed_ids = std::collections::BTreeSet::new();
+        let mut pending = vec![object_id];
+        while let Some(current) = pending.pop() {
+            if !removed_ids.insert(current) {
+                continue;
+            }
+            if let Some(children) = children_by_parent.get(&current) {
+                pending.extend(children.iter().copied());
             }
         }
 
