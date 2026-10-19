@@ -148,7 +148,8 @@ impl Namespace {
     /// Iterate over a directory's children in deterministic lexical order.
     pub fn children(&self, parent_id: ObjectId) -> impl Iterator<Item = &DirectoryEntry> {
         self.names
-            .range((parent_id, String::new())..=(parent_id, char::MAX.to_string().repeat(64)))
+            .range((parent_id, String::new())..)
+            .take_while(move |((candidate_parent, _), _)| *candidate_parent == parent_id)
             .map(|(_, entry)| entry)
     }
 
