@@ -1605,6 +1605,12 @@ impl OpenedVolume {
                 "write range exceeds existing file size",
             ));
         }
+        // A successful content mutation advances the file generation as well. Check
+        // overflow before the journal changes any data, so this failure is side-effect free.
+        let next_generation = record
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
 
         // Validate the complete persistent ownership graph, not just the target
         // file's map. A corrupt map that aliases another file's data must never be
@@ -1686,6 +1692,19 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
         }
         self.journal.commit(device, &updates)?;
+
+        // Publish the new generation only after the journal has committed the bytes.
+        // If publication fails, return the error rather than claiming a fully successful
+        // metadata update; the data transaction itself may already be durable.
+        let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+        let updated = records
+            .iter_mut()
+            .find(|item| item.id == object_id)
+            .ok_or(Error::Corrupt("file metadata disappeared during write"))?;
+        updated.generation = next_generation;
+        let entries = namespace.entries().cloned().collect::<Vec<_>>();
+        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+        self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
         Ok(())
     }
 
