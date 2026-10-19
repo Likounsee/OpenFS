@@ -2440,8 +2440,12 @@ impl OpenedVolume {
             let mut extent_map = ExtentMap::default();
             let mut file_size = 0_u64;
             let mut logical_block = 0_u64;
+            // Reuse one block-sized buffer for the whole import instead of allocating
+            // and freeing a fresh Vec for every filesystem block. Full iterations
+            // overwrite the entire buffer; a short final block is zero-padded from
+            // the buffer's initial state and terminates the loop immediately.
+            let mut contents = vec![0_u8; block_size];
             loop {
-                let mut contents = vec![0_u8; block_size];
                 let mut filled = 0_usize;
                 while filled < block_size {
                     let count = match reader.read(&mut contents[filled..]) {
