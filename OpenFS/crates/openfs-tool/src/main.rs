@@ -121,6 +121,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let data = args.collect::<Vec<_>>().join(" ");
             write_namespace_file(Path::new(&path), block_size, &target, data.as_bytes())
         }
+        Some("append") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let data = args.collect::<Vec<_>>().join(" ");
+            append_namespace_file(Path::new(&path), block_size, &target, data.as_bytes())
+        }
         Some("truncate") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -435,6 +442,31 @@ fn write_namespace_file(
     Ok(())
 }
 
+fn append_namespace_file(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    data: &[u8],
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("file metadata is missing")?;
+    if record.kind != ObjectKind::File {
+        return Err("path is not a regular file".into());
+    }
+    let offset = record.size;
+    volume.write_persistent_path_range(&mut device, target, offset, data)?;
+    device.flush()?;
+    println!("Appended {} byte(s) to '{}' (new size: {} bytes).", data.len(), target, offset + data.len() as u64);
+    Ok(())
+}
+
 fn truncate_namespace_file(
     path: &Path,
     block_size: u32,
@@ -593,6 +625,7 @@ fn print_usage() {
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
+    eprintln!("  openfs append <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs truncate <image> <block-size> <file-path> <new-size-bytes>");
     eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
     eprintln!("  openfs rm <image> <block-size> <path>");
