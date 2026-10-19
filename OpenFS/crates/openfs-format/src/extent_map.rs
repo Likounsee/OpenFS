@@ -375,15 +375,9 @@ impl ExtentMap {
                 return Err(Error::Corrupt("extent lies outside the data region"));
             }
         }
-        let mut physical: Vec<(u64, u64)> = self
-            .extents
-            .iter()
-            .map(|extent| Ok((extent.physical_start, extent.physical_end()?)))
-            .collect::<Result<_>>()?;
-        physical.sort_unstable();
-        if physical.windows(2).any(|pair| pair[0].1 > pair[1].0) {
-            return Err(Error::Corrupt("physical extents overlap"));
-        }
+        // validate_ordering() already checks physical overlap. Keep this method
+        // focused on volume-specific logical and physical bounds rather than
+        // allocating and sorting a second copy of the same physical ranges.
         Ok(())
     }
 
