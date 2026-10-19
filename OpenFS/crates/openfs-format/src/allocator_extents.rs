@@ -283,6 +283,7 @@ impl OpenedVolume {
             let bitmap_block = layout.bitmap_start + index;
             let mut bitmap = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let mut selected = Vec::with_capacity(count as usize);
             for block in start..end {
                 let local = block - base;
@@ -301,6 +302,7 @@ impl OpenedVolume {
             // Refresh the bitmap before touching candidate contents. A second opener may
             // have allocated one of these blocks since the initial free-space scan.
             device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let mut selection_changed = false;
             for block in &selected {
                 let local = *block - base;
@@ -373,6 +375,11 @@ impl OpenedVolume {
         let base = bitmap_index * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        let segment_start = layout.data_start.max(base);
+        let segment_end = layout.backup_superblock.min(
+            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+        );
+        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in &sorted {
             let local = *block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -463,6 +470,11 @@ impl OpenedVolume {
         let base = bitmap_index * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        let segment_start = layout.data_start.max(base);
+        let segment_end = layout.backup_superblock.min(
+            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+        );
+        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in start_block..end_block {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
