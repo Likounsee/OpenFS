@@ -36,6 +36,19 @@ cargo run -p openfs-tool -- check-image ./openfs.img 4096
 
 The checker is read-only and does not replay pending journal records. Opening a volume for normal writable operations performs journal recovery.
 
+Initialize a persistent namespace, create a file, import host data, and export it again:
+
+```sh
+cargo run -p openfs-tool -- init-namespace ./openfs.img 4096
+cargo run -p openfs-tool -- mkdir ./openfs.img 4096 /docs
+cargo run -p openfs-tool -- touch ./openfs.img 4096 /docs/readme.txt
+cargo run -p openfs-tool -- import ./openfs.img 4096 ./README.md /docs/readme.txt
+cargo run -p openfs-tool -- cat ./openfs.img 4096 /docs/readme.txt
+cargo run -p openfs-tool -- export ./openfs.img 4096 /docs/readme.txt ./readme-export.txt
+```
+
+`import` replaces the contents of an existing regular file in the OpenFS namespace. It reads the host source before changing the image and does not overwrite the host source or export destination.
+
 ## Current limits
 
 The journal currently protects allocator bitmap changes, but does not yet provide a general transaction layer for persistent namespace and extent-map mutations. Persistent inventory publication can leave a detectable orphan if interrupted between descriptor allocation and descriptor write. File reads support sparse zero-fill, ranges and EOF, but durable file/directory mutation and mounting are not complete.
