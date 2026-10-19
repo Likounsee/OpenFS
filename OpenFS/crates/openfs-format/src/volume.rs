@@ -2312,8 +2312,7 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) =
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
         {
             // Publication can fail after its commit point. Only reclaim the staged root
             // after disk inspection proves that the old version is still authoritative.
@@ -2392,11 +2391,11 @@ impl OpenedVolume {
         reader: &mut R,
     ) -> Result<u64> {
         self.validate_device(device)?;
-        let (_, namespace) = self
-            .reconstruct_discovered_namespace(device)?
-            .ok_or(Error::InvalidInput(
-                "persistent file writes require a published inventory",
-            ))?;
+        let (_, namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "persistent file writes require a published inventory",
+                ))?;
         let object_id = namespace.resolve_path(path)?;
         let existing = namespace
             .object(object_id)
@@ -2420,7 +2419,8 @@ impl OpenedVolume {
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
-                        extent.physical_start
+                        extent
+                            .physical_start
                             .checked_add(delta)
                             .ok_or(Error::ArithmeticOverflow)?,
                     );
@@ -2428,7 +2428,9 @@ impl OpenedVolume {
             }
             reclaim_blocks.push(old_root);
         } else if existing.size != 0 {
-            return Err(Error::Corrupt("non-empty file is missing its extent-map root"));
+            return Err(Error::Corrupt(
+                "non-empty file is missing its extent-map root",
+            ));
         }
 
         let mut allocated = Vec::new();
@@ -2444,9 +2446,7 @@ impl OpenedVolume {
                     if count == 0 {
                         break;
                     }
-                    filled = filled
-                        .checked_add(count)
-                        .ok_or(Error::ArithmeticOverflow)?;
+                    filled = filled.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
                 }
                 if filled == 0 {
                     break;
