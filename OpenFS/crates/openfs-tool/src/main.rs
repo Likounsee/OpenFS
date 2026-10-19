@@ -278,21 +278,38 @@ fn audit_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     println!("Directory entries: {}", report.directory_entry_count);
     println!("File extent maps: {}", report.extent_maps.len());
     println!("Owned map groups checked: {}", report.owner_map_count);
-    println!("Orphaned allocated blocks: {}", report.orphaned_block_count());
-    println!("References to free blocks: {}", report.dangling_reference_count());
+    println!(
+        "Orphaned allocated blocks: {}",
+        report.orphaned_block_count()
+    );
+    println!(
+        "References to free blocks: {}",
+        report.dangling_reference_count()
+    );
     if !report.allocation.orphaned_allocations.is_empty() {
-        println!("Sample orphaned block numbers: {:?}", report.allocation.orphaned_allocations);
+        println!(
+            "Sample orphaned block numbers: {:?}",
+            report.allocation.orphaned_allocations
+        );
     }
     if report.allocation.orphaned_allocations_truncated {
         println!("Additional orphaned block numbers were omitted from the diagnostic sample.");
     }
     if !report.allocation.dangling_references.is_empty() {
-        println!("Sample dangling-reference block numbers: {:?}", report.allocation.dangling_references);
+        println!(
+            "Sample dangling-reference block numbers: {:?}",
+            report.allocation.dangling_references
+        );
     }
     if report.allocation.dangling_references_truncated {
-        println!("Additional dangling-reference block numbers were omitted from the diagnostic sample.");
+        println!(
+            "Additional dangling-reference block numbers were omitted from the diagnostic sample."
+        );
     }
-    println!("Allocation ownership consistent: {}", report.is_consistent());
+    println!(
+        "Allocation ownership consistent: {}",
+        report.is_consistent()
+    );
 
     if !report.is_consistent() {
         return Err("persistent inventory has allocation ownership anomalies; preserve the image before repair".into());
