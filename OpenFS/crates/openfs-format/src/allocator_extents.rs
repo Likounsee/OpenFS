@@ -967,7 +967,8 @@ impl OpenedVolume {
     /// Measure free-space fragmentation without modifying the volume.
     ///
     /// Extents are counted independently per bitmap segment because allocation transactions
-    /// cannot currently update multiple bitmap home blocks atomically.
+    /// cannot currently update multiple bitmap home blocks atomically. A run continues across
+    /// byte boundaries, but is closed at allocated bits and at each bitmap-segment boundary.
     pub fn free_extent_stats<D: BlockDevice>(&self, device: &mut D) -> Result<FreeExtentStats> {
         validate_device(self, device)?;
         self.validate_allocation_bitmap(device)?;
@@ -976,6 +977,7 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut stats = FreeExtentStats::default();
+
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -987,64 +989,18 @@ impl OpenedVolume {
             );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
-            let first_local = start - base;
-            let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+
             let mut run_len = 0_u64;
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
-                let mut cursor = 0_u32;
-                while free_bits != 0 {
-                    let run_start = free_bits.trailing_zeros();
-                    if run_start > cursor && run_len != 0 {
-                        stats.free_extent_count = stats
-                            .free_extent_count
-                            .checked_add(1)
-                            .ok_or(Error::ArithmeticOverflow)?;
-                        stats.largest_free_extent_blocks =
-                            stats.largest_free_extent_blocks.max(run_len);
-                        run_len = 0;
-                    }
-                    let run_width = (free_bits >> run_start).trailing_ones().min(8 - run_start);
-                    if run_start == 0 && cursor == 0 {
-                        run_len = run_len
-                            .checked_add(u64::from(run_width))
-                            .ok_or(Error::ArithmeticOverflow)?;
-                    } else {
-                        run_len = u64::from(run_width);
-                    }
-                    cursor = run_start + run_width;
-                    let run_mask = (((1_u16 << run_width) - 1) << run_start) as u8;
-                    free_bits &= !run_mask;
-                    if cursor < 8 {
-                        stats.free_extent_count = stats
-                            .free_extent_count
-                            .checked_add(1)
-                            .ok_or(Error::ArithmeticOverflow)?;
-                        stats.largest_free_extent_blocks =
-                            stats.largest_free_extent_blocks.max(run_len);
-                        run_len = 0;
-                    }
-                }
-                if free_bits == 0 && cursor == 0 && run_len != 0 {
+            for block in start..end {
+                let local = block - base;
+                let byte_index =
+                    usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let bit_mask = 1_u8 << (local % 8);
+                if bitmap[byte_index] & bit_mask == 0 {
+                    run_len = run_len
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                } else if run_len != 0 {
                     stats.free_extent_count = stats
                         .free_extent_count
                         .checked_add(1)
@@ -1054,14 +1010,17 @@ impl OpenedVolume {
                     run_len = 0;
                 }
             }
+
             if run_len != 0 {
                 stats.free_extent_count = stats
                     .free_extent_count
                     .checked_add(1)
                     .ok_or(Error::ArithmeticOverflow)?;
-                stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+                stats.largest_free_extent_blocks =
+                    stats.largest_free_extent_blocks.max(run_len);
             }
         }
+
         Ok(stats)
     }
 
