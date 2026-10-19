@@ -181,6 +181,43 @@ impl ExtentMap {
         Ok(())
     }
 
+    /// Insert an extent at any logical position, merging adjacent logical and physical runs.
+    ///
+    /// This supports rebuilding a file's map when newly allocated blocks are not physically
+    /// adjacent to its existing data. Overlapping logical ranges are rejected, and the map
+    /// remains unchanged if validation or arithmetic fails.
+    pub fn insert_coalescing(&mut self, extent: Extent) -> Result<()> {
+        validate_extent(extent)?;
+        let mut candidate = self.extents.clone();
+        let position = candidate.partition_point(|item| item.logical_start < extent.logical_start);
+        candidate.insert(position, extent);
+
+        let mut merged: Vec<Extent> = Vec::with_capacity(candidate.len());
+        for current in candidate {
+            if let Some(previous) = merged.last_mut() {
+                let previous_logical_end = previous.logical_end()?;
+                let previous_physical_end = previous.physical_end()?;
+                if current.logical_start < previous_logical_end {
+                    return Err(Error::InvalidInput("extent overlaps existing logical blocks"));
+                }
+                if current.logical_start == previous_logical_end
+                    && current.physical_start == previous_physical_end
+                {
+                    previous.block_count = previous
+                        .block_count
+                        .checked_add(current.block_count)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    continue;
+                }
+            }
+            merged.push(current);
+        }
+
+        let validated = Self::new(merged)?;
+        self.extents = validated.extents;
+        Ok(())
+    }
+
     /// Iterate every physical data block represented by this map in logical extent order.
     /// Sparse holes are omitted. The caller must still validate the map against its volume.
     pub fn physical_blocks(&self) -> impl Iterator<Item = u64> + '_ {
