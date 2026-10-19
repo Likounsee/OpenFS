@@ -2975,8 +2975,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     device: &mut D,
     layout: &VolumeLayout,
 ) -> Result<bool> {
-    let block_size =
-        usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
     let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
@@ -2984,13 +2983,16 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     for bitmap_index in first_bitmap..=last_bitmap {
         let bitmap_base = bitmap_index * bits_per_bitmap_block;
         let start = layout.data_start.max(bitmap_base);
-        let end = layout.backup_superblock.min(bitmap_base + bits_per_bitmap_block);
+        let end = layout
+            .backup_superblock
+            .min(bitmap_base + bits_per_bitmap_block);
         let mut bitmap = vec![0_u8; block_size];
         device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
         for block in start..end {
             let local = block - bitmap_base;
             if bitmap[usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?]
-                & (1_u8 << (local % 8)) == 0
+                & (1_u8 << (local % 8))
+                == 0
             {
                 continue;
             }
