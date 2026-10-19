@@ -1779,6 +1779,10 @@ impl OpenedVolume {
                 "initial contents can only be written to an empty file",
             ));
         }
+        let next_generation = existing
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
 
         let block_count = data
             .len()
@@ -1812,9 +1816,18 @@ impl OpenedVolume {
         let extent_root = match staged {
             Ok(root) => root,
             Err(error) => {
-                // No published namespace can reference these allocations yet.
+                // No published namespace can reference these allocations yet. Attempt
+                // every rollback, but surface cleanup failure instead of hiding a leak.
+                let mut rollback_failed = false;
                 for block in allocated.iter().copied().rev() {
-                    let _ = self.free_block(device, block);
+                    if self.free_block(device, block).is_err() {
+                        rollback_failed = true;
+                    }
+                }
+                if rollback_failed {
+                    return Err(Error::Corrupt(
+                        "failed to roll back staged persistent file allocations",
+                    ));
                 }
                 return Err(error);
             }
@@ -1827,10 +1840,7 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
         updated.size = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
         updated.extent_root_block = Some(extent_root);
-        updated.generation = updated
-            .generation
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        updated.generation = next_generation;
         let entries = namespace.entries().cloned().collect::<Vec<_>>();
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
         self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
