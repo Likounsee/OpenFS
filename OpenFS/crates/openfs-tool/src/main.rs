@@ -262,7 +262,9 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
 }
 
 fn parse_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError>> {
-    let block_size = value.ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?.parse::<u32>()?;
+    let block_size = value
+        .ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?
+        .parse::<u32>()?;
     if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
         return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
     }
@@ -321,11 +323,7 @@ fn create_namespace_entry(
     Ok(())
 }
 
-fn list_namespace(
-    path: &Path,
-    block_size: u32,
-    target: &str,
-) -> Result<(), Box<dyn StdError>> {
+fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
     let mut volume = open_volume(&mut device)?;
     let (_, namespace) = volume
@@ -359,7 +357,9 @@ fn read_namespace_file(
         .reconstruct_discovered_namespace(&mut device)?
         .ok_or("no persistent namespace; run init-namespace first")?;
     let object_id = namespace.resolve_path(target)?;
-    let record = namespace.object(object_id).ok_or("file metadata is missing")?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("file metadata is missing")?;
     if record.kind != ObjectKind::File {
         return Err("path is not a regular file".into());
     }
@@ -397,7 +397,9 @@ fn remove_namespace_entry(
     if object_id == namespace.root_id() {
         return Err("cannot remove the namespace root".into());
     }
-    let record = namespace.object(object_id).ok_or("object metadata is missing")?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("object metadata is missing")?;
     if record.kind == ObjectKind::Directory {
         volume.remove_persistent_tree(&mut device, object_id)?;
     } else {
