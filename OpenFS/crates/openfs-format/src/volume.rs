@@ -3026,9 +3026,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 device.read_blocks(layout.bitmap_start + index, &mut reference_bitmap)?;
                 let byte_index =
                     usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if reference_bitmap[byte_index]
-                    & (1_u8 << (local_bit % 8)) == 0
-                {
+                if reference_bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                     return Err(Error::Corrupt(
                         "persistent inventory descriptor references a free block",
                     ));
