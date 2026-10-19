@@ -32,9 +32,11 @@ Inspect the image without writing:
 ```sh
 cargo run -p openfs-tool -- inspect-image ./openfs.img
 cargo run -p openfs-tool -- check-image ./openfs.img 4096
+cargo run -p openfs-tool -- audit-image ./openfs.img 4096
 ```
 
 The checker is read-only and does not replay pending journal records. Opening a volume for normal writable operations performs journal recovery.
+`audit-image` reconstructs the discovered persistent namespace and reconciles metadata, extent-map and file-data ownership against the allocation bitmap. It reports orphaned allocations and references to blocks marked free. Unlike `check-image`, it opens the normal volume path and may replay committed journal transactions before auditing; keep a backup before using it on valuable images. It does not repair ownership anomalies.
 
 Initialize a persistent namespace, create a file, import host data, and export it again:
 
