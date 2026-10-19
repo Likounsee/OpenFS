@@ -3007,12 +3007,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     / 8,
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, value) in bitmap
-                .iter()
-                .enumerate()
-                .take(end_byte)
-                .skip(first_byte)
-            {
+            for (byte_index, value) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let byte_base = bitmap_base
                     .checked_add(
                         u64::try_from(byte_index)
@@ -3062,9 +3057,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     continue;
                 }
                 let block = run_start
-                    .checked_add(
-                        u64::try_from(run_offset).map_err(|_| Error::ArithmeticOverflow)?,
-                    )
+                    .checked_add(u64::try_from(run_offset).map_err(|_| Error::ArithmeticOverflow)?)
                     .ok_or(Error::ArithmeticOverflow)?;
                 let descriptor = PersistentInventoryDescriptor::decode(block_contents)?;
                 if discovered.is_some() {
@@ -3099,7 +3092,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     let local_bit = *inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                    if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
+                    if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0
+                    {
                         return Err(Error::Corrupt(
                             "persistent inventory descriptor references a free block",
                         ));
@@ -3313,7 +3307,8 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
     }
     let mut seen = std::collections::BTreeSet::new();
     for block in blocks {
-        if *block < layout.data_start || *block >= layout.backup_superblock || !seen.insert(*block) {
+        if *block < layout.data_start || *block >= layout.backup_superblock || !seen.insert(*block)
+        {
             return Err(Error::Corrupt(
                 "persistent inventory stream has invalid block ownership",
             ));
