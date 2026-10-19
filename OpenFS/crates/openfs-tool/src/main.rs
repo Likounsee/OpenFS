@@ -550,28 +550,18 @@ fn import_host_file(
     input_path: &Path,
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
-    // Read before opening the volume for mutation: host-side read failures must not
-    // leave a truncated or partially replaced OpenFS file.
-    let data = fs::read(input_path)?;
+    // Open the source before mutating the image. The format layer streams one block
+    // at a time and only publishes the replacement after all source bytes are staged.
+    let mut source = fs::File::open(input_path)?;
     let mut device = ImageDevice::open(image_path, block_size)?;
     let mut volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
-    let object_id = namespace.resolve_path(target)?;
-    let record = namespace
-        .object(object_id)
-        .ok_or("file metadata is missing")?;
-    if record.kind != ObjectKind::File {
-        return Err("path is not a regular file".into());
-    }
-
-    volume.write_persistent_file_contents(&mut device, target, &data)?;
+    let imported_bytes =
+        volume.write_persistent_file_from_reader(&mut device, target, &mut source)?;
     device.flush()?;
     println!(
         "Imported '{}' ({} bytes) into '{}'.",
         input_path.display(),
-        data.len(),
+        imported_bytes,
         target
     );
     Ok(())
