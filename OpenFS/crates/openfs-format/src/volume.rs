@@ -3152,10 +3152,14 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         }
     }
     owned_ranges.sort_unstable();
-    if owned_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
-        return Err(Error::Corrupt(
-            "persistent inventory, extent-map pages, or file data have overlapping physical ownership",
-        ));
+    let mut furthest_owned_end = 0_u64;
+    for (start, end) in &owned_ranges {
+        if *start < furthest_owned_end {
+            return Err(Error::Corrupt(
+                "persistent inventory, extent-map pages, or file data have overlapping physical ownership",
+            ));
+        }
+        furthest_owned_end = furthest_owned_end.max(*end);
     }
     for (start, end) in owned_ranges {
         for block in start..end {
