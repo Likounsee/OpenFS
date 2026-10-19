@@ -550,6 +550,14 @@ fn import_host_file(
     input_path: &Path,
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
+    // Reject importing the image into itself. Streaming would otherwise read from
+    // a file while OpenFS is modifying that same file underneath the source handle.
+    let canonical_input = fs::canonicalize(input_path)?;
+    let canonical_image = fs::canonicalize(image_path)?;
+    if canonical_input == canonical_image {
+        return Err("host source and OpenFS image refer to the same file".into());
+    }
+
     // Open the source before mutating the image. The format layer streams one block
     // at a time and only publishes the replacement after all source bytes are staged.
     let mut source = fs::File::open(input_path)?;
