@@ -39,10 +39,9 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
         device.read_blocks(blocks[run_start], &mut contents)?;
         for (offset, block_contents) in contents.chunks_exact(block_bytes).enumerate() {
             if block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                let mut cleared = vec![0_u8; block_bytes];
+                let cleared = vec![0_u8; block_bytes];
                 let block = blocks[run_start + offset];
                 device.write_blocks(block, &cleared)?;
-                cleared.fill(0);
                 changed = true;
             }
         }
