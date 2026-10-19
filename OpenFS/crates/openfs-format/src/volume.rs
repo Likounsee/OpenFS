@@ -1434,8 +1434,13 @@ impl OpenedVolume {
         let directory_blocks = match self.stage_packed_inventory(device, &directory_bytes) {
             Ok(blocks) => blocks,
             Err(error) => {
-                for block in metadata_blocks.iter().copied() {
-                    let _ = self.free_block(device, block);
+                if self
+                    .reclaim_persistent_blocks(device, &metadata_blocks)
+                    .is_err()
+                {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim metadata after directory staging failed",
+                    ));
                 }
                 return Err(error);
             }
@@ -1512,8 +1517,13 @@ impl OpenedVolume {
             Ok(())
         })();
         if let Err(error) = result {
-            for block in blocks.iter().copied() {
-                let _ = self.free_block(device, block);
+            if self
+                .reclaim_persistent_blocks(device, &blocks)
+                .is_err()
+            {
+                return Err(Error::Corrupt(
+                    "failed to reclaim partially staged inventory blocks",
+                ));
             }
             return Err(error);
         }
