@@ -2332,6 +2332,14 @@ impl OpenedVolume {
             let end = offset
                 .checked_add(data_len)
                 .ok_or(Error::ArithmeticOverflow)?;
+
+            // Empty files intentionally have no extent-map root. Reuse the
+            // copy-on-write full-content path instead of treating a valid append
+            // at offset zero as corrupt or trying to extend a nonexistent map.
+            if record.size == 0 && record.extent_root_block.is_none() {
+                return self.write_persistent_file_contents(device, path, data);
+            }
+
             let old_root = record.extent_root_block.ok_or(Error::Corrupt(
                 "non-empty file is missing its extent-map root",
             ))?;
