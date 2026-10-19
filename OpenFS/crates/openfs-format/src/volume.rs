@@ -1055,6 +1055,29 @@ impl OpenedVolume {
         Ok(object_id)
     }
 
+    /// Rename or move an object in the persistent namespace.
+    ///
+    /// The destination entry and the object's parent metadata are changed together in
+    /// memory, then published as a copy-on-write inventory. The old inventory remains
+    /// authoritative until descriptor publication commits, so a crash exposes either
+    /// the old name/location or the new one, never a partially updated pair.
+    pub fn rename_persistent_object<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+        new_parent_id: ObjectId,
+        new_name: &str,
+    ) -> Result<()> {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent rename requires a published inventory",
+            ));
+        };
+        namespace.rename(object_id, new_parent_id, new_name)?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(())
+    }
+
     /// Persist a complete in-memory namespace by copy-on-write inventory replacement.
     ///
     /// Fresh metadata and directory streams are allocated and flushed before the descriptor
