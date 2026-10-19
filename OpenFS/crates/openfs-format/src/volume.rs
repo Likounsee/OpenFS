@@ -2117,20 +2117,64 @@ impl OpenedVolume {
             Some(root)
         };
 
-        let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-        let updated =
-            records
+        let updated_namespace = (|| -> Result<Namespace> {
+            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let updated = records
                 .iter_mut()
                 .find(|item| item.id == object_id)
                 .ok_or(Error::Corrupt(
                     "file metadata disappeared during truncation",
                 ))?;
-        updated.size = new_size;
-        updated.extent_root_block = new_root;
-        updated.generation = next_generation;
-        let entries = namespace.entries().cloned().collect::<Vec<_>>();
-        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
-        self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+            updated.size = new_size;
+            updated.extent_root_block = new_root;
+            updated.generation = next_generation;
+            let entries = namespace.entries().cloned().collect::<Vec<_>>();
+            Namespace::from_records(namespace.root_id(), records, entries)
+        })();
+        let updated_namespace = match updated_namespace {
+            Ok(namespace) => namespace,
+            Err(error) => {
+                if let Some(root) = new_root {
+                    if self.reclaim_persistent_blocks(device, &[root]).is_err() {
+                        return Err(Error::Corrupt(
+                            "failed to reclaim staged extent-map root after truncation metadata preparation failed",
+                        ));
+                    }
+                }
+                return Err(error);
+            }
+        };
+
+        if let Err(error) =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
+            // Publication can fail after its commit point. Only reclaim the staged root
+            // after disk inspection proves that the old version is still authoritative.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active
+                        .object(object_id)
+                        .is_some_and(|item| item.extent_root_block == new_root) =>
+                {
+                    return Err(error);
+                }
+                Ok(Some((_, active)))
+                    if active
+                        .object(object_id)
+                        .is_some_and(|item| item.extent_root_block != new_root) =>
+                {
+                    if let Some(root) = new_root {
+                        if self.reclaim_persistent_blocks(device, &[root]).is_err() {
+                            return Err(Error::Corrupt(
+                                "truncation publication failed and staged extent-map root could not be reclaimed",
+                            ));
+                        }
+                    }
+                    return Err(error);
+                }
+                _ => return Err(error),
+            }
+        }
 
         // Clear bytes beyond EOF only after publishing the shorter length. Doing this
         // earlier could corrupt the still-authoritative old file if publication failed.
@@ -2268,20 +2312,35 @@ impl OpenedVolume {
             }
         };
 
-        let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-        let updated = records
-            .iter_mut()
-            .find(|record| record.id == object_id)
-            .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
-        updated.size = file_size;
-        updated.extent_root_block = extent_root;
-        updated.generation = next_generation;
-        let entries = namespace.entries().cloned().collect::<Vec<_>>();
-        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+        let updated_namespace = (|| -> Result<Namespace> {
+            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let updated = records
+                .iter_mut()
+                .find(|record| record.id == object_id)
+                .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
+            updated.size = file_size;
+            updated.extent_root_block = extent_root;
+            updated.generation = next_generation;
+            let entries = namespace.entries().cloned().collect::<Vec<_>>();
+            Namespace::from_records(namespace.root_id(), records, entries)
+        })();
+        let updated_namespace = match updated_namespace {
+            Ok(namespace) => namespace,
+            Err(error) => {
+                // These allocations are still unpublished, so rollback is safe.
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim staged persistent file allocations after metadata preparation failed",
+                    ));
+                }
+                return Err(error);
+            }
+        };
 
         // A publication error may be reported after the journal commit point. Rediscover
         // the active file version before deciding whether staged data can be reclaimed.
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active
