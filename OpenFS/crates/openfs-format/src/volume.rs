@@ -3007,8 +3007,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             }
         }
 
-        let block_count = usize::try_from(batch_end - batch_start)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_count =
+            usize::try_from(batch_end - batch_start).map_err(|_| Error::ArithmeticOverflow)?;
         let byte_count = block_count
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -3056,10 +3056,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 let local_bit = *inventory_block % bits_per_bitmap_block;
                 let byte_index =
                     usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if reference_bitmaps[&bitmap_index][byte_index]
-                    & (1_u8 << (local_bit % 8))
-                    == 0
-                {
+                if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                     return Err(Error::Corrupt(
                         "persistent inventory descriptor references a free block",
                     ));
