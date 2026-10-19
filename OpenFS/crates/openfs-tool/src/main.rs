@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::ImageDevice;
-use openfs_format::{check_volume, format_volume, open_volume};
+use openfs_format::{check_volume, format_volume};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -90,24 +90,31 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
 }
 
 fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
+    // Keep inspection strictly read-only. open_volume() replays the journal and may
+    // write recovered home blocks/checkpoints, which is inappropriate for an inspector.
     let mut device = ImageDevice::open(path, BLOCK_SIZE)?;
-    let volume = open_volume(&mut device)?;
-    println!("OpenFS volume validated; no filesystem writes were performed.");
+    let report = check_volume(&mut device)?;
+    println!("OpenFS volume inspected (read-only; no recovery performed).");
     println!("Path: {}", path.display());
-    println!("Block size: {} bytes", volume.volume.layout.block_size);
-    println!("Total blocks: {}", volume.volume.layout.total_blocks);
+    println!("Block size: {} bytes", report.block_size);
+    println!("Total blocks: {}", report.total_blocks);
     println!(
         "Bitmap: blocks {}..{}",
-        volume.volume.layout.bitmap_start,
-        volume.volume.layout.bitmap_start + volume.volume.layout.bitmap_blocks
+        report.bitmap_start,
+        report.bitmap_start + report.bitmap_blocks
     );
     println!(
         "Data region: blocks {}..{}",
-        volume.volume.layout.data_start, volume.volume.layout.backup_superblock
+        report.data_start, report.backup_superblock
     );
-    println!("Data blocks: {}", volume.volume.layout.data_blocks());
-    println!("UUID: {}", format_uuid(volume.volume.uuid));
+    println!("Data blocks: {}", report.data_blocks);
+    println!("Allocated data blocks: {}", report.allocated_data_blocks);
+    println!("Free data blocks: {}", report.free_data_blocks);
+    println!("UUID: {}", format_uuid(report.uuid));
     println!("Format: OpenFS journaled filesystem");
+    println!("Pending journal records: {}", report.pending_journal_records);
+    println!("Recoverable committed transactions: {}", report.recoverable_transactions);
+    println!("This inspection does not validate file ownership or namespace integrity.");
     Ok(())
 }
 
