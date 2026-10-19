@@ -2315,11 +2315,11 @@ impl OpenedVolume {
         reader: &mut R,
     ) -> Result<u64> {
         self.validate_device(device)?;
-        let (_, namespace) =
-            self.reconstruct_discovered_namespace(device)?
-                .ok_or(Error::InvalidInput(
-                    "persistent file writes require a published inventory",
-                ))?;
+        let (_, namespace) = self
+            .reconstruct_discovered_namespace(device)?
+            .ok_or(Error::InvalidInput(
+                "persistent file writes require a published inventory",
+            ))?;
         let object_id = namespace.resolve_path(path)?;
         let existing = namespace
             .object(object_id)
