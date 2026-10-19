@@ -434,9 +434,7 @@ impl Namespace {
         self.names
             .range((parent_id, String::new())..)
             .take_while(|((parent, _), _)| *parent == parent_id)
-            .find_map(|((_, name), entry)| {
-                (entry.object_id == object_id.0).then(|| name.clone())
-            })
+            .find_map(|((_, name), entry)| (entry.object_id == object_id.0).then(|| name.clone()))
             .ok_or(Error::Corrupt("object has no matching directory entry"))
     }
 
