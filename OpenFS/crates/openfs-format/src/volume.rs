@@ -2279,9 +2279,37 @@ impl OpenedVolume {
         let entries = namespace.entries().cloned().collect::<Vec<_>>();
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
 
-        // On publication error the commit outcome may be uncertain. Keep both old and staged
-        // allocations in that case; a leak is preferable to freeing blocks still in use.
-        self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+        // A publication error may be reported after the journal commit point. Rediscover
+        // the active file version before deciding whether staged data can be reclaimed.
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active
+                        .object(object_id)
+                        .is_some_and(|record| record.extent_root_block == extent_root) =>
+                {
+                    // The new version is active; retain it and return the original I/O error.
+                    return Err(error);
+                }
+                Ok(Some((_, active)))
+                    if active
+                        .object(object_id)
+                        .is_some_and(|record| record.extent_root_block != extent_root) =>
+                {
+                    if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                        return Err(Error::Corrupt(
+                            "file publication failed and staged data could not be reclaimed",
+                        ));
+                    }
+                    return Err(error);
+                }
+                _ => {
+                    // The publication outcome is unknown. Retain staged blocks to avoid
+                    // freeing data that may already be referenced by the active inventory.
+                    return Err(error);
+                }
+            }
+        }
 
         if self
             .reclaim_persistent_blocks(device, &reclaim_blocks)
