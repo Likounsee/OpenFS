@@ -6244,6 +6244,22 @@ mod tests {
                         states == [true, true, true] || states == [false, false, false],
                         "batch free must recover all blocks allocated or all free; block size {block_size}, write {fail_at}, states {states:?}"
                     );
+                    drop(reopened);
+                    drop(reopened_device);
+
+                    // A second reopen must not replay recovery differently or change
+                    // the all-or-none result established by the first recovery.
+                    let mut second_device = ImageDevice::open(&path, block_size).unwrap();
+                    let second_open = open_volume(&mut second_device).unwrap();
+                    let second_states = blocks.map(|block| {
+                        second_open
+                            .is_data_block_allocated(&mut second_device, block)
+                            .unwrap()
+                    });
+                    assert_eq!(
+                        second_states, states,
+                        "reopening after recovery must be idempotent at block size {block_size}, write {fail_at}"
+                    );
                 }
                 fs::remove_file(path).unwrap();
             }
