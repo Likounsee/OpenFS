@@ -1480,10 +1480,12 @@ impl OpenedVolume {
         match self.replace_persistent_inventory_descriptor(device, &descriptor) {
             Ok(block) => Ok(block),
             Err(error) => {
-                // A journal I/O error can mean either side of the commit point. Only free
-                // staged streams after rediscovery proves the old descriptor is still active.
-                if let Ok(Some((_, active))) = self.discover_persistent_inventory(device) {
-                    if active != descriptor {
+                // The journal can report an I/O error after the commit point. Rediscover
+                // exactly once: reclaim staged streams only when the descriptor proves they
+                // are not active, and report success if it proves this publication committed.
+                match self.discover_persistent_inventory(device) {
+                    Ok(Some((block, active))) if active == descriptor => Ok(block),
+                    Ok(Some((_, _))) | Ok(None) => {
                         let staged_blocks: Vec<u64> = metadata_blocks
                             .iter()
                             .chain(directory_blocks.iter())
@@ -1497,23 +1499,14 @@ impl OpenedVolume {
                                 "inventory publication failed and staged blocks could not be reclaimed",
                             ));
                         }
+                        Err(error)
                     }
-                } else if let Ok(None) = self.discover_persistent_inventory(device) {
-                    let staged_blocks: Vec<u64> = metadata_blocks
-                        .iter()
-                        .chain(directory_blocks.iter())
-                        .copied()
-                        .collect();
-                    if self
-                        .reclaim_persistent_blocks(device, &staged_blocks)
-                        .is_err()
-                    {
-                        return Err(Error::Corrupt(
-                            "inventory publication failed and staged blocks could not be reclaimed",
-                        ));
+                    Err(_) => {
+                        // The publication outcome remains unknown; retaining the staged
+                        // blocks avoids freeing metadata that may already be authoritative.
+                        Err(error)
                     }
                 }
-                Err(error)
             }
         }
     }
