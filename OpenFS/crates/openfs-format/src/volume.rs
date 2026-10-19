@@ -2570,7 +2570,33 @@ impl OpenedVolume {
                 let entries = namespace.entries().cloned().collect::<Vec<_>>();
                 let updated_namespace =
                     Namespace::from_records(namespace.root_id(), records, entries)?;
-                self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+                if let Err(error) =
+                    self.replace_persistent_namespace_inventory(device, &updated_namespace)
+                {
+                    // Publication can fail after its journal commit point. Resolve the
+                    // active generation before reporting whether the append took effect.
+                    match self.reconstruct_discovered_namespace(device) {
+                        Ok(Some((_, active)))
+                            if active.object(object_id).is_some_and(|item| {
+                                item.size == end && item.generation == next_generation
+                            }) =>
+                        {
+                            return Err(error);
+                        }
+                        Ok(Some((_, active)))
+                            if active.object(object_id).is_some_and(|item| {
+                                item.size == record.size && item.generation == record.generation
+                            }) =>
+                        {
+                            return Err(error);
+                        }
+                        _ => {
+                            return Err(Error::Corrupt(
+                                "append metadata publication outcome is uncertain; preserve the image and recover before further writes",
+                            ));
+                        }
+                    }
+                }
                 return Ok(());
             }
 
