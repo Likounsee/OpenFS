@@ -3090,10 +3090,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let records = decode_metadata_records(&metadata_bytes)?;
     let entries = decode_directory_entries(&directory_bytes)?;
     let namespace = Namespace::from_records(descriptor.root_id, records, entries)?;
-    let roots = namespace.validated_extent_root_inventory(
-        layout.data_start,
-        layout.backup_superblock,
-    )?;
+    let roots =
+        namespace.validated_extent_root_inventory(layout.data_start, layout.backup_superblock)?;
     let claimed: std::collections::BTreeSet<u64> = descriptor
         .metadata_blocks
         .iter()
@@ -3150,10 +3148,7 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
     }
     let mut seen = std::collections::BTreeSet::new();
     for block in blocks {
-        if *block < layout.data_start
-            || *block >= layout.backup_superblock
-            || !seen.insert(*block)
-        {
+        if *block < layout.data_start || *block >= layout.backup_superblock || !seen.insert(*block) {
             return Err(Error::Corrupt(
                 "persistent inventory stream has invalid block ownership",
             ));
