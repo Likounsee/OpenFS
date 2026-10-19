@@ -2125,6 +2125,82 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
+    /// Stream a persistent file to a host writer after validating its metadata once.
+    ///
+    /// Unlike repeated calls to `read_persistent_path_range`, this checks the published
+    /// namespace, extent-map root, and complete ownership graph only once. File contents
+    /// are then emitted one filesystem block at a time, so memory use is bounded by the
+    /// filesystem block size even for very large files.
+    pub fn stream_persistent_file_to_writer<D: BlockDevice, W: std::io::Write>(
+        &self,
+        device: &mut D,
+        path: &str,
+        writer: &mut W,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent file reads require a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path is not a regular file"));
+        }
+
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let map = extent_maps.get(&object_id);
+        if let Some(root_block) = record.extent_root_block {
+            let loaded_map = map.ok_or(Error::Corrupt(
+                "file extent map is missing from loaded inventory",
+            ))?;
+            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
+            if loaded_map != &persisted_map {
+                return Err(Error::Corrupt(
+                    "loaded extent map does not match persistent extent-map root",
+                ));
+            }
+        } else if map.is_some_and(|value| !value.is_empty()) {
+            return Err(Error::Corrupt(
+                "file has extents without a persistent extent-map root",
+            ));
+        }
+
+        // Validate cross-file ownership before exposing any content. Reconstructing the
+        // maps above checks the full inventory; compare the selected map to its root too.
+        let block_size = u64::from(self.volume.block_size);
+        let block_len = self.volume.block_size as usize;
+        let mut block_buffer = vec![0_u8; block_len];
+        let mut zero_buffer = vec![0_u8; block_len];
+        let mut logical = 0_u64;
+        let mut remaining = record.size;
+        while remaining > 0 {
+            let chunk_len = usize::try_from(remaining.min(block_size))
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
+                if physical < self.volume.layout.data_start
+                    || physical >= self.volume.layout.backup_superblock
+                {
+                    return Err(Error::Corrupt("file extent points outside the data region"));
+                }
+                if !self.is_data_block_allocated(device, physical)? {
+                    return Err(Error::Corrupt("file extent points to a free data block"));
+                }
+                device.read_blocks(physical, &mut block_buffer)?;
+                writer.write_all(&block_buffer[..chunk_len])?;
+            } else {
+                writer.write_all(&zero_buffer[..chunk_len])?;
+            }
+            remaining -= u64::try_from(chunk_len).map_err(|_| Error::ArithmeticOverflow)?;
+            logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        }
+        writer.flush()?;
+        Ok(())
+    }
+
     /// Shrink a persistent file and reclaim blocks no longer covered by its new length.
     ///
     /// Extending is intentionally rejected: it needs a separate policy for sparse growth.
