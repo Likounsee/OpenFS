@@ -1041,17 +1041,72 @@ impl OpenedVolume {
                 }
             }
 
+            // Walk free-bit runs per byte rather than visiting every data block.
+            // This keeps fragmentation statistics proportional to bitmap size, even on
+            // a mostly-empty multi-terabyte volume.
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             let mut run_len = 0_u64;
-            for block in start..end {
-                let local = block - base;
-                let byte_index =
-                    usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                let bit_mask = 1_u8 << (local % 8);
-                if bitmap[byte_index] & bit_mask == 0 {
-                    run_len = run_len
-                        .checked_add(1)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                } else if run_len != 0 {
+
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut free_bits = !*byte & lower_mask & upper_mask;
+
+                while free_bits != 0 {
+                    let first_bit = free_bits.trailing_zeros();
+                    let width = (free_bits >> first_bit).trailing_ones();
+                    if first_bit == 0 && run_len != 0 {
+                        run_len = run_len
+                            .checked_add(u64::from(width))
+                            .ok_or(Error::ArithmeticOverflow)?;
+                    } else {
+                        if run_len != 0 {
+                            stats.free_extent_count = stats
+                                .free_extent_count
+                                .checked_add(1)
+                                .ok_or(Error::ArithmeticOverflow)?;
+                            stats.largest_free_extent_blocks =
+                                stats.largest_free_extent_blocks.max(run_len);
+                        }
+                        run_len = u64::from(width);
+                    }
+
+                    let after_run = first_bit + width;
+                    let run_mask =
+                        ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
+                    free_bits &= !run_mask;
+                    if after_run < valid_bits {
+                        stats.free_extent_count = stats
+                            .free_extent_count
+                            .checked_add(1)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        stats.largest_free_extent_blocks =
+                            stats.largest_free_extent_blocks.max(run_len);
+                        run_len = 0;
+                    }
+                }
+
+                // No free bits at all, or an allocated suffix, terminates a run that
+                // started in an earlier byte. A trailing free run continues to next byte.
+                let last_valid_bit_is_free =
+                    valid_bits != 0 && (*byte & (1_u8 << (valid_bits - 1))) == 0;
+                if !last_valid_bit_is_free && run_len != 0 {
                     stats.free_extent_count = stats
                         .free_extent_count
                         .checked_add(1)
