@@ -1055,6 +1055,36 @@ impl OpenedVolume {
         Ok(object_id)
     }
 
+    /// Remove an empty persistent file or an empty directory.
+    ///
+    /// Objects that own file extents are rejected until extent reclamation can be
+    /// included in the same durable transaction. This avoids making allocated data
+    /// unreachable or freeing it before the namespace removal is committed.
+    pub fn remove_persistent_empty_object<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent removal requires a published inventory",
+            ));
+        };
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        if record.kind == crate::ObjectKind::File
+            && (record.size != 0 || record.extent_root_block.is_some())
+        {
+            return Err(Error::InvalidInput(
+                "file data must be reclaimed transactionally before removal",
+            ));
+        }
+        namespace.remove(object_id)?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(())
+    }
+
     /// Rename or move an object in the persistent namespace.
     ///
     /// The destination entry and the object's parent metadata are changed together in
