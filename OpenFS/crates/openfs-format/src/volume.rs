@@ -2303,6 +2303,190 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Replace a persistent file from a reader without buffering the complete input.
+    ///
+    /// Data is staged one filesystem block at a time. The new extent map is flushed before
+    /// namespace publication, and the previous allocation is reclaimed only after publication
+    /// is known to have succeeded.
+    pub fn write_persistent_file_from_reader<D: BlockDevice, R: std::io::Read>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        reader: &mut R,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        let (_, namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "persistent file writes require a published inventory",
+                ))?;
+        let object_id = namespace.resolve_path(path)?;
+        let existing = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if existing.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        let next_generation = existing
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+
+        let mut reclaim_blocks = Vec::new();
+        if let Some(old_root) = existing.extent_root_block {
+            let maps = self.read_namespace_extent_maps(device, &namespace)?;
+            let old_map = maps
+                .get(&object_id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?;
+            for extent in old_map.extents() {
+                for delta in 0..extent.block_count {
+                    reclaim_blocks.push(
+                        extent.physical_start
+                            .checked_add(delta)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                }
+            }
+            reclaim_blocks.push(old_root);
+        } else if existing.size != 0 {
+            return Err(Error::Corrupt("non-empty file is missing its extent-map root"));
+        }
+
+        let mut allocated = Vec::new();
+        let staged = (|| -> Result<(Option<u64>, u64)> {
+            let mut extent_map = ExtentMap::default();
+            let mut file_size = 0_u64;
+            let mut logical_block = 0_u64;
+            loop {
+                let mut contents = vec![0_u8; block_size];
+                let mut filled = 0_usize;
+                while filled < block_size {
+                    let count = reader.read(&mut contents[filled..])?;
+                    if count == 0 {
+                        break;
+                    }
+                    filled = filled
+                        .checked_add(count)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                }
+                if filled == 0 {
+                    break;
+                }
+
+                let block = self.allocate_block(device)?;
+                allocated.push(block);
+                device.write_blocks(block, &contents)?;
+                extent_map.push_coalescing(crate::Extent {
+                    logical_start: logical_block,
+                    physical_start: block,
+                    block_count: 1,
+                })?;
+                file_size = file_size
+                    .checked_add(u64::try_from(filled).map_err(|_| Error::ArithmeticOverflow)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                logical_block = logical_block
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if filled < block_size {
+                    break;
+                }
+            }
+
+            if logical_block == 0 {
+                return Ok((None, 0));
+            }
+            let encoded = extent_map.encode_block(block_size)?;
+            let root = self.allocate_block(device)?;
+            allocated.push(root);
+            device.write_blocks(root, &encoded)?;
+            device.flush()?;
+            Ok((Some(root), file_size))
+        })();
+
+        let (new_root, file_size) = match staged {
+            Ok(result) => result,
+            Err(error) => {
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to roll back staged reader-based file allocations",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        let updated_namespace = (|| -> Result<Namespace> {
+            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let updated = records
+                .iter_mut()
+                .find(|item| item.id == object_id)
+                .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
+            updated.size = file_size;
+            updated.extent_root_block = new_root;
+            updated.generation = next_generation;
+            Namespace::from_records(
+                namespace.root_id(),
+                records,
+                namespace.entries().cloned().collect(),
+            )
+        })();
+        let updated_namespace = match updated_namespace {
+            Ok(updated) => updated,
+            Err(error) => {
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim reader-based allocations after metadata preparation failed",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        if let Err(error) =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.extent_root_block == new_root
+                            && item.size == file_size
+                            && item.generation == next_generation
+                    }) =>
+                {
+                    return Err(error);
+                }
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.extent_root_block == existing.extent_root_block
+                            && item.size == existing.size
+                            && item.generation == existing.generation
+                    }) =>
+                {
+                    if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                        return Err(Error::Corrupt(
+                            "reader-based file publication failed and staged allocations could not be reclaimed",
+                        ));
+                    }
+                    return Err(error);
+                }
+                _ => {
+                    return Err(Error::Corrupt(
+                        "reader-based file publication outcome is uncertain; preserve the image and recover before further writes",
+                    ));
+                }
+            }
+        }
+
+        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+            return Err(Error::Corrupt(
+                "reader-based file replacement succeeded but old blocks could not be fully reclaimed",
+            ));
+        }
+        Ok(file_size)
+    }
+
     /// Replace the complete contents of a persistent file, spanning multiple blocks if needed.
     ///
     /// New data blocks and the checksummed extent map are staged and flushed before the
