@@ -7,6 +7,49 @@ use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
+/// Scrub descriptor signatures from one bounded contiguous batch.
+///
+/// Only blocks bearing the stale signature are written back; clean blocks are read
+/// but never rewritten. The caller flushes after all batches have been processed.
+fn scrub_descriptor_batch<D: BlockDevice>(
+    device: &mut D,
+    start_block: u64,
+    block_size: usize,
+    contents: &mut [u8],
+) -> Result<bool> {
+    let mut stale = Vec::new();
+    for (offset, chunk) in contents.chunks_exact_mut(block_size).enumerate() {
+        if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+            chunk.fill(0);
+            stale.push(offset);
+        }
+    }
+
+    let mut changed = false;
+    let mut cursor = 0_usize;
+    while cursor < stale.len() {
+        let first = stale[cursor];
+        let mut after_last = first + 1;
+        cursor += 1;
+        while cursor < stale.len() && stale[cursor] == after_last {
+            after_last += 1;
+            cursor += 1;
+        }
+        let byte_start = first
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let byte_end = after_last
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let target = start_block
+            .checked_add(u64::try_from(first).map_err(|_| Error::ArithmeticOverflow)?)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(target, &contents[byte_start..byte_end])?;
+        changed = true;
+    }
+    Ok(changed)
+}
+
 /// Clear stale descriptor signatures from free blocks before making them allocated.
 ///
 /// A failed descriptor publication may leave a staged descriptor in a block whose
@@ -17,67 +60,35 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
     block_size: u32,
     blocks: &[u64],
 ) -> Result<()> {
+    const BATCH_BLOCKS: usize = 64;
+    let block_bytes = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    if block_bytes == 0 {
+        return Err(Error::InvalidInput("block size must be non-zero"));
+    }
     let mut changed = false;
-    let block_bytes = block_size as usize;
-    // Allocation paths provide blocks in ascending order. Read contiguous runs in
-    // bounded batches so allocating a large extent does not issue one read per block.
     let mut cursor = 0_usize;
     while cursor < blocks.len() {
         let run_start = cursor;
         let mut run_end = cursor + 1;
         while run_end < blocks.len()
-            && run_end - run_start < 64
+            && run_end - run_start < BATCH_BLOCKS
             && blocks[run_end - 1].checked_add(1) == Some(blocks[run_end])
         {
             run_end += 1;
         }
-        let run_count = run_end - run_start;
-        let byte_count = run_count
+        let byte_count = (run_end - run_start)
             .checked_mul(block_bytes)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut contents = vec![0_u8; byte_count];
         device.read_blocks(blocks[run_start], &mut contents)?;
-
-        // Clear signatures in memory first, then write contiguous stale blocks as a
-        // single device operation. Sparse stale signatures remain isolated writes;
-        // clean candidate blocks are never rewritten.
-        let mut stale = Vec::new();
-        for (offset, block_contents) in contents.chunks_exact_mut(block_bytes).enumerate() {
-            if block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                block_contents.fill(0);
-                stale.push(offset);
-            }
-        }
-        let mut stale_cursor = 0_usize;
-        while stale_cursor < stale.len() {
-            let stale_start = stale_cursor;
-            let mut stale_end = stale_cursor + 1;
-            while stale_end < stale.len() && stale[stale_end - 1] + 1 == stale[stale_end] {
-                stale_end += 1;
-            }
-            let first_offset = stale[stale_start];
-            let last_offset = stale[stale_end - 1] + 1;
-            let first_block = blocks[run_start + first_offset];
-            let byte_start = first_offset
-                .checked_mul(block_bytes)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let byte_end = last_offset
-                .checked_mul(block_bytes)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.write_blocks(first_block, &contents[byte_start..byte_end])?;
-            changed = true;
-            stale_cursor = stale_end;
-        }
+        changed |= scrub_descriptor_batch(device, blocks[run_start], block_bytes, &mut contents)?;
         cursor = run_end;
     }
     if changed {
-        // Scrubbing must be durable before the bitmap commit makes these blocks
-        // visible to descriptor discovery as allocated data.
         device.flush()?;
     }
     Ok(())
 }
-
 
 /// Clear stale descriptor signatures from a contiguous range without allocating a
 /// per-block index vector. Reads and writes remain bounded to at most 64 blocks.
@@ -89,9 +100,11 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
 ) -> Result<()> {
     const BATCH_BLOCKS: u64 = 64;
     let block_bytes = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    if block_bytes == 0 {
+        return Err(Error::InvalidInput("block size must be non-zero"));
+    }
     let mut next_block = start_block;
     let mut changed = false;
-
     while next_block < end_block {
         let count = (end_block - next_block).min(BATCH_BLOCKS);
         let byte_count = usize::try_from(count)
@@ -100,48 +113,17 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
             .ok_or(Error::ArithmeticOverflow)?;
         let mut contents = vec![0_u8; byte_count];
         device.read_blocks(next_block, &mut contents)?;
-
-        let mut stale = Vec::new();
-        for (offset, chunk) in contents.chunks_exact_mut(block_bytes).enumerate() {
-            if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                chunk.fill(0);
-                stale.push(offset);
-            }
-        }
-
-        let mut cursor = 0_usize;
-        while cursor < stale.len() {
-            let run_start = cursor;
-            let mut run_end = cursor + 1;
-            while run_end < stale.len() && stale[run_end - 1] + 1 == stale[run_end] {
-                run_end += 1;
-            }
-            let first = stale[run_start];
-            let after_last = stale[run_end - 1] + 1;
-            let byte_start = first
-                .checked_mul(block_bytes)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let byte_end = after_last
-                .checked_mul(block_bytes)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let target = next_block
-                .checked_add(u64::try_from(first).map_err(|_| Error::ArithmeticOverflow)?)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.write_blocks(target, &contents[byte_start..byte_end])?;
-            changed = true;
-            cursor = run_end;
-        }
-
+        changed |= scrub_descriptor_batch(device, next_block, block_bytes, &mut contents)?;
         next_block = next_block
             .checked_add(count)
             .ok_or(Error::ArithmeticOverflow)?;
     }
-
     if changed {
         device.flush()?;
     }
     Ok(())
 }
+
 
 /// Read-only snapshot of usable data-space capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
