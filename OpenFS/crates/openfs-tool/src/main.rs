@@ -325,7 +325,7 @@ fn create_namespace_entry(
 
 fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let mut volume = open_volume(&mut device)?;
+    let volume = open_volume(&mut device)?;
     let (_, namespace) = volume
         .reconstruct_discovered_namespace(&mut device)?
         .ok_or("no persistent namespace; run init-namespace first")?;
