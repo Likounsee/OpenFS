@@ -1844,8 +1844,7 @@ impl OpenedVolume {
         updated.extent_root_block = Some(extent_root);
         updated.generation = next_generation;
         let entries = namespace.entries().cloned().collect::<Vec<_>>();
-        let updated_namespace =
-                    Namespace::from_records(namespace.root_id(), records, entries)?;
+        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
         self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
         Ok(())
     }
@@ -1931,7 +1930,8 @@ impl OpenedVolume {
                 updated.size = end;
                 updated.generation = next_generation;
                 let entries = namespace.entries().cloned().collect::<Vec<_>>();
-                let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+                let updated_namespace =
+                    Namespace::from_records(namespace.root_id(), records, entries)?;
                 self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
                 return Ok(());
             }
@@ -1986,7 +1986,9 @@ impl OpenedVolume {
                         physical_start: block,
                         block_count: 1,
                     })?;
-                    next_logical = next_logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                    next_logical = next_logical
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?;
                 }
 
                 let encoded = updated_map.encode_block(block_size_usize)?;
