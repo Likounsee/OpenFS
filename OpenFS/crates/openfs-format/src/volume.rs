@@ -343,45 +343,54 @@ impl OpenedVolume {
         else {
             return Ok(());
         };
-        let descriptor = descriptor.clone();
-        if blocks.iter().any(|block| {
-            descriptor.metadata_blocks.contains(block)
-                || descriptor.directory_blocks.contains(block)
-        }) {
+        let descriptor_blocks: std::collections::BTreeSet<u64> = descriptor
+            .metadata_blocks
+            .iter()
+            .chain(descriptor.directory_blocks.iter())
+            .copied()
+            .collect();
+        if blocks.iter().any(|block| descriptor_blocks.contains(block)) {
             return Err(Error::InvalidInput(
                 "cannot free a block referenced by persistent inventory descriptor",
             ));
         }
 
-        // The descriptor is the entry point to persistent file ownership. Do not
-        // release extent-map roots or data blocks while metadata still references them.
+        // The descriptor is the entry point to persistent file ownership. Build the
+        // ownership index once per release batch instead of rescanning every object and
+        // every extent for every block in a large file or directory removal.
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::Corrupt(
                 "persistent inventory disappeared during block-release validation",
             ));
         };
+        let extent_roots: std::collections::BTreeSet<u64> = namespace
+            .objects()
+            .filter_map(|record| record.extent_root_block)
+            .collect();
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let mut owned_ranges = Vec::new();
+        for map in extent_maps.values() {
+            for extent in map.extents() {
+                let end = extent
+                    .physical_start
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                owned_ranges.push((extent.physical_start, end));
+            }
+        }
+        owned_ranges.sort_unstable();
+
         for block in blocks {
-            if namespace
-                .objects()
-                .any(|record| record.extent_root_block == Some(*block))
-            {
+            if extent_roots.contains(block) {
                 return Err(Error::InvalidInput(
                     "cannot free a block referenced by a file extent map",
                 ));
             }
-            for map in extent_maps.values() {
-                for extent in map.extents() {
-                    let end = extent
-                        .physical_start
-                        .checked_add(extent.block_count)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                    if *block >= extent.physical_start && *block < end {
-                        return Err(Error::InvalidInput(
-                            "cannot free a block owned by persistent file data",
-                        ));
-                    }
-                }
+            let candidate = owned_ranges.partition_point(|(start, _)| *start <= *block);
+            if candidate > 0 && *block < owned_ranges[candidate - 1].1 {
+                return Err(Error::InvalidInput(
+                    "cannot free a block owned by persistent file data",
+                ));
             }
         }
         Ok(())
