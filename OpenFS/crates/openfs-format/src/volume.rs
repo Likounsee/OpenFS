@@ -2480,7 +2480,10 @@ impl OpenedVolume {
             }
         }
 
-        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "reader-based file replacement succeeded but old blocks could not be fully reclaimed",
             ));
