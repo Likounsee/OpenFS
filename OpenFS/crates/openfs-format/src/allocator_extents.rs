@@ -78,6 +78,71 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
     Ok(())
 }
 
+
+/// Clear stale descriptor signatures from a contiguous range without allocating a
+/// per-block index vector. Reads and writes remain bounded to at most 64 blocks.
+fn clear_stale_descriptor_magic_range<D: BlockDevice>(
+    device: &mut D,
+    block_size: u32,
+    start_block: u64,
+    end_block: u64,
+) -> Result<()> {
+    const BATCH_BLOCKS: u64 = 64;
+    let block_bytes = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut next_block = start_block;
+    let mut changed = false;
+
+    while next_block < end_block {
+        let count = (end_block - next_block).min(BATCH_BLOCKS);
+        let byte_count = usize::try_from(count)
+            .map_err(|_| Error::ArithmeticOverflow)?
+            .checked_mul(block_bytes)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut contents = vec![0_u8; byte_count];
+        device.read_blocks(next_block, &mut contents)?;
+
+        let mut stale = Vec::new();
+        for (offset, chunk) in contents.chunks_exact_mut(block_bytes).enumerate() {
+            if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                chunk.fill(0);
+                stale.push(offset);
+            }
+        }
+
+        let mut cursor = 0_usize;
+        while cursor < stale.len() {
+            let run_start = cursor;
+            let mut run_end = cursor + 1;
+            while run_end < stale.len() && stale[run_end - 1] + 1 == stale[run_end] {
+                run_end += 1;
+            }
+            let first = stale[run_start];
+            let after_last = stale[run_end - 1] + 1;
+            let byte_start = first
+                .checked_mul(block_bytes)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let byte_end = after_last
+                .checked_mul(block_bytes)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let target = next_block
+                .checked_add(u64::try_from(first).map_err(|_| Error::ArithmeticOverflow)?)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.write_blocks(target, &contents[byte_start..byte_end])?;
+            changed = true;
+            cursor = run_end;
+        }
+
+        next_block = next_block
+            .checked_add(count)
+            .ok_or(Error::ArithmeticOverflow)?;
+    }
+
+    if changed {
+        device.flush()?;
+    }
+    Ok(())
+}
+
 /// Read-only snapshot of usable data-space capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AllocationStats {
@@ -562,8 +627,7 @@ impl OpenedVolume {
         }
         // Validate the entire reservation before touching block contents. If the bitmap
         // changed since the free-run scan, fail without clearing a block that is now owned.
-        let selected: Vec<u64> = (start..end).collect();
-        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
+        clear_stale_descriptor_magic_range(device, self.volume.block_size, start, end)?;
         for block in start..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -897,8 +961,12 @@ impl OpenedVolume {
         }
         // Match every other allocation path: interrupted descriptor staging must not
         // become discoverable when a stale free block is allocated through best-fit.
-        let selected: Vec<u64> = (extent.start_block..end).collect();
-        clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
+        clear_stale_descriptor_magic_range(
+            device,
+            self.volume.block_size,
+            extent.start_block,
+            end,
+        )?;
         for block in extent.start_block..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
