@@ -2503,7 +2503,7 @@ impl OpenedVolume {
             Namespace::from_records(
                 namespace.root_id(),
                 records,
-                namespace.entries().cloned().collect(),
+                namespace.entries().cloned(),
             )
         })();
         let updated_namespace = match updated_namespace {
