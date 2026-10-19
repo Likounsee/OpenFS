@@ -132,13 +132,23 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     }
     let mut device = ImageDevice::open(path, block_size)?;
     let report = check_volume(&mut device)?;
-    println!("OpenFS volume check passed (read-only; no recovery performed).");
+    println!("OpenFS volume check completed (read-only; no recovery performed).");
     println!("Path: {}", path.display());
     println!("Block size: {} bytes", report.block_size);
     println!("Total blocks: {}", report.total_blocks);
+    println!(
+        "Bitmap: blocks {}..{}",
+        report.bitmap_start,
+        report.bitmap_start + report.bitmap_blocks
+    );
+    println!(
+        "Data region: blocks {}..{}",
+        report.data_start, report.backup_superblock
+    );
     println!("Data blocks: {}", report.data_blocks);
     println!("Allocated data blocks: {}", report.allocated_data_blocks);
     println!("Free data blocks: {}", report.free_data_blocks);
+    println!("UUID: {}", format_uuid(report.uuid));
     println!("Journal generation: {}", report.journal_generation);
     println!(
         "Journal checkpoint sequence: {}",
@@ -152,6 +162,13 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
         "Recoverable committed transactions: {}",
         report.recoverable_transactions
     );
+    if report.recoverable_transactions > 0 {
+        println!(
+            "WARNING: {} committed journal transaction(s) may need recovery.",
+            report.recoverable_transactions
+        );
+        println!("This read-only check did not replay them; open the volume through the recovery path before normal use.");
+    }
     println!("The check validates superblocks, geometry, bitmap invariants, and journal framing.");
     println!("It does not validate file ownership or namespace integrity.");
     Ok(())
