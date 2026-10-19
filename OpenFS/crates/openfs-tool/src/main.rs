@@ -105,6 +105,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             read_namespace_file(Path::new(&path), block_size, &target)
         }
+        Some("stat") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            stat_namespace_entry(Path::new(&path), block_size, &target)
+        }
         Some("write") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -369,6 +378,36 @@ fn read_namespace_file(
     Ok(())
 }
 
+fn stat_namespace_entry(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("object metadata is missing")?;
+    let kind = match record.kind {
+        ObjectKind::Directory => "directory",
+        ObjectKind::File => "file",
+    };
+    println!("Path: {}", namespace.path_of(object_id)?);
+    println!("Object ID: {}", record.id.0);
+    println!("Type: {kind}");
+    println!("Size: {} bytes", record.size);
+    println!("Generation: {}", record.generation);
+    match record.extent_root_block {
+        Some(block) => println!("Extent-map root block: {block}"),
+        None => println!("Extent-map root block: none"),
+    }
+    Ok(())
+}
+
 fn write_namespace_file(
     path: &Path,
     block_size: u32,
@@ -525,6 +564,7 @@ fn print_usage() {
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
     eprintln!("  openfs rm <image> <block-size> <path>");
