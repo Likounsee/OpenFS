@@ -2462,6 +2462,13 @@ impl OpenedVolume {
                     break;
                 }
 
+                // The buffer is reused across iterations. Clear the unused tail of
+                // the final partial block so bytes from the preceding block cannot leak
+                // into the file past its logical EOF.
+                if filled < block_size {
+                    contents[filled..].fill(0);
+                }
+
                 let block = self.allocate_block(device)?;
                 allocated.push(block);
                 device.write_blocks(block, &contents)?;
