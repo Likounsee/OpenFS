@@ -131,7 +131,7 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
         "Recoverable committed transactions: {}",
         report.recoverable_transactions
     );
-    println!("This inspection does not validate file ownership or namespace integrity.");
+    println!("Namespace inventory descriptor present: {}", report.persistent_inventory_present);
     Ok(())
 }
 
@@ -189,8 +189,8 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
         );
         println!("Open the volume through the recovery path before normal use.");
     }
-    println!("The check validates superblocks, geometry, bitmap invariants, and journal framing.");
-    println!("It does not validate file ownership or namespace integrity.");
+    println!("The check validates superblocks, geometry, bitmap invariants, journal framing, and the persistent inventory descriptor.");
+    println!("A present descriptor is not a substitute for full namespace and file-data ownership validation.");
     Ok(())
 }
 
