@@ -3146,7 +3146,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         map.validate_file_size(record.size, layout.block_size)?;
         map.validate_physical_bounds(layout.data_start, layout.backup_superblock)?;
         for extent in map.extents() {
-            let end = extent.physical_start.checked_add(extent.block_count)
+            let end = extent
+                .physical_start
+                .checked_add(extent.block_count)
                 .ok_or(Error::ArithmeticOverflow)?;
             owned_ranges.push((extent.physical_start, end));
         }
