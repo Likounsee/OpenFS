@@ -7,7 +7,6 @@
 use std::env;
 use std::error::Error as StdError;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -490,6 +489,7 @@ fn export_namespace_file(
     let result = (|| -> Result<u64, Box<dyn StdError>> {
         let exported_size =
             volume.stream_persistent_file_to_writer(&mut device, target, &mut output)?;
+        output.sync_all()?;
         Ok(exported_size)
     })();
 
