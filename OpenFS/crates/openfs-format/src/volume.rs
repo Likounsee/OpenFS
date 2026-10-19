@@ -2967,7 +2967,6 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     })
 }
 
-
 /// Find and minimally validate the persistent namespace descriptor without opening the
 /// writable volume or replaying its journal. Full namespace reconstruction is performed by
 /// normal volume operations; this read-only pass at least catches duplicate or malformed
@@ -2976,7 +2975,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     device: &mut D,
     layout: &VolumeLayout,
 ) -> Result<bool> {
-    let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size =
+        usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
     let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
@@ -3024,8 +3024,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 let local_bit = *inventory_block % bits_per_bitmap_block;
                 let mut reference_bitmap = vec![0_u8; block_size];
                 device.read_blocks(layout.bitmap_start + index, &mut reference_bitmap)?;
-                if reference_bitmap[usize::try_from(local_bit / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?]
+                let byte_index =
+                    usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if reference_bitmap[byte_index]
                     & (1_u8 << (local_bit % 8)) == 0
                 {
                     return Err(Error::Corrupt(
