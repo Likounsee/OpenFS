@@ -2500,11 +2500,7 @@ impl OpenedVolume {
             updated.size = file_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
-            Namespace::from_records(
-                namespace.root_id(),
-                records,
-                namespace.entries().cloned(),
-            )
+            Namespace::from_records(namespace.root_id(), records, namespace.entries().cloned())
         })();
         let updated_namespace = match updated_namespace {
             Ok(updated) => updated,
