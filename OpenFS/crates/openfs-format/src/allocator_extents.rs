@@ -749,11 +749,108 @@ impl OpenedVolume {
                 "best-fit extent length must fit within one bitmap block",
             ));
         }
-        Ok(self
-            .free_extent_inventory(device)?
-            .into_iter()
-            .filter(|extent| extent.block_count >= count)
-            .min_by_key(|extent| (extent.block_count, extent.start_block)))
+
+        // Keep only the current run and the best candidate. Building the full extent
+        // inventory first can consume substantial memory on a heavily fragmented volume.
+        let layout = self.volume.layout;
+        let first_bitmap = layout.data_start / bits_per_block;
+        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let mut best: Option<FreeExtent> = None;
+
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = layout.data_start.max(base);
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let mut bitmap = vec![0_u8; layout.block_size as usize];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let first_local = start - base;
+            let end_local = end - base;
+            let first_byte =
+                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut current: Option<FreeExtent> = None;
+
+            for (byte_index, bitmap_byte) in
+                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
+            {
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+                let valid_bits = end_local.saturating_sub(byte_start).min(8);
+                let lower_mask = u8::MAX << first_valid_bit;
+                let upper_mask = if valid_bits == 8 {
+                    u8::MAX
+                } else {
+                    (1_u8 << valid_bits) - 1
+                };
+                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+
+                while free_bits != 0 {
+                    let first_bit = free_bits.trailing_zeros();
+                    let run_width = (free_bits >> first_bit).trailing_ones();
+                    let block = base
+                        .checked_add(byte_start)
+                        .and_then(|value| value.checked_add(u64::from(first_bit)))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    match current {
+                        Some(mut extent)
+                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
+                        {
+                            extent.block_count = extent
+                                .block_count
+                                .checked_add(u64::from(run_width))
+                                .ok_or(Error::ArithmeticOverflow)?;
+                            current = Some(extent);
+                        }
+                        Some(extent) => {
+                            if extent.block_count >= count
+                                && best.is_none_or(|candidate| {
+                                    (extent.block_count, extent.start_block)
+                                        < (candidate.block_count, candidate.start_block)
+                                })
+                            {
+                                best = Some(extent);
+                            }
+                            current = Some(FreeExtent {
+                                start_block: block,
+                                block_count: u64::from(run_width),
+                            });
+                        }
+                        None => {
+                            current = Some(FreeExtent {
+                                start_block: block,
+                                block_count: u64::from(run_width),
+                            });
+                        }
+                    }
+                    let run_mask =
+                        ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
+                    free_bits &= !run_mask;
+                }
+            }
+
+            if let Some(extent) = current {
+                if extent.block_count >= count
+                    && best.is_none_or(|candidate| {
+                        (extent.block_count, extent.start_block)
+                            < (candidate.block_count, candidate.start_block)
+                    })
+                {
+                    best = Some(extent);
+                }
+            }
+        }
+
+        Ok(best)
     }
 
     /// Atomically allocate a contiguous extent from the smallest fitting free run.
