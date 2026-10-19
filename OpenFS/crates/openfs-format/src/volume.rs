@@ -1261,10 +1261,8 @@ impl OpenedVolume {
             .filter(|entry| !removed_ids.contains(&ObjectId(entry.object_id)))
             .cloned()
             .collect::<Vec<_>>();
-        let updated_namespace =
-            Namespace::from_records(namespace.root_id(), records, entries)?;
-        let publication =
-            self.replace_persistent_namespace_inventory(device, &updated_namespace);
+        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+        let publication = self.replace_persistent_namespace_inventory(device, &updated_namespace);
         if let Err(error) = publication {
             // Publication can report an I/O error after the new descriptor committed.
             // Reclaim only if the active inventory proves every removed ID is absent.
