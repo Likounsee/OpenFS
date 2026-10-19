@@ -1060,7 +1060,7 @@ impl OpenedVolume {
     /// For files with allocated data, the validated extent map is captured first. The
     /// namespace removal is published before any file block is freed, so a failed or
     /// uncertain publication cannot leave a still-referenced block available to the allocator.
-    pub fn remove_persistent_empty_object<D: BlockDevice>(
+    pub fn remove_persistent_object<D: BlockDevice>(
         &mut self,
         device: &mut D,
         object_id: ObjectId,
@@ -1135,6 +1135,17 @@ impl OpenedVolume {
             ));
         }
         Ok(())
+    }
+
+    /// Backwards-compatible name for removing a persistent object.
+    ///
+    /// Unlike the historical implementation, files with allocated extents are supported.
+    pub fn remove_persistent_empty_object<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        self.remove_persistent_object(device, object_id)
     }
 
     /// Rename or move an object in the persistent namespace.
