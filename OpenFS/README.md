@@ -49,7 +49,7 @@ cargo run -p openfs-tool -- cat ./openfs.img 4096 /docs/readme.txt
 cargo run -p openfs-tool -- export ./openfs.img 4096 /docs/readme.txt ./readme-export.txt
 ```
 
-`import` replaces the contents of an existing regular file in the OpenFS namespace. It reads the host source before changing the image and does not overwrite the host source or export destination.
+`import` replaces the contents of an existing regular file in the OpenFS namespace. It opens the host source before mutating the image, streams data one filesystem block at a time, and publishes the replacement only after the staged data and extent map are flushed. A source-read or staging failure triggers cleanup of unpublished allocations; if publication outcome is uncertain, OpenFS retains potentially live blocks rather than risking data loss. The command does not overwrite the host source or export destination.
 
 ## Current limits
 
