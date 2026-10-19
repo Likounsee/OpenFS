@@ -121,6 +121,19 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let data = args.collect::<Vec<_>>().join(" ");
             write_namespace_file(Path::new(&path), block_size, &target, data.as_bytes())
         }
+        Some("truncate") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let new_size = args
+                .next()
+                .ok_or("missing new file size in bytes")?
+                .parse::<u64>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            truncate_namespace_file(Path::new(&path), block_size, &target, new_size)
+        }
         Some("rm") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -422,6 +435,20 @@ fn write_namespace_file(
     Ok(())
 }
 
+fn truncate_namespace_file(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    new_size: u64,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.truncate_persistent_file(&mut device, target, new_size)?;
+    device.flush()?;
+    println!("Truncated '{target}' to {new_size} byte(s).");
+    Ok(())
+}
+
 fn remove_namespace_entry(
     path: &Path,
     block_size: u32,
@@ -566,6 +593,7 @@ fn print_usage() {
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
+    eprintln!("  openfs truncate <image> <block-size> <file-path> <new-size-bytes>");
     eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
     eprintln!("  openfs rm <image> <block-size> <path>");
     eprintln!(
