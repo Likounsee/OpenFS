@@ -5239,7 +5239,6 @@ mod tests {
                         &replacement,
                     )
                     .unwrap();
-                let mut expected = payload.clone();
                 let write_start = write_offset as usize;
                 expected[write_start..write_start + replacement.len()]
                     .copy_from_slice(&replacement);
