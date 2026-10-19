@@ -2870,6 +2870,8 @@ pub struct VolumeCheckReport {
     pub pending_journal_records: u64,
     /// Fully committed transactions represented by the pending records.
     pub recoverable_transactions: u64,
+    /// Whether a persistent namespace inventory descriptor was found in allocated data blocks.
+    pub persistent_inventory_present: bool,
 }
 
 /// Inspect static volume metadata without writing to the device.
@@ -2941,6 +2943,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
                 .ok_or(Error::ArithmeticOverflow)?;
         }
     }
+    let persistent_inventory_present = check_inventory_descriptor_read_only(device, &layout)?;
     let data_blocks = layout.data_blocks();
     if free_data_blocks > data_blocks {
         return Err(Error::Corrupt("free data block count exceeds data region"));
@@ -2960,7 +2963,80 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
         journal_checkpoint_sequence,
         pending_journal_records,
         recoverable_transactions,
+        persistent_inventory_present,
     })
+}
+
+
+/// Find and minimally validate the persistent namespace descriptor without opening the
+/// writable volume or replaying its journal. Full namespace reconstruction is performed by
+/// normal volume operations; this read-only pass at least catches duplicate or malformed
+/// descriptors and references to free/out-of-range inventory blocks.
+fn check_inventory_descriptor_read_only<D: BlockDevice>(
+    device: &mut D,
+    layout: &VolumeLayout,
+) -> Result<bool> {
+    let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
+    let first_bitmap = layout.data_start / bits_per_bitmap_block;
+    let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
+    let mut found = false;
+    for bitmap_index in first_bitmap..=last_bitmap {
+        let bitmap_base = bitmap_index * bits_per_bitmap_block;
+        let start = layout.data_start.max(bitmap_base);
+        let end = layout.backup_superblock.min(bitmap_base + bits_per_bitmap_block);
+        let mut bitmap = vec![0_u8; block_size];
+        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        for block in start..end {
+            let local = block - bitmap_base;
+            if bitmap[usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?]
+                & (1_u8 << (local % 8)) == 0
+            {
+                continue;
+            }
+            let mut contents = vec![0_u8; block_size];
+            device.read_blocks(block, &mut contents)?;
+            if !contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                continue;
+            }
+            let descriptor = PersistentInventoryDescriptor::decode(&contents)?;
+            if found {
+                return Err(Error::Corrupt(
+                    "multiple persistent inventory descriptors were discovered",
+                ));
+            }
+            let mut references = std::collections::BTreeSet::new();
+            for inventory_block in descriptor
+                .metadata_blocks
+                .iter()
+                .chain(descriptor.directory_blocks.iter())
+            {
+                if *inventory_block < layout.data_start
+                    || *inventory_block >= layout.backup_superblock
+                    || *inventory_block == block
+                    || !references.insert(*inventory_block)
+                {
+                    return Err(Error::Corrupt(
+                        "persistent inventory descriptor has invalid block ownership",
+                    ));
+                }
+                let index = *inventory_block / bits_per_bitmap_block;
+                let local_bit = *inventory_block % bits_per_bitmap_block;
+                let mut reference_bitmap = vec![0_u8; block_size];
+                device.read_blocks(layout.bitmap_start + index, &mut reference_bitmap)?;
+                if reference_bitmap[usize::try_from(local_bit / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?]
+                    & (1_u8 << (local_bit % 8)) == 0
+                {
+                    return Err(Error::Corrupt(
+                        "persistent inventory descriptor references a free block",
+                    ));
+                }
+            }
+            found = true;
+        }
+    }
+    Ok(found)
 }
 
 /// Validate the persisted journal without replaying records or writing checkpoints.
