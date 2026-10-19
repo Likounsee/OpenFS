@@ -4657,7 +4657,9 @@ mod tests {
 
     #[test]
     fn reads_file_ranges_across_fragmented_extents_and_sparse_holes() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
 
         let path = image_path("file-range-sparse-read");
         {
@@ -4771,7 +4773,9 @@ mod tests {
 
     #[test]
     fn file_reads_reject_directories_missing_maps_and_freed_extents() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
         use std::collections::BTreeMap;
 
         let path = image_path("file-range-invalid");
@@ -5342,7 +5346,9 @@ mod tests {
 
     #[test]
     fn namespace_extent_maps_reject_cross_file_physical_aliases() {
-        use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+        use crate::{
+            DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
+        };
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("persistent-extent-map-alias-{block_size}"));
