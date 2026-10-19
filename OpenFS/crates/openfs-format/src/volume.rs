@@ -1880,13 +1880,14 @@ impl OpenedVolume {
             let end = offset
                 .checked_add(u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let allocated_capacity = record
-                .size
-                .checked_add(block_size - 1)
-                .ok_or(Error::ArithmeticOverflow)?
-                / block_size
-                * block_size;
-            if end > allocated_capacity || record.extent_root_block.is_none() {
+            let in_block_u64 = offset % block_size;
+            let append_end_in_block = in_block_u64
+                .checked_add(u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if record.size % block_size == 0
+                || append_end_in_block > block_size
+                || record.extent_root_block.is_none()
+            {
                 return Err(Error::InvalidInput(
                     "append exceeds the existing allocated final block",
                 ));
