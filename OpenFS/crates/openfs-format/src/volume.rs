@@ -1887,9 +1887,15 @@ impl OpenedVolume {
             let logical_block = offset / block_size;
             let physical_block = map
                 .physical_block(logical_block)
-                .ok_or(Error::InvalidInput("append would extend into a sparse hole"))?;
-            let in_block = usize::try_from(offset % block_size)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+                .ok_or(Error::InvalidInput(
+                    "append would extend into a sparse hole",
+                ))?;
+            let in_block =
+                usize::try_from(offset % block_size).map_err(|_| Error::ArithmeticOverflow)?;
+            let next_generation = record
+                .generation
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut block = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(physical_block, &mut block)?;
             let finish = in_block
@@ -1905,10 +1911,7 @@ impl OpenedVolume {
                 .find(|item| item.id == object_id)
                 .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
             updated.size = end;
-            updated.generation = updated
-                .generation
-                .checked_add(1)
-                .ok_or(Error::ArithmeticOverflow)?;
+            updated.generation = next_generation;
             let entries = namespace.entries().cloned().collect::<Vec<_>>();
             let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
             self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
