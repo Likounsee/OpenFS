@@ -1176,6 +1176,133 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Remove a persistent directory and all descendants, reclaiming file storage.
+    ///
+    /// The complete subtree is removed in one copy-on-write namespace publication. Data
+    /// blocks and extent-map roots are reclaimed only after rediscovery proves that the
+    /// published inventory no longer references the removed objects.
+    pub fn remove_persistent_tree<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent tree removal requires a published inventory",
+            ));
+        };
+        if object_id == namespace.root_id() {
+            return Err(Error::InvalidInput("cannot remove the namespace root"));
+        }
+        let target = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        if target.kind != crate::ObjectKind::Directory {
+            return Err(Error::InvalidInput(
+                "recursive removal requires a directory",
+            ));
+        }
+
+        // Resolve descendants from metadata, not from path strings, so unusual valid names
+        // cannot make a child escape the subtree calculation.
+        let mut removed_ids = std::collections::BTreeSet::new();
+        removed_ids.insert(object_id);
+        loop {
+            let before = removed_ids.len();
+            for record in namespace.objects() {
+                if removed_ids.contains(&ObjectId(record.parent_id)) {
+                    removed_ids.insert(record.id);
+                }
+            }
+            if removed_ids.len() == before {
+                break;
+            }
+        }
+
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let mut reclaim_blocks = Vec::new();
+        for id in &removed_ids {
+            let record = namespace
+                .object(*id)
+                .ok_or(Error::Corrupt("subtree metadata disappeared"))?;
+            if record.kind != crate::ObjectKind::File {
+                continue;
+            }
+            if let Some(root) = record.extent_root_block {
+                let map = extent_maps
+                    .get(id)
+                    .ok_or(Error::Corrupt("file extent map is missing"))?;
+                for extent in map.extents() {
+                    for delta in 0..extent.block_count {
+                        reclaim_blocks.push(
+                            extent
+                                .physical_start
+                                .checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        );
+                    }
+                }
+                reclaim_blocks.push(root);
+            } else if record.size != 0 {
+                return Err(Error::Corrupt(
+                    "non-empty file is missing its extent-map root",
+                ));
+            }
+        }
+
+        let records = namespace
+            .objects()
+            .filter(|record| !removed_ids.contains(&record.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let entries = namespace
+            .entries()
+            .filter(|entry| !removed_ids.contains(&ObjectId(entry.object_id)))
+            .cloned()
+            .collect::<Vec<_>>();
+        let updated_namespace =
+            Namespace::from_records(namespace.root_id(), records, entries)?;
+        let publication =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace);
+        if let Err(error) = publication {
+            // Publication can report an I/O error after the new descriptor committed.
+            // Reclaim only if the active inventory proves every removed ID is absent.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if removed_ids.iter().all(|id| active.object(*id).is_none()) =>
+                {
+                    let mut cleanup_failed = false;
+                    for block in reclaim_blocks.iter().copied() {
+                        if self.free_block(device, block).is_err() {
+                            cleanup_failed = true;
+                        }
+                    }
+                    if cleanup_failed {
+                        return Err(Error::Corrupt(
+                            "tree was removed but some file blocks could not be reclaimed",
+                        ));
+                    }
+                    return Ok(());
+                }
+                _ => return Err(error),
+            }
+        }
+
+        let mut cleanup_failed = false;
+        for block in reclaim_blocks {
+            if self.free_block(device, block).is_err() {
+                cleanup_failed = true;
+            }
+        }
+        if cleanup_failed {
+            return Err(Error::Corrupt(
+                "tree was removed but some file blocks could not be reclaimed",
+            ));
+        }
+        Ok(())
+    }
+
     /// Backwards-compatible name for removing a persistent object.
     ///
     /// Unlike the historical implementation, files with allocated extents are supported.
