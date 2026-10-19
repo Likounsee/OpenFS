@@ -967,28 +967,51 @@ impl OpenedVolume {
     /// Measure free-space fragmentation without modifying the volume.
     ///
     /// Extents are counted independently per bitmap segment because allocation transactions
-    /// cannot currently update multiple bitmap home blocks atomically. A run continues across
-    /// byte boundaries, but is closed at allocated bits and at each bitmap-segment boundary.
+    /// cannot currently update multiple bitmap home blocks atomically. Reserved and padding
+    /// bits are validated during the same bitmap pass, avoiding a separate full-volume scan.
     pub fn free_extent_stats<D: BlockDevice>(&self, device: &mut D) -> Result<FreeExtentStats> {
         validate_device(self, device)?;
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
-        let first_bitmap = layout.data_start / bits_per_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut stats = FreeExtentStats::default();
 
-        for bitmap_index in first_bitmap..=last_bitmap {
+        for bitmap_index in 0..layout.bitmap_blocks {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_end = base
+                .checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
-            let end = layout.backup_superblock.min(
-                base.checked_add(bits_per_block)
-                    .ok_or(Error::ArithmeticOverflow)?,
-            );
+            let end = layout.backup_superblock.min(bitmap_end);
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+
+            // A free bit outside the usable data region indicates reserved/padding
+            // corruption. Preserve validate_allocation_bitmap's strict error contract.
+            let first_data_bit = start - base;
+            let end_data_bit = end - base;
+            let first_data_byte =
+                usize::try_from(first_data_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_data_byte = usize::try_from(end_data_bit.saturating_add(7) / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            for (byte_index, byte) in bitmap.iter().enumerate() {
+                let mut data_mask = 0_u8;
+                if byte_index >= first_data_byte && byte_index < end_data_byte {
+                    data_mask = u8::MAX;
+                    if byte_index == first_data_byte {
+                        data_mask &= u8::MAX << (first_data_bit % 8);
+                    }
+                    if byte_index + 1 == end_data_byte && end_data_bit % 8 != 0 {
+                        data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
+                    }
+                }
+                if !*byte & !data_mask != 0 {
+                    return Err(Error::Corrupt(
+                        "allocation bitmap marks a reserved or padding block free",
+                    ));
+                }
+            }
 
             let mut run_len = 0_u64;
             for block in start..end {
