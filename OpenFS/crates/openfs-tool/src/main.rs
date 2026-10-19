@@ -461,9 +461,18 @@ fn append_namespace_file(
         return Err("path is not a regular file".into());
     }
     let offset = record.size;
+    let appended_size = u64::try_from(data.len())?;
+    let new_size = offset
+        .checked_add(appended_size)
+        .ok_or("appended file size overflows the supported range")?;
     volume.write_persistent_path_range(&mut device, target, offset, data)?;
     device.flush()?;
-    println!("Appended {} byte(s) to '{}' (new size: {} bytes).", data.len(), target, offset + data.len() as u64);
+    println!(
+        "Appended {} byte(s) to '{}' (new size: {} bytes).",
+        data.len(),
+        target,
+        new_size
+    );
     Ok(())
 }
 
