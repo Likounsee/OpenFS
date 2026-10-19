@@ -215,8 +215,15 @@ impl Namespace {
         if parent.kind != ObjectKind::Directory {
             return Err(Error::InvalidInput("object is not a directory"));
         }
+        // Start at the cursor in the ordered index instead of walking and discarding
+        // every earlier child on each page. Keep the cursor exclusive and stop as soon
+        // as the parent key changes, so listing remains bounded to this directory.
+        let start_name = after_name.unwrap_or("").to_owned();
         Ok(self
-            .children(parent_id)
+            .names
+            .range((parent_id, start_name)..)
+            .take_while(|((candidate_parent, _), _)| **candidate_parent == parent_id)
+            .map(|(_, entry)| entry)
             .filter(|entry| after_name.map_or(true, |cursor| entry.name.as_str() > cursor))
             .take(limit)
             .cloned()
