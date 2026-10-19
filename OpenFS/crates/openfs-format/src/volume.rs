@@ -8915,6 +8915,27 @@ mod tests {
                         .unwrap()
                         .unwrap()
                         .is_consistent());
+                    drop(reopened);
+                    drop(reopened_device);
+
+                    // Recovery must converge: another close/open cycle must retain
+                    // the exact descriptor selected by the first recovery.
+                    let mut second_device = ImageDevice::open(&path, block_size).unwrap();
+                    let second_open = open_volume(&mut second_device).unwrap();
+                    let second_discovered = second_open
+                        .discover_persistent_inventory(&mut second_device)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        second_discovered,
+                        (descriptor_block, descriptor.clone()),
+                        "descriptor recovery must be idempotent at block size {block_size}, {fail_kind} {fail_at}"
+                    );
+                    assert!(second_open
+                        .verify_discovered_persistent_inventory(&mut second_device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent());
                 }
                 fs::remove_file(path).unwrap();
             }
