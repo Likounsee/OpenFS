@@ -1856,6 +1856,65 @@ impl OpenedVolume {
         };
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+
+        // Permit a safe append into the unused tail of the last already-allocated block.
+        // No new extent ownership is introduced, so the existing map root remains valid.
+        if !data.is_empty() && offset == record.size {
+            let block_size = u64::from(self.volume.block_size);
+            let end = offset
+                .checked_add(u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let allocated_capacity = record
+                .size
+                .checked_add(block_size - 1)
+                .ok_or(Error::ArithmeticOverflow)?
+                / block_size
+                * block_size;
+            if end > allocated_capacity || record.extent_root_block.is_none() {
+                return Err(Error::InvalidInput(
+                    "append exceeds the existing allocated final block",
+                ));
+            }
+            let map = extent_maps
+                .get(&object_id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let logical_block = offset / block_size;
+            let physical_block = map
+                .physical_block(logical_block)
+                .ok_or(Error::InvalidInput("append would extend into a sparse hole"))?;
+            let in_block = usize::try_from(offset % block_size)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut block = vec![0_u8; self.volume.block_size as usize];
+            device.read_blocks(physical_block, &mut block)?;
+            let finish = in_block
+                .checked_add(data.len())
+                .ok_or(Error::ArithmeticOverflow)?;
+            block[in_block..finish].copy_from_slice(data);
+            device.write_blocks(physical_block, &block)?;
+            device.flush()?;
+
+            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let updated = records
+                .iter_mut()
+                .find(|item| item.id == object_id)
+                .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
+            updated.size = end;
+            updated.generation = updated
+                .generation
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let entries = namespace.entries().cloned().collect::<Vec<_>>();
+            let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+            return Ok(());
+        }
+
         self.write_file_range(device, &namespace, &extent_maps, object_id, offset, data)
     }
 
