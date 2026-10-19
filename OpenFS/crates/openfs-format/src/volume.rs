@@ -159,9 +159,11 @@ impl OpenedVolume {
         let first_bitmap = self.volume.layout.data_start / bits_per_block;
         let last_data_block = self.volume.layout.backup_superblock - 1;
         let last_bitmap = last_data_block / bits_per_block;
+        // Bitmap pages are read sequentially; reuse one page buffer rather than
+        // allocating a fresh block-sized Vec for every page in a large volume.
+        let mut bitmap = vec![0_u8; block_size];
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
-            let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(bitmap_block, &mut bitmap)?;
 
             let bitmap_base = bitmap_index * bits_per_block;
@@ -258,9 +260,10 @@ impl OpenedVolume {
         let last_data_block = self.volume.layout.backup_superblock - 1;
         let last_bitmap = last_data_block / bits_per_block;
         let mut free = 0_u64;
+        // Reuse the bitmap buffer across pages to keep allocator memory churn bounded.
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
-            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(bitmap_block, &mut bitmap)?;
             let bitmap_base = bitmap_index * bits_per_block;
             let first_block = bitmap_base.max(self.volume.layout.data_start);
