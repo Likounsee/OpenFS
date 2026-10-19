@@ -2435,7 +2435,11 @@ impl OpenedVolume {
                 let mut contents = vec![0_u8; block_size];
                 let mut filled = 0_usize;
                 while filled < block_size {
-                    let count = reader.read(&mut contents[filled..])?;
+                    let count = match reader.read(&mut contents[filled..]) {
+                        Ok(count) => count,
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(error) => return Err(error.into()),
+                    };
                     if count == 0 {
                         break;
                     }
