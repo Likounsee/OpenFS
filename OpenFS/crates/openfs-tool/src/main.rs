@@ -57,6 +57,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             check_image(Path::new(&path), block_size)
         }
+        Some("audit-image") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            audit_image(Path::new(&path), block_size)
+        }
         Some("recover-image") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = args
@@ -249,6 +257,34 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
         "Namespace inventory descriptor present: {}",
         report.persistent_inventory_present
     );
+    Ok(())
+}
+
+/// Verify persistent namespace structure and reconcile bitmap allocation ownership.
+///
+/// This command opens the normal volume path, so pending committed journal transactions
+/// may be replayed before the audit. Use check-image for a strictly read-only check.
+fn audit_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let Some(report) = volume.verify_discovered_persistent_inventory(&mut device)? else {
+        return Err("no discoverable persistent namespace inventory".into());
+    };
+
+    println!("OpenFS persistent inventory audit completed.");
+    println!("Path: {}", path.display());
+    println!("Root object ID: {}", report.namespace.root_id().0);
+    println!("Metadata records: {}", report.metadata_record_count);
+    println!("Directory entries: {}", report.directory_entry_count);
+    println!("File extent maps: {}", report.extent_maps.len());
+    println!("Owned map groups checked: {}", report.owner_map_count);
+    println!("Orphaned allocated blocks: {}", report.orphaned_block_count());
+    println!("References to free blocks: {}", report.dangling_reference_count());
+    println!("Allocation ownership consistent: {}", report.is_consistent());
+
+    if !report.is_consistent() {
+        return Err("persistent inventory has allocation ownership anomalies; preserve the image before repair".into());
+    }
     Ok(())
 }
 
@@ -740,6 +776,7 @@ fn print_usage() {
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
+    eprintln!("  openfs audit-image <path> <block-size>");
     eprintln!("  openfs recover-image <path> <block-size>");
     eprintln!("  openfs init-namespace <path> <block-size>");
     eprintln!("  openfs mkdir <image> <block-size> <path>");
