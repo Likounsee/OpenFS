@@ -479,54 +479,32 @@ fn export_namespace_file(
     target: &str,
     output_path: &Path,
 ) -> Result<(), Box<dyn StdError>> {
-    const CHUNK_SIZE: usize = 1024 * 1024;
-
     let mut device = ImageDevice::open(image_path, block_size)?;
     let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
-    let object_id = namespace.resolve_path(target)?;
-    let record = namespace
-        .object(object_id)
-        .ok_or("file metadata is missing")?;
-    if record.kind != ObjectKind::File {
-        return Err("path is not a regular file".into());
-    }
 
     // Never silently overwrite a host file during export.
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(output_path)?;
-    let result = (|| -> Result<(), Box<dyn StdError>> {
-        let mut offset = 0_u64;
-        while offset < record.size {
-            let remaining = record.size - offset;
-            let chunk_len = usize::try_from(remaining.min(CHUNK_SIZE as u64))?;
-            let bytes =
-                volume.read_persistent_path_range(&mut device, target, offset, chunk_len)?;
-            if bytes.len() != chunk_len {
-                return Err("short read while exporting persistent file".into());
-            }
-            output.write_all(&bytes)?;
-            offset = offset
-                .checked_add(u64::try_from(bytes.len())?)
-                .ok_or("export offset overflow")?;
-        }
-        output.flush()?;
-        Ok(())
+    let result = (|| -> Result<u64, Box<dyn StdError>> {
+        let exported_size =
+            volume.stream_persistent_file_to_writer(&mut device, target, &mut output)?;
+        Ok(exported_size)
     })();
 
-    if let Err(error) = result {
-        drop(output);
-        let _ = fs::remove_file(output_path);
-        return Err(error);
-    }
+    let exported_size = match result {
+        Ok(size) => size,
+        Err(error) => {
+            drop(output);
+            let _ = fs::remove_file(output_path);
+            return Err(error);
+        }
+    };
     println!(
         "Exported '{}' ({} bytes) to '{}'.",
         target,
-        record.size,
+        exported_size,
         output_path.display()
     );
     Ok(())
