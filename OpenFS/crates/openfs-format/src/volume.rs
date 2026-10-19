@@ -2854,6 +2854,11 @@ impl OpenedVolume {
 pub struct VolumeCheckReport {
     pub block_size: u32,
     pub total_blocks: u64,
+    pub uuid: [u8; 16],
+    pub bitmap_start: u64,
+    pub bitmap_blocks: u64,
+    pub data_start: u64,
+    pub backup_superblock: u64,
     pub data_blocks: u64,
     pub allocated_data_blocks: u64,
     pub free_data_blocks: u64,
@@ -2889,7 +2894,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
-    let (block_size, total_blocks, _features, _uuid) = decode_superblock(&primary)?;
+    let (block_size, total_blocks, _features, uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "superblock geometry does not match device geometry",
@@ -2943,6 +2948,11 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     Ok(VolumeCheckReport {
         block_size,
         total_blocks,
+        uuid,
+        bitmap_start: layout.bitmap_start,
+        bitmap_blocks: layout.bitmap_blocks,
+        data_start: layout.data_start,
+        backup_superblock: layout.backup_superblock,
         data_blocks,
         allocated_data_blocks: data_blocks - free_data_blocks,
         free_data_blocks,
