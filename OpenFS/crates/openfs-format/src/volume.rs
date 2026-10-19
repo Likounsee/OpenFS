@@ -2136,7 +2136,7 @@ impl OpenedVolume {
         device: &mut D,
         path: &str,
         writer: &mut W,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.validate_device(device)?;
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
@@ -2174,7 +2174,7 @@ impl OpenedVolume {
         let block_size = u64::from(self.volume.block_size);
         let block_len = self.volume.block_size as usize;
         let mut block_buffer = vec![0_u8; block_len];
-        let mut zero_buffer = vec![0_u8; block_len];
+        let zero_buffer = vec![0_u8; block_len];
         let mut logical = 0_u64;
         let mut remaining = record.size;
         while remaining > 0 {
@@ -2198,7 +2198,7 @@ impl OpenedVolume {
             logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         }
         writer.flush()?;
-        Ok(())
+        Ok(record.size)
     }
 
     /// Shrink a persistent file and reclaim blocks no longer covered by its new length.
