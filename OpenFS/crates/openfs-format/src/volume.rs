@@ -2915,11 +2915,15 @@ impl OpenedVolume {
                         .ok_or(Error::ArithmeticOverflow)?;
                 }
 
+                // Reuse a single block buffer while staging the appended tail.
+                // Clear it on every iteration because the final chunk may be shorter
+                // than a block and must not inherit bytes from the previous chunk.
+                let mut contents = vec![0_u8; block_size_usize];
                 for chunk in data[consumed..].chunks(block_size_usize) {
+                    contents.fill(0);
+                    contents[..chunk.len()].copy_from_slice(chunk);
                     let block = self.allocate_block(device)?;
                     allocated.push(block);
-                    let mut contents = vec![0_u8; block_size_usize];
-                    contents[..chunk.len()].copy_from_slice(chunk);
                     device.write_blocks(block, &contents)?;
                     updated_map.insert_coalescing(crate::Extent {
                         logical_start: next_logical,
