@@ -1180,7 +1180,10 @@ impl OpenedVolume {
             // reclaim blocks if rediscovery proves the removed object is no longer live.
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active))) if active.object(object_id).is_none() => {
-                    if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+                    if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
                         return Err(Error::Corrupt(
                             "file was removed but some of its blocks could not be reclaimed",
                         ));
@@ -1193,7 +1196,10 @@ impl OpenedVolume {
             }
         }
 
-        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "file was removed but some of its blocks could not be reclaimed",
             ));
@@ -1306,7 +1312,10 @@ impl OpenedVolume {
                 Ok(Some((_, active)))
                     if removed_ids.iter().all(|id| active.object(*id).is_none()) =>
                 {
-                    if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+                    if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
                         return Err(Error::Corrupt(
                             "tree was removed but some file blocks could not be reclaimed",
                         ));
@@ -1317,7 +1326,10 @@ impl OpenedVolume {
             }
         }
 
-        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "tree was removed but some file blocks could not be reclaimed",
             ));
@@ -2107,7 +2119,10 @@ impl OpenedVolume {
         if let Some(root) = old_root {
             reclaim_blocks.push(root);
         }
-        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "file was truncated but some old blocks could not be reclaimed",
             ));
@@ -2241,7 +2256,10 @@ impl OpenedVolume {
         // allocations in that case; a leak is preferable to freeing blocks still in use.
         self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
 
-        if self.reclaim_persistent_blocks(device, &reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "file contents were replaced but some old blocks could not be reclaimed",
             ));
