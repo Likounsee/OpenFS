@@ -3103,8 +3103,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             "extent-map root aliases a metadata or directory inventory block",
         ));
     }
-    for root in roots {
-        let bitmap_index = root / bits_per_bitmap_block;
+    for root in &roots {
+        let bitmap_index = *root / bits_per_bitmap_block;
         if !reference_bitmaps.contains_key(&bitmap_index) {
             if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
                 reference_bitmaps.pop_first();
@@ -3113,12 +3113,69 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
             reference_bitmaps.insert(bitmap_index, bitmap);
         }
-        let local_bit = root % bits_per_bitmap_block;
+        let local_bit = *root % bits_per_bitmap_block;
         let byte_index = usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
         if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
             return Err(Error::Corrupt(
                 "extent-map root is marked free in the allocation bitmap",
             ));
+        }
+    }
+
+    // Reconcile physical ownership across inventory streams, extent-map pages, and file
+    // data. Keep ranges compressed until overlap detection; only visit individual blocks
+    // when checking the corresponding allocation bits, with a bounded bitmap-page cache.
+    let mut owned_ranges = Vec::<(u64, u64)>::new();
+    for block in descriptor
+        .metadata_blocks
+        .iter()
+        .chain(descriptor.directory_blocks.iter())
+        .chain(std::iter::once(&_descriptor_block))
+        .chain(roots.iter())
+    {
+        let end = block.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        owned_ranges.push((*block, end));
+    }
+    for record in namespace.objects() {
+        let Some(root) = record.extent_root_block else {
+            continue;
+        };
+        let mut bytes = vec![0_u8; block_size];
+        device.read_blocks(root, &mut bytes)?;
+        let map = ExtentMap::decode_block(&bytes)?;
+        map.validate_file_size(record.size, layout.block_size)?;
+        map.validate_physical_bounds(layout.data_start, layout.backup_superblock)?;
+        for extent in map.extents() {
+            let end = extent.physical_start.checked_add(extent.block_count)
+                .ok_or(Error::ArithmeticOverflow)?;
+            owned_ranges.push((extent.physical_start, end));
+        }
+    }
+    owned_ranges.sort_unstable();
+    if owned_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(Error::Corrupt(
+            "persistent inventory, extent-map pages, or file data have overlapping physical ownership",
+        ));
+    }
+    for (start, end) in owned_ranges {
+        for block in start..end {
+            let bitmap_index = block / bits_per_bitmap_block;
+            if !reference_bitmaps.contains_key(&bitmap_index) {
+                if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
+                    reference_bitmaps.pop_first();
+                }
+                let mut bitmap = vec![0_u8; block_size];
+                device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                reference_bitmaps.insert(bitmap_index, bitmap);
+            }
+            let local_bit = block % bits_per_bitmap_block;
+            let byte_index = usize::try_from(local_bit / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
+                return Err(Error::Corrupt(
+                    "persistent inventory or file extent references a free block",
+                ));
+            }
         }
     }
     Ok(true)
