@@ -1208,15 +1208,16 @@ impl OpenedVolume {
         // cannot make a child escape the subtree calculation.
         // Build parent-to-children adjacency once, then walk the subtree. Repeatedly
         // rescanning every metadata record for each depth makes deep trees quadratic.
-        let mut children_by_parent: std::collections::BTreeMap<
-            ObjectId,
-            Vec<ObjectId>,
-        > = std::collections::BTreeMap::new();
+        let mut children_by_parent: std::collections::BTreeMap<ObjectId, Vec<ObjectId>> =
+            std::collections::BTreeMap::new();
         for record in namespace.objects() {
             if record.id != namespace.root_id() {
                 let parent = ObjectId::new(record.parent_id)
                     .map_err(|_| Error::Corrupt("subtree object has an invalid parent"))?;
-                children_by_parent.entry(parent).or_default().push(record.id);
+                children_by_parent
+                    .entry(parent)
+                    .or_default()
+                    .push(record.id);
             }
         }
         let mut removed_ids = std::collections::BTreeSet::new();
