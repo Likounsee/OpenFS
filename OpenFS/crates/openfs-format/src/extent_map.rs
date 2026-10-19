@@ -347,14 +347,13 @@ impl ExtentMap {
     /// Truncate the logical file to the given block count, returning blocks to release.
     /// Extents before the new end are preserved, including sparse holes.
     pub fn truncate(&mut self, logical_block_count: u64) -> Result<Vec<Extent>> {
-        let logical_end = self
-            .extents
-            .iter()
-            .map(|extent| extent.logical_end())
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .max()
-            .unwrap_or(0);
+        // Extents are validated in ascending, non-overlapping logical order, so
+        // the final extent also has the greatest logical end. Avoid allocating a
+        // temporary Vec and rechecking every extent just to find that boundary.
+        let logical_end = match self.extents.last() {
+            Some(extent) => extent.logical_end()?,
+            None => 0,
+        };
         if logical_block_count >= logical_end {
             return Ok(Vec::new());
         }
