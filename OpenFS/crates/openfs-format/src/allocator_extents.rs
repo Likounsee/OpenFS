@@ -813,7 +813,7 @@ impl OpenedVolume {
                         }
                         Some(extent) => {
                             if extent.block_count >= count
-                                && best.is_none_or(|candidate| {
+                                && best.map_or(true, |candidate| {
                                     (extent.block_count, extent.start_block)
                                         < (candidate.block_count, candidate.start_block)
                                 })
@@ -840,7 +840,7 @@ impl OpenedVolume {
 
             if let Some(extent) = current {
                 if extent.block_count >= count
-                    && best.is_none_or(|candidate| {
+                    && best.map_or(true, |candidate| {
                         (extent.block_count, extent.start_block)
                             < (candidate.block_count, candidate.start_block)
                     })
