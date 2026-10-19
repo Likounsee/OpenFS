@@ -131,7 +131,10 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
         "Recoverable committed transactions: {}",
         report.recoverable_transactions
     );
-    println!("Namespace inventory descriptor present: {}", report.persistent_inventory_present);
+    println!(
+        "Namespace inventory descriptor present: {}",
+        report.persistent_inventory_present
+    );
     Ok(())
 }
 
