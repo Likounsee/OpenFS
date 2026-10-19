@@ -2695,11 +2695,15 @@ impl OpenedVolume {
                 return Ok(None);
             }
             let mut extent_map = ExtentMap::default();
+            // Keep memory usage independent of file length: one block buffer is
+            // reused for every staged block, with the tail cleared so the final
+            // partial block cannot expose bytes from the preceding chunk.
+            let mut bytes = vec![0_u8; block_size];
             for (index, chunk) in data.chunks(block_size).enumerate() {
+                bytes.fill(0);
+                bytes[..chunk.len()].copy_from_slice(chunk);
                 let block = self.allocate_block(device)?;
                 allocated.push(block);
-                let mut bytes = vec![0_u8; block_size];
-                bytes[..chunk.len()].copy_from_slice(chunk);
                 device.write_blocks(block, &bytes)?;
                 extent_map.push_coalescing(crate::Extent {
                     logical_start: u64::try_from(index).map_err(|_| Error::ArithmeticOverflow)?,
