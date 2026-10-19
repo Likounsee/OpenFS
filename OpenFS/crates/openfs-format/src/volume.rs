@@ -3163,8 +3163,8 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         }
         furthest_owned_end = furthest_owned_end.max(*end);
     }
-    for (start, end) in owned_ranges {
-        for block in start..end {
+    for (start, end) in &owned_ranges {
+        for block in *start..*end {
             let bitmap_index = block / bits_per_bitmap_block;
             if !reference_bitmaps.contains_key(&bitmap_index) {
                 if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
@@ -3180,6 +3180,43 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
                 return Err(Error::Corrupt(
                     "persistent inventory or file extent references a free block",
+                ));
+            }
+        }
+    }
+
+    // The converse matters too: every allocated data block must have one owner.
+    // Walk bitmap pages sequentially and compare them with the sorted, compact ownership
+    // ranges so large volumes do not need a per-block ownership set in memory.
+    let mut owner_index = 0_usize;
+    let first_bitmap = layout.data_start / bits_per_bitmap_block;
+    let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
+    for bitmap_index in first_bitmap..=last_bitmap {
+        let mut bitmap = vec![0_u8; block_size];
+        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        let bitmap_base = bitmap_index
+            .checked_mul(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let scan_start = layout.data_start.max(bitmap_base);
+        let scan_end = layout.backup_superblock.min(
+            bitmap_base
+                .checked_add(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?,
+        );
+        for block in scan_start..scan_end {
+            while owner_index < owned_ranges.len() && owned_ranges[owner_index].1 <= block {
+                owner_index += 1;
+            }
+            let local_bit = block - bitmap_base;
+            let byte_index = usize::try_from(local_bit / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let allocated = bitmap[byte_index] & (1_u8 << (local_bit % 8)) != 0;
+            let owned = owner_index < owned_ranges.len()
+                && owned_ranges[owner_index].0 <= block
+                && block < owned_ranges[owner_index].1;
+            if allocated && !owned {
+                return Err(Error::Corrupt(
+                    "allocation bitmap contains an allocated data block with no persistent owner",
                 ));
             }
         }
