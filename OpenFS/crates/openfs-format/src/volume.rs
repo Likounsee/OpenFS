@@ -1867,7 +1867,6 @@ impl OpenedVolume {
             }
         }
 
-
         let remainder =
             usize::try_from(new_size % block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let old_root = record.extent_root_block;
