@@ -1912,8 +1912,15 @@ impl OpenedVolume {
                 .checked_add(data.len())
                 .ok_or(Error::ArithmeticOverflow)?;
             block[in_block..finish].copy_from_slice(data);
-            device.write_blocks(physical_block, &block)?;
-            device.flush()?;
+            // Use the journal for the data block too; a direct device write could leave
+            // a torn append if power is lost before the new file size is published.
+            self.journal.commit(
+                device,
+                &[RedoUpdate {
+                    target_block: physical_block,
+                    contents: block,
+                }],
+            )?;
 
             let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
             let updated = records
