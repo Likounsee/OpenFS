@@ -1106,6 +1106,7 @@ impl OpenedVolume {
         if blocks.is_empty() {
             return Ok(());
         }
+        let layout = self.volume.layout;
         let bits_per_block = u64::from(self.volume.block_size)
             .checked_mul(8)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -1114,6 +1115,16 @@ impl OpenedVolume {
         if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::Corrupt(
                 "persistent storage reclamation contains duplicate blocks",
+            ));
+        }
+        // Validate every physical address before freeing the first bitmap segment.
+        // This prevents a malformed later segment from causing avoidable partial cleanup.
+        if sorted
+            .iter()
+            .any(|block| *block < layout.data_start || *block >= layout.backup_superblock)
+        {
+            return Err(Error::Corrupt(
+                "persistent storage reclamation contains a non-data block",
             ));
         }
         let mut start = 0;
