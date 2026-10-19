@@ -226,7 +226,9 @@ fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> 
                 .into(),
         );
     }
-    println!("Journal checkpoint is current; this command does not validate file ownership or namespace integrity.");
+    println!(
+        "Journal checkpoint is current; this command does not validate file ownership or namespace integrity."
+    );
     Ok(())
 }
 
