@@ -5478,7 +5478,6 @@ mod tests {
                 // deliberately unpublished corrupt fixture cannot be used to exercise
                 // those entry points. Whole-namespace alias rejection is covered above
                 // by read_namespace_extent_maps and by refusing publication.
-
             }
             fs::remove_file(path).unwrap();
         }
