@@ -78,8 +78,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             initialize_namespace_image(Path::new(&path), block_size)
         }
-        Some("mkdir") | Some("touch") => {
-            let command = args.next().ok_or("missing command")?;
+        Some(command @ ("mkdir" | "touch")) => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
