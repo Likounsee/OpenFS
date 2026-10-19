@@ -2979,7 +2979,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
 
     let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
-    let mut found = false;
+    let mut discovered: Option<(u64, PersistentInventoryDescriptor)> = None;
     // Cache only bitmap pages needed by descriptor references. A descriptor can span
     // many pages, but the cache remains bounded to the current candidate's references.
     let mut reference_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
@@ -3024,7 +3024,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 continue;
             }
             let descriptor = PersistentInventoryDescriptor::decode(block_contents)?;
-            if found {
+            if discovered.is_some() {
                 return Err(Error::Corrupt(
                     "multiple persistent inventory descriptors were discovered",
                 ));
@@ -3062,11 +3062,127 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     ));
                 }
             }
-            found = true;
+            discovered = Some((block, descriptor));
         }
         batch_start = batch_end;
     }
-    Ok(found)
+
+    // A valid descriptor is only a locator. Decode the referenced streams and rebuild
+    // the namespace here so check_volume catches corrupt metadata and directory graphs
+    // without opening the writable volume or replaying the journal.
+    let Some((_descriptor_block, descriptor)) = discovered else {
+        return Ok(false);
+    };
+    let metadata_bytes = read_inventory_stream_read_only(
+        device,
+        layout,
+        &descriptor.metadata_blocks,
+        descriptor.metadata_record_count,
+        METADATA_RECORD_SIZE,
+    )?;
+    let directory_bytes = read_inventory_stream_read_only(
+        device,
+        layout,
+        &descriptor.directory_blocks,
+        descriptor.directory_entry_count,
+        DIRECTORY_ENTRY_SIZE,
+    )?;
+    let records = decode_metadata_records(&metadata_bytes)?;
+    let entries = decode_directory_entries(&directory_bytes)?;
+    let namespace = Namespace::from_records(descriptor.root_id, records, entries)?;
+    let roots = namespace.validated_extent_root_inventory(
+        layout.data_start,
+        layout.backup_superblock,
+    )?;
+    let claimed: std::collections::BTreeSet<u64> = descriptor
+        .metadata_blocks
+        .iter()
+        .chain(descriptor.directory_blocks.iter())
+        .copied()
+        .collect();
+    if roots.iter().any(|root| claimed.contains(root)) {
+        return Err(Error::Corrupt(
+            "extent-map root aliases a metadata or directory inventory block",
+        ));
+    }
+    for root in roots {
+        let bitmap_index = root / bits_per_bitmap_block;
+        if !reference_bitmaps.contains_key(&bitmap_index) {
+            if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
+                reference_bitmaps.pop_first();
+            }
+            let mut bitmap = vec![0_u8; block_size];
+            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            reference_bitmaps.insert(bitmap_index, bitmap);
+        }
+        let local_bit = root % bits_per_bitmap_block;
+        let byte_index = usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+        if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0 {
+            return Err(Error::Corrupt(
+                "extent-map root is marked free in the allocation bitmap",
+            ));
+        }
+    }
+    Ok(true)
+}
+
+/// Read an inventory stream during a non-mutating volume check. The descriptor's
+/// block order defines stream order; contiguous runs are coalesced into bounded I/O.
+fn read_inventory_stream_read_only<D: BlockDevice>(
+    device: &mut D,
+    layout: &VolumeLayout,
+    blocks: &[u64],
+    record_count: usize,
+    record_size: usize,
+) -> Result<Vec<u8>> {
+    let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let required_bytes = record_count
+        .checked_mul(record_size)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let required_blocks = required_bytes
+        .checked_add(block_size - 1)
+        .ok_or(Error::ArithmeticOverflow)?
+        / block_size;
+    if blocks.len() != required_blocks {
+        return Err(Error::Corrupt(
+            "persistent inventory block count does not match its record count",
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for block in blocks {
+        if *block < layout.data_start
+            || *block >= layout.backup_superblock
+            || !seen.insert(*block)
+        {
+            return Err(Error::Corrupt(
+                "persistent inventory stream has invalid block ownership",
+            ));
+        }
+    }
+    let mut bytes = Vec::with_capacity(
+        required_blocks
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?,
+    );
+    let mut cursor = 0;
+    while cursor < blocks.len() {
+        let mut end = cursor + 1;
+        while end < blocks.len()
+            && end - cursor < INVENTORY_DISCOVERY_BATCH_BLOCKS
+            && blocks[end - 1].checked_add(1) == Some(blocks[end])
+        {
+            end += 1;
+        }
+        let run_bytes = (end - cursor)
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut batch = vec![0_u8; run_bytes];
+        device.read_blocks(blocks[cursor], &mut batch)?;
+        bytes.extend_from_slice(&batch);
+        cursor = end;
+    }
+    bytes.truncate(required_bytes);
+    Ok(bytes)
 }
 
 /// Validate the persisted journal without replaying records or writing checkpoints.
