@@ -2259,10 +2259,7 @@ impl OpenedVolume {
             Err(error) => {
                 // No published namespace can reference these allocations yet. Attempt
                 // every rollback, but surface cleanup failure instead of hiding a leak.
-                if self
-                    .reclaim_persistent_blocks(device, &allocated)
-                    .is_err()
-                {
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                     return Err(Error::Corrupt(
                         "failed to roll back staged persistent file allocations",
                     ));
@@ -2460,10 +2457,7 @@ impl OpenedVolume {
             let new_root = match staged {
                 Ok(root) => root,
                 Err(error) => {
-                    if self
-                        .reclaim_persistent_blocks(device, &allocated)
-                        .is_err()
-                    {
+                    if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
                             "failed to roll back staged append allocations",
                         ));
@@ -2507,10 +2501,7 @@ impl OpenedVolume {
                                 .object(object_id)
                                 .is_some_and(|item| item.extent_root_block == Some(old_root)) =>
                         {
-                            if self
-                                .reclaim_persistent_blocks(device, &allocated)
-                                .is_err()
-                            {
+                            if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                                 return Err(Error::Corrupt(
                                     "failed to roll back unpublished append allocations",
                                 ));
