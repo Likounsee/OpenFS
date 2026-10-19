@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::{BlockDevice, ImageDevice};
-use openfs_format::{check_volume, format_volume, open_volume};
+use openfs_format::{check_volume, format_volume, open_volume, ObjectId};
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -66,6 +66,17 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 return Err("too many arguments".into());
             }
             recover_image(Path::new(&path), block_size)
+        }
+        Some("init-namespace") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = args
+                .next()
+                .ok_or("missing block size (4096, 8192, 16384, 32768, or 65536)")?
+                .parse::<u32>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            initialize_namespace_image(Path::new(&path), block_size)
         }
         _ => {
             print_usage();
@@ -197,6 +208,24 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+/// Create the first persistent root namespace in an existing development image.
+fn initialize_namespace_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
+        return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
+    }
+
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
+    device.flush()?;
+
+    println!("OpenFS persistent namespace initialized.");
+    println!("Path: {}", path.display());
+    println!("Root object ID: 1");
+    println!("The image now has a durable root directory; no files or directories were created.");
+    Ok(())
+}
+
 /// Explicitly open an image through the journal recovery path.
 ///
 /// Unlike check-image, this command may write recovered home blocks and a journal
@@ -266,6 +295,7 @@ fn print_usage() {
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs recover-image <path> <block-size>");
+    eprintln!("  openfs init-namespace <path> <block-size>");
     eprintln!(
         "check-image is read-only and accepts block sizes 4096, 8192, 16384, 32768, or 65536."
     );
