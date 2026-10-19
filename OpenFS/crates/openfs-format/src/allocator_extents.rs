@@ -644,20 +644,23 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                // Consume contiguous free-bit runs a byte at a time. Walking every
+                // free block individually makes inventory scans scale with free capacity,
+                // even when the entire bitmap is one large extent.
                 while free_bits != 0 {
-                    let bit = u64::from(free_bits.trailing_zeros());
+                    let first_bit = free_bits.trailing_zeros();
+                    let run_width = (free_bits >> first_bit).trailing_ones();
                     let block = base
                         .checked_add(byte_start)
-                        .and_then(|value| value.checked_add(bit))
+                        .and_then(|value| value.checked_add(u64::from(first_bit)))
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
                         Some(mut extent)
-                            if extent.start_block.checked_add(extent.block_count)
-                                == Some(block) =>
+                            if extent.start_block.checked_add(extent.block_count) == Some(block) =>
                         {
                             extent.block_count = extent
                                 .block_count
-                                .checked_add(1)
+                                .checked_add(u64::from(run_width))
                                 .ok_or(Error::ArithmeticOverflow)?;
                             current = Some(extent);
                         }
@@ -665,17 +668,19 @@ impl OpenedVolume {
                             extents.push(extent);
                             current = Some(FreeExtent {
                                 start_block: block,
-                                block_count: 1,
+                                block_count: u64::from(run_width),
                             });
                         }
                         None => {
                             current = Some(FreeExtent {
                                 start_block: block,
-                                block_count: 1,
+                                block_count: u64::from(run_width),
                             });
                         }
                     }
-                    free_bits &= free_bits - 1;
+                    let run_mask =
+                        ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
+                    free_bits &= !run_mask;
                 }
             }
             if let Some(extent) = current {
