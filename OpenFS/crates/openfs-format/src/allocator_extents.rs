@@ -515,11 +515,15 @@ impl OpenedVolume {
         for index in first_bitmap..=last_bitmap {
             let mut bitmap = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
-            let base = index * bits_per_block;
+            let base = index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
-            let end = layout
-                .backup_superblock
-                .min(base.saturating_add(bits_per_block));
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
             let first_byte =
@@ -648,6 +652,7 @@ impl OpenedVolume {
             );
             let mut bitmap = vec![0_u8; layout.block_size as usize];
             device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
             let first_byte =
@@ -1493,6 +1498,45 @@ impl OpenedVolume {
         }
         Ok(())
     }
+}
+
+/// Reject free bits that refer to metadata-reserved blocks or bitmap padding.
+fn validate_bitmap_reserved_bits(
+    bitmap: &[u8],
+    segment_base: u64,
+    data_start: u64,
+    data_end: u64,
+) -> Result<()> {
+    let first_data_bit = data_start - segment_base;
+    let end_data_bit = data_end - segment_base;
+    let first_data_byte =
+        usize::try_from(first_data_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+    let end_data_byte = usize::try_from(
+        end_data_bit
+            .checked_add(7)
+            .ok_or(Error::ArithmeticOverflow)?
+            / 8,
+    )
+    .map_err(|_| Error::ArithmeticOverflow)?;
+
+    for (byte_index, byte) in bitmap.iter().enumerate() {
+        let mut data_mask = 0_u8;
+        if byte_index >= first_data_byte && byte_index < end_data_byte {
+            data_mask = u8::MAX;
+            if byte_index == first_data_byte {
+                data_mask &= u8::MAX << (first_data_bit % 8);
+            }
+            if byte_index + 1 == end_data_byte && end_data_bit % 8 != 0 {
+                data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
+            }
+        }
+        if !*byte & !data_mask != 0 {
+            return Err(Error::Corrupt(
+                "allocation bitmap marks a reserved or padding block free",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_device<D: BlockDevice>(volume: &OpenedVolume, device: &D) -> Result<()> {
