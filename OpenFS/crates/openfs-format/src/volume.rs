@@ -1934,12 +1934,13 @@ impl OpenedVolume {
         Ok(())
     }
 
-    /// Write initial contents to an empty persistent file, spanning multiple blocks if needed.
+    /// Replace the complete contents of a persistent file, spanning multiple blocks if needed.
     ///
-    /// Data blocks and the checksummed extent map are initialized before copy-on-write
-    /// namespace publication. Allocations are rolled back if staging fails before publication;
-    /// after publication starts, an I/O error may have an uncertain commit outcome, so staged
-    /// blocks are deliberately retained rather than risking freeing live file data.
+    /// New data blocks and the checksummed extent map are staged and flushed before the
+    /// copy-on-write namespace publication. Only after the new contents are published are
+    /// the previous data blocks and extent-map root reclaimed. If publication has an uncertain
+    /// outcome, both generations are retained rather than risking freeing live file data.
+    /// Passing an empty slice truncates the file to zero bytes.
     pub fn write_persistent_file_contents<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1947,12 +1948,6 @@ impl OpenedVolume {
         data: &[u8],
     ) -> Result<()> {
         self.validate_device(device)?;
-        if data.is_empty() {
-            return Err(Error::InvalidInput(
-                "initial file contents must not be empty",
-            ));
-        }
-        let block_size = self.volume.block_size as usize;
         let (_, namespace) =
             self.reconstruct_discovered_namespace(device)?
                 .ok_or(Error::InvalidInput(
@@ -1965,18 +1960,38 @@ impl OpenedVolume {
         if existing.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
-        if existing.size != 0 || existing.extent_root_block.is_some() {
-            return Err(Error::InvalidInput(
-                "initial contents can only be written to an empty file",
-            ));
-        }
         let next_generation = existing
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        // Validate the recorded byte length before allocating anything. That conversion
-        // must not become a post-staging failure that strands unpublished data blocks.
         let file_size = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Capture the old allocation before staging anything, so reclamation never relies
+        // on stale caller metadata and all ownership checks happen before publication.
+        let mut reclaim_blocks = Vec::new();
+        if let Some(old_root) = existing.extent_root_block {
+            let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+            let old_map = extent_maps
+                .get(&object_id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?;
+            for extent in old_map.extents() {
+                for delta in 0..extent.block_count {
+                    reclaim_blocks.push(
+                        extent
+                            .physical_start
+                            .checked_add(delta)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                }
+            }
+            reclaim_blocks.push(old_root);
+        } else if existing.size != 0 {
+            return Err(Error::Corrupt(
+                "non-empty file is missing its extent-map root",
+            ));
+        }
 
         let block_count = data
             .len()
@@ -1984,7 +1999,10 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
         let mut allocated = Vec::with_capacity(block_count.saturating_add(1));
-        let staged = (|| -> Result<u64> {
+        let staged = (|| -> Result<Option<u64>> {
+            if data.is_empty() {
+                return Ok(None);
+            }
             let mut extent_map = ExtentMap::default();
             for (index, chunk) in data.chunks(block_size).enumerate() {
                 let block = self.allocate_block(device)?;
@@ -2004,7 +2022,7 @@ impl OpenedVolume {
             allocated.push(extent_root);
             device.write_blocks(extent_root, &extent_bytes)?;
             device.flush()?;
-            Ok(extent_root)
+            Ok(Some(extent_root))
         })();
 
         let extent_root = match staged {
@@ -2033,11 +2051,26 @@ impl OpenedVolume {
             .find(|record| record.id == object_id)
             .ok_or(Error::Corrupt("file metadata disappeared during update"))?;
         updated.size = file_size;
-        updated.extent_root_block = Some(extent_root);
+        updated.extent_root_block = extent_root;
         updated.generation = next_generation;
         let entries = namespace.entries().cloned().collect::<Vec<_>>();
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+
+        // On publication error the commit outcome may be uncertain. Keep both old and staged
+        // allocations in that case; a leak is preferable to freeing blocks still in use.
         self.replace_persistent_namespace_inventory(device, &updated_namespace)?;
+
+        let mut cleanup_failed = false;
+        for block in reclaim_blocks {
+            if self.free_block(device, block).is_err() {
+                cleanup_failed = true;
+            }
+        }
+        if cleanup_failed {
+            return Err(Error::Corrupt(
+                "file contents were replaced but some old blocks could not be reclaimed",
+            ));
+        }
         Ok(())
     }
 
