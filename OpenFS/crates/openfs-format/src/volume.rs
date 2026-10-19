@@ -3046,6 +3046,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 }
                 let bitmap_index = *inventory_block / bits_per_bitmap_block;
                 if !reference_bitmaps.contains_key(&bitmap_index) {
+                    if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
+                        reference_bitmaps.pop_first();
+                    }
                     let mut bitmap = vec![0_u8; block_size];
                     device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
                     reference_bitmaps.insert(bitmap_index, bitmap);
