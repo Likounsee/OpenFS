@@ -5052,6 +5052,7 @@ mod tests {
                         .unwrap(),
                     replacement
                 );
+                let mut expected = payload.clone();
                 expected[17..81].copy_from_slice(&replacement);
                 let (_, namespace) = volume
                     .reconstruct_discovered_namespace(&mut device)
