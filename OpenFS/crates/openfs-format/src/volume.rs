@@ -3772,17 +3772,22 @@ mod tests {
             assert_eq!(namespace.resolve_path("/renamed.txt").unwrap(), ObjectId(2));
             assert_eq!(namespace.object(ObjectId(2)).unwrap().generation, 2);
 
-            // A newly created empty file has no allocated data extents. A write
-            // must fail without changing its persistent metadata or publishing a
-            // partially initialized file.
-            assert!(volume
+            // Appending to a newly created empty file must allocate its first
+            // extent and publish the data through the normal copy-on-write path.
+            volume
                 .write_persistent_path_range(&mut device, "/renamed.txt", 0, b"x")
-                .is_err());
+                .unwrap();
             let (_, namespace) = volume
                 .reconstruct_discovered_namespace(&mut device)
                 .unwrap()
                 .unwrap();
-            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 0);
+            assert_eq!(namespace.object(ObjectId(2)).unwrap().size, 1);
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/renamed.txt", 0, 1)
+                    .unwrap(),
+                b"x"
+            );
 
             drop(volume);
             let reopened = open_volume(&mut device).unwrap();
