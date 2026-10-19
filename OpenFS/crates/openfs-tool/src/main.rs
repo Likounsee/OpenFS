@@ -486,7 +486,8 @@ fn read_namespace_file(
     while offset < record.size {
         let remaining = record.size - offset;
         let chunk_len = usize::try_from(remaining.min(CHUNK_SIZE as u64))?;
-        let bytes = volume.read_persistent_path_range(&mut device, target, offset, chunk_len)?;
+        let bytes =
+            volume.read_persistent_path_range(&mut device, target, offset, chunk_len)?;
         if bytes.len() != chunk_len {
             return Err("short read while printing persistent file".into());
         }
