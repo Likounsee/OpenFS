@@ -37,13 +37,36 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
             .ok_or(Error::ArithmeticOverflow)?;
         let mut contents = vec![0_u8; byte_count];
         device.read_blocks(blocks[run_start], &mut contents)?;
-        for (offset, block_contents) in contents.chunks_exact(block_bytes).enumerate() {
+
+        // Clear signatures in memory first, then write contiguous stale blocks as a
+        // single device operation. Sparse stale signatures remain isolated writes;
+        // clean candidate blocks are never rewritten.
+        let mut stale = Vec::new();
+        for (offset, block_contents) in contents.chunks_exact_mut(block_bytes).enumerate() {
             if block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                let cleared = vec![0_u8; block_bytes];
-                let block = blocks[run_start + offset];
-                device.write_blocks(block, &cleared)?;
-                changed = true;
+                block_contents.fill(0);
+                stale.push(offset);
             }
+        }
+        let mut stale_cursor = 0_usize;
+        while stale_cursor < stale.len() {
+            let stale_start = stale_cursor;
+            let mut stale_end = stale_cursor + 1;
+            while stale_end < stale.len() && stale[stale_end - 1] + 1 == stale[stale_end] {
+                stale_end += 1;
+            }
+            let first_offset = stale[stale_start];
+            let last_offset = stale[stale_end - 1] + 1;
+            let first_block = blocks[run_start + first_offset];
+            let byte_start = first_offset
+                .checked_mul(block_bytes)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let byte_end = last_offset
+                .checked_mul(block_bytes)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.write_blocks(first_block, &contents[byte_start..byte_end])?;
+            changed = true;
+            stale_cursor = stale_end;
         }
         cursor = run_end;
     }
