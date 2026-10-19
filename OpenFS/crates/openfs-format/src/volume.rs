@@ -1017,6 +1017,92 @@ impl OpenedVolume {
         Ok(Some((descriptor_block, namespace)))
     }
 
+    /// Initialize the first durable namespace on a freshly formatted volume.
+    ///
+    /// A single root-directory metadata record is staged and flushed before its inventory
+    /// descriptor is published. The descriptor's bitmap commit is the visibility point,
+    /// so a crash leaves either no discoverable namespace or a complete root namespace.
+    /// This operation refuses to replace an existing inventory.
+    pub fn initialize_persistent_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        root_id: ObjectId,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        ObjectId::new(root_id.0)?;
+        if self.discover_persistent_inventory(device)?.is_some() {
+            return Err(Error::InvalidInput(
+                "a persistent namespace already exists",
+            ));
+        }
+
+        let root = MetadataRecord {
+            id: root_id,
+            parent_id: 0,
+            kind: crate::ObjectKind::Directory,
+            flags: 0,
+            size: 0,
+            extent_root_block: None,
+            generation: 1,
+        };
+        let encoded = root.encode()?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let mut contents = vec![0_u8; block_size];
+        contents[..encoded.len()].copy_from_slice(&encoded);
+
+        // Allocate and flush the root record before making it discoverable. Until the
+        // descriptor is committed, this block is an unreferenced staging allocation.
+        let root_block = self.allocate_block(device)?;
+        if let Err(error) = (|| -> Result<()> {
+            device.write_blocks(root_block, &contents)?;
+            device.flush()
+        })() {
+            if self.reclaim_persistent_blocks(device, &[root_block]).is_err() {
+                return Err(Error::Corrupt(
+                    "failed to reclaim staged root metadata after initialization I/O failure",
+                ));
+            }
+            return Err(error);
+        }
+
+        let descriptor = PersistentInventoryDescriptor {
+            root_id,
+            metadata_blocks: vec![root_block],
+            metadata_record_count: 1,
+            directory_blocks: Vec::new(),
+            directory_entry_count: 0,
+        };
+        if let Err(error) = self.publish_persistent_inventory(device, &descriptor) {
+            // The descriptor publication may have committed before a later flush or
+            // locator-hint error was reported. Never free the root record until discovery
+            // proves that no active inventory refers to it.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active.root_id() == root_id
+                        && active.objects().count() == 1
+                        && active.object(root_id).is_some_and(|record| record == &root) =>
+                {
+                    return Ok(());
+                }
+                Ok(None) => {
+                    if self.reclaim_persistent_blocks(device, &[root_block]).is_err() {
+                        return Err(Error::Corrupt(
+                            "namespace initialization failed and staged root metadata could not be reclaimed",
+                        ));
+                    }
+                    return Err(error);
+                }
+                _ => {
+                    // Discovery itself is inconclusive, so retain the staged block rather
+                    // than risk freeing metadata that a committed descriptor may reference.
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Create an empty file in the persistent namespace.
     ///
     /// The namespace inventory is reconstructed from disk, updated in memory, and then
