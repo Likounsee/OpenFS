@@ -6,7 +6,8 @@
 
 use std::env;
 use std::error::Error as StdError;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -104,6 +105,21 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 return Err("too many arguments".into());
             }
             read_namespace_file(Path::new(&path), block_size, &target)
+        }
+        Some("export") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace file path")?;
+            let output = args.next().ok_or("missing host output path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            export_namespace_file(
+                Path::new(&path),
+                block_size,
+                &target,
+                Path::new(&output),
+            )
         }
         Some("stat") => {
             let path = args.next().ok_or("missing image path")?;
@@ -398,6 +414,69 @@ fn read_namespace_file(
     Ok(())
 }
 
+fn export_namespace_file(
+    image_path: &Path,
+    block_size: u32,
+    target: &str,
+    output_path: &Path,
+) -> Result<(), Box<dyn StdError>> {
+    const CHUNK_SIZE: usize = 1024 * 1024;
+
+    let mut device = ImageDevice::open(image_path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let object_id = namespace.resolve_path(target)?;
+    let record = namespace
+        .object(object_id)
+        .ok_or("file metadata is missing")?;
+    if record.kind != ObjectKind::File {
+        return Err("path is not a regular file".into());
+    }
+
+    // Never silently overwrite a host file during export.
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)?;
+    let result = (|| -> Result<(), Box<dyn StdError>> {
+        let mut offset = 0_u64;
+        while offset < record.size {
+            let remaining = record.size - offset;
+            let chunk_len = usize::try_from(remaining.min(CHUNK_SIZE as u64))?;
+            let bytes = volume.read_persistent_path_range(
+                &mut device,
+                target,
+                offset,
+                chunk_len,
+            )?;
+            if bytes.len() != chunk_len {
+                return Err("short read while exporting persistent file".into());
+            }
+            output.write_all(&bytes)?;
+            offset = offset
+                .checked_add(u64::try_from(bytes.len())?)
+                .ok_or("export offset overflow")?;
+        }
+        output.flush()?;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        drop(output);
+        let _ = fs::remove_file(output_path);
+        return Err(error);
+    }
+    println!(
+        "Exported '{}' ({} bytes) to '{}'.",
+        target,
+        record.size,
+        output_path.display()
+    );
+    Ok(())
+}
+
 fn stat_namespace_entry(
     path: &Path,
     block_size: u32,
@@ -632,6 +711,7 @@ fn print_usage() {
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs append <image> <block-size> <file-path> <text...>");
