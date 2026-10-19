@@ -2107,7 +2107,11 @@ impl OpenedVolume {
                 .write_blocks(root, &encoded)
                 .and_then(|()| device.flush())
             {
-                let _ = self.free_block(device, root);
+                if self.free_block(device, root).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim staged extent-map root after truncation staging failed",
+                    ));
+                }
                 return Err(error);
             }
             Some(root)
