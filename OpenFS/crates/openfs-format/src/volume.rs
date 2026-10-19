@@ -1093,7 +1093,9 @@ impl OpenedVolume {
                 }
                 reclaim_blocks.push(root);
             } else if record.size != 0 {
-                return Err(Error::Corrupt("non-empty file is missing its extent-map root"));
+                return Err(Error::Corrupt(
+                    "non-empty file is missing its extent-map root",
+                ));
             }
         }
 
