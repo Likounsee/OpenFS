@@ -429,6 +429,39 @@ impl OpenedVolume {
                 "cannot free a block referenced by persistent inventory descriptor",
             ));
         }
+
+        // Descriptor blocks are only the namespace entry point. File data and extent-map
+        // roots are owned by the namespace they publish, so protect those too when callers
+        // ask to release an entire physical range.
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::Corrupt(
+                "persistent inventory disappeared during range-release validation",
+            ));
+        };
+        if namespace.objects().any(|record| {
+            record
+                .extent_root_block
+                .is_some_and(|block| block >= start_block && block < end_block)
+        }) {
+            return Err(Error::InvalidInput(
+                "cannot free a range containing a file extent-map root",
+            ));
+        }
+
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        for map in extent_maps.values() {
+            for extent in map.extents() {
+                let extent_end = extent
+                    .physical_start
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if extent.physical_start < end_block && start_block < extent_end {
+                    return Err(Error::InvalidInput(
+                        "cannot free a range containing persistent file data",
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -2441,9 +2474,9 @@ impl OpenedVolume {
             let mut file_size = 0_u64;
             let mut logical_block = 0_u64;
             // Reuse one block-sized buffer for the whole import instead of allocating
-            // and freeing a fresh Vec for every filesystem block. Full iterations
-            // overwrite the entire buffer; a short final block is zero-padded from
-            // the buffer's initial state and terminates the loop immediately.
+            // and freeing a fresh Vec for every filesystem block. The unused tail is
+            // explicitly zeroed below because the buffer may contain bytes from the
+            // preceding full block.
             let mut contents = vec![0_u8; block_size];
             loop {
                 let mut filled = 0_usize;
