@@ -1965,8 +1965,8 @@ impl OpenedVolume {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         let file_size = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
 
         // Capture the old allocation before staging anything, so reclamation never relies
         // on stale caller metadata and all ownership checks happen before publication.
