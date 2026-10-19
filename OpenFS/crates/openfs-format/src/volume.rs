@@ -2178,21 +2178,26 @@ impl OpenedVolume {
 
         // Clear bytes beyond EOF only after publishing the shorter length. Doing this
         // earlier could corrupt the still-authoritative old file if publication failed.
-        if remainder != 0 {
-            if let Some(physical) = updated_map.physical_block(new_size / block_size) {
-                let mut contents = vec![0_u8; block_size_usize];
-                device.read_blocks(physical, &mut contents)?;
-                contents[remainder..].fill(0);
-                self.journal.commit(
-                    device,
-                    &[RedoUpdate {
-                        target_block: physical,
-                        contents,
-                    }],
-                )?;
+        let tail_cleanup = (|| -> Result<()> {
+            if remainder != 0 {
+                if let Some(physical) = updated_map.physical_block(new_size / block_size) {
+                    let mut contents = vec![0_u8; block_size_usize];
+                    device.read_blocks(physical, &mut contents)?;
+                    contents[remainder..].fill(0);
+                    self.journal.commit(
+                        device,
+                        &[RedoUpdate {
+                            target_block: physical,
+                            contents,
+                        }],
+                    )?;
+                }
             }
-        }
+            Ok(())
+        })();
 
+        // The shorter size is already published. Reclaim old storage even if clearing
+        // bytes past EOF fails; those bytes are no longer visible through the file API.
         if let Some(root) = old_root {
             reclaim_blocks.push(root);
         }
@@ -2204,6 +2209,7 @@ impl OpenedVolume {
                 "file was truncated but some old blocks could not be reclaimed",
             ));
         }
+        tail_cleanup?;
         Ok(())
     }
 
@@ -2553,16 +2559,29 @@ impl OpenedVolume {
                 }
             };
 
-            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-            let updated = records
-                .iter_mut()
-                .find(|item| item.id == object_id)
-                .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
-            updated.size = end;
-            updated.extent_root_block = Some(new_root);
-            updated.generation = next_generation;
-            let entries = namespace.entries().cloned().collect::<Vec<_>>();
-            let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+            let updated_namespace = (|| -> Result<Namespace> {
+                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+                let updated = records
+                    .iter_mut()
+                    .find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
+                updated.size = end;
+                updated.extent_root_block = Some(new_root);
+                updated.generation = next_generation;
+                let entries = namespace.entries().cloned().collect::<Vec<_>>();
+                Namespace::from_records(namespace.root_id(), records, entries)
+            })();
+            let updated_namespace = match updated_namespace {
+                Ok(namespace) => namespace,
+                Err(error) => {
+                    if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                        return Err(Error::Corrupt(
+                            "failed to reclaim staged append allocations after metadata preparation failed",
+                        ));
+                    }
+                    return Err(error);
+                }
+            };
 
             match self.replace_persistent_namespace_inventory(device, &updated_namespace) {
                 Ok(_) => {
@@ -2580,7 +2599,11 @@ impl OpenedVolume {
                                 .object(object_id)
                                 .is_some_and(|item| item.extent_root_block == Some(new_root)) =>
                         {
-                            let _ = self.free_block(device, old_root);
+                            if self.free_block(device, old_root).is_err() {
+                                return Err(Error::Corrupt(
+                                    "append was published but the previous extent-map root could not be reclaimed",
+                                ));
+                            }
                             return Err(error);
                         }
                         Ok(Some((_, active)))
