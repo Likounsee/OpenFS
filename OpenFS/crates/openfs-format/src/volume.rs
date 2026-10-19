@@ -1117,10 +1117,12 @@ impl OpenedVolume {
                             "file was removed but some of its blocks could not be reclaimed",
                         ));
                     }
+                    // The descriptor now proves the requested removal committed despite
+                    // the reported I/O error; report the durable outcome, not the late error.
+                    return Ok(());
                 }
                 _ => return Err(error),
             }
-            return Err(error);
         }
 
         let mut cleanup_failed = false;
