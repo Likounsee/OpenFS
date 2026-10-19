@@ -198,7 +198,9 @@ impl ExtentMap {
                 let previous_logical_end = previous.logical_end()?;
                 let previous_physical_end = previous.physical_end()?;
                 if current.logical_start < previous_logical_end {
-                    return Err(Error::InvalidInput("extent overlaps existing logical blocks"));
+                    return Err(Error::InvalidInput(
+                        "extent overlaps existing logical blocks",
+                    ));
                 }
                 if current.logical_start == previous_logical_end
                     && current.physical_start == previous_physical_end
