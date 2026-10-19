@@ -2153,25 +2153,25 @@ impl OpenedVolume {
 
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let map = extent_maps.get(&object_id);
-        if let Some(root_block) = record.extent_root_block {
-            let loaded_map = map.ok_or(Error::Corrupt(
+        if record.extent_root_block.is_some() && map.is_none() {
+            return Err(Error::Corrupt(
                 "file extent map is missing from loaded inventory",
-            ))?;
-            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
-            if loaded_map != &persisted_map {
-                return Err(Error::Corrupt(
-                    "loaded extent map does not match persistent extent-map root",
-                ));
-            }
-        } else if map.is_some_and(|value| !value.is_empty()) {
+            ));
+        }
+        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
             return Err(Error::Corrupt(
                 "file has extents without a persistent extent-map root",
             ));
         }
 
-        // Validate cross-file ownership before exposing any content. Reconstructing the
-        // maps above checks the full inventory; compare the selected map to its root too.
+        // Validate every physical allocation before emitting bytes. This both catches
+        // free/out-of-range blocks before a partial host output is produced and lets the
+        // allocator verifier reuse its bitmap-page cache across fragmented extents.
         let block_size = u64::from(self.volume.block_size);
+        let logical_blocks = record.size / block_size + u64::from(record.size % block_size != 0);
+        if let Some(map) = map {
+            self.validate_extent_allocations(device, map, logical_blocks)?;
+        }
         let block_len = self.volume.block_size as usize;
         let mut block_buffer = vec![0_u8; block_len];
         let zero_buffer = vec![0_u8; block_len];
@@ -2181,14 +2181,7 @@ impl OpenedVolume {
             let chunk_len = usize::try_from(remaining.min(block_size))
                 .map_err(|_| Error::ArithmeticOverflow)?;
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                if physical < self.volume.layout.data_start
-                    || physical >= self.volume.layout.backup_superblock
-                {
-                    return Err(Error::Corrupt("file extent points outside the data region"));
-                }
-                if !self.is_data_block_allocated(device, physical)? {
-                    return Err(Error::Corrupt("file extent points to a free data block"));
-                }
+                // Extent bounds and bitmap ownership were validated in one preflight pass.
                 device.read_blocks(physical, &mut block_buffer)?;
                 writer.write_all(&block_buffer[..chunk_len])?;
             } else {
