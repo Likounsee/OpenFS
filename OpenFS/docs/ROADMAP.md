@@ -274,6 +274,8 @@ Open blockers:
 **Exit gate:** deterministic format/open/allocate/free/reopen and corruption tests pass on Linux/Windows; descriptor lifecycle and ownership invariants have a safe recovery story; no unresolved known allocator/format corruption blocker. P1 must not be called complete while descriptor publication can leave unrecoverable ownership anomalies.
 
 ### P1 continued — Transaction protocol and crash recovery
+
+- **Exact-SHA CI validation (2026-10-19):** commit [`0729c8d`](https://github.com/Likounsee/OpenFS/commit/0729c8d2ba9334f48ed4ed6c114521c0fe8f36a0) passes formatting, workspace tests and Clippy on both Linux and Windows in [workflow `39291340964`](https://github.com/Likounsee/OpenFS/actions/runs/39291340964). This fixes a regression-test expectation so a path write's expected file image includes the earlier successful partial write. It validates the existing bounded write/reopen path; it does **not** close the general transaction/crash-cut matrix, so P1 progress remains 63%.
 **Status: Partially implemented.** This subsection is part of P1's combined 35% weight.
 
 - **Transaction/recovery contract (2026-10-14):** [P2_JOURNAL_TRANSACTION_CONTRACT.md](P2_JOURNAL_TRANSACTION_CONTRACT.md) now records the current bounded-ring state machine, commit uncertainty, recovery/retry rules, capacity preflight and explicit limits. Commit [`1a0e603`](https://github.com/Likounsee/OpenFS/commit/1a0e603136da5a03ef221e97caea0038b312b826). This is a normative documentation step, not proof of complete crash-cut coverage and not a reason to raise P1 progress by itself.
