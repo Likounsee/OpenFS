@@ -1807,6 +1807,136 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
+    /// Shrink a persistent file and reclaim blocks no longer covered by its new length.
+    ///
+    /// Extending is intentionally rejected: it needs a separate policy for sparse growth.
+    /// The replacement extent map and namespace metadata are published before old blocks
+    /// are reclaimed. If publication has an uncertain outcome, staged and old blocks are
+    /// retained rather than risking freeing storage still referenced by the active inventory.
+    pub fn truncate_persistent_file<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        new_size: u64,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent truncation requires a published inventory",
+            ));
+        };
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        if new_size > record.size {
+            return Err(Error::InvalidInput(
+                "persistent truncation cannot extend a file",
+            ));
+        }
+        if new_size == record.size {
+            return Ok(());
+        }
+
+        let next_generation = record
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let block_size = u64::from(self.volume.block_size);
+        let block_size_usize =
+            usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let mut updated_map = extent_maps
+            .get(&object_id)
+            .cloned()
+            .ok_or(Error::Corrupt("file extent map is missing"))?;
+        let keep_blocks = new_size / block_size + u64::from(new_size % block_size != 0);
+        let removed_extents = updated_map.truncate(keep_blocks)?;
+        let mut reclaim_blocks = Vec::new();
+        for extent in removed_extents {
+            for delta in 0..extent.block_count {
+                reclaim_blocks.push(
+                    extent
+                        .physical_start
+                        .checked_add(delta)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                );
+            }
+        }
+
+        // Clear bytes beyond the new EOF in the retained final block. This prevents
+        // truncated contents from reappearing if the file is appended to later.
+        let remainder = usize::try_from(new_size % block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        if remainder != 0 {
+            if let Some(physical) = updated_map.physical_block(new_size / block_size) {
+                let mut contents = vec![0_u8; block_size_usize];
+                device.read_blocks(physical, &mut contents)?;
+                contents[remainder..].fill(0);
+                self.journal.commit(
+                    device,
+                    &[RedoUpdate {
+                        target_block: physical,
+                        contents,
+                    }],
+                )?;
+            }
+        }
+
+        let old_root = record.extent_root_block;
+        let new_root = if updated_map.is_empty() {
+            None
+        } else {
+            let encoded = updated_map.encode_block(block_size_usize)?;
+            let root = self.allocate_block(device)?;
+            if let Err(error) = device
+                .write_blocks(root, &encoded)
+                .and_then(|()| device.flush())
+            {
+                let _ = self.free_block(device, root);
+                return Err(error);
+            }
+            Some(root)
+        };
+
+        let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+        let updated = records
+            .iter_mut()
+            .find(|item| item.id == object_id)
+            .ok_or(Error::Corrupt("file metadata disappeared during truncation"))?;
+        updated.size = new_size;
+        updated.extent_root_block = new_root;
+        updated.generation = next_generation;
+        let entries = namespace.entries().cloned().collect::<Vec<_>>();
+        let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
+        if let Err(error) =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
+            // Publication may have committed despite an I/O error. Do not free either
+            // generation's blocks unless rediscovery can prove which map is active.
+            return Err(error);
+        }
+
+        if let Some(root) = old_root {
+            reclaim_blocks.push(root);
+        }
+        let mut cleanup_failed = false;
+        for block in reclaim_blocks {
+            if self.free_block(device, block).is_err() {
+                cleanup_failed = true;
+            }
+        }
+        if cleanup_failed {
+            return Err(Error::Corrupt(
+                "file was truncated but some old blocks could not be reclaimed",
+            ));
+        }
+        Ok(())
+    }
+
     /// Write initial contents to an empty persistent file, spanning multiple blocks if needed.
     ///
     /// Data blocks and the checksummed extent map are initialized before copy-on-write
