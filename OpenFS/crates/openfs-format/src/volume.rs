@@ -2259,13 +2259,10 @@ impl OpenedVolume {
             Err(error) => {
                 // No published namespace can reference these allocations yet. Attempt
                 // every rollback, but surface cleanup failure instead of hiding a leak.
-                let mut rollback_failed = false;
-                for block in allocated.iter().copied().rev() {
-                    if self.free_block(device, block).is_err() {
-                        rollback_failed = true;
-                    }
-                }
-                if rollback_failed {
+                if self
+                    .reclaim_persistent_blocks(device, &allocated)
+                    .is_err()
+                {
                     return Err(Error::Corrupt(
                         "failed to roll back staged persistent file allocations",
                     ));
@@ -2463,13 +2460,10 @@ impl OpenedVolume {
             let new_root = match staged {
                 Ok(root) => root,
                 Err(error) => {
-                    let mut rollback_failed = false;
-                    for block in allocated.iter().copied().rev() {
-                        if self.free_block(device, block).is_err() {
-                            rollback_failed = true;
-                        }
-                    }
-                    if rollback_failed {
+                    if self
+                        .reclaim_persistent_blocks(device, &allocated)
+                        .is_err()
+                    {
                         return Err(Error::Corrupt(
                             "failed to roll back staged append allocations",
                         ));
@@ -2513,13 +2507,10 @@ impl OpenedVolume {
                                 .object(object_id)
                                 .is_some_and(|item| item.extent_root_block == Some(old_root)) =>
                         {
-                            let mut rollback_failed = false;
-                            for block in allocated.iter().copied().rev() {
-                                if self.free_block(device, block).is_err() {
-                                    rollback_failed = true;
-                                }
-                            }
-                            if rollback_failed {
+                            if self
+                                .reclaim_persistent_blocks(device, &allocated)
+                                .is_err()
+                            {
                                 return Err(Error::Corrupt(
                                     "failed to roll back unpublished append allocations",
                                 ));
