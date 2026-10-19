@@ -614,6 +614,11 @@ impl OpenedVolume {
         let base = (start / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        let segment_start = self.volume.layout.data_start.max(base);
+        let segment_end = self.volume.layout.backup_superblock.min(
+            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+        );
+        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in start..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -952,6 +957,11 @@ impl OpenedVolume {
         let base = (extent.start_block / bits_per_block) * bits_per_block;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        let segment_start = self.volume.layout.data_start.max(base);
+        let segment_end = self.volume.layout.backup_superblock.min(
+            base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+        );
+        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
         for block in extent.start_block..end {
             let local = block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
