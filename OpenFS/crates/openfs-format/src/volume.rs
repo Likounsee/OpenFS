@@ -1270,13 +1270,32 @@ impl OpenedVolume {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "no persistent namespace exists for file creation",
             ));
         };
         let parent_id = namespace.resolve_path(parent_path)?;
-        self.create_persistent_file(device, parent_id, object_id, name)
+        let record = MetadataRecord {
+            id: object_id,
+            parent_id: parent_id.0,
+            kind: crate::ObjectKind::File,
+            flags: 0,
+            size: 0,
+            extent_root_block: None,
+            generation: 1,
+        };
+        namespace.insert(
+            DirectoryEntry {
+                parent_id: parent_id.0,
+                object_id: object_id.0,
+                kind: crate::ObjectKind::File,
+                name: name.to_owned(),
+            },
+            record,
+        )?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(object_id)
     }
 
     /// Create an empty directory beneath a directory resolved by its persistent path.
@@ -1287,13 +1306,32 @@ impl OpenedVolume {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "no persistent namespace exists for directory creation",
             ));
         };
         let parent_id = namespace.resolve_path(parent_path)?;
-        self.create_persistent_directory(device, parent_id, object_id, name)
+        let record = MetadataRecord {
+            id: object_id,
+            parent_id: parent_id.0,
+            kind: crate::ObjectKind::Directory,
+            flags: 0,
+            size: 0,
+            extent_root_block: None,
+            generation: 1,
+        };
+        namespace.insert(
+            DirectoryEntry {
+                parent_id: parent_id.0,
+                object_id: object_id.0,
+                kind: crate::ObjectKind::Directory,
+                name: name.to_owned(),
+            },
+            record,
+        )?;
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(object_id)
     }
 
     /// Remove a persistent file or empty directory addressed by its path.
