@@ -203,24 +203,28 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
 
-        // Validate all committed redo images before applying the first home write.
-        let mut validated = Vec::with_capacity(plan.len());
+        // Validate every committed redo image before applying the first home write.
+        // Drop each decoded transaction after preflight instead of retaining duplicate
+        // full-block buffers for the entire recovery plan in memory.
         for transaction in &plan {
-            // decode_redo_updates already sorts images and rejects duplicate targets;
-            // reuse that validated order rather than sorting every image a second time.
             let updates = decode_redo_updates(&transaction.updates, block_size)?;
             for update in &updates {
                 validate_home_target(device, region, update.target_block, update.contents.len())?;
                 validate_protected_target(&protected_blocks, update.target_block)?;
             }
-            validated.push(updates);
         }
-        for updates in &validated {
-            for update in updates {
+        // Decode one transaction at a time during replay. The redo records remain the
+        // source of truth, while peak temporary decoded-image memory is bounded to one
+        // transaction rather than the full recovery plan.
+        let mut replayed_updates = false;
+        for transaction in &plan {
+            let updates = decode_redo_updates(&transaction.updates, block_size)?;
+            for update in &updates {
                 device.write_blocks(update.target_block, &update.contents)?;
+                replayed_updates = true;
             }
         }
-        if validated.iter().any(|updates| !updates.is_empty()) {
+        if replayed_updates {
             device.flush()?;
         }
 
