@@ -3150,6 +3150,14 @@ impl OpenedVolume {
         if data.is_empty() {
             return Ok(());
         }
+        // An empty file has no extent map to inspect. Route its first append directly
+        // through copy-on-write replacement rather than scanning every file's extents.
+        if offset == record.size
+            && record.size == 0
+            && record.extent_root_block.is_none()
+        {
+            return self.write_persistent_file_contents(device, path, data);
+        }
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
@@ -3162,13 +3170,6 @@ impl OpenedVolume {
             let end = offset
                 .checked_add(data_len)
                 .ok_or(Error::ArithmeticOverflow)?;
-
-            // Empty files intentionally have no extent-map root. Reuse the
-            // copy-on-write full-content path instead of treating a valid append
-            // at offset zero as corrupt or trying to extend a nonexistent map.
-            if record.size == 0 && record.extent_root_block.is_none() {
-                return self.write_persistent_file_contents(device, path, data);
-            }
 
             let old_root = record.extent_root_block.ok_or(Error::Corrupt(
                 "non-empty file is missing its extent-map root",
