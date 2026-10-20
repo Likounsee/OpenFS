@@ -1664,7 +1664,7 @@ impl OpenedVolume {
                 Ok(Some((_, active)))
                     if object_ids.iter().all(|id| active.object(*id).is_none()) =>
                 {
-                    self.reclaim_persistent_blocks(device, &reclaim_blocks)
+                    self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
                         .map_err(|_| Error::Corrupt(
                             "objects were removed but some blocks could not be reclaimed",
                         ))?;
@@ -1680,7 +1680,7 @@ impl OpenedVolume {
                 )),
             }
         }
-        self.reclaim_persistent_blocks(device, &reclaim_blocks)
+        self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .map_err(|_| Error::Corrupt(
                 "objects were removed but some blocks could not be reclaimed",
             ))?;
@@ -1863,6 +1863,17 @@ impl OpenedVolume {
         device: &mut D,
         blocks: &[u64],
     ) -> Result<()> {
+        let mut sorted = blocks.to_vec();
+        self.reclaim_persistent_blocks_in_place(device, &mut sorted)
+    }
+
+    /// Reclaim a caller-owned block list without allocating a second list proportional
+    /// to the file size. Callers retain ownership of the list, so sorting it in place is safe.
+    fn reclaim_persistent_blocks_in_place<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        sorted: &mut [u64],
+    ) -> Result<()> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -1870,7 +1881,6 @@ impl OpenedVolume {
         let bits_per_block = u64::from(self.volume.block_size)
             .checked_mul(8)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut sorted = blocks.to_vec();
         sorted.sort_unstable();
         if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::Corrupt(
@@ -2041,7 +2051,7 @@ impl OpenedVolume {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active))) if active.object(object_id).is_none() => {
                     if self
-                        .reclaim_persistent_blocks(device, &reclaim_blocks)
+                        .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
                         .is_err()
                     {
                         return Err(Error::Corrupt(
@@ -2057,7 +2067,7 @@ impl OpenedVolume {
         }
 
         if self
-            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
         {
             return Err(Error::Corrupt(
@@ -2203,7 +2213,7 @@ impl OpenedVolume {
                     if removed_ids.iter().all(|id| active.object(*id).is_none()) =>
                 {
                     if self
-                        .reclaim_persistent_blocks(device, &reclaim_blocks)
+                        .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
                         .is_err()
                     {
                         return Err(Error::Corrupt(
@@ -2217,7 +2227,7 @@ impl OpenedVolume {
         }
 
         if self
-            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
         {
             return Err(Error::Corrupt(
@@ -3561,7 +3571,7 @@ impl OpenedVolume {
             reclaim_blocks.push(root);
         }
         if self
-            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
         {
             return Err(Error::Corrupt(
@@ -3824,7 +3834,7 @@ impl OpenedVolume {
         }
 
         if self
-            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
         {
             return Err(Error::Corrupt(
@@ -4051,7 +4061,7 @@ impl OpenedVolume {
         }
 
         if self
-            .reclaim_persistent_blocks(device, &reclaim_blocks)
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
         {
             return Err(Error::Corrupt(
