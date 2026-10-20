@@ -322,12 +322,25 @@ impl ExtentMap {
             .ok_or(Error::ArithmeticOverflow)?;
         let mut kept = Vec::with_capacity(self.extents.len() + 1);
         let mut removed = Vec::new();
-        for extent in &self.extents {
+        // Logical extents are sorted and non-overlapping. Begin at the only extent
+        // that might cross the start boundary instead of scanning the untouched prefix.
+        let insertion = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_start);
+        let first_candidate = insertion.saturating_sub(1);
+        kept.extend_from_slice(&self.extents[..first_candidate]);
+
+        for (index, extent) in self.extents.iter().copied().enumerate().skip(first_candidate) {
+            if extent.logical_start >= logical_end {
+                // The remainder lies wholly after the removed range; preserve it as-is.
+                kept.extend_from_slice(&self.extents[index..]);
+                break;
+            }
             let extent_end = extent.logical_end()?;
             let overlap_start = extent.logical_start.max(logical_start);
             let overlap_end = extent_end.min(logical_end);
             if overlap_start >= overlap_end {
-                kept.push(*extent);
+                kept.push(extent);
                 continue;
             }
             if extent.logical_start < overlap_start {
