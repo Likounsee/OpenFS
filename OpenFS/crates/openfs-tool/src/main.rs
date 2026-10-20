@@ -490,7 +490,7 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             ObjectKind::File => "file",
         };
         let record = namespace
-            .object(entry.object_id)
+            .object(ObjectId(entry.object_id))
             .ok_or("directory entry references missing object metadata")?;
         println!(
             "{kind}\t{}\t{} bytes\tgeneration {}\t{}",
