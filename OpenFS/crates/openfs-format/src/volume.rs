@@ -1646,7 +1646,30 @@ impl OpenedVolume {
         } else {
             None
         };
-        let mut reclaim_blocks = Vec::new();
+        // Count the complete reclamation set before materializing block IDs. Large
+        // removals can cover many thousands of blocks; exact reservation avoids repeated
+        // Vec growth while preserving the all-or-nothing validation path below.
+        let reclaim_capacity = records.iter().try_fold(0_u64, |capacity, record| {
+            let Some(_) = record.extent_root_block else {
+                return Ok(capacity);
+            };
+            let maps = extent_maps
+                .as_ref()
+                .ok_or(Error::Corrupt("file extent maps were not loaded"))?;
+            let map = maps
+                .get(&record.id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let data_blocks = map.extents().iter().try_fold(0_u64, |count, extent| {
+                count.checked_add(extent.block_count).ok_or(Error::ArithmeticOverflow)
+            })?;
+            capacity
+                .checked_add(data_blocks)
+                .and_then(|count| count.checked_add(1))
+                .ok_or(Error::ArithmeticOverflow)
+        })?;
+        let reclaim_capacity =
+            usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
+        let mut reclaim_blocks = Vec::with_capacity(reclaim_capacity);
         for record in &records {
             if let Some(root) = record.extent_root_block {
                 let maps = extent_maps.as_ref()
@@ -3696,7 +3719,24 @@ impl OpenedVolume {
         // data. This prevents an import from writing new blocks while the old file's
         // map is malformed or aliases storage owned by another file.
         let current_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let mut reclaim_blocks = Vec::new();
+        let reclaim_capacity = if existing.extent_root_block.is_some() {
+            let old_map = current_maps
+                .get(&object_id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let data_blocks = old_map.extents().iter().try_fold(0_u64, |count, extent| {
+                count.checked_add(extent.block_count).ok_or(Error::ArithmeticOverflow)
+            })?;
+            usize::try_from(
+                data_blocks.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?
+        } else {
+            0
+        };
+        // Replacement reclamation is prepared before staging new data. Reserve the
+        // exact old-data/root inventory up front so large overwrites do not repeatedly
+        // reallocate this list while the new extents are being written.
+        let mut reclaim_blocks = Vec::with_capacity(reclaim_capacity);
         if let Some(old_root) = existing.extent_root_block {
             let maps = &current_maps;
             let old_map = maps
