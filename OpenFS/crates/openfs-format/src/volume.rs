@@ -2377,17 +2377,18 @@ impl OpenedVolume {
                 "extent-map root is marked free in the allocation bitmap",
             ));
         }
-        self.read_extent_map_after_root_validation(device, root_block, file_size)
+        self.read_extent_map_after_root_validation(device, root_block, file_size, true)
     }
 
     /// Decode an extent map after the caller has validated the root's range and
-    /// allocation state. The namespace-wide loader uses this after its batched root
-    /// bitmap scan, avoiding one extra bitmap read per file.
+    /// allocation state. Namespace loading defers data-allocation checks until all maps
+    /// are decoded, so bitmap pages can be scanned once for the complete volume inventory.
     fn read_extent_map_after_root_validation<D: BlockDevice>(
         &self,
         device: &mut D,
         root_block: u64,
         file_size: u64,
+        validate_allocations: bool,
     ) -> Result<ExtentMap> {
         let mut bytes = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(root_block, &mut bytes)?;
@@ -2411,7 +2412,9 @@ impl OpenedVolume {
         {
             return Err(Error::Corrupt("extent-map root aliases its own file data"));
         }
-        self.validate_extent_allocations(device, &map, logical_blocks)?;
+        if validate_allocations {
+            self.validate_extent_allocations(device, &map, logical_blocks)?;
+        }
         Ok(map)
     }
 
@@ -4084,7 +4087,7 @@ impl OpenedVolume {
             };
             // validate_namespace_extent_roots already checked this root's range and
             // allocation bit in a bitmap-page-cached pass above.
-            let map = self.read_extent_map_after_root_validation(device, root, record.size)?;
+            let map = self.read_extent_map_after_root_validation(device, root, record.size, false)?;
             let logical_blocks = record.size / u64::from(self.volume.block_size)
                 + u64::from(record.size % u64::from(self.volume.block_size) != 0);
             for (start, end) in map.validated_physical_ranges(
@@ -4106,6 +4109,13 @@ impl OpenedVolume {
             maps.insert(record.id, map);
         }
         owned_ranges.sort_unstable_by_key(|(start, end, owner)| (*start, *end, *owner));
+        // Validate every file's physical allocations in one ordered bitmap scan instead
+        // of rereading the same bitmap pages separately for every file.
+        let physical_ranges: Vec<(u64, u64)> = owned_ranges
+            .iter()
+            .map(|(start, end, _)| (*start, *end))
+            .collect();
+        self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         for pair in owned_ranges.windows(2) {
             // Physical blocks must have exactly one logical owner. Checking only
             // cross-file overlaps misses two extents in the same file that alias
@@ -4138,6 +4148,16 @@ impl OpenedVolume {
             self.volume.layout.data_start,
             self.volume.layout.backup_superblock,
         )?;
+        self.validate_physical_ranges_allocated(device, &ranges)
+    }
+
+    /// Validate ordered, non-overlapping physical ranges using one cached bitmap page.
+    /// Callers must validate range bounds and ownership overlaps before entering here.
+    fn validate_physical_ranges_allocated<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        ranges: &[(u64, u64)],
+    ) -> Result<()> {
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         // validated_physical_ranges returns ranges in ascending physical order. Therefore
         // the bitmap page index can only stay the same or increase as we scan; one-page
@@ -4145,7 +4165,7 @@ impl OpenedVolume {
         // for highly fragmented files.
         let mut cached_bitmap_index = None;
         let mut cached_bitmap = vec![0_u8; self.volume.block_size as usize];
-        for (start, end) in ranges {
+        for &(start, end) in ranges {
             let mut cursor = start;
             while cursor < end {
                 let bitmap_index = cursor / bits_per_block;
