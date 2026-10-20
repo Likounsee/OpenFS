@@ -4774,11 +4774,11 @@ pub fn format_volume<D: BlockDevice>(
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
+    let mut bitmap = vec![0_u8; block_size];
     for index in 0..layout.bitmap_blocks {
         let first = index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = vec![0_u8; block_size];
         for block in first..first.saturating_add(bits_per_block) {
             if block >= layout.total_blocks
                 || block < layout.data_start
@@ -4788,7 +4788,11 @@ pub fn format_volume<D: BlockDevice>(
                 bitmap[(local / 8) as usize] |= 1 << (local % 8);
             }
         }
-        device.write_blocks(layout.bitmap_start + index, &bitmap)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(bitmap_block, &bitmap)?;
     }
     device.flush()?;
     format_journal(device, layout.journal)?;
@@ -5020,12 +5024,16 @@ fn write_superblock<D: BlockDevice>(
 fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Result<()> {
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
+    let mut bitmap = vec![0_u8; block_size];
     for index in 0..layout.bitmap_blocks {
         let first = index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = vec![0; block_size];
-        device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
         for block in first..first + bits_per_block {
             if layout.is_reserved(block) || block >= layout.total_blocks {
                 let local = block - first;
