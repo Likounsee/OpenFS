@@ -3475,6 +3475,26 @@ impl OpenedVolume {
                 return Ok(None);
             }
             let mut extent_map = ExtentMap::default();
+            // Allocate data in small bitmap batches: each successful batch journals one
+            // bitmap image instead of committing once per file block. If fragmentation
+            // leaves no segment with enough free blocks for a batch, fall back to single
+            // allocations rather than rejecting a file that could still fit on the volume.
+            const ALLOCATION_BATCH: usize = 64;
+            let chunks = data.chunks(block_size);
+            let block_count = chunks.len();
+            for remaining in (0..block_count).step_by(ALLOCATION_BATCH) {
+                let batch_count = (block_count - remaining).min(ALLOCATION_BATCH);
+                match self.allocate_blocks(device, batch_count as u64) {
+                    Ok(blocks) => allocated.extend(blocks),
+                    Err(Error::InvalidInput(_)) => {
+                        for _ in 0..batch_count {
+                            allocated.push(self.allocate_block(device)?);
+                        }
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+
             // Keep memory usage independent of file length: one block buffer is
             // reused for every staged block, with the tail cleared so the final
             // partial block cannot expose bytes from the preceding chunk.
@@ -3487,8 +3507,9 @@ impl OpenedVolume {
                     // for every complete block in large replacements.
                     bytes[chunk.len()..].fill(0);
                 }
-                let block = self.allocate_block(device)?;
-                allocated.push(block);
+                let block = *allocated
+                    .get(index)
+                    .ok_or(Error::Corrupt("staged file allocation list is incomplete"))?;
                 device.write_blocks(block, &bytes)?;
                 extent_map.push_coalescing(crate::Extent {
                     logical_start: u64::try_from(index).map_err(|_| Error::ArithmeticOverflow)?,
