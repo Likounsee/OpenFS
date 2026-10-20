@@ -731,10 +731,23 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        for block in start..end {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+        let local_start = start - base;
+        let local_end = end - base;
+        let first_byte =
+            usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+        let end_byte =
+            usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+        // Check allocation state byte-wise while preserving exact edge masks.
+        for byte_index in first_byte..end_byte {
+            let mut mask = u8::MAX;
+            if byte_index == first_byte {
+                mask &= u8::MAX << (local_start % 8);
+            }
+            if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                mask &= (1_u8 << (local_end % 8)) - 1;
+            }
+            if bitmap[byte_index] & mask != 0 {
                 return Err(Error::Corrupt(
                     "contiguous extent changed during allocation",
                 ));
@@ -743,10 +756,17 @@ impl OpenedVolume {
         // Validate the entire reservation before touching block contents. If the bitmap
         // changed since the free-run scan, fail without clearing a block that is now owned.
         clear_stale_descriptor_magic_range(device, self.volume.block_size, start, end)?;
-        for block in start..end {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            bitmap[byte] |= 1_u8 << (local % 8);
+        // Mark the already-validated range with the same masks in one pass per
+        // bitmap byte, avoiding per-block division and modulo operations.
+        for byte_index in first_byte..end_byte {
+            let mut mask = u8::MAX;
+            if byte_index == first_byte {
+                mask &= u8::MAX << (local_start % 8);
+            }
+            if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                mask &= (1_u8 << (local_end % 8)) - 1;
+            }
+            bitmap[byte_index] |= mask;
         }
         self.journal.commit(
             device,
