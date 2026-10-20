@@ -1735,22 +1735,38 @@ fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: 
     if start_bit > end_bit {
         return Err(Error::InvalidInput("bitmap range start exceeds end"));
     }
+/// Resolve the exact byte span and edge masks for a half-open bitmap range.
+fn bitmap_range_span(bitmap_len: usize, start_bit: u64, end_bit: u64) -> Result<(usize, usize)> {
+    if start_bit > end_bit {
+        return Err(Error::InvalidInput("bitmap range start exceeds end"));
+    }
     let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
     let end_byte = usize::try_from(
         end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
     )
     .map_err(|_| Error::ArithmeticOverflow)?;
-    if end_byte > bitmap.len() {
+    if end_byte > bitmap_len {
         return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
     }
+    Ok((first_byte, end_byte))
+}
+
+fn bitmap_range_mask(byte_index: usize, first_byte: usize, end_byte: usize, start_bit: u64, end_bit: u64) -> u8 {
+    let mut mask = u8::MAX;
+    if byte_index == first_byte {
+        mask &= u8::MAX << (start_bit % 8);
+    }
+    if byte_index + 1 == end_byte && end_bit % 8 != 0 {
+        mask &= (1_u8 << (end_bit % 8)) - 1;
+    }
+    mask
+}
+
+/// Check whether every bit in a half-open bitmap range has the requested state.
+fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
+    let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
     for byte_index in first_byte..end_byte {
-        let mut mask = u8::MAX;
-        if byte_index == first_byte {
-            mask &= u8::MAX << (start_bit % 8);
-        }
-        if byte_index + 1 == end_byte && end_bit % 8 != 0 {
-            mask &= (1_u8 << (end_bit % 8)) - 1;
-        }
+        let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         let bits = bitmap[byte_index] & mask;
         if (allocated && bits != mask) || (!allocated && bits != 0) {
             return Ok(false);
@@ -1761,25 +1777,9 @@ fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: 
 
 /// Set a half-open bitmap range while preserving bits outside its exact boundaries.
 fn set_bitmap_range(bitmap: &mut [u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<()> {
-    if start_bit > end_bit {
-        return Err(Error::InvalidInput("bitmap range start exceeds end"));
-    }
-    let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-    let end_byte = usize::try_from(
-        end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
-    )
-    .map_err(|_| Error::ArithmeticOverflow)?;
-    if end_byte > bitmap.len() {
-        return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
-    }
+    let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
     for byte_index in first_byte..end_byte {
-        let mut mask = u8::MAX;
-        if byte_index == first_byte {
-            mask &= u8::MAX << (start_bit % 8);
-        }
-        if byte_index + 1 == end_byte && end_bit % 8 != 0 {
-            mask &= (1_u8 << (end_bit % 8)) - 1;
-        }
+        let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         if allocated {
             bitmap[byte_index] |= mask;
         } else {
