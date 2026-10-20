@@ -1611,6 +1611,10 @@ impl OpenedVolume {
     ) -> Result<u64> {
         self.validate_device(device)?;
         namespace.validate()?;
+        // Do not publish metadata that points at missing, free, overlapping, or
+        // otherwise malformed extent maps. Validate the complete incoming ownership
+        // graph while the previous inventory is still authoritative.
+        self.read_namespace_extent_maps(device, namespace)?;
         if self.discover_persistent_inventory(device)?.is_none() {
             return Err(Error::InvalidInput(
                 "no persistent inventory descriptor exists to replace",
