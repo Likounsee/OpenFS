@@ -717,6 +717,44 @@ fn stat_namespace_entry(
         println!("Direct children: {child_count}");
         println!("Direct files: {file_count}");
         println!("Direct subdirectories: {directory_count}");
+
+        // Aggregate the whole subtree iteratively: deep directory trees must not
+        // consume the process call stack, and every total is overflow-checked.
+        let mut pending = vec![object_id];
+        let mut visited = std::collections::BTreeSet::new();
+        let mut subtree_files = 0_u64;
+        let mut subtree_directories = 0_u64;
+        let mut subtree_logical_bytes = 0_u64;
+        while let Some(parent_id) = pending.pop() {
+            if !visited.insert(parent_id) {
+                return Err("directory graph contains a cycle or duplicate traversal".into());
+            }
+            for child in namespace.children(parent_id) {
+                match child.kind {
+                    ObjectKind::File => {
+                        let child_id = ObjectId(child.object_id);
+                        let child_record = namespace
+                            .object(child_id)
+                            .ok_or("directory entry references missing file metadata")?;
+                        subtree_files = subtree_files
+                            .checked_add(1)
+                            .ok_or("subtree file count overflows")?;
+                        subtree_logical_bytes = subtree_logical_bytes
+                            .checked_add(child_record.size)
+                            .ok_or("subtree logical byte count overflows")?;
+                    }
+                    ObjectKind::Directory => {
+                        subtree_directories = subtree_directories
+                            .checked_add(1)
+                            .ok_or("subtree directory count overflows")?;
+                        pending.push(ObjectId(child.object_id));
+                    }
+                }
+            }
+        }
+        println!("Recursive files: {subtree_files}");
+        println!("Recursive subdirectories: {subtree_directories}");
+        println!("Subtree logical bytes: {subtree_logical_bytes}");
     }
     Ok(())
 }
