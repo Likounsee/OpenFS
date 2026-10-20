@@ -20,6 +20,8 @@ pub struct Namespace {
     names: BTreeMap<(ObjectId, String), DirectoryEntry>,
     // Reverse index avoids scanning every sibling when resolving an object's parent edge.
     parents: BTreeMap<ObjectId, (ObjectId, String)>,
+    // Reverse ownership index keeps extent-root uniqueness checks logarithmic.
+    extent_roots: BTreeMap<u64, ObjectId>,
 }
 
 impl Namespace {
@@ -42,6 +44,7 @@ impl Namespace {
             objects,
             names: BTreeMap::new(),
             parents: BTreeMap::new(),
+            extent_roots: BTreeMap::new(),
         })
     }
 
@@ -71,6 +74,17 @@ impl Namespace {
             }
         }
 
+        let mut extent_roots = BTreeMap::new();
+        for record in objects.values() {
+            if let Some(block) = record.extent_root_block {
+                if extent_roots.insert(block, record.id).is_some() {
+                    return Err(Error::Corrupt(
+                        "multiple namespace objects claim the same extent-map root block",
+                    ));
+                }
+            }
+        }
+
         let mut names = BTreeMap::new();
         let mut parents = BTreeMap::new();
         for entry in entries {
@@ -95,6 +109,7 @@ impl Namespace {
             objects,
             names,
             parents,
+            extent_roots,
         };
         namespace.validate()?;
         Ok(namespace)
@@ -280,6 +295,13 @@ impl Namespace {
         if self.objects.contains_key(&object_id) {
             return Err(Error::InvalidInput("object ID already exists"));
         }
+        if let Some(root_block) = record.extent_root_block {
+            if self.extent_roots.contains_key(&root_block) {
+                return Err(Error::InvalidInput(
+                    "extent-map root is already owned by another object",
+                ));
+            }
+        }
         let key = (parent_id, entry.name.clone());
         if self.names.contains_key(&key) {
             return Err(Error::InvalidInput("name already exists in directory"));
@@ -293,6 +315,9 @@ impl Namespace {
 
         // No fallible work follows the first mutation: both indexes stay consistent.
         self.objects.insert(parent_id, updated_parent);
+        if let Some(root_block) = record.extent_root_block {
+            self.extent_roots.insert(root_block, object_id);
+        }
         self.objects.insert(object_id, record);
         self.parents.insert(object_id, (parent_id, entry.name.clone()));
         self.names.insert(key, entry);
@@ -434,9 +459,7 @@ impl Namespace {
             if size == 0 {
                 return Err(Error::InvalidInput("empty files cannot own an extent-map root"));
             }
-            if self.objects.values().any(|record| {
-                record.id != object_id && record.extent_root_block == Some(root_block)
-            }) {
+            if self.extent_roots.get(&root_block).is_some_and(|owner| *owner != object_id) {
                 return Err(Error::InvalidInput(
                     "extent-map root is already owned by another object",
                 ));
@@ -450,6 +473,14 @@ impl Namespace {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         updated.encode()?;
+        if current.extent_root_block != extent_root_block {
+            if let Some(old_root) = current.extent_root_block {
+                self.extent_roots.remove(&old_root);
+            }
+            if let Some(new_root) = extent_root_block {
+                self.extent_roots.insert(new_root, object_id);
+            }
+        }
         self.objects.insert(object_id, updated);
         Ok(())
     }
@@ -505,6 +536,9 @@ impl Namespace {
 
         self.names.remove(&key);
         self.parents.remove(&object_id);
+        if let Some(root_block) = record.extent_root_block {
+            self.extent_roots.remove(&root_block);
+        }
         self.objects.insert(parent_id, parent_record);
         self.objects
             .remove(&object_id)
@@ -538,15 +572,18 @@ impl Namespace {
             ));
         }
 
-        let mut extent_roots = std::collections::BTreeSet::new();
+        let mut expected_extent_roots = BTreeMap::new();
         for record in self.objects.values() {
             if let Some(root_block) = record.extent_root_block {
-                if !extent_roots.insert(root_block) {
+                if expected_extent_roots.insert(root_block, record.id).is_some() {
                     return Err(Error::Corrupt(
                         "multiple namespace objects claim the same extent-map root block",
                     ));
                 }
             }
+        }
+        if expected_extent_roots != self.extent_roots {
+            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
         }
 
         let mut referenced = std::collections::BTreeSet::new();
