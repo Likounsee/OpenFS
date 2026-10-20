@@ -430,6 +430,18 @@ impl Namespace {
         if current.kind != ObjectKind::File {
             return Err(Error::InvalidInput("only files have a file layout"));
         }
+        if let Some(root_block) = extent_root_block {
+            if size == 0 {
+                return Err(Error::InvalidInput("empty files cannot own an extent-map root"));
+            }
+            if self.objects.values().any(|record| {
+                record.id != object_id && record.extent_root_block == Some(root_block)
+            }) {
+                return Err(Error::InvalidInput(
+                    "extent-map root is already owned by another object",
+                ));
+            }
+        }
         let mut updated = current;
         updated.size = size;
         updated.extent_root_block = extent_root_block;
