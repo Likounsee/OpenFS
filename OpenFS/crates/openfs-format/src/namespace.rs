@@ -579,9 +579,13 @@ impl Namespace {
             .names
             .get(&key)
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
-        if entry.object_id != object_id.0 || entry.kind != record.kind {
+        if entry.object_id != object_id.0
+            || entry.parent_id != parent_id.0
+            || entry.name != key.1
+            || entry.kind != record.kind
+        {
             return Err(Error::Corrupt(
-                "directory entry disagrees with object metadata",
+                "directory entry disagrees with object metadata or parent index",
             ));
         }
 
