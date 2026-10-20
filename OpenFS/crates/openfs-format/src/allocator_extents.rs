@@ -1548,6 +1548,9 @@ impl OpenedVolume {
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         let mut report = AllocationBitmapReport::default();
+        // Reuse the read buffer across all bitmap blocks so the bounded diagnostic
+        // remains allocation-light even on large volumes.
+        let mut bitmap = vec![0_u8; layout.block_size as usize];
         for index in 0..layout.bitmap_blocks {
             let base = index
                 .checked_mul(bits_per_block)
@@ -1557,8 +1560,11 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             let data_start = layout.data_start.max(base);
             let data_end = layout.backup_superblock.min(end);
-            let mut bitmap = vec![0_u8; layout.block_size as usize];
-            device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             let first_data_bit = data_start - base;
             let end_data_bit = data_end - base;
             let first_data_byte =
