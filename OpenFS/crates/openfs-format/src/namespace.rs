@@ -18,6 +18,8 @@ pub struct Namespace {
     root_id: ObjectId,
     objects: BTreeMap<ObjectId, MetadataRecord>,
     names: BTreeMap<(ObjectId, String), DirectoryEntry>,
+    // Reverse index avoids scanning every sibling when resolving an object's parent edge.
+    parents: BTreeMap<ObjectId, (ObjectId, String)>,
 }
 
 impl Namespace {
@@ -39,6 +41,7 @@ impl Namespace {
             root_id,
             objects,
             names: BTreeMap::new(),
+            parents: BTreeMap::new(),
         })
     }
 
@@ -69,14 +72,20 @@ impl Namespace {
         }
 
         let mut names = BTreeMap::new();
+        let mut parents = BTreeMap::new();
         for entry in entries {
             entry.encode().map_err(|_| {
                 Error::Corrupt("invalid directory entry during namespace reconstruction")
             })?;
             let key = (ObjectId::new(entry.parent_id)?, entry.name.clone());
-            if names.insert(key, entry).is_some() {
+            if names.insert(key.clone(), entry.clone()).is_some() {
                 return Err(Error::Corrupt(
                     "duplicate directory name in metadata inventory",
+                ));
+            }
+            if parents.insert(ObjectId::new(entry.object_id)?, (ObjectId(entry.parent_id), entry.name)).is_some() {
+                return Err(Error::Corrupt(
+                    "an object has multiple parent directory entries",
                 ));
             }
         }
@@ -85,6 +94,7 @@ impl Namespace {
             root_id,
             objects,
             names,
+            parents,
         };
         namespace.validate()?;
         Ok(namespace)
@@ -113,13 +123,13 @@ impl Namespace {
     /// rather than interpreted, and every intermediate component must be a directory.
     /// This resolves the in-memory model only; it does not read or persist disk state.
     pub fn resolve_path(&self, path: &str) -> Result<ObjectId> {
-        let components: Vec<&str> = path
+        let mut components = path
             .split('/')
             .filter(|component| !component.is_empty())
-            .collect();
+            .peekable();
         let mut current = self.root_id;
-        for (index, component) in components.iter().enumerate() {
-            if *component == "." || *component == ".." {
+        while let Some(component) = components.next() {
+            if component == "." || component == ".." {
                 return Err(Error::InvalidInput("dot path components are not supported"));
             }
             let entry = self
@@ -130,7 +140,7 @@ impl Namespace {
                 return Err(Error::Corrupt("directory entry points to a missing object"));
             }
             current = next;
-            if index + 1 < components.len() {
+            if components.peek().is_some() {
                 let record = self
                     .objects
                     .get(&current)
@@ -167,17 +177,20 @@ impl Namespace {
 
         let mut current = object_id;
         let mut components = Vec::new();
+        let mut visited = std::collections::BTreeSet::new();
         while current != self.root_id {
-            if components.len() >= self.objects.len() {
+            if !visited.insert(current) || visited.len() > self.objects.len() {
                 return Err(Error::Corrupt("namespace parent chain contains a cycle"));
             }
             let record = self
                 .objects
                 .get(&current)
                 .ok_or(Error::Corrupt("path object metadata is missing"))?;
-            let parent_id = ObjectId::new(record.parent_id)
-                .map_err(|_| Error::Corrupt("non-root object has no parent"))?;
-            let name = self.entry_name_for(parent_id, current)?;
+            let (parent_id, name) = self.parents.get(&current).cloned()
+                .ok_or(Error::Corrupt("path directory entry is missing"))?;
+            if record.parent_id != parent_id.0 {
+                return Err(Error::Corrupt("parent index disagrees with object metadata"));
+            }
             let entry = self
                 .names
                 .get(&(parent_id, name.clone()))
@@ -266,6 +279,7 @@ impl Namespace {
 
         // No fallible work follows the first mutation: both indexes stay consistent.
         self.objects.insert(object_id, record);
+        self.parents.insert(object_id, (parent_id, entry.name.clone()));
         self.names.insert(key, entry);
         Ok(())
     }
@@ -292,12 +306,10 @@ impl Namespace {
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         let old_parent_id = ObjectId::new(record.parent_id)?;
+        let old_name = self.entry_name_for(old_parent_id, object_id)?;
         let old_entry = self
             .names
-            .get(&(
-                old_parent_id,
-                self.entry_name_for(old_parent_id, object_id)?,
-            ))
+            .get(&(old_parent_id, old_name))
             .cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         if old_entry.object_id != object_id.0
@@ -353,7 +365,8 @@ impl Namespace {
 
         let old_key = (old_parent_id, old_entry.name.clone());
         self.names.remove(&old_key);
-        self.names.insert(new_key, updated_entry);
+        self.names.insert(new_key, updated_entry.clone());
+        self.parents.insert(object_id, (new_parent_id, updated_entry.name));
         self.objects.insert(object_id, updated_record);
         Ok(())
     }
@@ -411,8 +424,11 @@ impl Namespace {
             return Err(Error::InvalidInput("directory is not empty"));
         }
 
-        let parent_id = ObjectId::new(record.parent_id)?;
-        let name = self.entry_name_for(parent_id, object_id)?;
+        let (parent_id, name) = self.parents.get(&object_id).cloned()
+            .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        if record.parent_id != parent_id.0 {
+            return Err(Error::Corrupt("parent index disagrees with object metadata"));
+        }
         let key = (parent_id, name);
         let entry = self
             .names
@@ -425,17 +441,19 @@ impl Namespace {
         }
 
         self.names.remove(&key);
+        self.parents.remove(&object_id);
         self.objects
             .remove(&object_id)
             .ok_or(Error::Corrupt("object disappeared during removal"))
     }
 
     fn entry_name_for(&self, parent_id: ObjectId, object_id: ObjectId) -> Result<String> {
-        self.names
-            .range((parent_id, String::new())..)
-            .take_while(|((parent, _), _)| *parent == parent_id)
-            .find_map(|((_, name), entry)| (entry.object_id == object_id.0).then(|| name.clone()))
-            .ok_or(Error::Corrupt("object has no matching directory entry"))
+        let (indexed_parent, name) = self.parents.get(&object_id)
+            .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        if *indexed_parent != parent_id {
+            return Err(Error::Corrupt("parent index disagrees with object metadata"));
+        }
+        Ok(name.clone())
     }
 
     /// Validate both namespace indexes and prove that every object is reachable from root.
@@ -449,7 +467,8 @@ impl Namespace {
         if root.kind != ObjectKind::Directory || root.parent_id != 0 {
             return Err(Error::Corrupt("namespace root metadata is invalid"));
         }
-        if self.names.len().checked_add(1) != Some(self.objects.len()) {
+        if self.names.len() != self.parents.len()
+            || self.names.len().checked_add(1) != Some(self.objects.len()) {
             return Err(Error::Corrupt(
                 "namespace object and directory-entry counts disagree",
             ));
@@ -494,6 +513,9 @@ impl Namespace {
                 return Err(Error::Corrupt(
                     "directory entry disagrees with object metadata",
                 ));
+            }
+            if self.parents.get(&object_id) != Some(&(*parent_id, key_name.clone())) {
+                return Err(Error::Corrupt("object-to-parent index is inconsistent"));
             }
             if !referenced.insert(object_id) {
                 return Err(Error::Corrupt(
