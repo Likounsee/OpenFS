@@ -113,6 +113,17 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             read_namespace_file(Path::new(&path), block_size, &target)
         }
+        Some("read-range") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
+            let length = args.next().ok_or("missing byte length")?.parse::<usize>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            read_namespace_file_range(Path::new(&path), block_size, &target, offset, length)
+        }
         Some("export") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -148,6 +159,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let target = args.next().ok_or("missing file path")?;
             let data = args.collect::<Vec<_>>().join(" ");
             write_namespace_file(Path::new(&path), block_size, &target, data.as_bytes())
+        }
+        Some("write-range") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
+            let data = args.collect::<Vec<_>>().join(" ");
+            write_namespace_file_range(Path::new(&path), block_size, &target, offset, data.as_bytes())
         }
         Some("append") => {
             let path = args.next().ok_or("missing image path")?;
@@ -472,6 +491,22 @@ fn read_namespace_file(
     Ok(())
 }
 
+fn read_namespace_file_range(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    offset: u64,
+    length: usize,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let contents = volume.read_persistent_path_range(&mut device, target, offset, length)?;
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(&contents)?;
+    Ok(())
+}
+
 fn export_namespace_file(
     image_path: &Path,
     block_size: u32,
@@ -583,6 +618,21 @@ fn write_namespace_file(
     volume.write_persistent_file_contents(&mut device, target, data)?;
     device.flush()?;
     println!("Wrote {} byte(s) to '{}'.", data.len(), target);
+    Ok(())
+}
+
+fn write_namespace_file_range(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    offset: u64,
+    data: &[u8],
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.write_persistent_path_range(&mut device, target, offset, data)?;
+    device.flush()?;
+    println!("Wrote {} byte(s) at offset {} in '{}'.", data.len(), offset, target);
     Ok(())
 }
 
@@ -777,10 +827,12 @@ fn print_usage() {
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
+    eprintln!("  openfs write-range <image> <block-size> <file-path> <offset> <text...>");
     eprintln!("  openfs append <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs truncate <image> <block-size> <file-path> <new-size-bytes>");
     eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
