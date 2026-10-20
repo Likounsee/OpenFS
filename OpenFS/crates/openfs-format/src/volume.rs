@@ -4189,6 +4189,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     // many pages, but the cache remains bounded to the current candidate's references.
     let mut reference_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
     let mut batch_start = layout.data_start;
+    // Reuse the bitmap page while scanning batches; only descriptor-reference pages
+    // are copied into the bounded cache below.
+    let mut scan_bitmap = vec![0_u8; block_size];
 
     while batch_start < layout.backup_superblock {
         let batch_end = layout
@@ -4198,13 +4201,14 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         let last_bitmap_index = (batch_end - 1) / bits_per_bitmap_block;
         let mut allocated = std::collections::BTreeSet::new();
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
-            let mut bitmap = vec![0_u8; block_size];
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            device.read_blocks(bitmap_block, &mut bitmap)?;
-            let bitmap_base = bitmap_index * bits_per_bitmap_block;
+            device.read_blocks(bitmap_block, &mut scan_bitmap)?;
+            let bitmap_base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let start = batch_start.max(bitmap_base);
             let end = batch_end.min(bitmap_base.saturating_add(bits_per_bitmap_block));
             let first_byte = usize::try_from((start - bitmap_base) / 8)
@@ -4216,7 +4220,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     / 8,
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, value) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_index, value) in scan_bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let byte_base = bitmap_base
                     .checked_add(
                         u64::try_from(byte_index)
