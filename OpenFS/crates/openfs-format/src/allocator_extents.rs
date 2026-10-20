@@ -705,8 +705,11 @@ impl OpenedVolume {
                 base.checked_add(bits_per_block)
                     .ok_or(Error::ArithmeticOverflow)?,
             );
-            let mut bitmap = vec![0_u8; layout.block_size as usize];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
@@ -715,9 +718,11 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            // Inspect only bytes intersecting usable data in this segment.
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -860,8 +865,14 @@ impl OpenedVolume {
         // inventory first can consume substantial memory on a heavily fragmented volume.
         let layout = self.volume.layout;
         let first_bitmap = layout.data_start / bits_per_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_block;
         let mut best: Option<FreeExtent> = None;
+        // Keep memory bounded to one bitmap block even when scanning many segments.
+        let mut bitmap = vec![0_u8; layout.block_size as usize];
 
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
