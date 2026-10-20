@@ -3515,7 +3515,7 @@ impl OpenedVolume {
                     .ok_or(Error::ArithmeticOverflow)?;
                 for byte_group in data[consumed..].chunks(batch_bytes) {
                     let chunk_count = byte_group.len() / block_size_usize
-                        + usize::from(byte_group.len() % block_size_usize != 0);
+                        + if byte_group.len() % block_size_usize != 0 { 1 } else { 0 };
                     let count = u64::try_from(chunk_count)
                         .map_err(|_| Error::ArithmeticOverflow)?;
                     let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
