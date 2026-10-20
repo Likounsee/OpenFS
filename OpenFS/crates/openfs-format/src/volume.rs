@@ -4707,10 +4707,16 @@ fn check_journal_read_only<D: BlockDevice>(
 
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
-    let mut malformed = Vec::<u64>::new();
+    // Recovery diagnostics need only the earliest malformed slot, not a vector of
+    // every bad slot. Reuse one block buffer and keep scan memory bounded.
+    let mut first_malformed_slot = None;
+    let mut block = vec![0_u8; block_size];
     for slot in 0..region.ring_blocks {
-        let mut block = vec![0_u8; block_size];
-        device.read_blocks(region.ring_start + slot, &mut block)?;
+        let block_number = region
+            .ring_start
+            .checked_add(slot)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(block_number, &mut block)?;
         if block.iter().all(|byte| *byte == 0) {
             continue;
         }
@@ -4724,10 +4730,13 @@ fn check_journal_read_only<D: BlockDevice>(
                 }
                 newer.push((slot, record));
             }
-            Err(_) => malformed.push(slot),
+            Err(_) => {
+                first_malformed_slot =
+                    Some(first_malformed_slot.map_or(slot, |first: u64| first.min(slot)));
+            }
         }
     }
-    newer.sort_by_key(|(_, record)| record.sequence);
+    newer.sort_unstable_by_key(|(_, record)| record.sequence);
     // A checkpoint records the exact next transaction ID. Because the journal
     // permits only one writer, BEGIN records must consume IDs without gaps.
     let mut expected_transaction_id = checkpoint.next_transaction_id;
@@ -4744,7 +4753,7 @@ fn check_journal_read_only<D: BlockDevice>(
         }
     }
     if let Some((last_slot, _)) = newer.iter().max_by_key(|(slot, _)| *slot) {
-        if malformed.iter().any(|slot| slot < last_slot) {
+        if first_malformed_slot.is_some_and(|slot| slot < *last_slot) {
             return Err(Error::Corrupt(
                 "malformed journal block appears before a later valid record",
             ));
