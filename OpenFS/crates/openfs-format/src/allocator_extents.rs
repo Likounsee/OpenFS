@@ -668,6 +668,26 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                // A fully free byte is an eight-block run. Consume it in one step
+                // rather than enumerating each bit on the common contiguous-space path.
+                if free_bits == u8::MAX {
+                    let block = base
+                        .checked_add(byte_start)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if previous_free.and_then(|previous: u64| previous.checked_add(1))
+                        == Some(block)
+                    {
+                        run_len = run_len.checked_add(8).ok_or(Error::ArithmeticOverflow)?;
+                    } else {
+                        run_start = block;
+                        run_len = 8;
+                    }
+                    if run_len >= count {
+                        return Ok(Some(run_start));
+                    }
+                    previous_free = Some(block.checked_add(7).ok_or(Error::ArithmeticOverflow)?);
+                    continue;
+                }
                 while free_bits != 0 {
                     let bit = u64::from(free_bits.trailing_zeros());
                     let block = base
