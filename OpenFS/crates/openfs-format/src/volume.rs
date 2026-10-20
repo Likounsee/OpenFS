@@ -3503,7 +3503,10 @@ impl OpenedVolume {
 
         // Preserve caller-defined stream order, while coalescing adjacent physical
         // blocks into bounded reads. Non-adjacent blocks remain separate runs.
-        let mut packed = Vec::with_capacity(required_blocks * block_size);
+        let packed_capacity = required_blocks
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut packed = Vec::with_capacity(packed_capacity);
         let mut cursor = 0;
         while cursor < blocks.len() {
             let mut end = cursor + 1;
