@@ -494,10 +494,7 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             .ok_or("directory entry references missing object metadata")?;
         println!(
             "{kind}\t{}\t{} bytes\tgeneration {}\t{}",
-            entry.object_id,
-            record.size,
-            record.generation,
-            entry.name
+            entry.object_id, record.size, record.generation, entry.name
         );
     }
     Ok(())
@@ -647,8 +644,8 @@ fn stat_namespace_entry(
         let allocated_bytes = allocated_blocks
             .checked_mul(block_size_bytes)
             .ok_or("allocated byte count overflows")?;
-        let logical_blocks = record.size / block_size_bytes
-            + u64::from(record.size % block_size_bytes != 0);
+        let logical_blocks =
+            record.size / block_size_bytes + u64::from(record.size % block_size_bytes != 0);
         println!("Logical blocks: {logical_blocks}");
         println!("Allocated data blocks: {allocated_blocks}");
         println!("Allocated data bytes: {allocated_bytes}");
