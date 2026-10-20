@@ -927,10 +927,10 @@ impl OpenedVolume {
             if let std::collections::btree_map::Entry::Vacant(entry) = bitmaps.entry(bitmap_index) {
                 let mut bitmap = vec![0_u8; block_size];
                 let bitmap_block = layout
-                .bitmap_start
-                .checked_add(bitmap_index)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.read_blocks(bitmap_block, &mut bitmap)?;
+                    .bitmap_start
+                    .checked_add(bitmap_index)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(bitmap_block, &mut bitmap)?;
                 entry.insert(bitmap);
             }
             let bitmap = bitmaps
@@ -1145,7 +1145,11 @@ impl OpenedVolume {
                     .ok_or(Error::ArithmeticOverflow)?,
             );
             let mut bitmap = vec![0_u8; block_size];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             let first_local = start - base;
             let end_local = end - base;
             let first_byte =
