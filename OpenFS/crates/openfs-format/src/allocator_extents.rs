@@ -652,8 +652,16 @@ impl OpenedVolume {
                 "contiguous allocation crosses an allocation bitmap segment",
             ));
         }
-        let bitmap_block = self.volume.layout.bitmap_start + start / bits_per_block;
-        let base = (start / bits_per_block) * bits_per_block;
+        let bitmap_index = start / bits_per_block;
+        let bitmap_block = self
+            .volume
+            .layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let base = bitmap_index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
@@ -1012,8 +1020,16 @@ impl OpenedVolume {
                 "best-fit extent crosses an allocation bitmap segment",
             ));
         }
-        let bitmap_block = self.volume.layout.bitmap_start + extent.start_block / bits_per_block;
-        let base = (extent.start_block / bits_per_block) * bits_per_block;
+        let bitmap_index = extent.start_block / bits_per_block;
+        let bitmap_block = self
+            .volume
+            .layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let base = bitmap_index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
