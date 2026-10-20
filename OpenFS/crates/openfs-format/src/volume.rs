@@ -3435,14 +3435,18 @@ impl OpenedVolume {
                     match self.reconstruct_discovered_namespace(device) {
                         Ok(Some((_, active)))
                             if active.object(object_id).is_some_and(|item| {
-                                item.size == end && item.generation == next_generation
+                                item.size == end
+                                    && item.generation == next_generation
+                                    && item.extent_root_block == record.extent_root_block
                             }) =>
                         {
                             return Err(error);
                         }
                         Ok(Some((_, active)))
                             if active.object(object_id).is_some_and(|item| {
-                                item.size == record.size && item.generation == record.generation
+                                item.size == record.size
+                                    && item.generation == record.generation
+                                    && item.extent_root_block == record.extent_root_block
                             }) =>
                         {
                             // The old generation is still authoritative, so the in-place
