@@ -1485,35 +1485,54 @@ impl OpenedVolume {
                 "persistent removal requires a published inventory",
             ));
         };
-        let mut reclaim_blocks = Vec::new();
+
+        // Collect and validate every target against the same original namespace before
+        // mutating the in-memory view. This also lets us load extent maps only once.
+        let mut records = Vec::with_capacity(object_ids.len());
+        let mut needs_extent_maps = false;
         for object_id in object_ids {
             let record = namespace.object(*object_id)
                 .cloned()
                 .ok_or(Error::InvalidInput("object does not exist"))?;
             if record.kind == crate::ObjectKind::File {
-                if let Some(root) = record.extent_root_block {
-                    let maps = self.read_namespace_extent_maps(device, &namespace)?;
-                    let map = maps.get(object_id)
-                        .ok_or(Error::Corrupt("file extent map is missing"))?;
-                    for extent in map.extents() {
-                        for delta in 0..extent.block_count {
-                            reclaim_blocks.push(
-                                extent.physical_start.checked_add(delta)
-                                    .ok_or(Error::ArithmeticOverflow)?,
-                            );
-                        }
-                    }
-                    reclaim_blocks.push(root);
+                if record.extent_root_block.is_some() {
+                    needs_extent_maps = true;
                 } else if record.size != 0 {
                     return Err(Error::Corrupt(
                         "non-empty file is missing its extent-map root",
                     ));
                 }
             }
-            namespace.remove(*object_id)?;
+            records.push(record);
+        }
+        let extent_maps = if needs_extent_maps {
+            Some(self.read_namespace_extent_maps(device, &namespace)?)
+        } else {
+            None
+        };
+        let mut reclaim_blocks = Vec::new();
+        for record in &records {
+            if let Some(root) = record.extent_root_block {
+                let maps = extent_maps.as_ref()
+                    .ok_or(Error::Corrupt("file extent maps were not loaded"))?;
+                let map = maps.get(&record.id)
+                    .ok_or(Error::Corrupt("file extent map is missing"))?;
+                for extent in map.extents() {
+                    for delta in 0..extent.block_count {
+                        reclaim_blocks.push(
+                            extent.physical_start.checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        );
+                    }
+                }
+                reclaim_blocks.push(root);
+            }
         }
         // Namespace::remove rejects non-empty directories and duplicate IDs naturally;
         // no persistent block is reclaimed until every requested removal validates.
+        for object_id in object_ids {
+            namespace.remove(*object_id)?;
+        }
         if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
