@@ -670,7 +670,7 @@ impl Namespace {
             return Err(Error::InvalidInput("data region bounds are invalid"));
         }
 
-        let mut roots = Vec::new();
+        let mut owner_count = 0_usize;
         for record in self.objects.values() {
             record
                 .encode()
@@ -681,17 +681,18 @@ impl Namespace {
                         "extent-map root lies outside the allocatable data region",
                     ));
                 }
-                roots.push(root);
+                owner_count = owner_count
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
         }
 
-        roots.sort_unstable();
-        if roots.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(Error::Corrupt(
-                "multiple namespace objects claim the same extent-map root block",
-            ));
+        // BTreeMap keys are already unique and sorted. Reuse the maintained ownership
+        // index instead of allocating a second vector and sorting it on every inventory.
+        if owner_count != self.extent_roots.len() {
+            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
         }
-        Ok(roots)
+        Ok(self.extent_roots.keys().copied().collect())
     }
 
     /// Count objects that own an extent-map root after validating metadata records.
