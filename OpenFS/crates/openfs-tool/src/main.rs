@@ -639,6 +639,7 @@ fn stat_namespace_entry(
                 println!("Allocated data blocks: 0");
                 println!("Allocated data bytes: 0");
                 println!("Physical extents: 0");
+                println!("Sparse logical bytes: 0");
                 println!("Unused capacity in final allocated block: 0 bytes");
                 return Ok(());
             }
