@@ -745,6 +745,13 @@ impl Namespace {
             record
                 .encode()
                 .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
+            if record.extent_root_block.is_some()
+                && (record.kind != ObjectKind::File || record.size == 0)
+            {
+                return Err(Error::Corrupt(
+                    "invalid object kind or size for extent-map root ownership",
+                ));
+            }
             if let Some(root) = record.extent_root_block {
                 if root < data_start || root >= data_end {
                     return Err(Error::Corrupt(
