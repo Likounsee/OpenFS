@@ -3447,12 +3447,13 @@ impl OpenedVolume {
         let mut cached_bitmap_index = None;
         let mut cached_bitmap = vec![0_u8; self.volume.block_size as usize];
         for (start, end) in ranges {
-            for block in start..end {
-                let bitmap_index = block / bits_per_block;
+            let mut cursor = start;
+            while cursor < end {
+                let bitmap_index = cursor / bits_per_block;
+                let base = bitmap_index
+                    .checked_mul(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 if cached_bitmap_index != Some(bitmap_index) {
-                    let base = bitmap_index
-                        .checked_mul(bits_per_block)
-                        .ok_or(Error::ArithmeticOverflow)?;
                     let bitmap_block = self
                         .volume
                         .layout
@@ -3473,11 +3474,38 @@ impl OpenedVolume {
                     )?;
                     cached_bitmap_index = Some(bitmap_index);
                 }
-                let local = block % bits_per_block;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if cached_bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                    return Err(Error::Corrupt("file extent points to a free data block"));
+
+                // Check allocation a byte at a time instead of visiting every physical
+                // block individually. Large contiguous extents now need O(bytes) bitmap
+                // work, while masks keep the first and last partial bytes exact.
+                let segment_end = end.min(
+                    base.checked_add(bits_per_block)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                );
+                let local_start = cursor - base;
+                let local_end = segment_end - base;
+                let first_byte = usize::try_from(local_start / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let end_byte = usize::try_from(
+                    local_end
+                        .checked_add(7)
+                        .ok_or(Error::ArithmeticOverflow)?
+                        / 8,
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                for byte_index in first_byte..end_byte {
+                    let mut mask = u8::MAX;
+                    if byte_index == first_byte {
+                        mask &= u8::MAX << (local_start % 8);
+                    }
+                    if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                        mask &= (1_u8 << (local_end % 8)) - 1;
+                    }
+                    if cached_bitmap[byte_index] & mask != mask {
+                        return Err(Error::Corrupt("file extent points to a free data block"));
+                    }
                 }
+                cursor = segment_end;
             }
         }
         Ok(())
