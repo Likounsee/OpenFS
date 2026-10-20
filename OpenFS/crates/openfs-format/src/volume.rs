@@ -162,6 +162,26 @@ impl OpenedVolume {
         self.journal.max_update_count(device)
     }
 
+    /// Maximum byte length for a single atomic range write starting at the given offset.
+    ///
+    /// The limit accounts for a potentially unaligned starting offset. It is a journal
+    /// capacity bound only; callers must also stay within the existing file size and
+    /// allocated extents. A zero result means no non-empty write fits at that offset.
+    pub fn max_atomic_write_bytes_at_offset<D: BlockDevice>(
+        &self,
+        device: &D,
+        offset: u64,
+    ) -> Result<u64> {
+        let max_blocks = u64::try_from(self.max_atomic_redo_updates(device)?)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size = u64::from(self.volume.block_size);
+        max_blocks
+            .checked_mul(block_size)
+            .ok_or(Error::ArithmeticOverflow)?
+            .checked_sub(offset % block_size)
+            .ok_or(Error::ArithmeticOverflow)
+    }
+
     /// Allocate and journal the bitmap update before exposing the new allocation.
     pub fn allocate_block<D: BlockDevice>(&mut self, device: &mut D) -> Result<u64> {
         self.validate_device(device)?;
