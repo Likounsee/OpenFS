@@ -575,24 +575,10 @@ impl OpenedVolume {
         // eight allocation states.
         let local_start = start_block - base;
         let local_end = end_block - base;
-        let first_byte =
-            usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-        let end_byte =
-            usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-        for byte_index in first_byte..end_byte {
-            let mut mask = u8::MAX;
-            if byte_index == first_byte {
-                mask &= u8::MAX << (local_start % 8);
-            }
-            if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                mask &= (1_u8 << (local_end % 8)) - 1;
-            }
-            if bitmap[byte_index] & mask != mask {
-                return Err(Error::InvalidInput(
-                    "contiguous free extent contains an already-free block",
-                ));
-            }
+        if !bitmap_range_matches(&bitmap, local_start, local_end, true)? {
+            return Err(Error::InvalidInput(
+                "contiguous free extent contains an already-free block",
+            ));
         }
         self.ensure_inventory_range_releasable(device, start_block, end_block)?;
         crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
@@ -603,16 +589,7 @@ impl OpenedVolume {
         )?;
         // All requested bits were verified allocated above; clear them with the
         // same edge masks, preserving neighboring allocations in partial bytes.
-        for byte_index in first_byte..end_byte {
-            let mut mask = u8::MAX;
-            if byte_index == first_byte {
-                mask &= u8::MAX << (local_start % 8);
-            }
-            if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                mask &= (1_u8 << (local_end % 8)) - 1;
-            }
-            bitmap[byte_index] &= !mask;
-        }
+        set_bitmap_range(&mut bitmap, local_start, local_end, false)?;
         self.journal
             .commit(
                 device,
@@ -757,43 +734,19 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        let local_start = start - base;
-        let local_end = end - base;
-        let first_byte =
-            usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-        let end_byte =
-            usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-        // Check allocation state byte-wise while preserving exact edge masks.
-        for byte_index in first_byte..end_byte {
-            let mut mask = u8::MAX;
-            if byte_index == first_byte {
-                mask &= u8::MAX << (local_start % 8);
-            }
-            if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                mask &= (1_u8 << (local_end % 8)) - 1;
-            }
-            if bitmap[byte_index] & mask != 0 {
-                return Err(Error::Corrupt(
-                    "contiguous extent changed during allocation",
-                ));
-            }
+        // Recheck the reservation after the free-run scan. This also protects
+        // against stale allocator views before any block contents are touched.
+        if !bitmap_range_matches(&bitmap, start - base, end - base, false)? {
+            return Err(Error::Corrupt(
+                "contiguous extent changed during allocation",
+            ));
         }
         // Validate the entire reservation before touching block contents. If the bitmap
         // changed since the free-run scan, fail without clearing a block that is now owned.
         clear_stale_descriptor_magic_range(device, self.volume.block_size, start, end)?;
         // Mark the already-validated range with the same masks in one pass per
         // bitmap byte, avoiding per-block division and modulo operations.
-        for byte_index in first_byte..end_byte {
-            let mut mask = u8::MAX;
-            if byte_index == first_byte {
-                mask &= u8::MAX << (local_start % 8);
-            }
-            if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                mask &= (1_u8 << (local_end % 8)) - 1;
-            }
-            bitmap[byte_index] |= mask;
-        }
+        set_bitmap_range(&mut bitmap, start - base, end - base, true)?;
         self.journal.commit(
             device,
             &[RedoUpdate {
@@ -1775,6 +1728,65 @@ impl OpenedVolume {
         }
         Ok(())
     }
+}
+
+/// Check whether every bit in a half-open bitmap range has the requested state.
+fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
+    if start_bit > end_bit {
+        return Err(Error::InvalidInput("bitmap range start exceeds end"));
+    }
+    let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+    let end_byte = usize::try_from(
+        end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+    )
+    .map_err(|_| Error::ArithmeticOverflow)?;
+    if end_byte > bitmap.len() {
+        return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
+    }
+    for byte_index in first_byte..end_byte {
+        let mut mask = u8::MAX;
+        if byte_index == first_byte {
+            mask &= u8::MAX << (start_bit % 8);
+        }
+        if byte_index + 1 == end_byte && end_bit % 8 != 0 {
+            mask &= (1_u8 << (end_bit % 8)) - 1;
+        }
+        let bits = bitmap[byte_index] & mask;
+        if (allocated && bits != mask) || (!allocated && bits != 0) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Set a half-open bitmap range while preserving bits outside its exact boundaries.
+fn set_bitmap_range(bitmap: &mut [u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<()> {
+    if start_bit > end_bit {
+        return Err(Error::InvalidInput("bitmap range start exceeds end"));
+    }
+    let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
+    let end_byte = usize::try_from(
+        end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+    )
+    .map_err(|_| Error::ArithmeticOverflow)?;
+    if end_byte > bitmap.len() {
+        return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
+    }
+    for byte_index in first_byte..end_byte {
+        let mut mask = u8::MAX;
+        if byte_index == first_byte {
+            mask &= u8::MAX << (start_bit % 8);
+        }
+        if byte_index + 1 == end_byte && end_bit % 8 != 0 {
+            mask &= (1_u8 << (end_bit % 8)) - 1;
+        }
+        if allocated {
+            bitmap[byte_index] |= mask;
+        } else {
+            bitmap[byte_index] &= !mask;
+        }
+    }
+    Ok(())
 }
 
 /// Reject free bits that refer to metadata-reserved blocks or bitmap padding.
