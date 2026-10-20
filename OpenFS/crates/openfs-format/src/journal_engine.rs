@@ -341,7 +341,31 @@ impl PersistentJournal {
         );
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         for update in updates {
-            for payload in encode_redo_chunks(update, block_size)? {
+            let chunk_size = redo_chunk_size(block_size)?;
+            let chunk_count = update
+                .contents
+                .len()
+                .checked_add(chunk_size - 1)
+                .ok_or(Error::ArithmeticOverflow)?
+                / chunk_size;
+            let chunk_count_u16 =
+                u16::try_from(chunk_count).map_err(|_| Error::InvalidInput("too many redo chunks"))?;
+            for index in 0..chunk_count {
+                let start = index
+                    .checked_mul(chunk_size)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let end = update.contents.len().min(
+                    start.checked_add(chunk_size).ok_or(Error::ArithmeticOverflow)?,
+                );
+                let mut payload = vec![0; UPDATE_CHUNK_HEADER_SIZE + end - start];
+                payload[..8].copy_from_slice(&update.target_block.to_le_bytes());
+                payload[8..10].copy_from_slice(
+                    &u16::try_from(index)
+                        .map_err(|_| Error::InvalidInput("too many redo chunks"))?
+                        .to_le_bytes(),
+                );
+                payload[10..12].copy_from_slice(&chunk_count_u16.to_le_bytes());
+                payload[12..].copy_from_slice(&update.contents[start..end]);
                 encoded.push(
                     JournalRecord {
                         kind: JournalRecordKind::Update,
