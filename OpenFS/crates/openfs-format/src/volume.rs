@@ -4776,6 +4776,8 @@ pub fn format_volume<D: BlockDevice>(
     let bits_per_block = u64::from(layout.block_size) * 8;
     let mut bitmap = vec![0_u8; block_size];
     for index in 0..layout.bitmap_blocks {
+        // Each bitmap page is independent; clear the reused buffer before rebuilding it.
+        bitmap.fill(0);
         let first = index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
