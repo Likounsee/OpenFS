@@ -3648,7 +3648,12 @@ impl OpenedVolume {
                 let end_byte =
                     usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                         .map_err(|_| Error::ArithmeticOverflow)?;
-                for byte_index in first_byte..end_byte {
+                for (byte_index, bitmap_byte) in cached_bitmap
+                    .iter()
+                    .enumerate()
+                    .take(end_byte)
+                    .skip(first_byte)
+                {
                     let mut mask = u8::MAX;
                     if byte_index == first_byte {
                         mask &= u8::MAX << (local_start % 8);
@@ -3656,7 +3661,7 @@ impl OpenedVolume {
                     if byte_index + 1 == end_byte && local_end % 8 != 0 {
                         mask &= (1_u8 << (local_end % 8)) - 1;
                     }
-                    if cached_bitmap[byte_index] & mask != mask {
+                    if bitmap_byte & mask != mask {
                         return Err(Error::Corrupt("file extent points to a free data block"));
                     }
                 }
