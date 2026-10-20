@@ -174,6 +174,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 data.as_bytes(),
             )
         }
+        Some("write-stdin") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            write_namespace_file_from_stdin(Path::new(&path), block_size, &target)
+        }
         Some("append") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -627,6 +636,21 @@ fn write_namespace_file(
     Ok(())
 }
 
+fn write_namespace_file_from_stdin(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    let written = volume.write_persistent_file_from_reader(&mut device, target, &mut input)?;
+    device.flush()?;
+    println!("Wrote {written} byte(s) from standard input to '{target}'.");
+    Ok(())
+}
+
 fn write_namespace_file_range(
     path: &Path,
     block_size: u32,
@@ -844,6 +868,7 @@ fn print_usage() {
     eprintln!("  openfs stat <image> <block-size> <path>");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs write-range <image> <block-size> <file-path> <offset> <text...>");
+    eprintln!("  openfs write-stdin <image> <block-size> <file-path>  (replace file from stdin)");
     eprintln!("  openfs append <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs truncate <image> <block-size> <file-path> <new-size-bytes>");
     eprintln!("  openfs mv <image> <block-size> <source-path> <destination-path>");
