@@ -3031,20 +3031,28 @@ impl OpenedVolume {
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             let chunk_len = within_end - within_start;
             let physical = map.physical_block(logical).ok_or(Error::Corrupt("target extent disappeared after write-range preflight"))?;
+            let source_end = source_offset
+                .checked_add(chunk_len)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let source_chunk = data.get(source_offset..source_end).ok_or(Error::Corrupt(
+                "write-range source accounting exceeds the supplied data",
+            ))?;
             if within_start == 0 && within_end == block_len {
-                block_buffer.copy_from_slice(&data[source_offset..source_offset + chunk_len]);
+                block_buffer.copy_from_slice(source_chunk);
             } else {
                 device.read_blocks(physical, &mut block_buffer)?;
-                block_buffer[within_start..within_end]
-                    .copy_from_slice(&data[source_offset..source_offset + chunk_len]);
+                block_buffer[within_start..within_end].copy_from_slice(source_chunk);
             }
             updates.push(RedoUpdate {
                 target_block: physical,
                 contents: block_buffer.clone(),
             });
-            source_offset = source_offset
-                .checked_add(chunk_len)
-                .ok_or(Error::ArithmeticOverflow)?;
+            source_offset = source_end;
+        }
+        if source_offset != data.len() {
+            return Err(Error::Corrupt(
+                "write-range source accounting does not match the supplied data",
+            ));
         }
         self.journal.commit(device, &updates)?;
         Ok(())
