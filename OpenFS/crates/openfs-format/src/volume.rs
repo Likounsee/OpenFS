@@ -174,6 +174,9 @@ impl OpenedVolume {
     ) -> Result<u64> {
         let max_blocks = u64::try_from(self.max_atomic_redo_updates(device)?)
             .map_err(|_| Error::ArithmeticOverflow)?;
+        if max_blocks == 0 {
+            return Ok(0);
+        }
         let block_size = u64::from(self.volume.block_size);
         max_blocks
             .checked_mul(block_size)
