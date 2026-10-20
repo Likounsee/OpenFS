@@ -2992,6 +2992,11 @@ impl OpenedVolume {
             let block_size_usize =
                 usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
             let mut allocated = Vec::new();
+            // Appending across blocks may modify the old final block before the new
+            // extent map is published. Remember even an errored journal commit as a
+            // possible durable tail write so every pre-publication failure can restore
+            // the old EOF invariant.
+            let mut modified_old_tail = false;
             let staged = (|| -> Result<u64> {
                 let mut updated_map = map.clone();
                 let mut consumed = 0_usize;
@@ -3011,6 +3016,7 @@ impl OpenedVolume {
                         .checked_add(tail_bytes)
                         .ok_or(Error::ArithmeticOverflow)?;
                     block[tail_offset_usize..finish].copy_from_slice(&data[..tail_bytes]);
+                    modified_old_tail = true;
                     self.journal.commit(
                         device,
                         &[RedoUpdate {
@@ -3055,6 +3061,28 @@ impl OpenedVolume {
             let new_root = match staged {
                 Ok(root) => root,
                 Err(error) => {
+                    if modified_old_tail {
+                        let cleanup = (|| -> Result<()> {
+                            let physical = map.physical_block(offset / block_size)
+                                .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
+                            let mut current = vec![0_u8; block_size_usize];
+                            device.read_blocks(physical, &mut current)?;
+                            current[usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?..].fill(0);
+                            self.journal.commit(
+                                device,
+                                &[RedoUpdate {
+                                    target_block: physical,
+                                    contents: current,
+                                }],
+                            )?;
+                            Ok(())
+                        })();
+                        if cleanup.is_err() {
+                            return Err(Error::Corrupt(
+                                "append staging failed and bytes beyond the old EOF could not be cleared",
+                            ));
+                        }
+                    }
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
                             "failed to roll back staged append allocations",
@@ -3116,6 +3144,28 @@ impl OpenedVolume {
                                 .object(object_id)
                                 .is_some_and(|item| item.extent_root_block == Some(old_root)) =>
                         {
+                            if modified_old_tail {
+                                let cleanup = (|| -> Result<()> {
+                                    let physical = map.physical_block(offset / block_size)
+                                        .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
+                                    let mut current = vec![0_u8; block_size_usize];
+                                    device.read_blocks(physical, &mut current)?;
+                                    current[usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?..].fill(0);
+                                    self.journal.commit(
+                                        device,
+                                        &[RedoUpdate {
+                                            target_block: physical,
+                                            contents: current,
+                                        }],
+                                    )?;
+                                    Ok(())
+                                })();
+                                if cleanup.is_err() {
+                                    return Err(Error::Corrupt(
+                                        "append publication failed with the old generation active, but bytes beyond EOF could not be cleared",
+                                    ));
+                                }
+                            }
                             if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                                 return Err(Error::Corrupt(
                                     "failed to roll back unpublished append allocations",
