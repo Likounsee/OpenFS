@@ -2,7 +2,7 @@
 
 OpenFS is an open-source filesystem project written primarily in Rust. Its long-term goal is a reliable, secure, high-performance filesystem for Windows, Linux, and eventually ArchiaOS.
 
-> **Status: experimental.** The workspace contains a canonical journaled volume layout, a bounded block-image backend, allocation and ownership checks, namespace/extent codecs, persistent inventory discovery, and read-only file reads. It is not yet a mountable or production-ready filesystem and is not a replacement for NTFS.
+> **Status: experimental.** The workspace contains a canonical journaled volume layout, a bounded block-image backend, allocation and ownership checks, persistent namespace operations, and block-bounded streaming file reads and writes. The CLI supports image-based file operations, including range I/O, streaming import from standard input, truncation, rename, and removal. It is not yet a mountable or production-ready filesystem and is not a replacement for NTFS.
 
 ## Repository structure
 
@@ -35,4 +35,4 @@ All development commits belong on the `OpenFS` branch. Validate untrusted disk b
 
 ## Limits
 
-Durable create/write/rename/delete, a general transaction layer for namespace updates, complete crash-recovery evidence, physical-device discovery safeguards, and OS mounting remain unfinished. Do not use important data or claim physical-device durability based on image tests.
+Although image-backed namespace and file mutations exist, a general transaction layer for namespace and extent-map updates, complete crash-recovery guarantees, physical-device discovery safeguards, and OS mounting remain unfinished. File replacement, truncation, range writes, and streaming imports now preflight existing extent allocations against the allocation bitmap before mutating the file. Do not use important data or claim physical-device durability based on image tests.
