@@ -235,13 +235,16 @@ impl Namespace {
         // Start at the cursor in the ordered index instead of walking and discarding
         // every earlier child on each page. Keep the cursor exclusive and stop as soon
         // as the parent key changes, so listing remains bounded to this directory.
-        let start_name = after_name.unwrap_or("").to_owned();
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+        let lower_name = match after_name {
+            Some(cursor) => Excluded((parent_id, cursor.to_owned())),
+            None => Included((parent_id, String::new())),
+        };
         Ok(self
             .names
-            .range((parent_id, start_name)..)
+            .range((lower_name, Unbounded))
             .take_while(|((candidate_parent, _), _)| *candidate_parent == parent_id)
             .map(|(_, entry)| entry)
-            .filter(|entry| after_name.map_or(true, |cursor| entry.name.as_str() > cursor))
             .take(limit)
             .cloned()
             .collect())
