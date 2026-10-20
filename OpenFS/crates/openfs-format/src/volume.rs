@@ -4111,12 +4111,12 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     let last_data_block = layout.backup_superblock - 1;
     let last_bitmap = last_data_block / bits_per_bitmap_block;
     let mut free_data_blocks = 0_u64;
+    let mut bitmap = vec![0_u8; block_size as usize];
     for bitmap_index in first_bitmap..=last_bitmap {
         let bitmap_block = layout
             .bitmap_start
             .checked_add(bitmap_index)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = vec![0_u8; block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let base = bitmap_index
             .checked_mul(bits_per_bitmap_block)
@@ -4425,9 +4425,13 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let mut owner_index = 0_usize;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
     let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
+    let mut bitmap = vec![0_u8; block_size];
     for bitmap_index in first_bitmap..=last_bitmap {
-        let mut bitmap = vec![0_u8; block_size];
-        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
         let bitmap_base = bitmap_index
             .checked_mul(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;
