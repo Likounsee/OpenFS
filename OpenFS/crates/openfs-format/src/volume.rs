@@ -3696,7 +3696,7 @@ impl OpenedVolume {
                     break;
                 }
 
-                let count = valid_lengths.len() as u64;
+                let count = u64::try_from(valid_lengths.len()).map_err(|_| Error::ArithmeticOverflow)?;
                 let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
                     Ok(blocks) => (blocks, false),
                     // On fragmented volumes no single bitmap segment may have enough
