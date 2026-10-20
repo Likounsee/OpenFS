@@ -391,10 +391,27 @@ impl Namespace {
                 return Err(Error::Corrupt("destination ancestor is missing"));
             };
             if ancestor == self.root_id {
+                if ancestor_record.parent_id != 0 || ancestor_record.kind != ObjectKind::Directory {
+                    return Err(Error::Corrupt("namespace root metadata is invalid"));
+                }
                 break;
             }
-            ancestor = ObjectId::new(ancestor_record.parent_id)
-                .map_err(|_| Error::Corrupt("non-root ancestor has no parent"))?;
+            if ancestor_record.kind != ObjectKind::Directory {
+                return Err(Error::Corrupt("destination ancestry passes through a non-directory"));
+            }
+            let ancestor_parent = ObjectId::new(ancestor_record.parent_id)
+                .map_err(|_| Error::Corrupt("non-root ancestor has no valid parent"))?;
+            let ancestor_name = self.entry_name_for(ancestor_parent, ancestor)?;
+            let ancestor_entry = self.names
+                .get(&(ancestor_parent, ancestor_name))
+                .ok_or(Error::Corrupt("destination ancestor has no directory entry"))?;
+            if ancestor_entry.object_id != ancestor.0
+                || ancestor_entry.parent_id != ancestor_parent.0
+                || ancestor_entry.kind != ancestor_record.kind
+            {
+                return Err(Error::Corrupt("destination ancestor metadata disagrees with its entry"));
+            }
+            ancestor = ancestor_parent;
         }
 
         let new_key = (new_parent_id, new_name.to_owned());
