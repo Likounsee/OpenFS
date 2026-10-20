@@ -328,7 +328,12 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            // Slice directly to the relevant bytes so scanning a later bitmap
+            // segment does not walk the unused prefix through Iterator::skip().
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
