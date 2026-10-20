@@ -196,12 +196,21 @@ impl ExtentMap {
     /// remains unchanged if validation or arithmetic fails.
     pub fn insert_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
-        let mut candidate = self.extents.clone();
-        let position = candidate.partition_point(|item| item.logical_start < extent.logical_start);
-        candidate.insert(position, extent);
+        let position = self
+            .extents
+            .partition_point(|item| item.logical_start < extent.logical_start);
 
-        let mut merged: Vec<Extent> = Vec::with_capacity(candidate.len());
-        for current in candidate {
+        // Merge directly from the existing sorted map plus the insertion point.
+        // Avoid building a cloned candidate vector and then a second merged vector.
+        let mut merged: Vec<Extent> = Vec::with_capacity(self.extents.len() + 1);
+        for current in self
+            .extents
+            .iter()
+            .copied()
+            .take(position)
+            .chain(std::iter::once(extent))
+            .chain(self.extents.iter().copied().skip(position))
+        {
             if let Some(previous) = merged.last_mut() {
                 let previous_logical_end = previous.logical_end()?;
                 let previous_physical_end = previous.physical_end()?;
