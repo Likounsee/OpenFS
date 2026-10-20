@@ -843,7 +843,11 @@ impl OpenedVolume {
         let mut candidate_bitmap = None;
         for bitmap_index in first_bitmap..=last_bitmap {
             let mut bitmap = vec![0_u8; block_size];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
             let base = bitmap_index * bits_per_bitmap_block;
             let first = layout.data_start.max(base);
             let end = layout.backup_superblock.min(
@@ -3791,14 +3795,20 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     let last_bitmap = last_data_block / bits_per_bitmap_block;
     let mut free_data_blocks = 0_u64;
     for bitmap_index in first_bitmap..=last_bitmap {
-        let bitmap_block = layout.bitmap_start + bitmap_index;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
-        let base = bitmap_index * bits_per_bitmap_block;
+        let base = bitmap_index
+            .checked_mul(bits_per_bitmap_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let first = layout.data_start.max(base);
-        let end = layout
-            .backup_superblock
-            .min(base.saturating_add(bits_per_bitmap_block));
+        let end = layout.backup_superblock.min(
+            base.checked_add(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?,
+        );
         let first_byte =
             usize::try_from((first - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let end_byte = usize::try_from(
