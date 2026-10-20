@@ -292,30 +292,7 @@ impl Namespace {
         if updated_parent.kind != ObjectKind::Directory {
             return Err(Error::InvalidInput("parent object is not a directory"));
         }
-        // Do not attach a new child to a parent whose own namespace edge is
-        // already inconsistent. The root is the only object without a parent edge.
-        if parent_id == self.root_id {
-            if updated_parent.parent_id != 0 {
-                return Err(Error::Corrupt("namespace root metadata is invalid"));
-            }
-        } else {
-            let (indexed_parent, indexed_name) = self.parents.get(&parent_id)
-                .ok_or(Error::Corrupt("parent directory has no parent index entry"))?;
-            if *indexed_parent != ObjectId::new(updated_parent.parent_id)
-                .map_err(|_| Error::Corrupt("parent directory has an invalid parent ID"))?
-            {
-                return Err(Error::Corrupt("parent directory parent index is inconsistent"));
-            }
-            let parent_entry = self.names.get(&(*indexed_parent, indexed_name.clone()))
-                .ok_or(Error::Corrupt("parent directory entry is missing"))?;
-            if parent_entry.object_id != parent_id.0
-                || parent_entry.parent_id != indexed_parent.0
-                || parent_entry.name != *indexed_name
-                || parent_entry.kind != ObjectKind::Directory
-            {
-                return Err(Error::Corrupt("parent directory metadata disagrees with its entry"));
-            }
-        }
+        self.validate_directory_ancestry(parent_id, None)?;
         if self.objects.contains_key(&object_id) {
             return Err(Error::InvalidInput("object ID already exists"));
         }
@@ -405,41 +382,7 @@ impl Namespace {
             return Err(Error::InvalidInput("destination parent is not a directory"));
         }
 
-        let mut ancestor = new_parent_id;
-        let mut visited_ancestors = std::collections::BTreeSet::new();
-        loop {
-            if ancestor == object_id {
-                return Err(Error::InvalidInput("directory move would create a cycle"));
-            }
-            if !visited_ancestors.insert(ancestor) {
-                return Err(Error::Corrupt("destination ancestry already contains a cycle"));
-            }
-            let Some(ancestor_record) = self.objects.get(&ancestor) else {
-                return Err(Error::Corrupt("destination ancestor is missing"));
-            };
-            if ancestor == self.root_id {
-                if ancestor_record.parent_id != 0 || ancestor_record.kind != ObjectKind::Directory {
-                    return Err(Error::Corrupt("namespace root metadata is invalid"));
-                }
-                break;
-            }
-            if ancestor_record.kind != ObjectKind::Directory {
-                return Err(Error::Corrupt("destination ancestry passes through a non-directory"));
-            }
-            let ancestor_parent = ObjectId::new(ancestor_record.parent_id)
-                .map_err(|_| Error::Corrupt("non-root ancestor has no valid parent"))?;
-            let ancestor_name = self.entry_name_for(ancestor_parent, ancestor)?;
-            let ancestor_entry = self.names
-                .get(&(ancestor_parent, ancestor_name))
-                .ok_or(Error::Corrupt("destination ancestor has no directory entry"))?;
-            if ancestor_entry.object_id != ancestor.0
-                || ancestor_entry.parent_id != ancestor_parent.0
-                || ancestor_entry.kind != ancestor_record.kind
-            {
-                return Err(Error::Corrupt("destination ancestor metadata disagrees with its entry"));
-            }
-            ancestor = ancestor_parent;
-        }
+        self.validate_directory_ancestry(new_parent_id, Some(object_id))?;
 
         let new_key = (new_parent_id, new_name.to_owned());
         if self.names.contains_key(&new_key)
@@ -646,6 +589,54 @@ impl Namespace {
         self.objects
             .remove(&object_id)
             .ok_or(Error::Corrupt("object disappeared during removal"))
+    }
+
+    /// Validate a directory and every parent edge up to the namespace root.
+    ///
+    /// This is used before mutations so a locally valid parent cannot extend a
+    /// disconnected tree, hide a cycle, or rely on mismatched parent/name indexes.
+    /// When `forbidden` is supplied, encountering that object rejects a move that
+    /// would place it beneath itself.
+    fn validate_directory_ancestry(
+        &self,
+        start_id: ObjectId,
+        forbidden: Option<ObjectId>,
+    ) -> Result<()> {
+        let mut current = start_id;
+        let mut visited = std::collections::BTreeSet::new();
+        loop {
+            if forbidden == Some(current) {
+                return Err(Error::InvalidInput("directory move would create a cycle"));
+            }
+            if !visited.insert(current) {
+                return Err(Error::Corrupt("directory ancestry already contains a cycle"));
+            }
+            let record = self.objects.get(&current)
+                .ok_or(Error::Corrupt("directory ancestor is missing"))?;
+            if record.kind != ObjectKind::Directory {
+                return Err(Error::Corrupt("directory ancestry passes through a non-directory"));
+            }
+            if current == self.root_id {
+                if record.parent_id != 0 {
+                    return Err(Error::Corrupt("namespace root metadata is invalid"));
+                }
+                return Ok(());
+            }
+
+            let parent_id = ObjectId::new(record.parent_id)
+                .map_err(|_| Error::Corrupt("non-root directory has an invalid parent ID"))?;
+            let name = self.entry_name_for(parent_id, current)?;
+            let entry = self.names.get(&(parent_id, name.clone()))
+                .ok_or(Error::Corrupt("directory ancestor entry is missing"))?;
+            if entry.object_id != current.0
+                || entry.parent_id != parent_id.0
+                || entry.name != name
+                || entry.kind != record.kind
+            {
+                return Err(Error::Corrupt("directory ancestor metadata disagrees with its entry"));
+            }
+            current = parent_id;
+        }
     }
 
     fn entry_name_for(&self, parent_id: ObjectId, object_id: ObjectId) -> Result<String> {
