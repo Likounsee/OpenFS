@@ -2003,8 +2003,40 @@ impl OpenedVolume {
             self.volume.layout.data_start,
             self.volume.layout.backup_superblock,
         )?;
+        // Roots are returned sorted and unique. Read each bitmap page only once,
+        // rather than issuing one block-device read per file when many roots share a page.
+        let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
+        let mut cached_bitmap_index = None;
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         for root in &roots {
-            if !self.is_data_block_allocated(device, *root)? {
+            let bitmap_index = *root / bits_per_bitmap_block;
+            let bitmap_base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if cached_bitmap_index != Some(bitmap_index) {
+                let bitmap_block = self
+                    .volume
+                    .layout
+                    .bitmap_start
+                    .checked_add(bitmap_index)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(bitmap_block, &mut bitmap)?;
+                crate::allocator_extents::validate_bitmap_reserved_bits(
+                    &bitmap,
+                    bitmap_base,
+                    self.volume.layout.data_start.max(bitmap_base),
+                    self.volume.layout.backup_superblock.min(
+                        bitmap_base
+                            .checked_add(bits_per_bitmap_block)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    ),
+                )?;
+                cached_bitmap_index = Some(bitmap_index);
+            }
+            let local = *root - bitmap_base;
+            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let mask = 1_u8 << (local % 8);
+            if bitmap[byte] & mask == 0 {
                 return Err(Error::Corrupt(
                     "extent-map root is marked free in the allocation bitmap",
                 ));
