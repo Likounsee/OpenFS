@@ -3975,18 +3975,23 @@ impl OpenedVolume {
         {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
-                    if active
-                        .object(object_id)
-                        .is_some_and(|record| record.extent_root_block == extent_root) =>
+                    if active.object(object_id).is_some_and(|record| {
+                        record.extent_root_block == extent_root
+                            && record.size == file_size
+                            && record.generation == next_generation
+                    }) =>
                 {
-                    // The new version is active; keep its allocations and report success.
-                    return Ok(file_size);
+                    // The exact new version is active; keep its allocations and report success.
+                    return Ok(());
                 }
                 Ok(Some((_, active)))
-                    if active
-                        .object(object_id)
-                        .is_some_and(|record| record.extent_root_block != extent_root) =>
+                    if active.object(object_id).is_some_and(|record| {
+                        record.extent_root_block == existing.extent_root_block
+                            && record.size == existing.size
+                            && record.generation == existing.generation
+                    }) =>
                 {
+                    // Only the exact old version proves that staged allocations are unreachable.
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
                             "file publication failed and staged data could not be reclaimed",
