@@ -1266,18 +1266,76 @@ impl OpenedVolume {
         // Segment-local validation alone can leave earlier segments freed if a later
         // segment contains an already-free block or a block still owned by the inventory.
         self.ensure_inventory_blocks_releasable(device, &sorted)?;
-        for block in &sorted {
-            if !self.is_data_block_allocated(device, *block)? {
-                return Err(Error::Corrupt(
-                    "persistent storage reclamation contains an already-free block",
-                ));
+
+        // Preflight allocation state once per bitmap segment, not once per block.
+        // Reclamation can contain thousands of blocks; a per-block bitmap read would
+        // turn this safety check into thousands of avoidable device reads.
+        let mut checked_start = 0;
+        while checked_start < sorted.len() {
+            let bitmap_index = sorted[checked_start] / bits_per_block;
+            let mut checked_end = checked_start + 1;
+            while checked_end < sorted.len()
+                && sorted[checked_end] / bits_per_block == bitmap_index
+            {
+                checked_end += 1;
             }
-            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+            let base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let segment_start = layout.data_start.max(base);
+            let segment_end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            crate::allocator_extents::validate_bitmap_reserved_bits(
+                &bitmap,
+                base,
+                segment_start,
+                segment_end,
+            )?;
+            for block in &sorted[checked_start..checked_end] {
+                let local = *block - base;
+                let byte = usize::try_from(local / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    return Err(Error::Corrupt(
+                        "persistent storage reclamation contains an already-free block",
+                    ));
+                }
+            }
+            checked_start = checked_end;
+        }
+
+        // Check inventory descriptor protection once per contiguous run, matching the
+        // allocator's own batch-free validation and avoiding one descriptor read per block.
+        let mut run_start = sorted[0];
+        let mut previous = sorted[0];
+        for &block in sorted.iter().skip(1) {
+            if previous.checked_add(1) == Some(block) {
+                previous = block;
+                continue;
+            }
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
                 device,
-                *block,
+                run_start,
+                previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
                 self.volume.block_size,
             )?;
+            run_start = block;
+            previous = block;
         }
+        crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
+            device,
+            run_start,
+            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            self.volume.block_size,
+        )?;
 
         let mut start = 0;
         while start < sorted.len() {
