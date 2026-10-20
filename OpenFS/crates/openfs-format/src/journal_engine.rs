@@ -198,19 +198,9 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         // Validate all committed redo images before applying the first home write.
         let mut validated = Vec::with_capacity(plan.len());
         for transaction in &plan {
-            let mut updates = decode_redo_updates(&transaction.updates, block_size)?;
-            // The normal commit path forbids duplicate home targets. Recovery must
-            // enforce the same invariant on persisted input instead of silently
-            // replaying a transaction whose final value depends on update order.
-            updates.sort_unstable_by_key(|update| update.target_block);
-            if updates
-                .windows(2)
-                .any(|pair| pair[0].target_block == pair[1].target_block)
-            {
-                return Err(Error::Corrupt(
-                    "committed journal transaction contains duplicate redo targets",
-                ));
-            }
+            // decode_redo_updates already sorts images and rejects duplicate targets;
+            // reuse that validated order rather than sorting every image a second time.
+            let updates = decode_redo_updates(&transaction.updates, block_size)?;
             for update in &updates {
                 validate_home_target(device, region, update.target_block, update.contents.len())?;
                 validate_protected_target(&protected_blocks, update.target_block)?;
