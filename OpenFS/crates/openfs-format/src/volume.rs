@@ -2756,8 +2756,9 @@ impl OpenedVolume {
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
         let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        // One block-sized buffer is enough for both allocated and sparse ranges.
+        // Reusing it avoids a second allocation proportional to the filesystem block size.
         let mut block_buffer = vec![0_u8; block_len];
-        let zero_buffer = vec![0_u8; block_len];
         let mut written = 0_u64;
         for logical in first_logical..=last_logical {
             let block_start = logical
@@ -2777,7 +2778,8 @@ impl OpenedVolume {
                 device.read_blocks(physical, &mut block_buffer)?;
                 writer.write_all(&block_buffer[within_start..within_end])?;
             } else {
-                writer.write_all(&zero_buffer[..within_end - within_start])?;
+                block_buffer.fill(0);
+                writer.write_all(&block_buffer[within_start..within_end])?;
             }
             let chunk_len =
                 u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?;
