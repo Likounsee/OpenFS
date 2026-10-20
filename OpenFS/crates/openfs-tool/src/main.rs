@@ -538,7 +538,10 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
         Vec::new()
     };
     while let Some((directory_id, depth)) = stack.pop() {
-        let children = namespace.children(directory_id).cloned().collect::<Vec<_>>();
+        let children = namespace
+            .children(directory_id)
+            .cloned()
+            .collect::<Vec<_>>();
         let mut child_directories = Vec::new();
         for entry in &children {
             let child_id = ObjectId(entry.object_id);
@@ -546,7 +549,11 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
                 .object(child_id)
                 .ok_or("directory entry references missing object metadata")?;
             let indent = "  ".repeat(depth + 1);
-            let suffix = if record.kind == ObjectKind::Directory { "/" } else { "" };
+            let suffix = if record.kind == ObjectKind::Directory {
+                "/"
+            } else {
+                ""
+            };
             println!("{indent}{}{suffix}", entry.name);
             if record.kind == ObjectKind::Directory {
                 child_directories.push(child_id);
@@ -567,29 +574,43 @@ fn report_space(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     let allocation = volume.allocation_stats(&mut device)?;
     let fragmentation = volume.free_extent_stats(&mut device)?;
     let block_bytes = u64::from(block_size);
-    let total_bytes = allocation.total_data_blocks.checked_mul(block_bytes)
+    let total_bytes = allocation
+        .total_data_blocks
+        .checked_mul(block_bytes)
         .ok_or("total capacity overflows byte count")?;
-    let allocated_bytes = allocation.allocated_data_blocks.checked_mul(block_bytes)
+    let allocated_bytes = allocation
+        .allocated_data_blocks
+        .checked_mul(block_bytes)
         .ok_or("allocated capacity overflows byte count")?;
-    let free_bytes = allocation.free_data_blocks.checked_mul(block_bytes)
+    let free_bytes = allocation
+        .free_data_blocks
+        .checked_mul(block_bytes)
         .ok_or("free capacity overflows byte count")?;
 
     println!("OpenFS data-space report");
     println!("Total data blocks: {}", allocation.total_data_blocks);
-    println!("Allocated data blocks: {}", allocation.allocated_data_blocks);
+    println!(
+        "Allocated data blocks: {}",
+        allocation.allocated_data_blocks
+    );
     println!("Free data blocks: {}", allocation.free_data_blocks);
     println!("Total data capacity: {total_bytes} bytes");
     println!("Allocated data capacity: {allocated_bytes} bytes");
     println!("Free data capacity: {free_bytes} bytes");
     println!("Free-space extents: {}", fragmentation.free_extent_count);
-    println!("Largest free extent: {} blocks ({} bytes)",
+    println!(
+        "Largest free extent: {} blocks ({} bytes)",
         fragmentation.largest_free_extent_blocks,
-        fragmentation.largest_free_extent_blocks.checked_mul(block_bytes)
-            .ok_or("largest extent byte count overflows")?);
+        fragmentation
+            .largest_free_extent_blocks
+            .checked_mul(block_bytes)
+            .ok_or("largest extent byte count overflows")?
+    );
     if allocation.free_data_blocks == 0 {
         println!("Free-space ratio: 0.00%");
     } else {
-        let ratio = (allocation.free_data_blocks as f64 / allocation.total_data_blocks as f64) * 100.0;
+        let ratio =
+            (allocation.free_data_blocks as f64 / allocation.total_data_blocks as f64) * 100.0;
         println!("Free-space ratio: {ratio:.2}%");
     }
     Ok(())
