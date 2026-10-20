@@ -3063,11 +3063,14 @@ impl OpenedVolume {
                 Err(error) => {
                     if modified_old_tail {
                         let cleanup = (|| -> Result<()> {
-                            let physical = map.physical_block(offset / block_size)
+                            let physical = map
+                                .physical_block(offset / block_size)
                                 .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
                             let mut current = vec![0_u8; block_size_usize];
                             device.read_blocks(physical, &mut current)?;
-                            current[usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?..].fill(0);
+                            let tail_start = usize::try_from(tail_offset)
+                                .map_err(|_| Error::ArithmeticOverflow)?;
+                            current[tail_start..].fill(0);
                             self.journal.commit(
                                 device,
                                 &[RedoUpdate {
@@ -3146,11 +3149,14 @@ impl OpenedVolume {
                         {
                             if modified_old_tail {
                                 let cleanup = (|| -> Result<()> {
-                                    let physical = map.physical_block(offset / block_size)
+                                    let physical = map
+                                        .physical_block(offset / block_size)
                                         .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
                                     let mut current = vec![0_u8; block_size_usize];
                                     device.read_blocks(physical, &mut current)?;
-                                    current[usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?..].fill(0);
+                                    let tail_start = usize::try_from(tail_offset)
+                                        .map_err(|_| Error::ArithmeticOverflow)?;
+                                    current[tail_start..].fill(0);
                                     self.journal.commit(
                                         device,
                                         &[RedoUpdate {
