@@ -2286,6 +2286,12 @@ impl OpenedVolume {
             .get(&object_id)
             .cloned()
             .ok_or(Error::Corrupt("file extent map is missing"))?;
+        let old_logical_blocks =
+            record.size / block_size + u64::from(record.size % block_size != 0);
+        // Range checks and non-aliasing are not enough: a corrupted bitmap could mark
+        // a referenced data block free. Refuse to publish a shorter map or reclaim
+        // storage until every block in the old map is confirmed allocated.
+        self.validate_extent_allocations(device, &updated_map, old_logical_blocks)?;
         let keep_blocks = new_size / block_size + u64::from(new_size % block_size != 0);
         let removed_extents = updated_map.truncate(keep_blocks)?;
         let mut reclaim_blocks = Vec::new();
@@ -2469,6 +2475,9 @@ impl OpenedVolume {
             let old_map = maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let old_logical_blocks = existing.size / self.volume.block_size as u64
+                + u64::from(existing.size % self.volume.block_size as u64 != 0);
+            self.validate_extent_allocations(device, old_map, old_logical_blocks)?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
@@ -2672,6 +2681,9 @@ impl OpenedVolume {
             let old_map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let old_logical_blocks = existing.size / self.volume.block_size as u64
+                + u64::from(existing.size % self.volume.block_size as u64 != 0);
+            self.validate_extent_allocations(device, old_map, old_logical_blocks)?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
@@ -2869,6 +2881,9 @@ impl OpenedVolume {
             let map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let old_logical_blocks =
+                record.size / block_size + u64::from(record.size % block_size != 0);
+            self.validate_extent_allocations(device, map, old_logical_blocks)?;
 
             let tail_offset = offset % block_size;
             let tail_capacity = if tail_offset == 0 {
