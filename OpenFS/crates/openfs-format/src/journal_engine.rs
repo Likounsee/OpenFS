@@ -100,7 +100,11 @@ pub fn format_journal<D: BlockDevice>(device: &mut D, region: JournalRegion) -> 
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let zero = vec![0_u8; block_size];
     for slot in 0..region.ring_blocks {
-        device.write_blocks(region.ring_start + slot, &zero)?;
+        let block_number = region
+            .ring_start
+            .checked_add(slot)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(block_number, &zero)?;
     }
     device.flush()?;
     let first = JournalCheckpoint {
@@ -525,7 +529,8 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         }
     }
     for (index, (slot, _)) in newer.iter().enumerate() {
-        if *slot != index as u64 {
+        let expected_slot = u64::try_from(index).map_err(|_| Error::ArithmeticOverflow)?;
+        if *slot != expected_slot {
             return Err(Error::Corrupt(
                 "post-checkpoint journal records are not contiguous from ring start",
             ));
