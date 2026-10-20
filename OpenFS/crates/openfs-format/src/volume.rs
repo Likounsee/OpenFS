@@ -1817,11 +1817,14 @@ impl OpenedVolume {
             ));
         }
 
-        let mut metadata_bytes = Vec::new();
+        // Counts and fixed record widths were checked above, so reserve the exact
+        // serialized sizes once. This avoids geometric Vec growth and transient copies
+        // when replacing a large namespace near the descriptor's capacity limit.
+        let mut metadata_bytes = Vec::with_capacity(metadata_bytes_needed);
         for record in namespace.objects() {
             metadata_bytes.extend_from_slice(&record.encode()?);
         }
-        let mut directory_bytes = Vec::new();
+        let mut directory_bytes = Vec::with_capacity(directory_bytes_needed);
         for entry in namespace.entries() {
             directory_bytes.extend_from_slice(&entry.encode()?);
         }
