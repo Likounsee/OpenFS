@@ -354,6 +354,10 @@ impl Namespace {
         {
             return Err(Error::InvalidInput("destination name already exists"));
         }
+        // A true no-op must not consume a metadata generation or rewrite both indexes.
+        if new_parent_id == old_parent_id && new_name == old_entry.name {
+            return Ok(());
+        }
 
         let mut updated_record = record.clone();
         updated_record.parent_id = new_parent_id.0;
@@ -418,8 +422,9 @@ impl Namespace {
         if record.kind == ObjectKind::Directory
             && self
                 .names
-                .keys()
-                .any(|(parent_id, _)| *parent_id == object_id)
+                .range((object_id, String::new())..)
+                .next()
+                .is_some_and(|((parent_id, _), _)| *parent_id == object_id)
         {
             return Err(Error::InvalidInput("directory is not empty"));
         }
