@@ -2812,6 +2812,7 @@ impl OpenedVolume {
 
         // read_namespace_extent_maps already validates every extent map against the
         // allocation bitmap and global ownership graph; do not scan the same bits again.
+        let block_size = u64::from(self.volume.block_size);
         if length == 0 || offset >= record.size {
             writer.flush()?;
             return Ok(0);
