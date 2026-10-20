@@ -602,6 +602,10 @@ impl Namespace {
         if root.kind != ObjectKind::Directory || root.parent_id != 0 {
             return Err(Error::Corrupt("namespace root metadata is invalid"));
         }
+        // The root has no directory entry, so the ordinary entry walk below would
+        // otherwise never run its record encoder and validate its serialized fields.
+        root.encode()
+            .map_err(|_| Error::Corrupt("invalid root metadata record in namespace"))?;
         if self.names.len() != self.parents.len()
             || self.names.len().checked_add(1) != Some(self.objects.len()) {
             return Err(Error::Corrupt(
@@ -611,6 +615,9 @@ impl Namespace {
 
         let mut expected_extent_roots = BTreeMap::new();
         for record in self.objects.values() {
+            record
+                .encode()
+                .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
             // Reconstructed namespaces must obey the same layout invariants as live
             // mutations; persisted records do not pass through insert().
             if record.kind != ObjectKind::File && record.extent_root_block.is_some() {
