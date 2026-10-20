@@ -530,7 +530,7 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
     let root_record = namespace
         .object(root_id)
         .ok_or("tree root metadata is missing")?;
-    println!("{}", if target.is_empty() { "/" } else { target });
+    println!("{}", namespace.path_of(root_id)?);
 
     let mut stack: Vec<(ObjectId, usize)> = if root_record.kind == ObjectKind::Directory {
         vec![(root_id, 0)]
