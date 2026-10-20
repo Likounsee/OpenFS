@@ -1450,6 +1450,9 @@ impl OpenedVolume {
 
         // A single object may appear only once: otherwise the requested final state
         // is ambiguous and "all changes committed" cannot be established after an I/O error.
+        let original_entries = namespace.entries()
+            .map(|entry| (entry.object_id, (entry.parent_id, entry.name.clone())))
+            .collect::<std::collections::BTreeMap<_, _>>();
         let mut seen = std::collections::BTreeSet::new();
         let mut original_locations = Vec::with_capacity(changes.len());
         for (object_id, _, _) in changes {
@@ -1460,14 +1463,14 @@ impl OpenedVolume {
             }
             let record = namespace.object(*object_id)
                 .ok_or(Error::InvalidInput("object does not exist"))?;
-            let entry = namespace.entries()
-                .find(|entry| entry.object_id == object_id.0)
+            let (parent_id, name) = original_entries.get(&object_id.0)
                 .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
-            original_locations.push((
-                *object_id,
-                record.parent_id,
-                entry.name.clone(),
-            ));
+            if *parent_id != record.parent_id {
+                return Err(Error::Corrupt(
+                    "renamed object's entry disagrees with its metadata",
+                ));
+            }
+            original_locations.push((*object_id, record.parent_id, name.clone()));
         }
 
         for (object_id, parent_id, name) in changes {
