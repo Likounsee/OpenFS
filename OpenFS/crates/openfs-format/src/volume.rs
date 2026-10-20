@@ -2945,8 +2945,11 @@ impl OpenedVolume {
             const STAGING_BLOCKS: usize = 8;
             let mut contents = vec![0_u8; block_size.checked_mul(STAGING_BLOCKS)
                 .ok_or(Error::ArithmeticOverflow)?];
+            // Reuse the small per-batch length table rather than allocating it for
+            // every group in a large reader-driven import.
+            let mut valid_lengths = Vec::with_capacity(STAGING_BLOCKS);
             loop {
-                let mut valid_lengths = Vec::with_capacity(STAGING_BLOCKS);
+                valid_lengths.clear();
                 for slot in 0..STAGING_BLOCKS {
                     let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
                     let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
