@@ -1738,6 +1738,19 @@ impl OpenedVolume {
                 "persistent rename requires a published inventory",
             ));
         };
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        // Avoid copy-on-write inventory publication when the requested name and parent
+        // already identify this object. The in-memory rename path is also a no-op, but
+        // without this guard it would still allocate and flush replacement metadata.
+        if record.parent_id == new_parent_id.0
+            && namespace
+                .lookup(new_parent_id, new_name)
+                .is_some_and(|entry| entry.object_id == object_id.0)
+        {
+            return Ok(());
+        }
         namespace.rename(object_id, new_parent_id, new_name)?;
         self.replace_persistent_namespace_inventory(device, &namespace)?;
         Ok(())
@@ -2461,8 +2474,16 @@ impl OpenedVolume {
                 "persistent path reads require a published inventory",
             ));
         };
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        // Resolve and validate the requested object before loading every extent map.
+        // Invalid paths and directory reads should fail without volume-wide extent I/O.
         let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
