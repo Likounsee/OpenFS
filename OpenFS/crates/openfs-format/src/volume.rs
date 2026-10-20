@@ -3925,22 +3925,22 @@ impl OpenedVolume {
             // The cap also stays below the bitmap segment's supported batch-allocation limit.
             const STAGING_BATCH_BYTES: usize = 1024 * 1024;
             const MAX_STAGING_BLOCKS: usize = 64;
-            const STAGING_BLOCKS: usize =
+            let staging_blocks =
                 (STAGING_BATCH_BYTES / block_size).clamp(1, MAX_STAGING_BLOCKS);
             // Each block retains its exact valid-byte count so the final partial block
             // contributes only its logical payload to the file length.
             let mut contents = vec![
                 0_u8;
                 block_size
-                    .checked_mul(STAGING_BLOCKS)
+                    .checked_mul(staging_blocks)
                     .ok_or(Error::ArithmeticOverflow)?
             ];
             // Reuse the small per-batch length table rather than allocating it for
             // every group in a large reader-driven import.
-            let mut valid_lengths = Vec::with_capacity(STAGING_BLOCKS);
+            let mut valid_lengths = Vec::with_capacity(staging_blocks);
             loop {
                 valid_lengths.clear();
-                for slot in 0..STAGING_BLOCKS {
+                for slot in 0..staging_blocks {
                     let start = slot
                         .checked_mul(block_size)
                         .ok_or(Error::ArithmeticOverflow)?;
