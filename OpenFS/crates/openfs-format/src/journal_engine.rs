@@ -806,6 +806,7 @@ fn redo_chunk_size(block_size: usize) -> Result<usize> {
     Ok(chunk_size)
 }
 
+#[cfg(test)]
 fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<u8>>> {
     let chunk_size = redo_chunk_size(block_size)?;
     let count = update
