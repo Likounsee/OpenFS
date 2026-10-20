@@ -2881,9 +2881,6 @@ impl OpenedVolume {
             let map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
-            let old_logical_blocks =
-                record.size / block_size + u64::from(record.size % block_size != 0);
-            self.validate_extent_allocations(device, map, old_logical_blocks)?;
 
             let tail_offset = offset % block_size;
             let tail_capacity = if tail_offset == 0 {
