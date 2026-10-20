@@ -260,6 +260,11 @@ impl PersistentJournal {
         update_count: usize,
     ) -> Result<usize> {
         self.region.validate(device)?;
+        if update_count == 0 {
+            return Err(Error::InvalidInput(
+                "journal transaction must contain redo updates",
+            ));
+        }
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
         let chunk_capacity = redo_chunk_size(block_size)?;
