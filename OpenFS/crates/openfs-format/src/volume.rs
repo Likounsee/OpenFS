@@ -240,12 +240,12 @@ impl OpenedVolume {
             // transient bitmap memory and copied every byte for each single-block
             // allocation, including allocations on nearly-full volumes.
             let mut selected = None;
-            for (byte_index, byte) in bitmap
-                .iter_mut()
-                .enumerate()
-                .take(end_byte)
-                .skip(first_byte)
-            {
+            // Slice to the usable byte range directly: iterator skip() would still
+            // walk the unused prefix of the bitmap page on later segments.
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter_mut().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -386,7 +386,12 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            // Visit only bytes overlapping this data segment; the first bitmap
+            // page may contain a large reserved prefix that is irrelevant to this count.
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
