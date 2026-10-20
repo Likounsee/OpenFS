@@ -3066,6 +3066,10 @@ impl OpenedVolume {
             let old_map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let validation_block_size = u64::from(self.volume.block_size);
+            let logical_blocks = existing.size / validation_block_size
+                + u64::from(existing.size % validation_block_size != 0);
+            self.validate_extent_allocations(device, old_map, logical_blocks)?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
@@ -3247,6 +3251,12 @@ impl OpenedVolume {
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        if let Some(current_map) = extent_maps.get(&object_id) {
+            let validation_block_size = u64::from(self.volume.block_size);
+            let logical_blocks = record.size / validation_block_size
+                + u64::from(record.size % validation_block_size != 0);
+            self.validate_extent_allocations(device, current_map, logical_blocks)?;
+        }
 
         // Appends that fit in the current final block need no extent-map replacement.
         // Larger appends stage new data and a new extent root before publishing the new size.
