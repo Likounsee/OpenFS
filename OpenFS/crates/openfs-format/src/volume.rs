@@ -1699,6 +1699,24 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Remove a directory subtree addressed by its persistent path.
+    ///
+    /// The existing tree-removal operation performs the full ownership preflight and
+    /// publishes the namespace change before reclaiming any data blocks.
+    pub fn remove_persistent_tree_at_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+    ) -> Result<()> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent tree removal requires a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        self.remove_persistent_tree(device, object_id)
+    }
+
     /// Remove a persistent directory and all descendants, reclaiming file storage.
     ///
     /// The complete subtree is removed in one copy-on-write namespace publication. Data
@@ -2989,6 +3007,25 @@ impl OpenedVolume {
         }
         tail_cleanup?;
         Ok(())
+    }
+
+    /// Truncate a regular file identified by its persistent path.
+    ///
+    /// Path resolution is kept at the volume boundary so callers do not need to rebuild
+    /// the namespace or translate a path to an internal object ID themselves.
+    pub fn truncate_persistent_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        new_size: u64,
+    ) -> Result<()> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent truncation requires a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        self.truncate_persistent_file(device, object_id, new_size)
     }
 
     /// Replace a persistent file from a reader without buffering the complete input.
