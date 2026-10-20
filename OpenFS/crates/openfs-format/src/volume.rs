@@ -3867,12 +3867,14 @@ impl OpenedVolume {
                 let end_byte =
                     usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                         .map_err(|_| Error::ArithmeticOverflow)?;
-                for (byte_index, bitmap_byte) in cached_bitmap
-                    .iter()
-                    .enumerate()
-                    .take(end_byte)
-                    .skip(first_byte)
+                // Start iteration at the first byte in this extent segment.
+                // Using enumerate().take().skip() on the full bitmap walks every
+                // preceding byte again for each fragmented extent, making validation
+                // needlessly quadratic within a bitmap page.
+                for (relative_index, bitmap_byte) in
+                    cached_bitmap[first_byte..end_byte].iter().enumerate()
                 {
+                    let byte_index = first_byte + relative_index;
                     let mut mask = u8::MAX;
                     if byte_index == first_byte {
                         mask &= u8::MAX << (local_start % 8);
