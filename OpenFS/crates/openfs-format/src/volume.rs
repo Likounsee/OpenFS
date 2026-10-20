@@ -1770,6 +1770,43 @@ impl OpenedVolume {
     ) -> Result<u64> {
         self.validate_device(device)?;
         namespace.validate()?;
+
+        // The on-disk descriptor has a fixed number of block references. Reject an
+        // oversized namespace from its fixed-width record counts before serializing the
+        // complete inventory or reading every file's extent map. Besides avoiding large
+        // temporary allocations, this makes capacity failure cheap and side-effect free.
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let descriptor_capacity = block_size
+            .checked_sub(48)
+            .ok_or(Error::ArithmeticOverflow)?
+            / 8;
+        let metadata_bytes_needed = namespace
+            .object_count()
+            .checked_mul(METADATA_RECORD_SIZE)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let directory_bytes_needed = namespace
+            .entry_count()
+            .checked_mul(DIRECTORY_ENTRY_SIZE)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let blocks_needed = |byte_count: usize| -> Result<usize> {
+            Ok(byte_count
+                .checked_add(block_size - 1)
+                .ok_or(Error::ArithmeticOverflow)?
+                / block_size)
+        };
+        let metadata_blocks_needed = blocks_needed(metadata_bytes_needed)?;
+        let directory_blocks_needed = blocks_needed(directory_bytes_needed)?;
+        if metadata_blocks_needed
+            .checked_add(directory_blocks_needed)
+            .ok_or(Error::ArithmeticOverflow)?
+            > descriptor_capacity
+        {
+            return Err(Error::InvalidInput(
+                "namespace inventory exceeds descriptor block capacity",
+            ));
+        }
+
         // Do not publish metadata that points at missing, free, overlapping, or
         // otherwise malformed extent maps. Validate the complete incoming ownership
         // graph while the previous inventory is still authoritative.
@@ -1789,24 +1826,11 @@ impl OpenedVolume {
             directory_bytes.extend_from_slice(&entry.encode()?);
         }
 
-        let block_size =
-            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        let metadata_blocks_needed = metadata_bytes
-            .len()
-            .checked_add(block_size - 1)
-            .ok_or(Error::ArithmeticOverflow)?
-            / block_size;
-        let directory_blocks_needed = directory_bytes
-            .len()
-            .checked_add(block_size - 1)
-            .ok_or(Error::ArithmeticOverflow)?
-            / block_size;
-        let descriptor_capacity = block_size
-            .checked_sub(48)
-            .ok_or(Error::ArithmeticOverflow)?
-            / 8;
-        if metadata_blocks_needed
-            .checked_add(directory_blocks_needed)
+        // The fixed-width preflight above guarantees the serialized streams fit the
+        // descriptor's reference budget; keep the actual lengths as a defensive format
+        // consistency check in case record encodings ever change.
+        if blocks_needed(metadata_bytes.len())?
+            .checked_add(blocks_needed(directory_bytes.len())?)
             .ok_or(Error::ArithmeticOverflow)?
             > descriptor_capacity
         {
