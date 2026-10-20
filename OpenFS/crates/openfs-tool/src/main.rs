@@ -489,7 +489,16 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             ObjectKind::Directory => "dir ",
             ObjectKind::File => "file",
         };
-        println!("{kind}\t{}\t{}", entry.object_id, entry.name);
+        let record = namespace
+            .object(entry.object_id)
+            .ok_or("directory entry references missing object metadata")?;
+        println!(
+            "{kind}\t{}\t{} bytes\tgeneration {}\t{}",
+            entry.object_id,
+            record.size,
+            record.generation,
+            entry.name
+        );
     }
     Ok(())
 }
@@ -622,6 +631,32 @@ fn stat_namespace_entry(
     match record.extent_root_block {
         Some(block) => println!("Extent-map root block: {block}"),
         None => println!("Extent-map root block: none"),
+    }
+
+    if record.kind == ObjectKind::File {
+        let maps = volume.read_namespace_extent_maps(&mut device, &namespace)?;
+        let map = maps
+            .get(&object_id)
+            .ok_or("file extent map is missing from the persistent inventory")?;
+        let allocated_blocks = map.extents().iter().try_fold(0_u64, |total, extent| {
+            total
+                .checked_add(extent.block_count)
+                .ok_or("allocated block count overflows")
+        })?;
+        let block_size_bytes = u64::from(block_size);
+        let allocated_bytes = allocated_blocks
+            .checked_mul(block_size_bytes)
+            .ok_or("allocated byte count overflows")?;
+        let logical_blocks = record.size / block_size_bytes
+            + u64::from(record.size % block_size_bytes != 0);
+        println!("Logical blocks: {logical_blocks}");
+        println!("Allocated data blocks: {allocated_blocks}");
+        println!("Allocated data bytes: {allocated_bytes}");
+        println!("Physical extents: {}", map.extents().len());
+        println!(
+            "Unused capacity in final allocated block: {} bytes",
+            allocated_bytes.saturating_sub(record.size)
+        );
     }
     Ok(())
 }
