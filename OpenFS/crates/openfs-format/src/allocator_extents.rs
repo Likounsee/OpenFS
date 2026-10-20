@@ -690,7 +690,6 @@ impl OpenedVolume {
     /// allocated together: each journaled batch must fit within one bitmap segment.
     pub fn free_data_block_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<u64>> {
         validate_device(self, device)?;
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_block;
@@ -757,7 +756,6 @@ impl OpenedVolume {
     /// atomic allocation to a single bitmap segment.
     pub fn free_extent_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<FreeExtent>> {
         validate_device(self, device)?;
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_block;
@@ -777,6 +775,7 @@ impl OpenedVolume {
                 .checked_add(bitmap_index)
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
             let first_byte =
@@ -1188,12 +1187,12 @@ impl OpenedVolume {
         device: &mut D,
     ) -> Result<Vec<u64>> {
         validate_device(self, device)?;
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut allocated = Vec::new();
+        let mut bitmap = vec![0_u8; layout.block_size as usize];
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1203,8 +1202,12 @@ impl OpenedVolume {
                 base.checked_add(bits_per_block)
                     .ok_or(Error::ArithmeticOverflow)?,
             );
-            let mut bitmap = vec![0_u8; layout.block_size as usize];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
             let first_byte =
