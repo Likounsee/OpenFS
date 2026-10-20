@@ -693,6 +693,30 @@ fn stat_namespace_entry(
             0
         };
         println!("Unused capacity in final allocated block: {tail_slack} bytes");
+    } else {
+        let mut child_count = 0_u64;
+        let mut file_count = 0_u64;
+        let mut directory_count = 0_u64;
+        for child in namespace.children(object_id) {
+            child_count = child_count
+                .checked_add(1)
+                .ok_or("directory child count overflows")?;
+            match child.kind {
+                ObjectKind::File => {
+                    file_count = file_count
+                        .checked_add(1)
+                        .ok_or("directory file count overflows")?;
+                }
+                ObjectKind::Directory => {
+                    directory_count = directory_count
+                        .checked_add(1)
+                        .ok_or("directory subdirectory count overflows")?;
+                }
+            }
+        }
+        println!("Direct children: {child_count}");
+        println!("Direct files: {file_count}");
+        println!("Direct subdirectories: {directory_count}");
     }
     Ok(())
 }
