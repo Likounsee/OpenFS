@@ -466,9 +466,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     next_transaction_id: u64,
 ) -> Result<ScannedRecords> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    let ring_capacity =
-        usize::try_from(region.ring_blocks).map_err(|_| Error::ArithmeticOverflow)?;
-    let mut newer = Vec::<(u64, JournalRecord)>::with_capacity(ring_capacity);
+    let mut newer = Vec::<(u64, JournalRecord)>::new();
     // Only the earliest malformed slot matters: it must not precede a later
     // valid record. Tracking one index avoids a second allocation for bad slots.
     let mut first_malformed_slot = None;
