@@ -713,6 +713,11 @@ fn read_checkpoint_block<D: BlockDevice>(
     block_number: u64,
 ) -> Result<JournalCheckpoint> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    if block_size < crate::JOURNAL_CHECKPOINT_SIZE {
+        return Err(Error::InvalidInput(
+            "device block is too small for journal checkpoints",
+        ));
+    }
     let mut block = vec![0_u8; block_size];
     device.read_blocks(block_number, &mut block)?;
     if block[crate::JOURNAL_CHECKPOINT_SIZE..]
@@ -731,6 +736,11 @@ fn write_checkpoint_block<D: BlockDevice>(
 ) -> Result<()> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let encoded = checkpoint.encode()?;
+    if block_size < encoded.len() {
+        return Err(Error::InvalidInput(
+            "device block is too small for journal checkpoints",
+        ));
+    }
     let mut block = vec![0_u8; block_size];
     block[..encoded.len()].copy_from_slice(&encoded);
     device.write_blocks(block_number, &block)
@@ -750,7 +760,9 @@ fn validate_home_target<D: BlockDevice>(
             "redo target overlaps the journal region",
         ));
     }
-    if contents_len != device.block_size() as usize {
+    let block_size =
+        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    if contents_len != block_size {
         return Err(Error::InvalidInput("redo image has incorrect block size"));
     }
     Ok(())
