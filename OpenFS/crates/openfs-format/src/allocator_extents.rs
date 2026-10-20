@@ -403,18 +403,35 @@ impl OpenedVolume {
     /// Duplicate blocks, non-data blocks, blocks in different bitmap segments, and
     /// already-free blocks are rejected before any mutation is journaled.
     pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
-        validate_device(self, device)?;
         if blocks.is_empty() {
             return Err(Error::InvalidInput("batch free list must not be empty"));
         }
-        let layout = self.volume.layout;
-        let bits_per_block = u64::from(self.volume.block_size) * 8;
         let mut sorted = blocks.to_vec();
         sorted.sort_unstable();
-        sorted.dedup();
-        if sorted.len() != blocks.len() {
+        if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::InvalidInput("batch free list contains duplicates"));
         }
+        self.free_blocks_sorted(device, &sorted)
+    }
+
+    /// Free an already sorted, duplicate-free list without making another proportional
+    /// allocation. Used by reclamation after it has validated and sorted the full list.
+    pub(crate) fn free_blocks_sorted<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        sorted: &[u64],
+    ) -> Result<()> {
+        validate_device(self, device)?;
+        if sorted.is_empty() {
+            return Err(Error::InvalidInput("batch free list must not be empty"));
+        }
+        if sorted.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(Error::InvalidInput(
+                "sorted batch free list must be strictly increasing",
+            ));
+        }
+        let layout = self.volume.layout;
+        let bits_per_block = u64::from(self.volume.block_size) * 8;
         if sorted
             .iter()
             .any(|block| *block < layout.data_start || *block >= layout.backup_superblock)
@@ -445,7 +462,7 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        for block in &sorted {
+        for block in sorted {
             let local = *block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let mask = 1_u8 << (local % 8);
@@ -455,10 +472,9 @@ impl OpenedVolume {
                 ));
             }
         }
-        self.ensure_inventory_blocks_releasable(device, &sorted)?;
-        // The list is sorted and duplicate-free. Scan adjacent blocks as bounded
-        // ranges instead of issuing one device read per block; sparse batches still
-        // retain exact per-block protection because each run is checked separately.
+        self.ensure_inventory_blocks_releasable(device, sorted)?;
+        // The sorted list lets us check descriptor protection by contiguous runs,
+        // avoiding one device read per block even for sparse batches.
         let mut run_start = sorted[0];
         let mut previous = sorted[0];
         for &block in sorted.iter().skip(1) {
@@ -483,7 +499,7 @@ impl OpenedVolume {
             run_end,
             self.volume.block_size,
         )?;
-        for block in &sorted {
+        for block in sorted {
             let local = *block - base;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             bitmap[byte] &= !(1_u8 << (local % 8));
