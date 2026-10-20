@@ -698,8 +698,13 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                local_end
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
@@ -849,8 +854,13 @@ impl OpenedVolume {
             let local_end = end - base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                local_end
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate_local = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
@@ -3791,8 +3801,13 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
             .min(base.saturating_add(bits_per_bitmap_block));
         let first_byte =
             usize::try_from((first - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
-        let end_byte = usize::try_from((end - base).saturating_add(7) / 8)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let end_byte = usize::try_from(
+            (end - base)
+                .checked_add(7)
+                .ok_or(Error::ArithmeticOverflow)?
+                / 8,
+        )
+        .map_err(|_| Error::ArithmeticOverflow)?;
         for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
             let mut mask = u8::MAX;
             if byte_index == first_byte {
