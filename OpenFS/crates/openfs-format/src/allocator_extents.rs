@@ -1905,9 +1905,7 @@ pub(crate) fn validate_bitmap_reserved_bits(
     if bitmap[..first_data_byte]
         .iter()
         .any(|byte| *byte != u8::MAX)
-        || bitmap[end_data_byte..]
-            .iter()
-            .any(|byte| *byte != u8::MAX)
+        || bitmap[end_data_byte..].iter().any(|byte| *byte != u8::MAX)
     {
         return Err(Error::Corrupt(
             "allocation bitmap marks a reserved or padding block free",
