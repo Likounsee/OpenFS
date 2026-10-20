@@ -1307,7 +1307,6 @@ impl OpenedVolume {
         device: &mut D,
         owned_ranges: &[(u64, u64)],
     ) -> Result<AllocationOwnershipReport> {
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         if owned_ranges.iter().any(|(start, end)| {
             start >= end || *start < layout.data_start || *end > layout.backup_superblock
@@ -1339,6 +1338,7 @@ impl OpenedVolume {
                 .checked_add(bitmap_index)
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_byte =
                 usize::try_from((start - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(
@@ -1449,7 +1449,6 @@ impl OpenedVolume {
         owned_data_blocks: &[u64],
     ) -> Result<AllocationOwnershipReport> {
         validate_device(self, device)?;
-        self.validate_allocation_bitmap(device)?;
         let layout = self.volume.layout;
         let mut owned = owned_data_blocks.to_vec();
         owned.sort_unstable();
@@ -1488,6 +1487,7 @@ impl OpenedVolume {
                 .checked_add(bitmap_index)
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
+            validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_byte =
                 usize::try_from((start - base) / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let end_byte = usize::try_from(
