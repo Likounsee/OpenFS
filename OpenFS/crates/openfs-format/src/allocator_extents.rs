@@ -286,6 +286,8 @@ impl OpenedVolume {
                 "batch allocation count must fit within one bitmap block",
             ));
         }
+        let requested_count =
+            usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
         let layout = self.volume.layout;
         let first_bitmap = layout.data_start / bits_per_block;
         let last_data_block = layout
@@ -314,7 +316,7 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
-            let mut selected = Vec::with_capacity(count as usize);
+            let mut selected = Vec::with_capacity(requested_count);
             // Search the bitmap by byte and enumerate only free bits. The previous
             // block-by-block loop performed divisions and modulo operations for every
             // candidate, even when a full bitmap page contained no free blocks.
@@ -344,7 +346,7 @@ impl OpenedVolume {
                     selected.push(
                         base.checked_add(local).ok_or(Error::ArithmeticOverflow)?,
                     );
-                    if selected.len() as u64 == count {
+                    if selected.len() == requested_count {
                         break;
                     }
                     available &= !(1_u8 << bit);
@@ -353,7 +355,7 @@ impl OpenedVolume {
                     break;
                 }
             }
-            if selected.len() as u64 != count {
+            if selected.len() != requested_count {
                 continue;
             }
             // Refresh the bitmap before touching candidate contents. A second opener may
