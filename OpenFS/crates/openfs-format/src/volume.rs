@@ -119,8 +119,7 @@ impl VolumeLayout {
 
     fn is_reserved(&self, block: u64) -> bool {
         block == 0
-            || (block >= self.bitmap_start
-                && block - self.bitmap_start < self.bitmap_blocks)
+            || (block >= self.bitmap_start && block - self.bitmap_start < self.bitmap_blocks)
             || block == self.journal.checkpoint_a
             || block == self.journal.checkpoint_b
             || (block >= self.journal.ring_start
@@ -469,12 +468,12 @@ impl OpenedVolume {
         if self.inventory_descriptor_cache.is_none() {
             self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
         }
-        let Some((_, descriptor)) = self
-            .inventory_descriptor_cache
-            .as_ref()
-            .ok_or(Error::Corrupt(
-                "inventory descriptor cache was not initialized",
-            ))?
+        let Some((_, descriptor)) =
+            self.inventory_descriptor_cache
+                .as_ref()
+                .ok_or(Error::Corrupt(
+                    "inventory descriptor cache was not initialized",
+                ))?
         else {
             return Ok(());
         };
@@ -547,12 +546,12 @@ impl OpenedVolume {
         if self.inventory_descriptor_cache.is_none() {
             self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
         }
-        let Some((_, descriptor)) = self
-            .inventory_descriptor_cache
-            .as_ref()
-            .ok_or(Error::Corrupt(
-                "inventory descriptor cache was not initialized",
-            ))?
+        let Some((_, descriptor)) =
+            self.inventory_descriptor_cache
+                .as_ref()
+                .ok_or(Error::Corrupt(
+                    "inventory descriptor cache was not initialized",
+                ))?
         else {
             return Ok(());
         };
@@ -1136,7 +1135,7 @@ impl OpenedVolume {
                     }
                     let bitmap = allocation_bitmaps
                         .get(&bitmap_index)
-                .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
+                        .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
                     let local_bit = *inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1276,7 +1275,9 @@ impl OpenedVolume {
         path: &str,
     ) -> Result<MetadataRecord> {
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
         };
         let object_id = namespace.resolve_path(path)?;
         namespace
@@ -1298,7 +1299,9 @@ impl OpenedVolume {
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
         };
         let directory_id = namespace.resolve_path(directory_path)?;
         namespace.list_directory(directory_id, after_name, limit)
@@ -1464,7 +1467,9 @@ impl OpenedVolume {
         )?
         .into_iter()
         .next()
-        .ok_or(Error::Corrupt("single-directory creation returned no object ID"))
+        .ok_or(Error::Corrupt(
+            "single-directory creation returned no object ID",
+        ))
     }
 
     /// Remove a persistent file or empty directory addressed by its path.
@@ -1530,7 +1535,8 @@ impl OpenedVolume {
 
         // A single object may appear only once: otherwise the requested final state
         // is ambiguous and "all changes committed" cannot be established after an I/O error.
-        let original_entries = namespace.entries()
+        let original_entries = namespace
+            .entries()
             .map(|entry| (entry.object_id, (entry.parent_id, entry.name.clone())))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut seen = std::collections::BTreeSet::new();
@@ -1541,9 +1547,11 @@ impl OpenedVolume {
                     "an object may be renamed only once per batch",
                 ));
             }
-            let record = namespace.object(*object_id)
+            let record = namespace
+                .object(*object_id)
                 .ok_or(Error::InvalidInput("object does not exist"))?;
-            let (parent_id, name) = original_entries.get(&object_id.0)
+            let (parent_id, name) = original_entries
+                .get(&object_id.0)
                 .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
             if *parent_id != record.parent_id {
                 return Err(Error::Corrupt(
@@ -1617,10 +1625,12 @@ impl OpenedVolume {
             if *object_id == namespace.root_id() {
                 return Err(Error::InvalidInput("the namespace root cannot be removed"));
             }
-            let record = namespace.object(*object_id)
+            let record = namespace
+                .object(*object_id)
                 .cloned()
                 .ok_or(Error::InvalidInput("object does not exist"))?;
-            let depth = namespace.path_of(*object_id)?
+            let depth = namespace
+                .path_of(*object_id)?
                 .split('/')
                 .filter(|component| !component.is_empty())
                 .count();
@@ -1660,7 +1670,9 @@ impl OpenedVolume {
                 .get(&record.id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
             let data_blocks = map.extents().iter().try_fold(0_u64, |count, extent| {
-                count.checked_add(extent.block_count).ok_or(Error::ArithmeticOverflow)
+                count
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)
             })?;
             capacity
                 .checked_add(data_blocks)
@@ -1672,14 +1684,18 @@ impl OpenedVolume {
         let mut reclaim_blocks = Vec::with_capacity(reclaim_capacity);
         for record in &records {
             if let Some(root) = record.extent_root_block {
-                let maps = extent_maps.as_ref()
+                let maps = extent_maps
+                    .as_ref()
                     .ok_or(Error::Corrupt("file extent maps were not loaded"))?;
-                let map = maps.get(&record.id)
+                let map = maps
+                    .get(&record.id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
                         reclaim_blocks.push(
-                            extent.physical_start.checked_add(delta)
+                            extent
+                                .physical_start
+                                .checked_add(delta)
                                 .ok_or(Error::ArithmeticOverflow)?,
                         );
                     }
@@ -1713,9 +1729,9 @@ impl OpenedVolume {
             }
         }
         self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
-            .map_err(|_| Error::Corrupt(
-                "objects were removed but some blocks could not be reclaimed",
-            ))?;
+            .map_err(|_| {
+                Error::Corrupt("objects were removed but some blocks could not be reclaimed")
+            })?;
         Ok(())
     }
 
@@ -2361,7 +2377,8 @@ impl OpenedVolume {
         }
         let old_parent_id = ObjectId::new(record.parent_id)
             .map_err(|_| Error::Corrupt("renamed object has an invalid parent"))?;
-        let old_name = namespace.entries()
+        let old_name = namespace
+            .entries()
             .find(|entry| entry.object_id == object_id.0)
             .map(|entry| entry.name.clone())
             .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
@@ -2373,7 +2390,8 @@ impl OpenedVolume {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
                         item.parent_id == new_parent_id.0
-                            && active.lookup(new_parent_id, new_name)
+                            && active
+                                .lookup(new_parent_id, new_name)
                                 .is_some_and(|entry| entry.object_id == object_id.0)
                     }) =>
                 {
@@ -2382,7 +2400,8 @@ impl OpenedVolume {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
                         item.parent_id == old_parent_id.0
-                            && active.lookup(old_parent_id, &old_name)
+                            && active
+                                .lookup(old_parent_id, &old_name)
                                 .is_some_and(|entry| entry.object_id == object_id.0)
                     }) =>
                 {
@@ -2878,7 +2897,13 @@ impl OpenedVolume {
             ));
         }
         self.read_file_range_from_validated_namespace(
-            device, namespace, extent_maps, object_id, offset, length, true,
+            device,
+            namespace,
+            extent_maps,
+            object_id,
+            offset,
+            length,
+            true,
         )
     }
 
@@ -2922,7 +2947,9 @@ impl OpenedVolume {
             // compare it with disk. Path-based callers pass maps just loaded and checked
             // by read_namespace_extent_maps; rereading the root here would duplicate I/O.
             if validate_extent_graph {
-                let root_block = record.extent_root_block.ok_or(Error::Corrupt("extent-map root disappeared during validation"))?;
+                let root_block = record.extent_root_block.ok_or(Error::Corrupt(
+                    "extent-map root disappeared during validation",
+                ))?;
                 let persisted_map = self.read_extent_map(device, root_block, record.size)?;
                 if loaded_map != &persisted_map {
                     return Err(Error::Corrupt(
@@ -2954,20 +2981,22 @@ impl OpenedVolume {
         // Inspect extent descriptors rather than probing every logical block, keeping
         // large sequential reads O(number of extents) instead of O(number of blocks).
         if offset % block_size == 0 && read_len as u64 % block_size == 0 {
-            let requested_blocks = u64::try_from(read_len)
-                .map_err(|_| Error::ArithmeticOverflow)? / block_size;
+            let requested_blocks =
+                u64::try_from(read_len).map_err(|_| Error::ArithmeticOverflow)? / block_size;
             let requested_end = first_logical
                 .checked_add(requested_blocks)
                 .ok_or(Error::ArithmeticOverflow)?;
             if let Some(extent) = map.and_then(|extent_map| {
                 extent_map.extents().iter().find(|extent| {
                     extent.logical_start <= first_logical
-                        && extent.logical_start
+                        && extent
+                            .logical_start
                             .checked_add(extent.block_count)
                             .is_some_and(|extent_end| extent_end >= requested_end)
                 })
             }) {
-                let physical_start = extent.physical_start
+                let physical_start = extent
+                    .physical_start
                     .checked_add(first_logical - extent.logical_start)
                     .ok_or(Error::ArithmeticOverflow)?;
                 device.read_blocks(physical_start, &mut output)?;
@@ -3006,8 +3035,8 @@ impl OpenedVolume {
             // Unmapped logical blocks remain zero-filled (sparse-file semantics).
         }
         Ok(output)
-
-    }    /// Write bytes into an existing file's already-allocated extents.
+    }
+    /// Write bytes into an existing file's already-allocated extents.
     ///
     /// This operation does not extend files, allocate blocks, or update metadata. It
     /// rejects ranges that cross EOF or touch sparse holes before writing any bytes.
@@ -3130,7 +3159,9 @@ impl OpenedVolume {
             let within_end =
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             let chunk_len = within_end - within_start;
-            let physical = map.physical_block(logical).ok_or(Error::Corrupt("target extent disappeared after write-range preflight"))?;
+            let physical = map.physical_block(logical).ok_or(Error::Corrupt(
+                "target extent disappeared after write-range preflight",
+            ))?;
             let source_end = source_offset
                 .checked_add(chunk_len)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -3218,7 +3249,13 @@ impl OpenedVolume {
         }
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         self.read_file_range_from_validated_namespace(
-            device, &namespace, &extent_maps, object_id, offset, length, false,
+            device,
+            &namespace,
+            &extent_maps,
+            object_id,
+            offset,
+            length,
+            false,
         )
     }
 
@@ -3304,42 +3341,59 @@ impl OpenedVolume {
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             if within_start == 0 && within_end == block_len {
                 let first_physical = map.and_then(|value| value.physical_block(logical));
-                let max_blocks = usize::try_from(
-                    (last_logical - logical + 1).min(STREAM_BATCH_BLOCKS as u64),
-                )
-                .map_err(|_| Error::ArithmeticOverflow)?;
+                let max_blocks =
+                    usize::try_from((last_logical - logical + 1).min(STREAM_BATCH_BLOCKS as u64))
+                        .map_err(|_| Error::ArithmeticOverflow)?;
                 let mut run_blocks = 1_usize;
                 while run_blocks < max_blocks {
                     let delta = u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
-                    let next_logical = logical.checked_add(delta).ok_or(Error::ArithmeticOverflow)?;
-                    let next_start = next_logical.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
-                    let next_end = next_start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let next_logical = logical
+                        .checked_add(delta)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let next_start = next_logical
+                        .checked_mul(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let next_end = next_start
+                        .checked_add(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     if next_start < offset || next_end > end {
                         break;
                     }
                     match first_physical {
                         Some(physical) => {
-                            let expected = physical.checked_add(delta).ok_or(Error::ArithmeticOverflow)?;
-                            if map.and_then(|value| value.physical_block(next_logical)) != Some(expected) {
+                            let expected = physical
+                                .checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?;
+                            if map.and_then(|value| value.physical_block(next_logical))
+                                != Some(expected)
+                            {
                                 break;
                             }
                         }
-                        None if map.and_then(|value| value.physical_block(next_logical)).is_none() => {}
+                        None if map
+                            .and_then(|value| value.physical_block(next_logical))
+                            .is_none() => {}
                         None => break,
                     }
                     run_blocks += 1;
                 }
-                let run_bytes = run_blocks.checked_mul(block_len).ok_or(Error::ArithmeticOverflow)?;
+                let run_bytes = run_blocks
+                    .checked_mul(block_len)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 if let Some(physical) = first_physical {
                     device.read_blocks(physical, &mut batch_buffer[..run_bytes])?;
                 } else {
                     batch_buffer[..run_bytes].fill(0);
                 }
                 writer.write_all(&batch_buffer[..run_bytes])?;
-                let run_blocks = u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
-                written = written.checked_add(u64::try_from(run_bytes).map_err(|_| Error::ArithmeticOverflow)?)
+                let run_blocks =
+                    u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                written = written
+                    .checked_add(u64::try_from(run_bytes).map_err(|_| Error::ArithmeticOverflow)?)
                     .ok_or(Error::ArithmeticOverflow)?;
-                logical = logical.checked_add(run_blocks).ok_or(Error::ArithmeticOverflow)?;
+                logical = logical
+                    .checked_add(run_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
             } else {
                 if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
                     device.read_blocks(physical, &mut block_buffer)?;
@@ -3347,9 +3401,12 @@ impl OpenedVolume {
                     block_buffer.fill(0);
                 }
                 writer.write_all(&block_buffer[within_start..within_end])?;
-                written = written.checked_add(
-                    u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?
-                ).ok_or(Error::ArithmeticOverflow)?;
+                written = written
+                    .checked_add(
+                        u64::try_from(within_end - within_start)
+                            .map_err(|_| Error::ArithmeticOverflow)?,
+                    )
+                    .ok_or(Error::ArithmeticOverflow)?;
                 logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
             }
         }
@@ -3413,18 +3470,23 @@ impl OpenedVolume {
         while remaining > 0 {
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
                 let mut run_blocks = 1_usize;
-                let max_blocks = usize::try_from(
-                    (remaining / block_size).min(STREAM_BATCH_BLOCKS as u64),
-                )
-                .map_err(|_| Error::ArithmeticOverflow)?;
+                let max_blocks =
+                    usize::try_from((remaining / block_size).min(STREAM_BATCH_BLOCKS as u64))
+                        .map_err(|_| Error::ArithmeticOverflow)?;
                 while run_blocks < max_blocks {
                     let next_logical = logical
-                        .checked_add(u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .checked_add(
+                            u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?,
+                        )
                         .ok_or(Error::ArithmeticOverflow)?;
                     let expected_physical = physical
-                        .checked_add(u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .checked_add(
+                            u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?,
+                        )
                         .ok_or(Error::ArithmeticOverflow)?;
-                    if map.and_then(|value| value.physical_block(next_logical)) != Some(expected_physical) {
+                    if map.and_then(|value| value.physical_block(next_logical))
+                        != Some(expected_physical)
+                    {
                         break;
                     }
                     run_blocks += 1;
@@ -3434,36 +3496,47 @@ impl OpenedVolume {
                     .ok_or(Error::ArithmeticOverflow)?;
                 device.read_blocks(physical, &mut batch_buffer[..bytes_to_read])?;
                 let bytes_to_write = usize::try_from(
-                    remaining.min(u64::try_from(bytes_to_read).map_err(|_| Error::ArithmeticOverflow)?),
+                    remaining
+                        .min(u64::try_from(bytes_to_read).map_err(|_| Error::ArithmeticOverflow)?),
                 )
                 .map_err(|_| Error::ArithmeticOverflow)?;
                 writer.write_all(&batch_buffer[..bytes_to_write])?;
                 let consumed_blocks =
                     u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
-                let consumed_bytes = u64::try_from(bytes_to_write)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
-                logical = logical.checked_add(consumed_blocks).ok_or(Error::ArithmeticOverflow)?;
+                let consumed_bytes =
+                    u64::try_from(bytes_to_write).map_err(|_| Error::ArithmeticOverflow)?;
+                logical = logical
+                    .checked_add(consumed_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 remaining -= consumed_bytes;
             } else {
                 // Emit a bounded run of sparse zeros without issuing disk reads.
                 let mut hole_blocks = 1_usize;
-                let max_blocks = usize::try_from(
-                    (remaining / block_size).min(STREAM_BATCH_BLOCKS as u64),
-                )
-                .map_err(|_| Error::ArithmeticOverflow)?;
+                let max_blocks =
+                    usize::try_from((remaining / block_size).min(STREAM_BATCH_BLOCKS as u64))
+                        .map_err(|_| Error::ArithmeticOverflow)?;
                 while hole_blocks < max_blocks {
                     let next_logical = logical
-                        .checked_add(u64::try_from(hole_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .checked_add(
+                            u64::try_from(hole_blocks).map_err(|_| Error::ArithmeticOverflow)?,
+                        )
                         .ok_or(Error::ArithmeticOverflow)?;
-                    if map.and_then(|value| value.physical_block(next_logical)).is_some() {
+                    if map
+                        .and_then(|value| value.physical_block(next_logical))
+                        .is_some()
+                    {
                         break;
                     }
                     hole_blocks += 1;
                 }
                 let bytes_to_write = usize::try_from(
                     remaining.min(
-                        u64::try_from(hole_blocks.checked_mul(block_len).ok_or(Error::ArithmeticOverflow)?)
-                            .map_err(|_| Error::ArithmeticOverflow)?,
+                        u64::try_from(
+                            hole_blocks
+                                .checked_mul(block_len)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        )
+                        .map_err(|_| Error::ArithmeticOverflow)?,
                     ),
                 )
                 .map_err(|_| Error::ArithmeticOverflow)?;
@@ -3471,8 +3544,11 @@ impl OpenedVolume {
                 writer.write_all(&batch_buffer[..bytes_to_write])?;
                 let consumed_blocks =
                     u64::try_from(hole_blocks).map_err(|_| Error::ArithmeticOverflow)?;
-                logical = logical.checked_add(consumed_blocks).ok_or(Error::ArithmeticOverflow)?;
-                remaining -= u64::try_from(bytes_to_write).map_err(|_| Error::ArithmeticOverflow)?;
+                logical = logical
+                    .checked_add(consumed_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                remaining -=
+                    u64::try_from(bytes_to_write).map_err(|_| Error::ArithmeticOverflow)?;
             }
         }
         writer.flush()?;
@@ -3724,10 +3800,14 @@ impl OpenedVolume {
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
             let data_blocks = old_map.extents().iter().try_fold(0_u64, |count, extent| {
-                count.checked_add(extent.block_count).ok_or(Error::ArithmeticOverflow)
+                count
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)
             })?;
             usize::try_from(
-                data_blocks.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+                data_blocks
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
             )
             .map_err(|_| Error::ArithmeticOverflow)?
         } else {
@@ -3769,22 +3849,32 @@ impl OpenedVolume {
             // Each block retains its exact valid-byte count so the final partial block
             // contributes only its logical payload to the file length.
             const STAGING_BLOCKS: usize = 8;
-            let mut contents = vec![0_u8; block_size.checked_mul(STAGING_BLOCKS)
-                .ok_or(Error::ArithmeticOverflow)?];
+            let mut contents = vec![
+                0_u8;
+                block_size
+                    .checked_mul(STAGING_BLOCKS)
+                    .ok_or(Error::ArithmeticOverflow)?
+            ];
             // Reuse the small per-batch length table rather than allocating it for
             // every group in a large reader-driven import.
             let mut valid_lengths = Vec::with_capacity(STAGING_BLOCKS);
             loop {
                 valid_lengths.clear();
                 for slot in 0..STAGING_BLOCKS {
-                    let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
-                    let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let start = slot
+                        .checked_mul(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let end = start
+                        .checked_add(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     let block_contents = &mut contents[start..end];
                     let mut filled = 0_usize;
                     while filled < block_size {
                         let count = match reader.read(&mut block_contents[filled..]) {
                             Ok(count) => count,
-                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                continue
+                            }
                             Err(error) => return Err(error.into()),
                         };
                         if count == 0 {
@@ -3809,7 +3899,8 @@ impl OpenedVolume {
                     break;
                 }
 
-                let count = u64::try_from(valid_lengths.len()).map_err(|_| Error::ArithmeticOverflow)?;
+                let count =
+                    u64::try_from(valid_lengths.len()).map_err(|_| Error::ArithmeticOverflow)?;
                 // Reserve rollback tracking before persisting any allocation in this
                 // batch. Otherwise growing the tracking Vec happens only after blocks
                 // have been allocated, leaving no recoverable inventory if reservation
@@ -3841,8 +3932,12 @@ impl OpenedVolume {
                     allocated.extend(blocks.iter().copied());
                 }
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
-                    let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
-                    let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let start = slot
+                        .checked_mul(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let end = start
+                        .checked_add(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     device.write_blocks(*block, &contents[start..end])?;
                     extent_map.push_coalescing(crate::Extent {
                         logical_start: logical_block,
@@ -3856,7 +3951,10 @@ impl OpenedVolume {
                         .checked_add(1)
                         .ok_or(Error::ArithmeticOverflow)?;
                 }
-                if valid_lengths.last().is_some_and(|filled| *filled < block_size) {
+                if valid_lengths
+                    .last()
+                    .is_some_and(|filled| *filled < block_size)
+                {
                     break;
                 }
             }
@@ -4221,12 +4319,8 @@ impl OpenedVolume {
         // An empty file has no extent map to inspect. Route its first append directly
         // through copy-on-write replacement rather than scanning every file's extents.
         if offset == record.size && record.size == 0 && record.extent_root_block.is_none() {
-            return self.write_persistent_file_contents_from_namespace(
-                device,
-                namespace,
-                object_id,
-                data,
-            );
+            return self
+                .write_persistent_file_contents_from_namespace(device, namespace, object_id, data);
         }
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
@@ -4429,9 +4523,13 @@ impl OpenedVolume {
                     .ok_or(Error::ArithmeticOverflow)?;
                 for byte_group in data[consumed..].chunks(batch_bytes) {
                     let chunk_count = byte_group.len() / block_size_usize
-                        + if byte_group.len() % block_size_usize != 0 { 1 } else { 0 };
-                    let count = u64::try_from(chunk_count)
-                        .map_err(|_| Error::ArithmeticOverflow)?;
+                        + if byte_group.len() % block_size_usize != 0 {
+                            1
+                        } else {
+                            0
+                        };
+                    let count =
+                        u64::try_from(chunk_count).map_err(|_| Error::ArithmeticOverflow)?;
                     let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
                         Ok(blocks) => (blocks, false),
                         Err(Error::InvalidInput(
@@ -4661,7 +4759,8 @@ impl OpenedVolume {
             };
             // validate_namespace_extent_roots already checked this root's range and
             // allocation bit in a bitmap-page-cached pass above.
-            let map = self.read_extent_map_after_root_validation(device, root, record.size, false)?;
+            let map =
+                self.read_extent_map_after_root_validation(device, root, record.size, false)?;
             let logical_blocks = record.size / u64::from(self.volume.block_size)
                 + u64::from(record.size % u64::from(self.volume.block_size) != 0);
             for (start, end) in map.validated_physical_ranges(
@@ -5126,7 +5225,12 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     / 8,
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, value) in scan_bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_index, value) in scan_bitmap
+                .iter()
+                .enumerate()
+                .take(end_byte)
+                .skip(first_byte)
+            {
                 let byte_base = bitmap_base
                     .checked_add(
                         u64::try_from(byte_index)
@@ -5206,10 +5310,10 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                         }
                         let mut bitmap = vec![0_u8; block_size];
                         let bitmap_block = layout
-                .bitmap_start
-                .checked_add(bitmap_index)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.read_blocks(bitmap_block, &mut bitmap)?;
+                            .bitmap_start
+                            .checked_add(bitmap_index)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        device.read_blocks(bitmap_block, &mut bitmap)?;
                         reference_bitmaps.insert(bitmap_index, bitmap);
                     }
                     let local_bit = *inventory_block % bits_per_bitmap_block;
@@ -5923,8 +6027,7 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
 }
 
 fn read_superblock<D: BlockDevice>(device: &mut D, block: u64) -> Result<[u8; SUPERBLOCK_SIZE]> {
-    let block_size =
-        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if block_size < SUPERBLOCK_SIZE {
         return Err(Error::InvalidInput(
             "device block is smaller than the superblock",
@@ -5942,8 +6045,7 @@ fn write_superblock<D: BlockDevice>(
     block: u64,
     encoded: &[u8; SUPERBLOCK_SIZE],
 ) -> Result<()> {
-    let block_size =
-        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if block_size < SUPERBLOCK_SIZE {
         return Err(Error::InvalidInput(
             "device block is smaller than the superblock",
