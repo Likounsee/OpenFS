@@ -687,12 +687,13 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_bitmap_block;
         let mut selected = None;
+        // Reuse one page buffer across the bitmap scan; every read fills a full block.
+        let mut bitmap = vec![0_u8; block_size];
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(bitmap_block, &mut bitmap)?;
             let bitmap_base = bitmap_index
                 .checked_mul(bits_per_bitmap_block)
