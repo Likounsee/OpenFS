@@ -195,15 +195,23 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                local_end
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             for (byte_index, byte) in bitmap
                 .iter_mut()
                 .enumerate()
                 .take(end_byte)
                 .skip(first_byte)
             {
-                let byte_start = (byte_index as u64) * 8;
+                let byte_start = u64::try_from(byte_index)
+                    .map_err(|_| Error::ArithmeticOverflow)?
+                    .checked_mul(8)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -214,8 +222,12 @@ impl OpenedVolume {
                 let available = !*byte & valid_mask;
                 if available != 0 {
                     let bit = u64::from(available.trailing_zeros());
-                    let local = byte_start + bit;
-                    let block = bitmap_base + local;
+                    let local = byte_start
+                        .checked_add(bit)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let block = bitmap_base
+                        .checked_add(local)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     // A failed descriptor publication may have staged descriptor bytes in
                     // a still-free block. Clear that reserved magic before exposing the
                     // block as a different allocation, otherwise discovery could mistake
