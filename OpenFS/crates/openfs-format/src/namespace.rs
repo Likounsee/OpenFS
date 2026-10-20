@@ -465,6 +465,19 @@ impl Namespace {
                 ));
             }
         }
+        // Do not consume a generation when the requested layout is already current.
+        // Callers use generations to detect meaningful metadata changes.
+        if current.size == size && current.extent_root_block == extent_root_block {
+            return Ok(());
+        }
+
+        // Refuse to mutate if the reverse index no longer agrees with the object record.
+        if let Some(old_root) = current.extent_root_block {
+            if self.extent_roots.get(&old_root) != Some(&object_id) {
+                return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+            }
+        }
+
         let mut updated = current;
         updated.size = size;
         updated.extent_root_block = extent_root_block;
@@ -534,6 +547,13 @@ impl Namespace {
             .ok_or(Error::ArithmeticOverflow)?;
         parent_record.encode()?;
 
+        if let Some(root_block) = record.extent_root_block {
+            if self.extent_roots.get(&root_block) != Some(&object_id) {
+                return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+            }
+        }
+
+        // All consistency checks are complete before the first mutation.
         self.names.remove(&key);
         self.parents.remove(&object_id);
         if let Some(root_block) = record.extent_root_block {
@@ -681,15 +701,26 @@ impl Namespace {
                         "extent-map root lies outside the allocatable data region",
                     ));
                 }
+                // A matching count alone is insufficient: a stale index could point
+                // at the wrong owner while still having the expected number of keys.
+                if self.extent_roots.get(&root) != Some(&record.id) {
+                    return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                }
                 owner_count = owner_count
                     .checked_add(1)
                     .ok_or(Error::ArithmeticOverflow)?;
             }
         }
 
-        // BTreeMap keys are already unique and sorted. Reuse the maintained ownership
-        // index instead of allocating a second vector and sorting it on every inventory.
-        if owner_count != self.extent_roots.len() {
+        // The reverse index is ordered, but also verify every indexed owner exists and
+        // actually points back to its indexed root before exposing it to the allocator.
+        if owner_count != self.extent_roots.len()
+            || self.extent_roots.iter().any(|(root, owner)| {
+                self.objects
+                    .get(owner)
+                    .is_none_or(|record| record.extent_root_block != Some(*root))
+            })
+        {
             return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
         }
         Ok(self.extent_roots.keys().copied().collect())
