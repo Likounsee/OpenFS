@@ -269,17 +269,27 @@ impl OpenedVolume {
         }
         let layout = self.volume.layout;
         let first_bitmap = layout.data_start / bits_per_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_block;
         for index in first_bitmap..=last_bitmap {
-            let base = index * bits_per_block;
+            let base = index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
-            let end = layout
-                .backup_superblock
-                .min(base.saturating_add(bits_per_block));
+            let end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
             if end - start < count {
                 continue;
             }
-            let bitmap_block = layout.bitmap_start + index;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut bitmap = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
@@ -370,8 +380,13 @@ impl OpenedVolume {
                 "batch free blocks must belong to one bitmap segment",
             ));
         }
-        let bitmap_block = layout.bitmap_start + bitmap_index;
-        let base = bitmap_index * bits_per_block;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let base = bitmap_index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = layout.data_start.max(base);
