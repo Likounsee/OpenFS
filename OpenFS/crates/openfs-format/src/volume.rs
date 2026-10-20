@@ -3137,6 +3137,11 @@ impl OpenedVolume {
         if existing.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
+        // Replacing an already-empty file with empty contents changes no persistent
+        // state; avoid a generation bump and copy-on-write inventory churn.
+        if data.is_empty() && existing.size == 0 && existing.extent_root_block.is_none() {
+            return Ok(());
+        }
         let next_generation = existing
             .generation
             .checked_add(1)
@@ -3153,10 +3158,6 @@ impl OpenedVolume {
             let old_map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
-            let validation_block_size = u64::from(self.volume.block_size);
-            let logical_blocks = existing.size / validation_block_size
-                + u64::from(existing.size % validation_block_size != 0);
-            self.validate_extent_allocations(device, old_map, logical_blocks)?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
