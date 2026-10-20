@@ -481,17 +481,23 @@ impl Namespace {
                 _ => {}
             }
         }
-        // Do not consume a generation when the requested layout is already current.
-        // Callers use generations to detect meaningful metadata changes.
-        if current.size == size && current.extent_root_block == extent_root_block {
-            return Ok(());
-        }
-
-        // Refuse to mutate if the reverse index no longer agrees with the object record.
+        // Check the reverse index before the no-op fast path too: an unchanged
+        // record must not make a stale ownership index appear valid.
         if let Some(old_root) = current.extent_root_block {
             if self.extent_roots.get(&old_root) != Some(&object_id) {
                 return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
             }
+        }
+        if self.extent_roots.iter().any(|(root, owner)| {
+            *owner == object_id && current.extent_root_block != Some(*root)
+        }) {
+            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
+        }
+
+        // Do not consume a generation when the requested layout is already current.
+        // Callers use generations to detect meaningful metadata changes.
+        if current.size == size && current.extent_root_block == extent_root_block {
+            return Ok(());
         }
 
         let old_root = current.extent_root_block;
@@ -568,6 +574,11 @@ impl Namespace {
             if self.extent_roots.get(&root_block) != Some(&object_id) {
                 return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
             }
+        }
+        if self.extent_roots.iter().any(|(root, owner)| {
+            *owner == object_id && record.extent_root_block != Some(*root)
+        }) {
+            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
         }
 
         // All consistency checks are complete before the first mutation.
