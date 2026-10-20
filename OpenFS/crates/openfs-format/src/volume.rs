@@ -2648,6 +2648,12 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
+        if let Some(current_map) = extent_maps.get(&object_id) {
+            let validation_block_size = u64::from(self.volume.block_size);
+            let logical_blocks = record.size / validation_block_size
+                + u64::from(record.size % validation_block_size != 0);
+            self.validate_extent_allocations(device, current_map, logical_blocks)?;
+        }
         if new_size > record.size {
             return Err(Error::InvalidInput(
                 "persistent truncation cannot extend a file",
@@ -2845,6 +2851,12 @@ impl OpenedVolume {
         // data. This prevents an import from writing new blocks while the old file's
         // map is malformed or aliases storage owned by another file.
         let current_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        if let Some(current_map) = current_maps.get(&object_id) {
+            let validation_block_size = u64::from(self.volume.block_size);
+            let logical_blocks = existing.size / validation_block_size
+                + u64::from(existing.size % validation_block_size != 0);
+            self.validate_extent_allocations(device, current_map, logical_blocks)?;
+        }
         let mut reclaim_blocks = Vec::new();
         if let Some(old_root) = existing.extent_root_block {
             let maps = &current_maps;
