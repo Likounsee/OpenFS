@@ -1285,6 +1285,7 @@ impl OpenedVolume {
         device: &mut D,
         object_id: ObjectId,
     ) -> Result<()> {
+        self.validate_device(device)?;
         let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent removal requires a published inventory",
@@ -2822,6 +2823,7 @@ impl OpenedVolume {
         offset: u64,
         data: &[u8],
     ) -> Result<()> {
+        self.validate_device(device)?;
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent path writes require a published inventory",
@@ -2834,6 +2836,11 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        // An empty range write must not create a new metadata generation or rewrite
+        // the persistent inventory. Resolve the path first so invalid paths still fail.
+        if data.is_empty() {
+            return Ok(());
         }
 
         // Appends that fit in the current final block need no extent-map replacement.
