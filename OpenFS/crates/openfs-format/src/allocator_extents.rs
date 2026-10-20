@@ -328,7 +328,7 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for byte_index in first_byte..end_byte {
+            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -336,7 +336,7 @@ impl OpenedVolume {
                 if byte_index + 1 == end_byte && local_end % 8 != 0 {
                     valid_mask &= (1_u8 << (local_end % 8)) - 1;
                 }
-                let mut available = !bitmap[byte_index] & valid_mask;
+                let mut available = !byte & valid_mask;
                 while available != 0 {
                     let bit = u64::from(available.trailing_zeros());
                     let local = u64::try_from(byte_index)
@@ -1824,9 +1824,9 @@ pub(crate) fn bitmap_range_matches(
     allocated: bool,
 ) -> Result<bool> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
-    for byte_index in first_byte..end_byte {
+    for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
-        let bits = bitmap[byte_index] & mask;
+        let bits = *byte & mask;
         if (allocated && bits != mask) || (!allocated && bits != 0) {
             return Ok(false);
         }
@@ -1842,12 +1842,12 @@ fn set_bitmap_range(
     allocated: bool,
 ) -> Result<()> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
-    for byte_index in first_byte..end_byte {
+    for (byte_index, byte) in bitmap.iter_mut().enumerate().take(end_byte).skip(first_byte) {
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         if allocated {
-            bitmap[byte_index] |= mask;
+            *byte |= mask;
         } else {
-            bitmap[byte_index] &= !mask;
+            *byte &= !mask;
         }
     }
     Ok(())
