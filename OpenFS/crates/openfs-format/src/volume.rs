@@ -3130,6 +3130,36 @@ impl OpenedVolume {
             let updated_namespace = match updated_namespace {
                 Ok(namespace) => namespace,
                 Err(error) => {
+                    // The old final block may already contain unpublished append bytes.
+                    // Restore its zero-after-EOF invariant before returning to the caller.
+                    if modified_old_tail {
+                        let cleanup = (|| -> Result<()> {
+                            let physical = map
+                                .physical_block(offset / block_size)
+                                .ok_or(Error::Corrupt(
+                                    "append tail disappeared during metadata rollback",
+                                ))?;
+                            let mut current = vec![0_u8; block_size_usize];
+                            device.read_blocks(physical, &mut current)?;
+                            let tail_start = usize::try_from(tail_offset)
+                                .map_err(|_| Error::ArithmeticOverflow)?;
+                            current[tail_start..].fill(0);
+                            self.journal.commit(
+                                device,
+                                &[RedoUpdate {
+                                    target_block: physical,
+                                    contents: current,
+                                }],
+                            )?;
+                            Ok(())
+                        })();
+                        if cleanup.is_err() {
+                            let _ = self.reclaim_persistent_blocks(device, &allocated);
+                            return Err(Error::Corrupt(
+                                "append metadata preparation failed and bytes beyond EOF could not be cleared",
+                            ));
+                        }
+                    }
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
                             "failed to reclaim staged append allocations after metadata preparation failed",
