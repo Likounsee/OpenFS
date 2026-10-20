@@ -2458,6 +2458,7 @@ impl OpenedVolume {
                 "persistent path reads require a published inventory",
             ));
         };
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let object_id = namespace.resolve_path(path)?;
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
