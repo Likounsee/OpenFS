@@ -2668,44 +2668,73 @@ impl OpenedVolume {
             self.volume.layout.data_start,
             self.volume.layout.backup_superblock,
         )?;
-        // Roots are returned sorted and unique. Read each bitmap page only once,
-        // rather than issuing one block-device read per file when many roots share a page.
+        // Roots are sorted and unique. Read each bitmap page once, then validate
+        // consecutive roots as ranges instead of doing a division/modulo and bit
+        // lookup for every file whose extent map shares that page.
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
-        let mut cached_bitmap_index = None;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
-        for root in &roots {
-            let bitmap_index = *root / bits_per_bitmap_block;
+        let mut index = 0;
+        while index < roots.len() {
+            let bitmap_index = roots[index] / bits_per_bitmap_block;
             let bitmap_base = bitmap_index
                 .checked_mul(bits_per_bitmap_block)
                 .ok_or(Error::ArithmeticOverflow)?;
-            if cached_bitmap_index != Some(bitmap_index) {
-                let bitmap_block = self
-                    .volume
-                    .layout
-                    .bitmap_start
-                    .checked_add(bitmap_index)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                device.read_blocks(bitmap_block, &mut bitmap)?;
-                crate::allocator_extents::validate_bitmap_reserved_bits(
-                    &bitmap,
-                    bitmap_base,
-                    self.volume.layout.data_start.max(bitmap_base),
-                    self.volume.layout.backup_superblock.min(
-                        bitmap_base
-                            .checked_add(bits_per_bitmap_block)
-                            .ok_or(Error::ArithmeticOverflow)?,
-                    ),
-                )?;
-                cached_bitmap_index = Some(bitmap_index);
+            let bitmap_block = self
+                .volume
+                .layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            crate::allocator_extents::validate_bitmap_reserved_bits(
+                &bitmap,
+                bitmap_base,
+                self.volume.layout.data_start.max(bitmap_base),
+                self.volume.layout.backup_superblock.min(
+                    bitmap_base
+                        .checked_add(bits_per_bitmap_block)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                ),
+            )?;
+
+            let mut segment_end = index + 1;
+            while segment_end < roots.len()
+                && roots[segment_end] / bits_per_bitmap_block == bitmap_index
+            {
+                segment_end += 1;
             }
-            let local = *root - bitmap_base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte] & mask == 0 {
+            let segment_roots = &roots[index..segment_end];
+            let mut run_start = segment_roots[0];
+            let mut previous = segment_roots[0];
+            for &root in segment_roots.iter().skip(1) {
+                if previous.checked_add(1) == Some(root) {
+                    previous = root;
+                    continue;
+                }
+                if !crate::allocator_extents::bitmap_range_matches(
+                    &bitmap,
+                    run_start - bitmap_base,
+                    previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - bitmap_base,
+                    true,
+                )? {
+                    return Err(Error::Corrupt(
+                        "extent-map root is marked free in the allocation bitmap",
+                    ));
+                }
+                run_start = root;
+                previous = root;
+            }
+            if !crate::allocator_extents::bitmap_range_matches(
+                &bitmap,
+                run_start - bitmap_base,
+                previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - bitmap_base,
+                true,
+            )? {
                 return Err(Error::Corrupt(
                     "extent-map root is marked free in the allocation bitmap",
                 ));
             }
+            index = segment_end;
         }
         Ok(roots)
     }
