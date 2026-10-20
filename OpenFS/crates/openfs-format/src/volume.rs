@@ -3022,9 +3022,7 @@ impl OpenedVolume {
         let mut block_buffer = vec![0_u8; batch_bytes];
         let mut logical = first_logical;
         while logical <= last_logical {
-            let Some(physical_start) =
-                map.and_then(|value| value.physical_block(logical))
-            else {
+            let Some(physical_start) = map.and_then(|value| value.physical_block(logical)) else {
                 // Unmapped logical blocks remain zero-filled (sparse-file semantics).
                 logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
                 continue;
