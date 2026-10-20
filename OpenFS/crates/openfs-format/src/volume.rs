@@ -2549,14 +2549,10 @@ impl OpenedVolume {
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
 
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                if physical < self.volume.layout.data_start
-                    || physical >= self.volume.layout.backup_superblock
-                {
-                    return Err(Error::Corrupt("file extent points outside the data region"));
-                }
-                if !self.is_data_block_allocated(device, physical)? {
-                    return Err(Error::Corrupt("file extent points to a free data block"));
-                }
+                // Both entry paths validate the complete persisted extent graph before
+                // reaching this loop: the public API compares caller maps to disk, while
+                // the path API uses maps freshly loaded from disk. Avoid a bitmap read for
+                // every block in a large range after that preflight has succeeded.
                 device.read_blocks(physical, &mut block_buffer)?;
                 output[destination_start..destination_end]
                     .copy_from_slice(&block_buffer[within_start..within_end]);
