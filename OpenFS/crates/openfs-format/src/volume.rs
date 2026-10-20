@@ -1218,6 +1218,46 @@ impl OpenedVolume {
         Ok(Some((descriptor_block, namespace)))
     }
 
+    /// Resolve a path in the discovered on-disk namespace and return its metadata.
+    ///
+    /// This is a convenience bridge for callers that should not have to locate the
+    /// inventory descriptor or reconstruct the namespace themselves. Discovery and
+    /// validation are performed on each call; this does not retain stale metadata
+    /// across mutations or claim to provide a cached lookup.
+    pub fn stat_persistent_path<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        path: &str,
+    ) -> Result<MetadataRecord> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        namespace
+            .object(object_id)
+            .cloned()
+            .ok_or(Error::Corrupt("resolved path has no metadata record"))
+    }
+
+    /// List one page of a persistent directory by its absolute or relative path.
+    ///
+    /// Entries are returned in lexical name order. The exclusive `after_name` cursor
+    /// and nonzero `limit` follow the in-memory namespace paging contract. The
+    /// descriptor and complete namespace are rediscovered and validated on every call.
+    pub fn list_persistent_directory<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        directory_path: &str,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+        };
+        let directory_id = namespace.resolve_path(directory_path)?;
+        namespace.list_directory(directory_id, after_name, limit)
+    }
+
     /// Initialize the first durable namespace on a freshly formatted volume.
     ///
     /// A single root-directory metadata record is staged and flushed before its inventory
