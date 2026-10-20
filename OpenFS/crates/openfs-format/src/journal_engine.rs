@@ -409,14 +409,23 @@ impl PersistentJournal {
         // From here on persistence may be uncertain after any error.
         self.recovery_required = true;
         for (slot, block) in encoded.iter().take(encoded.len() - 1).enumerate() {
-            device.write_blocks(self.region.ring_start + slot as u64, block)?;
+            let slot = u64::try_from(slot).map_err(|_| Error::ArithmeticOverflow)?;
+            let block_number = self
+                .region
+                .ring_start
+                .checked_add(slot)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.write_blocks(block_number, block)?;
         }
         device.flush()?;
         let commit_slot = encoded.len() - 1;
-        device.write_blocks(
-            self.region.ring_start + commit_slot as u64,
-            &encoded[commit_slot],
-        )?;
+        let commit_slot = u64::try_from(commit_slot).map_err(|_| Error::ArithmeticOverflow)?;
+        let commit_block = self
+            .region
+            .ring_start
+            .checked_add(commit_slot)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(commit_block, &encoded[commit_slot as usize])?;
         device.flush()?;
 
         for update in updates {
@@ -457,7 +466,9 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     next_transaction_id: u64,
 ) -> Result<ScannedRecords> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    let mut newer = Vec::<(u64, JournalRecord)>::new();
+    let ring_capacity =
+        usize::try_from(region.ring_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut newer = Vec::<(u64, JournalRecord)>::with_capacity(ring_capacity);
     // Only the earliest malformed slot matters: it must not precede a later
     // valid record. Tracking one index avoids a second allocation for bad slots.
     let mut first_malformed_slot = None;
@@ -465,7 +476,11 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     // so the next read can safely overwrite this buffer without cloning the block.
     let mut block = vec![0_u8; block_size];
     for slot in 0..region.ring_blocks {
-        device.read_blocks(region.ring_start + slot, &mut block)?;
+        let block_number = region
+            .ring_start
+            .checked_add(slot)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(block_number, &mut block)?;
         if block.iter().all(|byte| *byte == 0) {
             continue;
         }
