@@ -844,7 +844,11 @@ impl OpenedVolume {
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_bitmap_block;
 
         // The replacement descriptor may live on any bitmap page. Stage it while free;
         // the multi-page journal transaction below is the sole publication commit point.
@@ -853,11 +857,13 @@ impl OpenedVolume {
         for bitmap_index in first_bitmap..=last_bitmap {
             let mut bitmap = vec![0_u8; block_size];
             let bitmap_block = layout
-            .bitmap_start
-            .checked_add(bitmap_index)
-            .ok_or(Error::ArithmeticOverflow)?;
-        device.read_blocks(bitmap_block, &mut bitmap)?;
-            let base = bitmap_index * bits_per_bitmap_block;
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            let base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let first = layout.data_start.max(base);
             let end = layout.backup_superblock.min(
                 base.checked_add(bits_per_bitmap_block)
