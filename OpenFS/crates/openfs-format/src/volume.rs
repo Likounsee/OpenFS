@@ -2523,8 +2523,7 @@ impl OpenedVolume {
                     "loaded extent maps do not match persistent namespace inventory",
                 ));
             }
-    
-            }
+        }
 
         let mut output = vec![0_u8; read_len];
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
