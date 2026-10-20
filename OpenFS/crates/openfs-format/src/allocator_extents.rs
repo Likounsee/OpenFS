@@ -544,10 +544,25 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        for block in start_block..end_block {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+        // Validate the contiguous range byte-wise. A large free should not perform
+        // one bitmap lookup and mask operation per data block when one byte represents
+        // eight allocation states.
+        let local_start = start_block - base;
+        let local_end = end_block - base;
+        let first_byte =
+            usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+        let end_byte =
+            usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+        for byte_index in first_byte..end_byte {
+            let mut mask = u8::MAX;
+            if byte_index == first_byte {
+                mask &= u8::MAX << (local_start % 8);
+            }
+            if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                mask &= (1_u8 << (local_end % 8)) - 1;
+            }
+            if bitmap[byte_index] & mask != mask {
                 return Err(Error::InvalidInput(
                     "contiguous free extent contains an already-free block",
                 ));
@@ -560,10 +575,17 @@ impl OpenedVolume {
             end_block,
             self.volume.block_size,
         )?;
-        for block in start_block..end_block {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            bitmap[byte] &= !(1_u8 << (local % 8));
+        // All requested bits were verified allocated above; clear them with the
+        // same edge masks, preserving neighboring allocations in partial bytes.
+        for byte_index in first_byte..end_byte {
+            let mut mask = u8::MAX;
+            if byte_index == first_byte {
+                mask &= u8::MAX << (local_start % 8);
+            }
+            if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                mask &= (1_u8 << (local_end % 8)) - 1;
+            }
+            bitmap[byte_index] &= !mask;
         }
         self.journal
             .commit(
