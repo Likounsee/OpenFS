@@ -167,6 +167,10 @@ impl OpenedVolume {
         // Bitmap pages are read sequentially; reuse one page buffer rather than
         // allocating a fresh block-sized Vec for every page in a large volume.
         let mut bitmap = vec![0_u8; block_size];
+        // Reuse the candidate-block buffer as well as the bitmap page. On a nearly
+        // full volume, allocation may inspect many candidates; allocating a fresh
+        // block-sized Vec for each candidate creates avoidable allocator pressure.
+        let mut existing = vec![0_u8; block_size];
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self
                 .volume
@@ -228,7 +232,6 @@ impl OpenedVolume {
                     // a still-free block. Clear that reserved magic before exposing the
                     // block as a different allocation, otherwise discovery could mistake
                     // stale bytes for a live descriptor.
-                    let mut existing = vec![0_u8; block_size];
                     device.read_blocks(block, &mut existing)?;
                     if existing.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
                         existing.fill(0);
