@@ -231,7 +231,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             checkpoint,
             active_checkpoint_copy: next_copy,
             recovery_required: false,
-            protected_blocks: protected_blocks.clone(),
+            protected_blocks,
         });
     }
 
@@ -240,7 +240,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         checkpoint,
         active_checkpoint_copy: active_copy,
         recovery_required: false,
-        protected_blocks: protected_blocks.clone(),
+        protected_blocks,
     })
 }
 
