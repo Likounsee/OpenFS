@@ -5806,12 +5806,14 @@ fn write_superblock<D: BlockDevice>(
     block: u64,
     encoded: &[u8; SUPERBLOCK_SIZE],
 ) -> Result<()> {
-    let mut buffer = vec![0; device.block_size() as usize];
-    if buffer.len() < SUPERBLOCK_SIZE {
+    let block_size =
+        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    if block_size < SUPERBLOCK_SIZE {
         return Err(Error::InvalidInput(
-            "device block is smaller than superblock",
+            "device block is smaller than the superblock",
         ));
     }
+    let mut buffer = vec![0; block_size];
     buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
     device.write_blocks(block, &buffer)
 }
