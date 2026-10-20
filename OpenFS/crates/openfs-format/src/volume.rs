@@ -2455,6 +2455,29 @@ impl OpenedVolume {
                 "supplied namespace metadata does not match persistent inventory",
             ));
         }
+        self.read_file_range_from_validated_namespace(
+            device, namespace, extent_maps, object_id, offset, length,
+        )
+    }
+
+    /// Read using a namespace and extent inventory reconstructed and validated by the caller.
+    /// This avoids repeating the full inventory/ownership scan on path-based reads.
+    fn read_file_range_from_validated_namespace<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        namespace: &Namespace,
+        extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
+        object_id: ObjectId,
+        offset: u64,
+        length: usize,
+    ) -> Result<Vec<u8>> {
+        self.validate_device(device)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("file object does not exist"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("object is not a regular file"));
+        }
         if length == 0 || offset >= record.size {
             return Ok(Vec::new());
         }
@@ -2536,9 +2559,8 @@ impl OpenedVolume {
             // Unmapped logical blocks remain zero-filled (sparse-file semantics).
         }
         Ok(output)
-    }
 
-    /// Write bytes into an existing file's already-allocated extents.
+    }    /// Write bytes into an existing file's already-allocated extents.
     ///
     /// This operation does not extend files, allocate blocks, or update metadata. It
     /// rejects ranges that cross EOF or touch sparse holes before writing any bytes.
@@ -2748,7 +2770,9 @@ impl OpenedVolume {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
+        self.read_file_range_from_validated_namespace(
+            device, &namespace, &extent_maps, object_id, offset, length,
+        )
     }
 
     /// Stream a bounded range of a persistent file without allocating the requested length.
