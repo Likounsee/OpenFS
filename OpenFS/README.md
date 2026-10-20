@@ -51,6 +51,23 @@ cargo run -p openfs-tool -- export ./openfs.img 4096 /docs/readme.txt ./readme-e
 
 `import` replaces the contents of an existing regular file in the OpenFS namespace. It opens the host source before mutating the image, streams data one filesystem block at a time, and publishes the replacement only after the staged data and extent map are flushed. A source-read or staging failure triggers cleanup of unpublished allocations; if publication outcome is uncertain, OpenFS retains potentially live blocks rather than risking data loss. The command does not overwrite the host source or export destination.
 
+Range I/O and streaming replacement are also available:
+
+```sh
+# Read at most 64 bytes beginning at byte offset 128
+cargo run -p openfs-tool -- read-range ./openfs.img 4096 /docs/readme.txt 128 64
+
+# Write text beginning at byte offset 128 (the range must be valid for the file,
+# except that writing exactly at EOF appends)
+cargo run -p openfs-tool -- write-range ./openfs.img 4096 /docs/readme.txt 128 "replacement"
+
+# Replace a file by streaming bytes from standard input without buffering the
+# complete input in memory
+cargo run -p openfs-tool -- write-stdin ./openfs.img 4096 /docs/readme.txt < ./payload.bin
+```
+
+`read-range` streams output in bounded filesystem-block chunks, so its requested length does not require allocating a buffer of that size. `write-stdin` replaces an existing regular file and stages the incoming stream block by block before publishing the new file version. These commands still operate on regular image files; they do not mount OpenFS as a Windows drive.
+
 ## Current limits
 
 The journal currently protects allocator bitmap changes, but does not yet provide a general transaction layer for persistent namespace and extent-map mutations. Persistent inventory publication can leave a detectable orphan if interrupted between descriptor allocation and descriptor write. File reads support sparse zero-fill, ranges and EOF, but durable file/directory mutation and mounting are not complete.
