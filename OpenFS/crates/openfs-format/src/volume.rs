@@ -1771,7 +1771,7 @@ impl OpenedVolume {
             ));
         };
         let object_id = namespace.resolve_path(path)?;
-        self.remove_persistent_tree(device, object_id)
+        self.remove_persistent_tree_from_namespace(device, namespace, object_id)
     }
 
     /// Remove a persistent directory and all descendants, reclaiming file storage.
@@ -1790,6 +1790,18 @@ impl OpenedVolume {
                 "persistent tree removal requires a published inventory",
             ));
         };
+        self.remove_persistent_tree_from_namespace(device, namespace, object_id)
+    }
+
+    /// Remove a subtree from an already reconstructed namespace. The full ownership
+    /// preflight and publish-before-reclaim ordering remain centralized in this helper.
+    fn remove_persistent_tree_from_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: Namespace,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        self.validate_device(device)?;
         if object_id == namespace.root_id() {
             return Err(Error::InvalidInput("cannot remove the namespace root"));
         }
