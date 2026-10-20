@@ -1052,9 +1052,10 @@ impl OpenedVolume {
                     .map_err(|_| Error::ArithmeticOverflow)?;
             let mut current: Option<FreeExtent> = None;
 
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -1381,9 +1382,10 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -1504,7 +1506,10 @@ impl OpenedVolume {
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
 
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_base = base
                     .checked_add(
                         u64::try_from(byte_index)
@@ -1653,7 +1658,10 @@ impl OpenedVolume {
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
 
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_base = base
                     .checked_add(
                         u64::try_from(byte_index)
@@ -1848,7 +1856,10 @@ pub(crate) fn bitmap_range_matches(
     allocated: bool,
 ) -> Result<bool> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
-    for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+    for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         let bits = *byte & mask;
         if (allocated && bits != mask) || (!allocated && bits != 0) {
@@ -1866,12 +1877,10 @@ fn set_bitmap_range(
     allocated: bool,
 ) -> Result<()> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
-    for (byte_index, byte) in bitmap
-        .iter_mut()
-        .enumerate()
-        .take(end_byte)
-        .skip(first_byte)
-    {
+    for (byte_offset, byte) in bitmap[first_byte..end_byte].iter_mut().enumerate() {
+        let byte_index = first_byte
+            .checked_add(byte_offset)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         if allocated {
             *byte |= mask;
