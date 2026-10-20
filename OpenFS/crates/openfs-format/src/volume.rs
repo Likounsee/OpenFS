@@ -2456,7 +2456,7 @@ impl OpenedVolume {
             ));
         }
         self.read_file_range_from_validated_namespace(
-            device, namespace, extent_maps, object_id, offset, length,
+            device, namespace, extent_maps, object_id, offset, length, true,
         )
     }
 
@@ -2470,6 +2470,7 @@ impl OpenedVolume {
         object_id: ObjectId,
         offset: u64,
         length: usize,
+        validate_extent_graph: bool,
     ) -> Result<Vec<u8>> {
         self.validate_device(device)?;
         let record = namespace
@@ -2512,15 +2513,18 @@ impl OpenedVolume {
             ));
         }
 
-        // Validate the complete namespace ownership graph before exposing file data.
-        // Checking only this file's map would miss a different file claiming overlapping
-        // physical blocks, allowing reads from an ambiguous/corrupt allocation graph.
-        let persisted_maps = self.read_namespace_extent_maps(device, namespace)?;
-        if &persisted_maps != extent_maps {
-            return Err(Error::Corrupt(
-                "loaded extent maps do not match persistent namespace inventory",
-            ));
-        }
+        if validate_extent_graph {
+            // Validate the complete namespace ownership graph before exposing file data.
+            // Checking only this file's map would miss a different file claiming overlapping
+            // physical blocks, allowing reads from an ambiguous/corrupt allocation graph.
+            let persisted_maps = self.read_namespace_extent_maps(device, namespace)?;
+            if &persisted_maps != extent_maps {
+                return Err(Error::Corrupt(
+                    "loaded extent maps do not match persistent namespace inventory",
+                ));
+            }
+    
+            }
 
         let mut output = vec![0_u8; read_len];
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
@@ -2771,7 +2775,7 @@ impl OpenedVolume {
         }
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         self.read_file_range_from_validated_namespace(
-            device, &namespace, &extent_maps, object_id, offset, length,
+            device, &namespace, &extent_maps, object_id, offset, length, false,
         )
     }
 
