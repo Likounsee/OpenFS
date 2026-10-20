@@ -292,8 +292,35 @@ impl Namespace {
         if updated_parent.kind != ObjectKind::Directory {
             return Err(Error::InvalidInput("parent object is not a directory"));
         }
+        // Do not attach a new child to a parent whose own namespace edge is
+        // already inconsistent. The root is the only object without a parent edge.
+        if parent_id == self.root_id {
+            if updated_parent.parent_id != 0 {
+                return Err(Error::Corrupt("namespace root metadata is invalid"));
+            }
+        } else {
+            let (indexed_parent, indexed_name) = self.parents.get(&parent_id)
+                .ok_or(Error::Corrupt("parent directory has no parent index entry"))?;
+            if *indexed_parent != ObjectId::new(updated_parent.parent_id)
+                .map_err(|_| Error::Corrupt("parent directory has an invalid parent ID"))?
+            {
+                return Err(Error::Corrupt("parent directory parent index is inconsistent"));
+            }
+            let parent_entry = self.names.get(&(*indexed_parent, indexed_name.clone()))
+                .ok_or(Error::Corrupt("parent directory entry is missing"))?;
+            if parent_entry.object_id != parent_id.0
+                || parent_entry.parent_id != indexed_parent.0
+                || parent_entry.name != *indexed_name
+                || parent_entry.kind != ObjectKind::Directory
+            {
+                return Err(Error::Corrupt("parent directory metadata disagrees with its entry"));
+            }
+        }
         if self.objects.contains_key(&object_id) {
             return Err(Error::InvalidInput("object ID already exists"));
+        }
+        if self.extent_roots.values().any(|owner| *owner == object_id) {
+            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
         }
         if let Some(root_block) = record.extent_root_block {
             if record.kind != ObjectKind::File || record.size == 0 {
