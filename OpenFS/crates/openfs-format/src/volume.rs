@@ -2488,11 +2488,8 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path is not a regular file"));
         }
-        if length == 0 || offset >= record.size {
-            writer.flush()?;
-            return Ok(0);
-        }
-
+        // Validate the persisted ownership graph even for an empty or out-of-EOF
+        // range. A no-byte read must not become a way to bypass corruption detection.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let map = extent_maps.get(&object_id);
         if record.extent_root_block.is_some() && map.is_none() {
@@ -2510,6 +2507,10 @@ impl OpenedVolume {
         let logical_blocks = record.size / block_size + u64::from(record.size % block_size != 0);
         if let Some(map) = map {
             self.validate_extent_allocations(device, map, logical_blocks)?;
+        }
+        if length == 0 || offset >= record.size {
+            writer.flush()?;
+            return Ok(0);
         }
 
         let remaining_len = (record.size - offset).min(length);
