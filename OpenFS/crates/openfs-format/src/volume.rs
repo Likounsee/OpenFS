@@ -3919,11 +3919,16 @@ impl OpenedVolume {
             let mut extent_map = ExtentMap::default();
             let mut file_size = 0_u64;
             let mut logical_block = 0_u64;
-            // Stage a bounded group of blocks at a time. This amortizes bitmap and
-            // journal traffic on large imports while keeping memory use capped at 8 blocks.
+            // Keep import staging bounded by bytes, not just block count: block sizes
+            // vary by format, so a fixed count can either create excessive scratch memory
+            // or issue unnecessarily small allocation/write batches.
+            // The cap also stays below the bitmap segment's supported batch-allocation limit.
+            const STAGING_BATCH_BYTES: usize = 1024 * 1024;
+            const MAX_STAGING_BLOCKS: usize = 64;
+            const STAGING_BLOCKS: usize =
+                (STAGING_BATCH_BYTES / block_size).clamp(1, MAX_STAGING_BLOCKS);
             // Each block retains its exact valid-byte count so the final partial block
             // contributes only its logical payload to the file length.
-            const STAGING_BLOCKS: usize = 8;
             let mut contents = vec![
                 0_u8;
                 block_size
@@ -3991,7 +3996,10 @@ impl OpenedVolume {
                     Err(Error::InvalidInput(
                         "no bitmap segment has enough free data blocks for this batch",
                     )) => {
-                        let mut blocks = Vec::with_capacity(valid_lengths.len());
+                        let mut blocks = Vec::new();
+                        blocks.try_reserve_exact(valid_lengths.len()).map_err(|_| {
+                            Error::InvalidInput("unable to reserve fallback allocation batch")
+                        })?;
                         for _ in 0..valid_lengths.len() {
                             let block = self.allocate_block(device)?;
                             // Track each successful allocation immediately: a later
