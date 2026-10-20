@@ -3004,36 +3004,83 @@ impl OpenedVolume {
                 return Ok(output);
             }
         }
-        let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
-        for logical in first_logical..=last_logical {
-            let block_start = logical
+        // Bound scratch memory while coalescing physically adjacent blocks into
+        // larger device reads. This reduces I/O calls for fragmented files without
+        // allocating a second buffer proportional to the full requested file range.
+        const MAX_READ_BATCH_BLOCKS: u64 = 128;
+        let requested_blocks = last_logical
+            .checked_sub(first_logical)
+            .and_then(|count| count.checked_add(1))
+            .ok_or(Error::ArithmeticOverflow)?;
+        let batch_blocks = requested_blocks.min(MAX_READ_BATCH_BLOCKS);
+        let batch_bytes = usize::try_from(
+            batch_blocks
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?,
+        )
+        .map_err(|_| Error::ArithmeticOverflow)?;
+        let mut block_buffer = vec![0_u8; batch_bytes];
+        let mut logical = first_logical;
+        while logical <= last_logical {
+            let Some(physical_start) =
+                map.and_then(|value| value.physical_block(logical))
+            else {
+                // Unmapped logical blocks remain zero-filled (sparse-file semantics).
+                logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                continue;
+            };
+
+            let mut run_blocks = 1_u64;
+            while run_blocks < batch_blocks {
+                let next_logical = logical
+                    .checked_add(run_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if next_logical > last_logical {
+                    break;
+                }
+                let expected_physical = physical_start
+                    .checked_add(run_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if map.and_then(|value| value.physical_block(next_logical))
+                    != Some(expected_physical)
+                {
+                    break;
+                }
+                run_blocks += 1;
+            }
+
+            let run_start = logical
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let copy_start = offset.max(block_start);
-            let copy_end = end.min(
-                block_start
-                    .checked_add(block_size)
+            let run_end = logical
+                .checked_add(run_blocks)
+                .and_then(|block| block.checked_mul(block_size))
+                .ok_or(Error::ArithmeticOverflow)?;
+            let copy_start = offset.max(run_start);
+            let copy_end = end.min(run_end);
+            let run_bytes = usize::try_from(
+                run_blocks
+                    .checked_mul(block_size)
                     .ok_or(Error::ArithmeticOverflow)?,
-            );
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            // The scratch buffer is sized for at least one block and reused for
+            // every contiguous run, including unaligned first and last blocks.
+            device.read_blocks(physical_start, &mut block_buffer[..run_bytes])?;
+            let source_start =
+                usize::try_from(copy_start - run_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let source_end =
+                usize::try_from(copy_end - run_start).map_err(|_| Error::ArithmeticOverflow)?;
             let destination_start =
                 usize::try_from(copy_start - offset).map_err(|_| Error::ArithmeticOverflow)?;
             let destination_end =
                 usize::try_from(copy_end - offset).map_err(|_| Error::ArithmeticOverflow)?;
-            let within_start =
-                usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
-            let within_end =
-                usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            output[destination_start..destination_end]
+                .copy_from_slice(&block_buffer[source_start..source_end]);
 
-            if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                // Both entry paths validate the complete persisted extent graph before
-                // reaching this loop: the public API compares caller maps to disk, while
-                // the path API uses maps freshly loaded from disk. Avoid a bitmap read for
-                // every block in a large range after that preflight has succeeded.
-                device.read_blocks(physical, &mut block_buffer)?;
-                output[destination_start..destination_end]
-                    .copy_from_slice(&block_buffer[within_start..within_end]);
-            }
-            // Unmapped logical blocks remain zero-filled (sparse-file semantics).
+            logical = logical
+                .checked_add(run_blocks)
+                .ok_or(Error::ArithmeticOverflow)?;
         }
         Ok(output)
     }
