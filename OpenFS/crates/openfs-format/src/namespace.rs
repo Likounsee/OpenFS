@@ -727,16 +727,31 @@ impl Namespace {
         Ok(self.extent_roots.keys().copied().collect())
     }
 
-    /// Count objects that own an extent-map root after validating metadata records.
+    /// Count objects that own an extent-map root after validating metadata and its reverse index.
     pub fn extent_root_owner_count(&self) -> Result<usize> {
-        self.objects.values().try_fold(0_usize, |count, record| {
+        let count = self.objects.values().try_fold(0_usize, |count, record| {
             record
                 .encode()
                 .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
+            if let Some(root) = record.extent_root_block {
+                if self.extent_roots.get(&root) != Some(&record.id) {
+                    return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                }
+            }
             count
                 .checked_add(usize::from(record.extent_root_block.is_some()))
                 .ok_or(Error::ArithmeticOverflow)
-        })
+        })?;
+        if count != self.extent_roots.len()
+            || self.extent_roots.iter().any(|(root, owner)| {
+                self.objects
+                    .get(owner)
+                    .map_or(true, |record| record.extent_root_block != Some(*root))
+            })
+        {
+            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+        }
+        Ok(count)
     }
 
     /// Iterate all directory entries in deterministic (parent ID, name) order.
