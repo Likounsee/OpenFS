@@ -2838,9 +2838,10 @@ impl OpenedVolume {
         if let Some(map) = map {
             self.validate_extent_allocations(device, map, logical_blocks)?;
         }
-        let block_len = self.volume.block_size as usize;
+        let block_len =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        // Reuse the data buffer for holes instead of allocating a second block-sized buffer.
         let mut block_buffer = vec![0_u8; block_len];
-        let zero_buffer = vec![0_u8; block_len];
         let mut logical = 0_u64;
         let mut remaining = record.size;
         while remaining > 0 {
@@ -2851,7 +2852,8 @@ impl OpenedVolume {
                 device.read_blocks(physical, &mut block_buffer)?;
                 writer.write_all(&block_buffer[..chunk_len])?;
             } else {
-                writer.write_all(&zero_buffer[..chunk_len])?;
+                block_buffer[..chunk_len].fill(0);
+                writer.write_all(&block_buffer[..chunk_len])?;
             }
             remaining -= u64::try_from(chunk_len).map_err(|_| Error::ArithmeticOverflow)?;
             logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
