@@ -281,6 +281,9 @@ impl OpenedVolume {
             .checked_sub(1)
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
+        // Reuse one bitmap image across segment scans instead of allocating a
+        // fresh block-sized buffer for every candidate segment.
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         for index in first_bitmap..=last_bitmap {
             let base = index
                 .checked_mul(bits_per_block)
@@ -297,7 +300,6 @@ impl OpenedVolume {
                 .bitmap_start
                 .checked_add(index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
             device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let mut selected = Vec::with_capacity(count as usize);
