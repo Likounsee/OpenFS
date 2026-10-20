@@ -2533,18 +2533,18 @@ impl OpenedVolume {
                     .checked_add(block_size)
                     .ok_or(Error::ArithmeticOverflow)?,
             );
-            let within_start = usize::try_from(copy_start - block_start)
-                .map_err(|_| Error::ArithmeticOverflow)?;
-            let within_end = usize::try_from(copy_end - block_start)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let within_start =
+                usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let within_end =
+                usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
                 device.read_blocks(physical, &mut block_buffer)?;
                 writer.write_all(&block_buffer[within_start..within_end])?;
             } else {
                 writer.write_all(&zero_buffer[..within_end - within_start])?;
             }
-            let chunk_len = u64::try_from(within_end - within_start)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let chunk_len =
+                u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?;
             written = written
                 .checked_add(chunk_len)
                 .ok_or(Error::ArithmeticOverflow)?;
