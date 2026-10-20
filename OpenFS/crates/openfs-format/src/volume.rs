@@ -365,10 +365,29 @@ impl OpenedVolume {
             ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let bitmap_block = self.volume.layout.bitmap_start + block / bits_per_block;
-        let local = block % bits_per_block;
+        let bitmap_index = block / bits_per_block;
+        let bitmap_base = bitmap_index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_block = self
+            .volume
+            .layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let local = block - bitmap_base;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        crate::allocator_extents::validate_bitmap_reserved_bits(
+            &bitmap,
+            bitmap_base,
+            self.volume.layout.data_start.max(bitmap_base),
+            self.volume.layout.backup_superblock.min(
+                bitmap_base
+                    .checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            ),
+        )?;
         let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let mask = 1_u8 << (local % 8);
         if bitmap[byte] & mask == 0 {
