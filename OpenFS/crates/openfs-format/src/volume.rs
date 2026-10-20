@@ -2467,10 +2467,7 @@ impl OpenedVolume {
     ///
     /// Namespace and extent ownership are validated once before output begins. Memory use
     /// remains bounded by one filesystem block even when the requested range is very large.
-    pub fn stream_persistent_path_range_to_writer<
-        D: BlockDevice,
-        W: std::io::Write,
-    >(
+    pub fn stream_persistent_path_range_to_writer<D: BlockDevice, W: std::io::Write>(
         &self,
         device: &mut D,
         path: &str,
@@ -2521,8 +2518,7 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)?;
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
-        let block_len =
-            usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut block_buffer = vec![0_u8; block_len];
         let zero_buffer = vec![0_u8; block_len];
         let mut written = 0_u64;
