@@ -1910,18 +1910,36 @@ pub(crate) fn validate_bitmap_reserved_bits(
     )
     .map_err(|_| Error::ArithmeticOverflow)?;
 
-    for (byte_index, byte) in bitmap.iter().enumerate() {
-        let mut data_mask = 0_u8;
-        if byte_index >= first_data_byte && byte_index < end_data_byte {
-            data_mask = u8::MAX;
-            if byte_index == first_data_byte {
-                data_mask &= u8::MAX << (first_data_bit % 8);
-            }
-            if byte_index + 1 == end_data_byte && end_data_bit % 8 != 0 {
-                data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
-            }
+    // Every bit outside the data region is reserved or padding and must remain set.
+    // Validate complete prefix/suffix bytes in bulk; only the two boundary bytes
+    // need masks. This avoids calculating a mask for every byte of a large bitmap.
+    if bitmap[..first_data_byte]
+        .iter()
+        .any(|byte| *byte != u8::MAX)
+        || bitmap[end_data_byte..]
+            .iter()
+            .any(|byte| *byte != u8::MAX)
+    {
+        return Err(Error::Corrupt(
+            "allocation bitmap marks a reserved or padding block free",
+        ));
+    }
+
+    let first_bit_offset = first_data_bit % 8;
+    if first_bit_offset != 0 {
+        let reserved_mask = (1_u8 << first_bit_offset) - 1;
+        if bitmap[first_data_byte] & reserved_mask != reserved_mask {
+            return Err(Error::Corrupt(
+                "allocation bitmap marks a reserved or padding block free",
+            ));
         }
-        if !*byte & !data_mask != 0 {
+    }
+
+    let end_bit_offset = end_data_bit % 8;
+    if end_bit_offset != 0 {
+        let data_mask = (1_u8 << end_bit_offset) - 1;
+        let reserved_mask = !data_mask;
+        if bitmap[end_data_byte - 1] & reserved_mask != reserved_mask {
             return Err(Error::Corrupt(
                 "allocation bitmap marks a reserved or padding block free",
             ));
