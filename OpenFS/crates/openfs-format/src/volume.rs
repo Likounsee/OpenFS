@@ -1263,6 +1263,62 @@ impl OpenedVolume {
     /// This path-oriented entry point complements the object-ID API for callers such as
     /// command-line tools and future OS adapters. It resolves the parent and publishes the
     /// updated inventory after Namespace::insert validates the new entry.
+    /// Create several empty files/directories under one persistent parent.
+    ///
+    /// All entries are validated in memory first and published through one copy-on-write
+    /// inventory replacement. This avoids rediscovering, serializing, staging and journaling
+    /// the entire namespace once per child when importing a directory tree or creating a batch.
+    /// Each tuple is (object ID, kind, name); only regular files and directories are supported.
+    /// An empty batch is a no-op and performs no device I/O.
+    pub fn create_persistent_objects_at_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        parent_path: &str,
+        objects: &[(ObjectId, crate::ObjectKind, String)],
+    ) -> Result<Vec<ObjectId>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "no persistent namespace exists for object creation",
+            ));
+        };
+        let parent_id = namespace.resolve_path(parent_path)?;
+        let mut created = Vec::with_capacity(objects.len());
+        for (object_id, kind, name) in objects {
+            if !matches!(kind, crate::ObjectKind::File | crate::ObjectKind::Directory) {
+                return Err(Error::InvalidInput(
+                    "persistent creation supports only files and directories",
+                ));
+            }
+            let record = MetadataRecord {
+                id: *object_id,
+                parent_id: parent_id.0,
+                kind: *kind,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            namespace.insert(
+                DirectoryEntry {
+                    parent_id: parent_id.0,
+                    object_id: object_id.0,
+                    kind: *kind,
+                    name: name.clone(),
+                },
+                record,
+            )?;
+            created.push(*object_id);
+        }
+        // The sole publication is the visibility point for the whole batch: callers
+        // observe either the previous inventory or all requested children.
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(created)
+    }
+
+    /// Create an empty file beneath a directory resolved by its persistent path.
     pub fn create_persistent_file_at_path<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1270,32 +1326,14 @@ impl OpenedVolume {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "no persistent namespace exists for file creation",
-            ));
-        };
-        let parent_id = namespace.resolve_path(parent_path)?;
-        let record = MetadataRecord {
-            id: object_id,
-            parent_id: parent_id.0,
-            kind: crate::ObjectKind::File,
-            flags: 0,
-            size: 0,
-            extent_root_block: None,
-            generation: 1,
-        };
-        namespace.insert(
-            DirectoryEntry {
-                parent_id: parent_id.0,
-                object_id: object_id.0,
-                kind: crate::ObjectKind::File,
-                name: name.to_owned(),
-            },
-            record,
-        )?;
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
-        Ok(object_id)
+        self.create_persistent_objects_at_path(
+            device,
+            parent_path,
+            &[(object_id, crate::ObjectKind::File, name.to_owned())],
+        )?
+        .into_iter()
+        .next()
+        .ok_or(Error::Corrupt("single-file creation returned no object ID"))
     }
 
     /// Create an empty directory beneath a directory resolved by its persistent path.
@@ -1306,32 +1344,14 @@ impl OpenedVolume {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "no persistent namespace exists for directory creation",
-            ));
-        };
-        let parent_id = namespace.resolve_path(parent_path)?;
-        let record = MetadataRecord {
-            id: object_id,
-            parent_id: parent_id.0,
-            kind: crate::ObjectKind::Directory,
-            flags: 0,
-            size: 0,
-            extent_root_block: None,
-            generation: 1,
-        };
-        namespace.insert(
-            DirectoryEntry {
-                parent_id: parent_id.0,
-                object_id: object_id.0,
-                kind: crate::ObjectKind::Directory,
-                name: name.to_owned(),
-            },
-            record,
-        )?;
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
-        Ok(object_id)
+        self.create_persistent_objects_at_path(
+            device,
+            parent_path,
+            &[(object_id, crate::ObjectKind::Directory, name.to_owned())],
+        )?
+        .into_iter()
+        .next()
+        .ok_or(Error::Corrupt("single-directory creation returned no object ID"))
     }
 
     /// Remove a persistent file or empty directory addressed by its path.
