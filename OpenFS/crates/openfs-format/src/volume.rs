@@ -2471,7 +2471,6 @@ impl OpenedVolume {
                 "persistent path reads require a published inventory",
             ));
         };
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let object_id = namespace.resolve_path(path)?;
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
@@ -3151,6 +3150,9 @@ impl OpenedVolume {
         if data.is_empty() {
             return Ok(());
         }
+        // Extent ownership is expensive to reconstruct, so defer it until the path and
+        // operation are known to require actual data I/O.
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
 
         // Appends that fit in the current final block need no extent-map replacement.
         // Larger appends stage new data and a new extent root before publishing the new size.
