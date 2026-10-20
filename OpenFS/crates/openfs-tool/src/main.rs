@@ -659,6 +659,11 @@ fn stat_namespace_entry(
         println!("Allocated data blocks: {allocated_blocks}");
         println!("Allocated data bytes: {allocated_bytes}");
         println!("Physical extents: {}", map.extents().len());
+        let allocated_logical_bytes = allocated_bytes.min(record.size);
+        println!(
+            "Sparse logical bytes: {}",
+            record.size - allocated_logical_bytes
+        );
 
         // Sparse holes are logical bytes without physical allocation, not unused
         // capacity in the final block. Report only the tail slack of the final
