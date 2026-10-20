@@ -195,13 +195,9 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                local_end
-                    .checked_add(7)
-                    .ok_or(Error::ArithmeticOverflow)?
-                    / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             for (byte_index, byte) in bitmap
                 .iter_mut()
                 .enumerate()
@@ -342,13 +338,9 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                local_end
-                    .checked_add(7)
-                    .ok_or(Error::ArithmeticOverflow)?
-                    / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
@@ -626,7 +618,10 @@ impl OpenedVolume {
                 let base = bitmap_index
                     .checked_mul(bits_per_bitmap_block)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let bitmap_block = self.volume.layout.bitmap_start
+                let bitmap_block = self
+                    .volume
+                    .layout
+                    .bitmap_start
                     .checked_add(bitmap_index)
                     .ok_or(Error::ArithmeticOverflow)?;
                 let mut bitmap = vec![0_u8; block_size];
@@ -707,13 +702,9 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                local_end
-                    .checked_add(7)
-                    .ok_or(Error::ArithmeticOverflow)?
-                    / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
@@ -873,13 +864,9 @@ impl OpenedVolume {
             let local_end = end - base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(
-                local_end
-                    .checked_add(7)
-                    .ok_or(Error::ArithmeticOverflow)?
-                    / 8,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate_local = None;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
@@ -1039,9 +1026,9 @@ impl OpenedVolume {
                 let byte_end = byte_start
                     .checked_add(block_size)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let block_bytes = batch
-                    .get(byte_start..byte_end)
-                    .ok_or(Error::Corrupt("inventory discovery batch bounds are invalid"))?;
+                let block_bytes = batch.get(byte_start..byte_end).ok_or(Error::Corrupt(
+                    "inventory discovery batch bounds are invalid",
+                ))?;
                 if block_bytes.get(..INVENTORY_DESCRIPTOR_MAGIC.len())
                     != Some(INVENTORY_DESCRIPTOR_MAGIC.as_slice())
                 {
@@ -1434,9 +1421,7 @@ impl OpenedVolume {
         while checked_start < sorted.len() {
             let bitmap_index = sorted[checked_start] / bits_per_block;
             let mut checked_end = checked_start + 1;
-            while checked_end < sorted.len()
-                && sorted[checked_end] / bits_per_block == bitmap_index
-            {
+            while checked_end < sorted.len() && sorted[checked_end] / bits_per_block == bitmap_index {
                 checked_end += 1;
             }
             let base = bitmap_index
@@ -1460,8 +1445,7 @@ impl OpenedVolume {
             )?;
             for block in &sorted[checked_start..checked_end] {
                 let local = *block - base;
-                let byte = usize::try_from(local / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
                 if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
                     return Err(Error::Corrupt(
                         "persistent storage reclamation contains an already-free block",
@@ -3151,10 +3135,7 @@ impl OpenedVolume {
         }
         // An empty file has no extent map to inspect. Route its first append directly
         // through copy-on-write replacement rather than scanning every file's extents.
-        if offset == record.size
-            && record.size == 0
-            && record.extent_root_block.is_none()
-        {
+        if offset == record.size && record.size == 0 && record.extent_root_block.is_none() {
             return self.write_persistent_file_contents(device, path, data);
         }
         // Extent ownership is expensive to reconstruct, so defer it until the path and
@@ -3429,11 +3410,11 @@ impl OpenedVolume {
                     // Restore its zero-after-EOF invariant before returning to the caller.
                     if modified_old_tail {
                         let cleanup = (|| -> Result<()> {
-                            let physical = map
-                                .physical_block(offset / block_size)
-                                .ok_or(Error::Corrupt(
-                                    "append tail disappeared during metadata rollback",
-                                ))?;
+                            let physical =
+                                map.physical_block(offset / block_size)
+                                    .ok_or(Error::Corrupt(
+                                        "append tail disappeared during metadata rollback",
+                                    ))?;
                             let mut current = vec![0_u8; block_size_usize];
                             device.read_blocks(physical, &mut current)?;
                             let tail_start = usize::try_from(tail_offset)
@@ -3494,9 +3475,9 @@ impl OpenedVolume {
                         {
                             if modified_old_tail {
                                 let cleanup = (|| -> Result<()> {
-                                    let physical = map
-                                        .physical_block(offset / block_size)
-                                        .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
+                                    let physical = map.physical_block(offset / block_size).ok_or(
+                                        Error::Corrupt("append tail disappeared during rollback"),
+                                    )?;
                                     let mut current = vec![0_u8; block_size_usize];
                                     device.read_blocks(physical, &mut current)?;
                                     let tail_start = usize::try_from(tail_offset)
@@ -3658,15 +3639,11 @@ impl OpenedVolume {
                 );
                 let local_start = cursor - base;
                 let local_end = segment_end - base;
-                let first_byte = usize::try_from(local_start / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
-                let end_byte = usize::try_from(
-                    local_end
-                        .checked_add(7)
-                        .ok_or(Error::ArithmeticOverflow)?
-                        / 8,
-                )
-                .map_err(|_| Error::ArithmeticOverflow)?;
+                let first_byte =
+                    usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let end_byte =
+                    usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
                 for byte_index in first_byte..end_byte {
                     let mut mask = u8::MAX;
                     if byte_index == first_byte {
