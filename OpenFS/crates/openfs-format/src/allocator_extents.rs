@@ -351,7 +351,7 @@ impl OpenedVolume {
                     }
                     available &= !(1_u8 << bit);
                 }
-                if selected.len() as u64 == count {
+                if selected.len() == requested_count {
                     break;
                 }
             }
@@ -405,6 +405,12 @@ impl OpenedVolume {
     pub fn free_blocks<D: BlockDevice>(&mut self, device: &mut D, blocks: &[u64]) -> Result<()> {
         if blocks.is_empty() {
             return Err(Error::InvalidInput("batch free list must not be empty"));
+        }
+        // Reclamation already supplies strictly increasing block numbers. Avoid a
+        // second allocation for that common path; only normalize caller-owned unsorted
+        // input when it actually needs sorting.
+        if blocks.windows(2).all(|pair| pair[0] < pair[1]) {
+            return self.free_blocks_sorted(device, blocks);
         }
         let mut sorted = blocks.to_vec();
         sorted.sort_unstable();
