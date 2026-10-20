@@ -2652,20 +2652,14 @@ impl OpenedVolume {
             "cannot write into a sparse hole without allocating extents",
         ))?;
 
-        // Validate every target block before the first write so sparse holes and
-        // stale/free extent references cannot cause a partially applied logical write.
+        // The persisted map was loaded by read_namespace_extent_maps above, which
+        // validates every physical range, allocation bit, root alias and cross-file
+        // overlap. Only the write-specific condition remains to preflight here: every
+        // touched logical block must exist, so a sparse hole cannot cause a partial write.
         for logical in first_logical..=last_logical {
-            let physical = map.physical_block(logical).ok_or(Error::InvalidInput(
+            map.physical_block(logical).ok_or(Error::InvalidInput(
                 "cannot write into a sparse hole without allocating extents",
             ))?;
-            if physical < self.volume.layout.data_start
-                || physical >= self.volume.layout.backup_superblock
-            {
-                return Err(Error::Corrupt("file extent points outside the data region"));
-            }
-            if !self.is_data_block_allocated(device, physical)? {
-                return Err(Error::Corrupt("file extent points to a free data block"));
-            }
         }
 
         let block_len = self.volume.block_size as usize;
