@@ -47,7 +47,7 @@ openfs stat volume.img 4096 /path
 
 - `inspect-image` and `check-image` are read-only; they do not replay the journal.
 - `audit-image` opens the writable recovery path before checking persistent namespace and allocation ownership, so it can replay committed journal transactions. Back up the image first if its state is uncertain.
-- `stat` reports file extent/allocation details for files and direct child counts for directories.
+- `stat` reports file extent/allocation details for files. For directories it reports direct child counts plus recursive file/directory totals and total logical bytes across the subtree; traversal is iterative to handle deep trees without recursive call-stack growth.
 - `export` refuses to overwrite an existing host destination. `import` replaces the contents of an existing OpenFS file and streams the host source rather than loading the entire file into memory.
 
 Use `check-image` for a non-mutating first look at a questionable image. A successful check does not replace a full namespace ownership audit.
