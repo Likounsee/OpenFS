@@ -3383,6 +3383,19 @@ impl OpenedVolume {
                     "persistent file writes require a published inventory",
                 ))?;
         let object_id = namespace.resolve_path(path)?;
+        self.write_persistent_file_contents_from_namespace(device, namespace, object_id, data)
+    }
+
+    /// Replace file contents from a namespace already reconstructed by the caller.
+    /// This keeps the staging/publication/reclamation path shared while avoiding a second
+    /// inventory scan for operations that have already resolved the target path.
+    fn write_persistent_file_contents_from_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: Namespace,
+        object_id: ObjectId,
+        data: &[u8],
+    ) -> Result<()> {
         let existing = namespace
             .object(object_id)
             .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
@@ -3586,7 +3599,12 @@ impl OpenedVolume {
         // An empty file has no extent map to inspect. Route its first append directly
         // through copy-on-write replacement rather than scanning every file's extents.
         if offset == record.size && record.size == 0 && record.extent_root_block.is_none() {
-            return self.write_persistent_file_contents(device, path, data);
+            return self.write_persistent_file_contents_from_namespace(
+                device,
+                namespace,
+                object_id,
+                data,
+            );
         }
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
