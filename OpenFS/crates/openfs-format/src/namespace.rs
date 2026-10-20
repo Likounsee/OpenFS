@@ -269,11 +269,12 @@ impl Namespace {
 
         let parent_id = ObjectId::new(entry.parent_id)?;
         let object_id = record.id;
-        let parent = self
+        let mut updated_parent = self
             .objects
             .get(&parent_id)
+            .cloned()
             .ok_or(Error::InvalidInput("parent directory does not exist"))?;
-        if parent.kind != ObjectKind::Directory {
+        if updated_parent.kind != ObjectKind::Directory {
             return Err(Error::InvalidInput("parent object is not a directory"));
         }
         if self.objects.contains_key(&object_id) {
@@ -284,7 +285,14 @@ impl Namespace {
             return Err(Error::InvalidInput("name already exists in directory"));
         }
 
+        // A directory generation changes whenever its child set changes.
+        // Validate the increment before mutating either namespace index.
+        updated_parent.generation = updated_parent.generation.checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        updated_parent.encode()?;
+
         // No fallible work follows the first mutation: both indexes stay consistent.
+        self.objects.insert(parent_id, updated_parent);
         self.objects.insert(object_id, record);
         self.parents.insert(object_id, (parent_id, entry.name.clone()));
         self.names.insert(key, entry);
