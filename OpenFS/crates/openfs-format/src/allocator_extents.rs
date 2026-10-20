@@ -548,10 +548,19 @@ impl OpenedVolume {
         }
         let layout = self.volume.layout;
         let first_bitmap = layout.data_start / bits_per_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_block;
+        // Reuse the same block-sized buffer while inspecting each bitmap segment.
+        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         for index in first_bitmap..=last_bitmap {
-            let mut bitmap = vec![0_u8; self.volume.block_size as usize];
-            device.read_blocks(layout.bitmap_start + index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             let base = index
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -571,9 +580,12 @@ impl OpenedVolume {
             let mut run_start = start;
             let mut run_len = 0_u64;
             let mut previous_free = None;
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            // Ignore bitmap bytes outside this segment's usable data range.
+            // Enumerating the slice avoids repeatedly walking the whole prefix.
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
