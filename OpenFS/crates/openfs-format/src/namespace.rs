@@ -478,6 +478,7 @@ impl Namespace {
             }
         }
 
+        let old_root = current.extent_root_block;
         let mut updated = current;
         updated.size = size;
         updated.extent_root_block = extent_root_block;
@@ -486,8 +487,8 @@ impl Namespace {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         updated.encode()?;
-        if current.extent_root_block != extent_root_block {
-            if let Some(old_root) = current.extent_root_block {
+        if old_root != extent_root_block {
+            if let Some(old_root) = old_root {
                 self.extent_roots.remove(&old_root);
             }
             if let Some(new_root) = extent_root_block {
@@ -718,7 +719,7 @@ impl Namespace {
             || self.extent_roots.iter().any(|(root, owner)| {
                 self.objects
                     .get(owner)
-                    .is_none_or(|record| record.extent_root_block != Some(*root))
+                    .map_or(true, |record| record.extent_root_block != Some(*root))
             })
         {
             return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
