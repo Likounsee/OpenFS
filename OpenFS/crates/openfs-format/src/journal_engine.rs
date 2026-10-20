@@ -284,6 +284,30 @@ impl PersistentJournal {
         Ok(required_records)
     }
 
+    /// Return the maximum number of distinct full-block updates that fit in one transaction.
+    ///
+    /// This is a capacity estimate for callers that want to split large operations into
+    /// bounded atomic transactions. It does not reserve journal space, and a caller must
+    /// still handle I/O errors by reopening the volume when a commit outcome is uncertain.
+    pub fn max_update_count<D: BlockDevice>(&self, device: &D) -> Result<usize> {
+        self.region.validate(device)?;
+        let block_size = usize::try_from(device.block_size())
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let chunk_capacity = redo_chunk_size(block_size)?;
+        let chunks_per_update = block_size
+            .checked_add(chunk_capacity - 1)
+            .ok_or(Error::ArithmeticOverflow)?
+            / chunk_capacity;
+        let available_records = self
+            .region
+            .ring_blocks
+            .checked_sub(2)
+            .ok_or(Error::ArithmeticOverflow)?;
+        usize::try_from(available_records / u64::try_from(chunks_per_update)
+            .map_err(|_| Error::ArithmeticOverflow)?)
+            .map_err(|_| Error::ArithmeticOverflow)
+    }
+
     /// Append, durably commit, apply, flush home blocks, then persist the checkpoint.
     pub fn commit<D: BlockDevice>(
         &mut self,
