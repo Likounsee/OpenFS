@@ -166,7 +166,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let target = args.next().ok_or("missing file path")?;
             let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
             let data = args.collect::<Vec<_>>().join(" ");
-            write_namespace_file_range(Path::new(&path), block_size, &target, offset, data.as_bytes())
+            write_namespace_file_range(
+                Path::new(&path),
+                block_size,
+                &target,
+                offset,
+                data.as_bytes(),
+            )
         }
         Some("append") => {
             let path = args.next().ok_or("missing image path")?;
@@ -632,7 +638,12 @@ fn write_namespace_file_range(
     let mut volume = open_volume(&mut device)?;
     volume.write_persistent_path_range(&mut device, target, offset, data)?;
     device.flush()?;
-    println!("Wrote {} byte(s) at offset {} in '{}'.", data.len(), offset, target);
+    println!(
+        "Wrote {} byte(s) at offset {} in '{}'.",
+        data.len(),
+        offset,
+        target
+    );
     Ok(())
 }
 
