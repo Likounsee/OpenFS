@@ -295,10 +295,13 @@ impl OpenedVolume {
             .checked_sub(1)
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
-        // Reuse one bitmap image across segment scans instead of allocating a
-        // fresh block-sized buffer for every candidate segment.
+        // Reuse one bitmap image and one selection buffer across segment scans.
+        // Highly fragmented volumes can require checking many segments before finding
+        // a large enough run; reallocating the candidate vector each time is avoidable.
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut selected = Vec::with_capacity(requested_count);
         for index in first_bitmap..=last_bitmap {
+            selected.clear();
             let base = index
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -316,7 +319,6 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
-            let mut selected = Vec::with_capacity(requested_count);
             // Search the bitmap by byte and enumerate only free bits. The previous
             // block-by-block loop performed divisions and modulo operations for every
             // candidate, even when a full bitmap page contained no free blocks.
