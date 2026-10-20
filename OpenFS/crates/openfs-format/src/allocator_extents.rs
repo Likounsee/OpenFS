@@ -470,15 +470,33 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        for block in sorted {
-            let local = *block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte] & mask == 0 {
+        // Validate contiguous runs a byte at a time. Sparse entries still
+        // require run discovery, but long file extents no longer perform one
+        // division, modulo and bit-mask check per block.
+        let mut run_start = sorted[0];
+        let mut previous = sorted[0];
+        for &block in sorted.iter().skip(1) {
+            if previous.checked_add(1) == Some(block) {
+                previous = block;
+                continue;
+            }
+            if !bitmap_range_matches(&bitmap, run_start - base, previous - base + 1, true)? {
                 return Err(Error::InvalidInput(
                     "batch free contains an already-free block",
                 ));
             }
+            run_start = block;
+            previous = block;
+        }
+        if !bitmap_range_matches(
+            &bitmap,
+            run_start - base,
+            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
+            true,
+        )? {
+            return Err(Error::InvalidInput(
+                "batch free contains an already-free block",
+            ));
         }
         self.ensure_inventory_blocks_releasable(device, sorted)?;
         // The sorted list lets us check descriptor protection by contiguous runs,
@@ -1765,7 +1783,7 @@ impl OpenedVolume {
 }
 
 /// Check whether every bit in a half-open bitmap range has the requested state.
-fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
+pub(crate) fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
     if start_bit > end_bit {
         return Err(Error::InvalidInput("bitmap range start exceeds end"));
     }
