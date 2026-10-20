@@ -344,8 +344,8 @@ impl PersistentJournal {
             .encode_block(block_size)?,
         );
         sequence = sequence.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        let chunk_size = redo_chunk_size(block_size)?;
         for update in updates {
-            let chunk_size = redo_chunk_size(block_size)?;
             let chunk_count = update
                 .contents
                 .len()
