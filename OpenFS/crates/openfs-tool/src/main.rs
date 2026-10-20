@@ -118,7 +118,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
             let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
-            let length = args.next().ok_or("missing byte length")?.parse::<usize>()?;
+            let length = args.next().ok_or("missing byte length")?.parse::<u64>()?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
@@ -511,14 +511,18 @@ fn read_namespace_file_range(
     block_size: u32,
     target: &str,
     offset: u64,
-    length: usize,
+    length: u64,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
     let volume = open_volume(&mut device)?;
-    let contents = volume.read_persistent_path_range(&mut device, target, offset, length)?;
-    use std::io::Write;
     let mut stdout = std::io::stdout().lock();
-    stdout.write_all(&contents)?;
+    volume.stream_persistent_path_range_to_writer(
+        &mut device,
+        target,
+        offset,
+        length,
+        &mut stdout,
+    )?;
     Ok(())
 }
 
