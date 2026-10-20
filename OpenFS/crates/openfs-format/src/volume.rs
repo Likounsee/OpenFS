@@ -1577,7 +1577,14 @@ impl OpenedVolume {
                         ))?;
                     return Ok(());
                 }
-                _ => return Err(error),
+                Ok(Some((_, active)))
+                    if object_ids.iter().all(|id| active.object(*id).is_some()) =>
+                {
+                    return Err(error);
+                }
+                _ => return Err(Error::Corrupt(
+                    "batch removal publication outcome is uncertain; preserve the image and recover before further writes",
+                )),
             }
         }
         self.reclaim_persistent_blocks(device, &reclaim_blocks)
