@@ -306,7 +306,12 @@ impl OpenedVolume {
         self.validate_device(device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let first_bitmap = self.volume.layout.data_start / bits_per_block;
-        let last_data_block = self.volume.layout.backup_superblock - 1;
+        let last_data_block = self
+            .volume
+            .layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
         let mut free = 0_u64;
         // Reuse the bitmap buffer across pages to keep allocator memory churn bounded.
@@ -337,8 +342,13 @@ impl OpenedVolume {
             let local_end = end_block - bitmap_base;
             let first_byte =
                 usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte = usize::try_from(local_end.saturating_add(7) / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte = usize::try_from(
+                local_end
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
