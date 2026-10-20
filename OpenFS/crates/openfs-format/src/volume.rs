@@ -1258,6 +1258,80 @@ impl OpenedVolume {
         namespace.list_directory(directory_id, after_name, limit)
     }
 
+    /// Create an empty file beneath a directory resolved by its persistent path.
+    ///
+    /// This path-oriented entry point complements the object-ID API for callers such as
+    /// command-line tools and future OS adapters. The existing creation path remains the
+    /// single implementation of namespace validation and durable publication.
+    pub fn create_persistent_file_at_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        parent_path: &str,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "no persistent namespace exists for file creation",
+            ));
+        };
+        let parent_id = namespace.resolve_path(parent_path)?;
+        self.create_persistent_file(device, parent_id, object_id, name)
+    }
+
+    /// Create an empty directory beneath a directory resolved by its persistent path.
+    pub fn create_persistent_directory_at_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        parent_path: &str,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "no persistent namespace exists for directory creation",
+            ));
+        };
+        let parent_id = namespace.resolve_path(parent_path)?;
+        self.create_persistent_directory(device, parent_id, object_id, name)
+    }
+
+    /// Remove a persistent file or empty directory addressed by its path.
+    ///
+    /// Resolution is performed against the currently published namespace; the object-ID
+    /// removal implementation then re-discovers the inventory before mutating storage.
+    pub fn remove_persistent_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+    ) -> Result<()> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent removal requires a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        self.remove_persistent_object(device, object_id)
+    }
+
+    /// Rename or move an object using paths for both its current and destination parent.
+    pub fn rename_persistent_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        new_parent_path: &str,
+        new_name: &str,
+    ) -> Result<()> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent rename requires a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let new_parent_id = namespace.resolve_path(new_parent_path)?;
+        self.rename_persistent_object(device, object_id, new_parent_id, new_name)
+    }
+
     /// Initialize the first durable namespace on a freshly formatted volume.
     ///
     /// A single root-directory metadata record is staged and flushed before its inventory
