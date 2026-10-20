@@ -379,9 +379,13 @@ impl Namespace {
         }
 
         let mut ancestor = new_parent_id;
+        let mut visited_ancestors = std::collections::BTreeSet::new();
         loop {
             if ancestor == object_id {
                 return Err(Error::InvalidInput("directory move would create a cycle"));
+            }
+            if !visited_ancestors.insert(ancestor) {
+                return Err(Error::Corrupt("destination ancestry already contains a cycle"));
             }
             let Some(ancestor_record) = self.objects.get(&ancestor) else {
                 return Err(Error::Corrupt("destination ancestor is missing"));
@@ -416,6 +420,9 @@ impl Namespace {
         // updates before publishing the moved entry, including same-directory renames.
         let mut updated_old_parent = self.objects.get(&old_parent_id).cloned()
             .ok_or(Error::Corrupt("old parent directory is missing"))?;
+        if updated_old_parent.kind != ObjectKind::Directory {
+            return Err(Error::Corrupt("old parent object is not a directory"));
+        }
         updated_old_parent.generation = updated_old_parent.generation
             .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         updated_old_parent.encode()?;
