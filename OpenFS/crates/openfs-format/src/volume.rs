@@ -2377,6 +2377,18 @@ impl OpenedVolume {
                 "extent-map root is marked free in the allocation bitmap",
             ));
         }
+        self.read_extent_map_after_root_validation(device, root_block, file_size)
+    }
+
+    /// Decode an extent map after the caller has validated the root's range and
+    /// allocation state. The namespace-wide loader uses this after its batched root
+    /// bitmap scan, avoiding one extra bitmap read per file.
+    fn read_extent_map_after_root_validation<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        root_block: u64,
+        file_size: u64,
+    ) -> Result<ExtentMap> {
         let mut bytes = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(root_block, &mut bytes)?;
         let map = ExtentMap::decode_block(&bytes)?;
@@ -4049,7 +4061,9 @@ impl OpenedVolume {
             let Some(root) = record.extent_root_block else {
                 continue;
             };
-            let map = self.read_extent_map(device, root, record.size)?;
+            // validate_namespace_extent_roots already checked this root's range and
+            // allocation bit in a bitmap-page-cached pass above.
+            let map = self.read_extent_map_after_root_validation(device, root, record.size)?;
             let logical_blocks = record.size / u64::from(self.volume.block_size)
                 + u64::from(record.size % u64::from(self.volume.block_size) != 0);
             for (start, end) in map.validated_physical_ranges(
