@@ -4014,6 +4014,7 @@ impl OpenedVolume {
                 if !already_tracked {
                     allocated.extend(blocks.iter().copied());
                 }
+                let mut batch_extents = Vec::with_capacity(blocks.len());
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
                     let start = slot
                         .checked_mul(block_size)
@@ -4022,11 +4023,11 @@ impl OpenedVolume {
                         .checked_add(block_size)
                         .ok_or(Error::ArithmeticOverflow)?;
                     device.write_blocks(*block, &contents[start..end])?;
-                    extent_map.push_coalescing(crate::Extent {
+                    batch_extents.push(crate::Extent {
                         logical_start: logical_block,
                         physical_start: *block,
                         block_count: 1,
-                    })?;
+                    });
                     file_size = file_size
                         .checked_add(u64::try_from(*filled).map_err(|_| Error::ArithmeticOverflow)?)
                         .ok_or(Error::ArithmeticOverflow)?;
@@ -4034,6 +4035,7 @@ impl OpenedVolume {
                         .checked_add(1)
                         .ok_or(Error::ArithmeticOverflow)?;
                 }
+                extent_map.push_coalescing_batch(batch_extents)?;
                 if valid_lengths
                     .last()
                     .is_some_and(|filled| *filled < block_size)
