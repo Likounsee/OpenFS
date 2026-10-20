@@ -1680,12 +1680,16 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
         let mut blocks = Vec::with_capacity(block_count);
+        // Inventory streams may span many blocks. Reuse one zero-padded block buffer
+        // instead of allocating a fresh Vec for every chunk; clear it before each copy
+        // so a short final chunk cannot expose bytes left by the preceding chunk.
+        let mut padded = vec![0_u8; block_size];
         let result = (|| {
             for chunk in bytes.chunks(block_size) {
+                padded.fill(0);
+                padded[..chunk.len()].copy_from_slice(chunk);
                 let block = self.allocate_block(device)?;
                 blocks.push(block);
-                let mut padded = vec![0_u8; block_size];
-                padded[..chunk.len()].copy_from_slice(chunk);
                 device.write_blocks(block, &padded)?;
             }
             device.flush()?;
