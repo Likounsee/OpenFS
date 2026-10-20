@@ -1367,7 +1367,13 @@ impl OpenedVolume {
         };
         let object_id = namespace.resolve_path(path)?;
         let new_parent_id = namespace.resolve_path(new_parent_path)?;
-        self.rename_persistent_object(device, object_id, new_parent_id, new_name)
+        self.rename_persistent_object_from_namespace(
+            device,
+            namespace,
+            object_id,
+            new_parent_id,
+            new_name,
+        )
     }
 
     /// Initialize the first durable namespace on a freshly formatted volume.
@@ -1923,11 +1929,32 @@ impl OpenedVolume {
         new_name: &str,
     ) -> Result<()> {
         self.validate_device(device)?;
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent rename requires a published inventory",
             ));
         };
+        self.rename_persistent_object_from_namespace(
+            device,
+            namespace,
+            object_id,
+            new_parent_id,
+            new_name,
+        )
+    }
+
+    /// Rename or move an object using an already reconstructed namespace. The shared helper
+    /// keeps the same cycle checks, no-op handling and uncertain-publication recovery while
+    /// allowing path-oriented callers to avoid reconstructing the inventory twice.
+    fn rename_persistent_object_from_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        mut namespace: Namespace,
+        object_id: ObjectId,
+        new_parent_id: ObjectId,
+        new_name: &str,
+    ) -> Result<()> {
+        self.validate_device(device)?;
         let record = namespace
             .object(object_id)
             .cloned()
