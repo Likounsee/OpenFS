@@ -2931,8 +2931,8 @@ impl OpenedVolume {
                 }
 
                 let count = valid_lengths.len() as u64;
-                let blocks = match self.allocate_blocks(device, count) {
-                    Ok(blocks) => blocks,
+                let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
+                    Ok(blocks) => (blocks, false),
                     // On fragmented volumes no single bitmap segment may have enough
                     // room for the whole group. Fall back to single-block allocation
                     // rather than rejecting a valid import with free blocks available.
@@ -2941,13 +2941,19 @@ impl OpenedVolume {
                     )) => {
                         let mut blocks = Vec::with_capacity(valid_lengths.len());
                         for _ in 0..valid_lengths.len() {
-                            blocks.push(self.allocate_block(device)?);
+                            let block = self.allocate_block(device)?;
+                            // Track each successful allocation immediately: a later
+                            // fallback allocation can fail and still require rollback.
+                            allocated.push(block);
+                            blocks.push(block);
                         }
-                        blocks
+                        (blocks, true)
                     }
                     Err(error) => return Err(error),
                 };
-                allocated.extend(blocks.iter().copied());
+                if !already_tracked {
+                    allocated.extend(blocks.iter().copied());
+                }
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
                     let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
                     let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
