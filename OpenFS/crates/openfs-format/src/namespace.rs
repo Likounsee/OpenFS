@@ -296,6 +296,11 @@ impl Namespace {
             return Err(Error::InvalidInput("object ID already exists"));
         }
         if let Some(root_block) = record.extent_root_block {
+            if record.kind != ObjectKind::File || record.size == 0 {
+                return Err(Error::InvalidInput(
+                    "only non-empty files may own an extent-map root",
+                ));
+            }
             if self.extent_roots.contains_key(&root_block) {
                 return Err(Error::InvalidInput(
                     "extent-map root is already owned by another object",
@@ -459,10 +464,21 @@ impl Namespace {
             if size == 0 {
                 return Err(Error::InvalidInput("empty files cannot own an extent-map root"));
             }
-            if self.extent_roots.get(&root_block).is_some_and(|owner| *owner != object_id) {
-                return Err(Error::InvalidInput(
-                    "extent-map root is already owned by another object",
-                ));
+            match self.extent_roots.get(&root_block) {
+                Some(owner) if *owner != object_id => {
+                    return Err(Error::InvalidInput(
+                        "extent-map root is already owned by another object",
+                    ));
+                }
+                // The object may keep its current root, but an index entry claiming
+                // this object for a different root is stale/corrupt and must not be
+                // silently legitimized by a layout update.
+                Some(_) if current.extent_root_block != Some(root_block) => {
+                    return Err(Error::Corrupt(
+                        "extent-root ownership index contains a stale entry",
+                    ));
+                }
+                _ => {}
             }
         }
         // Do not consume a generation when the requested layout is already current.
