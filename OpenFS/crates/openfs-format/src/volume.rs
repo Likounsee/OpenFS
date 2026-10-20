@@ -5216,9 +5216,9 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
         )
         .map_err(|_| Error::ArithmeticOverflow)?;
         for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
-                let byte_index = first_byte
-                    .checked_add(byte_offset)
-                    .ok_or(Error::ArithmeticOverflow)?;
+            let byte_index = first_byte
+                .checked_add(byte_offset)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut mask = u8::MAX;
             if byte_index == first_byte {
                 mask &= u8::MAX << ((first - base) % 8);
@@ -5537,9 +5537,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         )
         .map_err(|_| Error::ArithmeticOverflow)?;
         for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
-                let byte_index = first_byte
-                    .checked_add(byte_offset)
-                    .ok_or(Error::ArithmeticOverflow)?;
+            let byte_index = first_byte
+                .checked_add(byte_offset)
+                .ok_or(Error::ArithmeticOverflow)?;
             let byte_base = bitmap_base
                 .checked_add(
                     u64::try_from(byte_index)
