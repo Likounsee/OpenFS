@@ -315,15 +315,42 @@ impl OpenedVolume {
             device.read_blocks(bitmap_block, &mut bitmap)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let mut selected = Vec::with_capacity(count as usize);
-            for block in start..end {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                let mask = 1_u8 << (local % 8);
-                if bitmap[byte] & mask == 0 {
-                    selected.push(block);
+            // Search the bitmap by byte and enumerate only free bits. The previous
+            // block-by-block loop performed divisions and modulo operations for every
+            // candidate, even when a full bitmap page contained no free blocks.
+            let local_start = start - base;
+            let local_end = end - base;
+            let first_byte =
+                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+            let end_byte =
+                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+            for byte_index in first_byte..end_byte {
+                let mut valid_mask = u8::MAX;
+                if byte_index == first_byte {
+                    valid_mask &= u8::MAX << (local_start % 8);
+                }
+                if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                }
+                let mut available = !bitmap[byte_index] & valid_mask;
+                while available != 0 {
+                    let bit = u64::from(available.trailing_zeros());
+                    let local = u64::try_from(byte_index)
+                        .map_err(|_| Error::ArithmeticOverflow)?
+                        .checked_mul(8)
+                        .and_then(|value| value.checked_add(bit))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    selected.push(
+                        base.checked_add(local).ok_or(Error::ArithmeticOverflow)?,
+                    );
                     if selected.len() as u64 == count {
                         break;
                     }
+                    available &= !(1_u8 << bit);
+                }
+                if selected.len() as u64 == count {
+                    break;
                 }
             }
             if selected.len() as u64 != count {
