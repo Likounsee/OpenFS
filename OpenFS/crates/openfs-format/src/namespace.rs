@@ -611,6 +611,21 @@ impl Namespace {
 
         let mut expected_extent_roots = BTreeMap::new();
         for record in self.objects.values() {
+            // Reconstructed namespaces must obey the same layout invariants as live
+            // mutations; persisted records do not pass through insert().
+            if record.kind != ObjectKind::File && record.extent_root_block.is_some() {
+                return Err(Error::Corrupt(
+                    "non-file namespace object owns an extent-map root",
+                ));
+            }
+            if record.kind == ObjectKind::File
+                && record.size == 0
+                && record.extent_root_block.is_some()
+            {
+                return Err(Error::Corrupt(
+                    "empty file namespace object owns an extent-map root",
+                ));
+            }
             if let Some(root_block) = record.extent_root_block {
                 if expected_extent_roots.insert(root_block, record.id).is_some() {
                     return Err(Error::Corrupt(
