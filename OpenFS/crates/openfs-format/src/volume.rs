@@ -2664,19 +2664,14 @@ impl OpenedVolume {
                 "persistent truncation requires a published inventory",
             ));
         };
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        // Resolve and validate the operation before loading extent maps for every file.
+        // Invalid paths, directories, extensions and no-op truncations need no extent I/O.
         let object_id = namespace.resolve_path(path)?;
         let record = namespace
             .object(object_id)
             .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
-        }
-        if let Some(current_map) = extent_maps.get(&object_id) {
-            let validation_block_size = u64::from(self.volume.block_size);
-            let logical_blocks = record.size / validation_block_size
-                + u64::from(record.size % validation_block_size != 0);
-            self.validate_extent_allocations(device, current_map, logical_blocks)?;
         }
         if new_size > record.size {
             return Err(Error::InvalidInput(
@@ -2685,6 +2680,13 @@ impl OpenedVolume {
         }
         if new_size == record.size {
             return Ok(());
+        }
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        if let Some(current_map) = extent_maps.get(&object_id) {
+            let validation_block_size = u64::from(self.volume.block_size);
+            let logical_blocks = record.size / validation_block_size
+                + u64::from(record.size % validation_block_size != 0);
+            self.validate_extent_allocations(device, current_map, logical_blocks)?;
         }
 
         let next_generation = record
