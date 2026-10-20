@@ -632,9 +632,18 @@ fn stat_namespace_entry(
 
     if record.kind == ObjectKind::File {
         let maps = volume.read_namespace_extent_maps(&mut device, &namespace)?;
-        let map = maps
-            .get(&object_id)
-            .ok_or("file extent map is missing from the persistent inventory")?;
+        let map = match maps.get(&object_id) {
+            Some(map) => map,
+            None if record.size == 0 && record.extent_root_block.is_none() => {
+                println!("Logical blocks: 0");
+                println!("Allocated data blocks: 0");
+                println!("Allocated data bytes: 0");
+                println!("Physical extents: 0");
+                println!("Unused capacity in final allocated block: 0 bytes");
+                return Ok(());
+            }
+            None => return Err("file extent map is missing from the persistent inventory".into()),
+        };
         let allocated_blocks = map.extents().iter().try_fold(0_u64, |total, extent| {
             total
                 .checked_add(extent.block_count)
@@ -650,10 +659,19 @@ fn stat_namespace_entry(
         println!("Allocated data blocks: {allocated_blocks}");
         println!("Allocated data bytes: {allocated_bytes}");
         println!("Physical extents: {}", map.extents().len());
-        println!(
-            "Unused capacity in final allocated block: {} bytes",
-            allocated_bytes.saturating_sub(record.size)
-        );
+
+        // Sparse holes are logical bytes without physical allocation, not unused
+        // capacity in the final block. Report only the tail slack of the final
+        // logical block, and only when that block is physically allocated.
+        let tail_slack = if record.size % block_size_bytes != 0
+            && logical_blocks > 0
+            && map.physical_block(logical_blocks - 1).is_some()
+        {
+            block_size_bytes - record.size % block_size_bytes
+        } else {
+            0
+        };
+        println!("Unused capacity in final allocated block: {tail_slack} bytes");
     }
     Ok(())
 }
