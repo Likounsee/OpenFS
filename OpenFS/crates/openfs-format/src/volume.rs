@@ -3464,9 +3464,9 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
-                    // The new generation is authoritative despite the reported I/O
-                    // error. Keep its root and return the original publication error.
-                    return Err(error);
+                    // The new generation is already authoritative. The requested
+                    // truncation is committed, so do not report a false failure.
+                    return Ok(());
                 }
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -3979,8 +3979,8 @@ impl OpenedVolume {
                         .object(object_id)
                         .is_some_and(|record| record.extent_root_block == extent_root) =>
                 {
-                    // The new version is active; retain it and return the original I/O error.
-                    return Err(error);
+                    // The new version is active; keep its allocations and report success.
+                    return Ok(file_size);
                 }
                 Ok(Some((_, active)))
                     if active
