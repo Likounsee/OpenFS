@@ -1349,7 +1349,7 @@ impl OpenedVolume {
             ));
         };
         let object_id = namespace.resolve_path(path)?;
-        self.remove_persistent_object(device, object_id)
+        self.remove_persistent_object_from_namespace(device, namespace, object_id)
     }
 
     /// Rename or move an object using paths for both its current and destination parent.
@@ -1669,11 +1669,24 @@ impl OpenedVolume {
         object_id: ObjectId,
     ) -> Result<()> {
         self.validate_device(device)?;
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent removal requires a published inventory",
             ));
         };
+        self.remove_persistent_object_from_namespace(device, namespace, object_id)
+    }
+
+    /// Remove an object using a namespace that has already been reconstructed by the caller.
+    /// Keeping the publication/reclamation sequence shared avoids a second full namespace scan
+    /// for path-oriented operations without weakening the post-publication recovery checks.
+    fn remove_persistent_object_from_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        mut namespace: Namespace,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        self.validate_device(device)?;
         let record = namespace
             .object(object_id)
             .cloned()
