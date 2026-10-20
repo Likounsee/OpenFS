@@ -2524,6 +2524,7 @@ impl OpenedVolume {
         let block_len =
             usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut block_buffer = vec![0_u8; block_len];
+        let zero_buffer = vec![0_u8; block_len];
         let mut written = 0_u64;
         for logical in first_logical..=last_logical {
             let block_start = logical
@@ -2543,12 +2544,12 @@ impl OpenedVolume {
                 device.read_blocks(physical, &mut block_buffer)?;
                 writer.write_all(&block_buffer[within_start..within_end])?;
             } else {
-                let zero_len = within_end - within_start;
-                let zeros = vec![0_u8; zero_len];
-                writer.write_all(&zeros)?;
+                writer.write_all(&zero_buffer[..within_end - within_start])?;
             }
+            let chunk_len = u64::try_from(within_end - within_start)
+                .map_err(|_| Error::ArithmeticOverflow)?;
             written = written
-                .checked_add(u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?)
+                .checked_add(chunk_len)
                 .ok_or(Error::ArithmeticOverflow)?;
         }
         writer.flush()?;
