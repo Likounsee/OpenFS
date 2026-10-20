@@ -3509,6 +3509,7 @@ impl OpenedVolume {
                 // without making temporary memory proportional to the entire append.
                 // Every successful fallback allocation is tracked immediately for rollback.
                 const APPEND_BATCH_BLOCKS: usize = 8;
+                let mut contents = vec![0_u8; block_size_usize];
                 let batch_bytes = block_size_usize
                     .checked_mul(APPEND_BATCH_BLOCKS)
                     .ok_or(Error::ArithmeticOverflow)?;
@@ -3536,7 +3537,7 @@ impl OpenedVolume {
                         allocated.extend(blocks.iter().copied());
                     }
                     for (chunk, block) in byte_group.chunks(block_size_usize).zip(blocks.iter()) {
-                        let mut contents = vec![0_u8; block_size_usize];
+                        contents.fill(0);
                         contents[..chunk.len()].copy_from_slice(chunk);
                         device.write_blocks(*block, &contents)?;
                         updated_map.insert_coalescing(crate::Extent {
