@@ -202,7 +202,12 @@ impl ExtentMap {
 
         // Merge directly from the existing sorted map plus the insertion point.
         // Avoid building a cloned candidate vector and then a second merged vector.
-        let mut merged: Vec<Extent> = Vec::with_capacity(self.extents.len() + 1);
+        let capacity = self
+            .extents
+            .len()
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut merged: Vec<Extent> = Vec::with_capacity(capacity);
         for current in self
             .extents
             .iter()
@@ -320,7 +325,12 @@ impl ExtentMap {
         let logical_end = logical_start
             .checked_add(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut kept = Vec::with_capacity(self.extents.len() + 1);
+        let capacity = self
+            .extents
+            .len()
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut kept = Vec::with_capacity(capacity);
         let mut removed = Vec::new();
         // Logical extents are sorted and non-overlapping. Begin at the only extent
         // that might cross the start boundary instead of scanning the untouched prefix.
@@ -330,7 +340,10 @@ impl ExtentMap {
         let first_candidate = insertion.saturating_sub(1);
         kept.extend_from_slice(&self.extents[..first_candidate]);
 
-        for (index, extent) in self.extents.iter().copied().enumerate().skip(first_candidate) {
+        // Slice before iterating: skipping the prefix on the full iterator would
+        // still walk untouched extents and erase the benefit of the binary search.
+        for (offset, extent) in self.extents[first_candidate..].iter().copied().enumerate() {
+            let index = first_candidate + offset;
             if extent.logical_start >= logical_end {
                 // The remainder lies wholly after the removed range; preserve it as-is.
                 kept.extend_from_slice(&self.extents[index..]);
