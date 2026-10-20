@@ -66,6 +66,10 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
         return Err(Error::InvalidInput("block size must be non-zero"));
     }
     let mut changed = false;
+    let max_batch_bytes = BATCH_BLOCKS
+        .checked_mul(block_bytes)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut contents = vec![0_u8; max_batch_bytes];
     let mut cursor = 0_usize;
     while cursor < blocks.len() {
         let run_start = cursor;
@@ -79,9 +83,9 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
         let byte_count = (run_end - run_start)
             .checked_mul(block_bytes)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut contents = vec![0_u8; byte_count];
-        device.read_blocks(blocks[run_start], &mut contents)?;
-        changed |= scrub_descriptor_batch(device, blocks[run_start], block_bytes, &mut contents)?;
+        let batch = &mut contents[..byte_count];
+        device.read_blocks(blocks[run_start], batch)?;
+        changed |= scrub_descriptor_batch(device, blocks[run_start], block_bytes, batch)?;
         cursor = run_end;
     }
     if changed {
