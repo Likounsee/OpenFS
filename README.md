@@ -33,6 +33,25 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 All development commits belong on the `OpenFS` branch. Validate untrusted disk bytes, use checked arithmetic, propagate I/O errors, and test failure paths as well as successful paths. Formatting is destructive; the CLI is intentionally limited to regular image files.
 
+## Image CLI operations
+
+The development CLI operates on regular image files only. Typical inspection commands are:
+
+```sh
+openfs inspect-image volume.img
+openfs check-image volume.img 4096
+openfs audit-image volume.img 4096
+openfs ls volume.img 4096 /
+openfs stat volume.img 4096 /path
+```
+
+- `inspect-image` and `check-image` are read-only; they do not replay the journal.
+- `audit-image` opens the writable recovery path before checking persistent namespace and allocation ownership, so it can replay committed journal transactions. Back up the image first if its state is uncertain.
+- `stat` reports file extent/allocation details for files and direct child counts for directories.
+- `export` refuses to overwrite an existing host destination. `import` replaces the contents of an existing OpenFS file and streams the host source rather than loading the entire file into memory.
+
+Use `check-image` for a non-mutating first look at a questionable image. A successful check does not replace a full namespace ownership audit.
+
 ## Limits
 
 Although image-backed namespace and file mutations exist, a general transaction layer for namespace and extent-map updates, complete crash-recovery guarantees, physical-device discovery safeguards, and OS mounting remain unfinished. File replacement, truncation, range writes, and streaming imports now preflight existing extent allocations against the allocation bitmap before mutating the file. Do not use important data or claim physical-device durability based on image tests.
