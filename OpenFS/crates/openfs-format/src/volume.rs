@@ -463,7 +463,9 @@ impl OpenedVolume {
         let Some((_, descriptor)) = self
             .inventory_descriptor_cache
             .as_ref()
-            .expect("descriptor cache was initialized")
+            .ok_or(Error::Corrupt(
+                "inventory descriptor cache was not initialized",
+            ))?
         else {
             return Ok(());
         };
@@ -539,7 +541,9 @@ impl OpenedVolume {
         let Some((_, descriptor)) = self
             .inventory_descriptor_cache
             .as_ref()
-            .expect("descriptor cache was initialized")
+            .ok_or(Error::Corrupt(
+                "inventory descriptor cache was not initialized",
+            ))?
         else {
             return Ok(());
         };
