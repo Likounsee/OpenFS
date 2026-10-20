@@ -2888,50 +2888,83 @@ impl OpenedVolume {
             let mut extent_map = ExtentMap::default();
             let mut file_size = 0_u64;
             let mut logical_block = 0_u64;
-            // Reuse one block-sized buffer for the whole import instead of allocating
-            // and freeing a fresh Vec for every filesystem block. The unused tail is
-            // explicitly zeroed below because the buffer may contain bytes from the
-            // preceding full block.
-            let mut contents = vec![0_u8; block_size];
+            // Stage a bounded group of blocks at a time. This amortizes bitmap and
+            // journal traffic on large imports while keeping memory use capped at 8 blocks.
+            // Each block retains its exact valid-byte count so the final partial block
+            // contributes only its logical payload to the file length.
+            const STAGING_BLOCKS: usize = 8;
+            let mut contents = vec![0_u8; block_size.checked_mul(STAGING_BLOCKS)
+                .ok_or(Error::ArithmeticOverflow)?];
             loop {
-                let mut filled = 0_usize;
-                while filled < block_size {
-                    let count = match reader.read(&mut contents[filled..]) {
-                        Ok(count) => count,
-                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(error) => return Err(error.into()),
-                    };
-                    if count == 0 {
+                let mut valid_lengths = Vec::with_capacity(STAGING_BLOCKS);
+                for slot in 0..STAGING_BLOCKS {
+                    let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let block_contents = &mut contents[start..end];
+                    let mut filled = 0_usize;
+                    while filled < block_size {
+                        let count = match reader.read(&mut block_contents[filled..]) {
+                            Ok(count) => count,
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                            Err(error) => return Err(error.into()),
+                        };
+                        if count == 0 {
+                            break;
+                        }
+                        filled = filled.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
+                    }
+                    if filled == 0 {
                         break;
                     }
-                    filled = filled.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
+                    // Clear the tail of every partial block so reused staging bytes never
+                    // become visible past EOF if the image is inspected below block size.
+                    if filled < block_size {
+                        block_contents[filled..].fill(0);
+                    }
+                    valid_lengths.push(filled);
+                    if filled < block_size {
+                        break;
+                    }
                 }
-                if filled == 0 {
+                if valid_lengths.is_empty() {
                     break;
                 }
 
-                // The buffer is reused across iterations. Clear the unused tail of
-                // the final partial block so bytes from the preceding block cannot leak
-                // into the file past its logical EOF.
-                if filled < block_size {
-                    contents[filled..].fill(0);
+                let count = valid_lengths.len() as u64;
+                let blocks = match self.allocate_blocks(device, count) {
+                    Ok(blocks) => blocks,
+                    // On fragmented volumes no single bitmap segment may have enough
+                    // room for the whole group. Fall back to single-block allocation
+                    // rather than rejecting a valid import with free blocks available.
+                    Err(Error::InvalidInput(
+                        "no bitmap segment has enough free data blocks for this batch",
+                    )) => {
+                        let mut blocks = Vec::with_capacity(valid_lengths.len());
+                        for _ in 0..valid_lengths.len() {
+                            blocks.push(self.allocate_block(device)?);
+                        }
+                        blocks
+                    }
+                    Err(error) => return Err(error),
+                };
+                allocated.extend(blocks.iter().copied());
+                for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
+                    let start = slot.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let end = start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    device.write_blocks(*block, &contents[start..end])?;
+                    extent_map.push_coalescing(crate::Extent {
+                        logical_start: logical_block,
+                        physical_start: *block,
+                        block_count: 1,
+                    })?;
+                    file_size = file_size
+                        .checked_add(u64::try_from(*filled).map_err(|_| Error::ArithmeticOverflow)?)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    logical_block = logical_block
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?;
                 }
-
-                let block = self.allocate_block(device)?;
-                allocated.push(block);
-                device.write_blocks(block, &contents)?;
-                extent_map.push_coalescing(crate::Extent {
-                    logical_start: logical_block,
-                    physical_start: block,
-                    block_count: 1,
-                })?;
-                file_size = file_size
-                    .checked_add(u64::try_from(filled).map_err(|_| Error::ArithmeticOverflow)?)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                logical_block = logical_block
-                    .checked_add(1)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                if filled < block_size {
+                if valid_lengths.last().is_some_and(|filled| *filled < block_size) {
                     break;
                 }
             }
