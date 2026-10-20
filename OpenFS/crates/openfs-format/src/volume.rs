@@ -2886,13 +2886,39 @@ impl OpenedVolume {
                     .checked_add(data.len())
                     .ok_or(Error::ArithmeticOverflow)?;
                 block[in_block..finish].copy_from_slice(data);
-                self.journal.commit(
+                // The data block is journaled before the namespace size is published.
+                // If this write fails after a durable commit record, or publication later
+                // proves the old generation is still active, bytes past the old EOF must be
+                // scrubbed. Otherwise a shorter retrying append could expose the tail left
+                // by this failed append.
+                let commit_result = self.journal.commit(
                     device,
                     &[RedoUpdate {
                         target_block: physical_block,
                         contents: block,
                     }],
-                )?;
+                );
+                if let Err(error) = commit_result {
+                    let cleanup = (|| -> Result<()> {
+                        let mut current = vec![0_u8; self.volume.block_size as usize];
+                        device.read_blocks(physical_block, &mut current)?;
+                        current[in_block..].fill(0);
+                        self.journal.commit(
+                            device,
+                            &[RedoUpdate {
+                                target_block: physical_block,
+                                contents: current,
+                            }],
+                        )?;
+                        Ok(())
+                    })();
+                    if cleanup.is_err() {
+                        return Err(Error::Corrupt(
+                            "append data write failed and bytes beyond EOF could not be cleared",
+                        ));
+                    }
+                    return Err(error);
+                }
 
                 let next_generation = record
                     .generation
@@ -2926,6 +2952,27 @@ impl OpenedVolume {
                                 item.size == record.size && item.generation == record.generation
                             }) =>
                         {
+                            // The old generation is still authoritative, so the in-place
+                            // tail update is not visible yet. Restore the zero-after-EOF
+                            // invariant before allowing another append attempt.
+                            let cleanup = (|| -> Result<()> {
+                                let mut current = vec![0_u8; self.volume.block_size as usize];
+                                device.read_blocks(physical_block, &mut current)?;
+                                current[in_block..].fill(0);
+                                self.journal.commit(
+                                    device,
+                                    &[RedoUpdate {
+                                        target_block: physical_block,
+                                        contents: current,
+                                    }],
+                                )?;
+                                Ok(())
+                            })();
+                            if cleanup.is_err() {
+                                return Err(Error::Corrupt(
+                                    "append publication failed with the old generation active, but bytes beyond EOF could not be cleared",
+                                ));
+                            }
                             return Err(error);
                         }
                         _ => {
