@@ -196,6 +196,19 @@ impl ExtentMap {
     /// remains unchanged if validation or arithmetic fails.
     pub fn insert_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
+        let physical_end = extent.physical_end()?;
+        // The current map is already validated. Check only the new run against existing
+        // physical ownership so we can keep validation linear and avoid sorting every
+        // physical range again after insertion.
+        for existing in &self.extents {
+            let existing_end = existing.physical_end()?;
+            if extent.physical_start < existing_end
+                && existing.physical_start < physical_end
+            {
+                return Err(Error::InvalidInput("physical extents overlap"));
+            }
+        }
+
         let position = self
             .extents
             .partition_point(|item| item.logical_start < extent.logical_start);
@@ -237,8 +250,10 @@ impl ExtentMap {
             merged.push(current);
         }
 
-        let validated = Self::new(merged)?;
-        self.extents = validated.extents;
+        // Logical order and physical non-overlap are now established without a
+        // second full-map sort: existing runs were valid and the inserted run was
+        // checked against every existing physical range above.
+        self.extents = merged;
         Ok(())
     }
 
