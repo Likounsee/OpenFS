@@ -678,7 +678,7 @@ impl OpenedVolume {
             }
             let bitmap = allocation_bitmaps
                 .get(&bitmap_index)
-                .expect("bitmap page was cached");
+                .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
             let local_bit = *block % bits_per_bitmap_block;
             let byte_index =
                 usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -960,7 +960,7 @@ impl OpenedVolume {
             }
             let bitmap = bitmaps
                 .get_mut(&bitmap_index)
-                .expect("bitmap page was inserted");
+                .ok_or(Error::Corrupt("staged allocation bitmap page is missing"))?;
             let local = block % bits_per_bitmap_block;
             let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
             let mask = 1_u8 << (local % 8);
@@ -1123,7 +1123,7 @@ impl OpenedVolume {
                     }
                     let bitmap = allocation_bitmaps
                         .get(&bitmap_index)
-                        .expect("bitmap page was cached");
+                .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
                     let local_bit = *inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -2822,7 +2822,7 @@ impl OpenedVolume {
             // compare it with disk. Path-based callers pass maps just loaded and checked
             // by read_namespace_extent_maps; rereading the root here would duplicate I/O.
             if validate_extent_graph {
-                let root_block = record.extent_root_block.expect("root presence was checked");
+                let root_block = record.extent_root_block.ok_or(Error::Corrupt("extent-map root disappeared during validation"))?;
                 let persisted_map = self.read_extent_map(device, root_block, record.size)?;
                 if loaded_map != &persisted_map {
                     return Err(Error::Corrupt(
@@ -3030,9 +3030,7 @@ impl OpenedVolume {
             let within_end =
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             let chunk_len = within_end - within_start;
-            let physical = map
-                .physical_block(logical)
-                .expect("target extents were validated before writing");
+            let physical = map.physical_block(logical).ok_or(Error::Corrupt("target extent disappeared after write-range preflight"))?;
             if within_start == 0 && within_end == block_len {
                 block_buffer.copy_from_slice(&data[source_offset..source_offset + chunk_len]);
             } else {
@@ -4749,7 +4747,7 @@ impl OpenedVolume {
             }
             let bitmap = allocation_bitmaps
                 .get(&bitmap_index)
-                .expect("bitmap page was cached");
+                .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
             let local_bit = *block % bits_per_bitmap_block;
             let byte_index =
                 usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
