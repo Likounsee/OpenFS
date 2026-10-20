@@ -2952,23 +2952,79 @@ impl OpenedVolume {
         let block_size = u64::from(self.volume.block_size);
         let block_len =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        // Reuse the data buffer for holes instead of allocating a second block-sized buffer.
-        let mut block_buffer = vec![0_u8; block_len];
+        // Bound memory independently of file size while amortizing device calls for
+        // contiguous extents. Fragmented blocks and sparse holes remain separate runs.
+        const STREAM_BATCH_BLOCKS: usize = 16;
+        let batch_capacity = block_len
+            .checked_mul(STREAM_BATCH_BLOCKS)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut batch_buffer = vec![0_u8; batch_capacity];
         let mut logical = 0_u64;
         let mut remaining = record.size;
         while remaining > 0 {
-            let chunk_len = usize::try_from(remaining.min(block_size))
-                .map_err(|_| Error::ArithmeticOverflow)?;
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                // Extent bounds and bitmap ownership were validated in one preflight pass.
-                device.read_blocks(physical, &mut block_buffer)?;
-                writer.write_all(&block_buffer[..chunk_len])?;
+                let mut run_blocks = 1_usize;
+                let max_blocks = usize::try_from(
+                    (remaining / block_size).min(STREAM_BATCH_BLOCKS as u64),
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                while run_blocks < max_blocks {
+                    let next_logical = logical
+                        .checked_add(u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let expected_physical = physical
+                        .checked_add(u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if map.and_then(|value| value.physical_block(next_logical)) != Some(expected_physical) {
+                        break;
+                    }
+                    run_blocks += 1;
+                }
+                let bytes_to_read = run_blocks
+                    .checked_mul(block_len)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(physical, &mut batch_buffer[..bytes_to_read])?;
+                let bytes_to_write = usize::try_from(
+                    remaining.min(u64::try_from(bytes_to_read).map_err(|_| Error::ArithmeticOverflow)?),
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                writer.write_all(&batch_buffer[..bytes_to_write])?;
+                let consumed_blocks =
+                    u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                let consumed_bytes = u64::try_from(bytes_to_write)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                logical = logical.checked_add(consumed_blocks).ok_or(Error::ArithmeticOverflow)?;
+                remaining -= consumed_bytes;
             } else {
-                block_buffer[..chunk_len].fill(0);
-                writer.write_all(&block_buffer[..chunk_len])?;
+                // Emit a bounded run of sparse zeros without issuing disk reads.
+                let mut hole_blocks = 1_usize;
+                let max_blocks = usize::try_from(
+                    (remaining / block_size).min(STREAM_BATCH_BLOCKS as u64),
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                while hole_blocks < max_blocks {
+                    let next_logical = logical
+                        .checked_add(u64::try_from(hole_blocks).map_err(|_| Error::ArithmeticOverflow)?)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if map.and_then(|value| value.physical_block(next_logical)).is_some() {
+                        break;
+                    }
+                    hole_blocks += 1;
+                }
+                let bytes_to_write = usize::try_from(
+                    remaining.min(
+                        u64::try_from(hole_blocks.checked_mul(block_len).ok_or(Error::ArithmeticOverflow)?)
+                            .map_err(|_| Error::ArithmeticOverflow)?,
+                    ),
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                batch_buffer[..bytes_to_write].fill(0);
+                writer.write_all(&batch_buffer[..bytes_to_write])?;
+                let consumed_blocks =
+                    u64::try_from(hole_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                logical = logical.checked_add(consumed_blocks).ok_or(Error::ArithmeticOverflow)?;
+                remaining -= u64::try_from(bytes_to_write).map_err(|_| Error::ArithmeticOverflow)?;
             }
-            remaining -= u64::try_from(chunk_len).map_err(|_| Error::ArithmeticOverflow)?;
-            logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         }
         writer.flush()?;
         Ok(record.size)
