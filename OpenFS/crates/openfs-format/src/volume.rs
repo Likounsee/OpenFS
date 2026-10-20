@@ -1447,12 +1447,35 @@ impl OpenedVolume {
                 "persistent rename requires a published inventory",
             ));
         };
+
+        // A single object may appear only once: otherwise the requested final state
+        // is ambiguous and "all changes committed" cannot be established after an I/O error.
+        let mut seen = std::collections::BTreeSet::new();
+        let mut original_locations = Vec::with_capacity(changes.len());
+        for (object_id, _, _) in changes {
+            if !seen.insert(*object_id) {
+                return Err(Error::InvalidInput(
+                    "an object may be renamed only once per batch",
+                ));
+            }
+            let record = namespace.object(*object_id)
+                .ok_or(Error::InvalidInput("object does not exist"))?;
+            let entry = namespace.entries()
+                .find(|entry| entry.object_id == object_id.0)
+                .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
+            original_locations.push((
+                *object_id,
+                record.parent_id,
+                entry.name.clone(),
+            ));
+        }
+
         for (object_id, parent_id, name) in changes {
             namespace.rename(*object_id, *parent_id, name)?;
         }
         if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
-            // A late I/O error may follow a durable descriptor switch. Verify the whole
-            // requested batch before deciding whether the operation actually committed.
+            // A late I/O error may follow a durable descriptor switch. Distinguish a
+            // committed batch, a definitely uncommitted batch, and an uncertain image.
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if changes.iter().all(|(object_id, parent_id, name)| {
@@ -1462,7 +1485,17 @@ impl OpenedVolume {
                                     .is_some_and(|entry| entry.object_id == object_id.0)
                         })
                     }) => return Ok(()),
-                _ => return Err(error),
+                Ok(Some((_, active)))
+                    if original_locations.iter().all(|(object_id, parent_id, name)| {
+                        active.object(*object_id).is_some_and(|record| {
+                            record.parent_id == *parent_id
+                                && active.lookup(ObjectId(*parent_id), name)
+                                    .is_some_and(|entry| entry.object_id == object_id.0)
+                        })
+                    }) => return Err(error),
+                _ => return Err(Error::Corrupt(
+                    "batch rename publication outcome is uncertain; preserve the image and recover before further writes",
+                )),
             }
         }
         Ok(())
