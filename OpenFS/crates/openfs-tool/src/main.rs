@@ -538,9 +538,9 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
         Vec::new()
     };
     while let Some((directory_id, depth)) = stack.pop() {
-        let mut children = namespace.children(directory_id).cloned().collect::<Vec<_>>();
-        children.reverse();
-        for entry in children {
+        let children = namespace.children(directory_id).cloned().collect::<Vec<_>>();
+        let mut child_directories = Vec::new();
+        for entry in &children {
             let child_id = ObjectId(entry.object_id);
             let record = namespace
                 .object(child_id)
@@ -549,8 +549,12 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             let suffix = if record.kind == ObjectKind::Directory { "/" } else { "" };
             println!("{indent}{}{suffix}", entry.name);
             if record.kind == ObjectKind::Directory {
-                stack.push((child_id, depth + 1));
+                child_directories.push(child_id);
             }
+        }
+        // Stack is LIFO: reverse the sorted child list to visit subtrees in lexical order.
+        for child_id in child_directories.into_iter().rev() {
+            stack.push((child_id, depth + 1));
         }
     }
     Ok(())
