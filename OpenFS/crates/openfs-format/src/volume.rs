@@ -1807,15 +1807,19 @@ impl OpenedVolume {
             ));
         }
 
-        // Do not publish metadata that points at missing, free, overlapping, or
-        // otherwise malformed extent maps. Validate the complete incoming ownership
-        // graph while the previous inventory is still authoritative.
-        self.read_namespace_extent_maps(device, namespace)?;
+        // Check that replacement has an authoritative starting point before scanning
+        // every file's extent map. On an uninitialized volume, this avoids expensive
+        // ownership I/O and all serialization/staging work.
         if self.discover_persistent_inventory(device)?.is_none() {
             return Err(Error::InvalidInput(
                 "no persistent inventory descriptor exists to replace",
             ));
         }
+
+        // Do not publish metadata that points at missing, free, overlapping, or
+        // otherwise malformed extent maps. Validate the complete incoming ownership
+        // graph while the previous inventory is still authoritative.
+        self.read_namespace_extent_maps(device, namespace)?;
 
         // Counts and fixed record widths were checked above, so reserve the exact
         // serialized sizes once. This avoids geometric Vec growth and transient copies
