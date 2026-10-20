@@ -105,15 +105,22 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
     }
     let mut next_block = start_block;
     let mut changed = false;
+    // Reuse one bounded buffer for every batch instead of allocating up to 64
+    // block buffers again and again while scanning a large free-space range.
+    let max_batch_bytes = usize::try_from(BATCH_BLOCKS)
+        .map_err(|_| Error::ArithmeticOverflow)?
+        .checked_mul(block_bytes)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut contents = vec![0_u8; max_batch_bytes];
     while next_block < end_block {
         let count = (end_block - next_block).min(BATCH_BLOCKS);
         let byte_count = usize::try_from(count)
             .map_err(|_| Error::ArithmeticOverflow)?
             .checked_mul(block_bytes)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut contents = vec![0_u8; byte_count];
-        device.read_blocks(next_block, &mut contents)?;
-        changed |= scrub_descriptor_batch(device, next_block, block_bytes, &mut contents)?;
+        let batch = &mut contents[..byte_count];
+        device.read_blocks(next_block, batch)?;
+        changed |= scrub_descriptor_batch(device, next_block, block_bytes, batch)?;
         next_block = next_block
             .checked_add(count)
             .ok_or(Error::ArithmeticOverflow)?;
