@@ -3810,6 +3810,13 @@ impl OpenedVolume {
                 }
 
                 let count = u64::try_from(valid_lengths.len()).map_err(|_| Error::ArithmeticOverflow)?;
+                // Reserve rollback tracking before persisting any allocation in this
+                // batch. Otherwise growing the tracking Vec happens only after blocks
+                // have been allocated, leaving no recoverable inventory if reservation
+                // itself fails under memory pressure.
+                allocated.try_reserve(valid_lengths.len()).map_err(|_| {
+                    Error::InvalidInput("unable to reserve allocation rollback inventory")
+                })?;
                 let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
                     Ok(blocks) => (blocks, false),
                     // On fragmented volumes no single bitmap segment may have enough
@@ -3858,6 +3865,11 @@ impl OpenedVolume {
                 return Ok((None, 0));
             }
             let encoded = extent_map.encode_block(block_size)?;
+            // As with data batches, make rollback bookkeeping infallible before
+            // allocating the extent-map root on disk.
+            allocated.try_reserve(1).map_err(|_| {
+                Error::InvalidInput("unable to reserve allocation rollback inventory")
+            })?;
             let root = self.allocate_block(device)?;
             allocated.push(root);
             device.write_blocks(root, &encoded)?;
