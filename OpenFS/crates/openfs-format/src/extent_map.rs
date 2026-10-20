@@ -174,6 +174,17 @@ impl ExtentMap {
                 return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
             }
         }
+        let physical_end = extent.physical_end()?;
+        if self.extents.iter().any(|existing| {
+            existing
+                .physical_end()
+                .is_ok_and(|existing_end| {
+                    extent.physical_start < existing_end
+                        && existing.physical_start < physical_end
+                })
+        }) {
+            return Err(Error::InvalidInput("physical extents overlap"));
+        }
         self.extents.push(extent);
         Ok(())
     }
