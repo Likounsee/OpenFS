@@ -2543,37 +2543,28 @@ impl OpenedVolume {
         }
 
         let mut output = vec![0_u8; read_len];
-        // Aligned reads that map to one physically contiguous run can be issued as a
-        // single device operation. This is the common sequential-I/O path and avoids
-        // one block-device call plus one scratch-buffer copy for every block.
+        // A request contained in one extent is physically contiguous by construction.
+        // Inspect extent descriptors rather than probing every logical block, keeping
+        // large sequential reads O(number of extents) instead of O(number of blocks).
         if offset % block_size == 0 && read_len as u64 % block_size == 0 {
-            if let Some(extent_map) = map {
-                let mut expected_physical = None;
-                let mut contiguous = true;
-                for logical in first_logical..=last_logical {
-                    let Some(physical) = extent_map.physical_block(logical) else {
-                        contiguous = false;
-                        break;
-                    };
-                    match expected_physical {
-                        None => expected_physical = Some(physical),
-                        Some(expected) if physical == expected => {}
-                        Some(_) => {
-                            contiguous = false;
-                            break;
-                        }
-                    }
-                    expected_physical = physical.checked_add(1);
-                    if expected_physical.is_none() && logical != last_logical {
-                        return Err(Error::ArithmeticOverflow);
-                    }
-                }
-                if contiguous {
-                    if let Some(physical_start) = extent_map.physical_block(first_logical) {
-                        device.read_blocks(physical_start, &mut output)?;
-                        return Ok(output);
-                    }
-                }
+            let requested_blocks = u64::try_from(read_len)
+                .map_err(|_| Error::ArithmeticOverflow)? / block_size;
+            let requested_end = first_logical
+                .checked_add(requested_blocks)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if let Some(extent) = map.and_then(|extent_map| {
+                extent_map.extents().iter().find(|extent| {
+                    extent.logical_start <= first_logical
+                        && extent.logical_start
+                            .checked_add(extent.block_count)
+                            .is_some_and(|extent_end| extent_end >= requested_end)
+                })
+            }) {
+                let physical_start = extent.physical_start
+                    .checked_add(first_logical - extent.logical_start)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(physical_start, &mut output)?;
+                return Ok(output);
             }
         }
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
@@ -2875,34 +2866,79 @@ impl OpenedVolume {
         let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
         // One block-sized buffer is enough for both allocated and sparse ranges.
         // Reusing it avoids a second allocation proportional to the filesystem block size.
+        // Batch contiguous full-block reads while keeping memory bounded.
+        // Partial first/last blocks are emitted separately to preserve range boundaries.
+        const STREAM_BATCH_BLOCKS: usize = 16;
+        let batch_capacity = block_len
+            .checked_mul(STREAM_BATCH_BLOCKS)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut block_buffer = vec![0_u8; block_len];
+        let mut batch_buffer = vec![0_u8; batch_capacity];
         let mut written = 0_u64;
-        for logical in first_logical..=last_logical {
+        let mut logical = first_logical;
+        while logical <= last_logical {
             let block_start = logical
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
+            let block_end = block_start
+                .checked_add(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
             let copy_start = offset.max(block_start);
-            let copy_end = end.min(
-                block_start
-                    .checked_add(block_size)
-                    .ok_or(Error::ArithmeticOverflow)?,
-            );
+            let copy_end = end.min(block_end);
             let within_start =
                 usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             let within_end =
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
-            if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                device.read_blocks(physical, &mut block_buffer)?;
-                writer.write_all(&block_buffer[within_start..within_end])?;
+            if within_start == 0 && within_end == block_len {
+                let first_physical = map.and_then(|value| value.physical_block(logical));
+                let max_blocks = usize::try_from(
+                    (last_logical - logical + 1).min(STREAM_BATCH_BLOCKS as u64),
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                let mut run_blocks = 1_usize;
+                while run_blocks < max_blocks {
+                    let delta = u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                    let next_logical = logical.checked_add(delta).ok_or(Error::ArithmeticOverflow)?;
+                    let next_start = next_logical.checked_mul(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    let next_end = next_start.checked_add(block_size).ok_or(Error::ArithmeticOverflow)?;
+                    if next_start < offset || next_end > end {
+                        break;
+                    }
+                    match first_physical {
+                        Some(physical) => {
+                            let expected = physical.checked_add(delta).ok_or(Error::ArithmeticOverflow)?;
+                            if map.and_then(|value| value.physical_block(next_logical)) != Some(expected) {
+                                break;
+                            }
+                        }
+                        None if map.and_then(|value| value.physical_block(next_logical)).is_none() => {}
+                        None => break,
+                    }
+                    run_blocks += 1;
+                }
+                let run_bytes = run_blocks.checked_mul(block_len).ok_or(Error::ArithmeticOverflow)?;
+                if let Some(physical) = first_physical {
+                    device.read_blocks(physical, &mut batch_buffer[..run_bytes])?;
+                } else {
+                    batch_buffer[..run_bytes].fill(0);
+                }
+                writer.write_all(&batch_buffer[..run_bytes])?;
+                let run_blocks = u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                written = written.checked_add(u64::try_from(run_bytes).map_err(|_| Error::ArithmeticOverflow)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                logical = logical.checked_add(run_blocks).ok_or(Error::ArithmeticOverflow)?;
             } else {
-                block_buffer.fill(0);
+                if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
+                    device.read_blocks(physical, &mut block_buffer)?;
+                } else {
+                    block_buffer.fill(0);
+                }
                 writer.write_all(&block_buffer[within_start..within_end])?;
+                written = written.checked_add(
+                    u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?
+                ).ok_or(Error::ArithmeticOverflow)?;
+                logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
             }
-            let chunk_len =
-                u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?;
-            written = written
-                .checked_add(chunk_len)
-                .ok_or(Error::ArithmeticOverflow)?;
         }
         writer.flush()?;
         Ok(written)
