@@ -152,6 +152,16 @@ pub struct OpenedVolume {
 }
 
 impl OpenedVolume {
+    /// Maximum number of distinct full-block redo updates that fit in one journal transaction.
+    ///
+    /// Large atomic writes should be sized against this bound before staging data. The
+    /// returned value is advisory: it does not reserve the journal or guarantee that a
+    /// later I/O operation will succeed.
+    pub fn max_atomic_redo_updates<D: BlockDevice>(&self, device: &D) -> Result<usize> {
+        self.validate_device(device)?;
+        self.journal.max_update_count(device)
+    }
+
     /// Allocate and journal the bitmap update before exposing the new allocation.
     pub fn allocate_block<D: BlockDevice>(&mut self, device: &mut D) -> Result<u64> {
         self.validate_device(device)?;
