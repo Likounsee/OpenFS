@@ -308,8 +308,8 @@ impl PersistentJournal {
     /// still handle I/O errors by reopening the volume when a commit outcome is uncertain.
     pub fn max_update_count<D: BlockDevice>(&self, device: &D) -> Result<usize> {
         self.region.validate(device)?;
-        let block_size = usize::try_from(device.block_size())
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
         let chunk_capacity = redo_chunk_size(block_size)?;
         let chunks_per_update = block_size
             .checked_add(chunk_capacity - 1)
@@ -320,9 +320,11 @@ impl PersistentJournal {
             .ring_blocks
             .checked_sub(2)
             .ok_or(Error::ArithmeticOverflow)?;
-        usize::try_from(available_records / u64::try_from(chunks_per_update)
-            .map_err(|_| Error::ArithmeticOverflow)?)
-            .map_err(|_| Error::ArithmeticOverflow)
+        usize::try_from(
+            available_records
+                / u64::try_from(chunks_per_update).map_err(|_| Error::ArithmeticOverflow)?,
+        )
+        .map_err(|_| Error::ArithmeticOverflow)
     }
 
     /// Append, durably commit, apply, flush home blocks, then persist the checkpoint.
@@ -395,14 +397,16 @@ impl PersistentJournal {
                 .checked_add(chunk_size - 1)
                 .ok_or(Error::ArithmeticOverflow)?
                 / chunk_size;
-            let chunk_count_u16 =
-                u16::try_from(chunk_count).map_err(|_| Error::InvalidInput("too many redo chunks"))?;
+            let chunk_count_u16 = u16::try_from(chunk_count)
+                .map_err(|_| Error::InvalidInput("too many redo chunks"))?;
             for index in 0..chunk_count {
                 let start = index
                     .checked_mul(chunk_size)
                     .ok_or(Error::ArithmeticOverflow)?;
                 let end = update.contents.len().min(
-                    start.checked_add(chunk_size).ok_or(Error::ArithmeticOverflow)?,
+                    start
+                        .checked_add(chunk_size)
+                        .ok_or(Error::ArithmeticOverflow)?,
                 );
                 let mut payload = vec![0; UPDATE_CHUNK_HEADER_SIZE + end - start];
                 payload[..8].copy_from_slice(&update.target_block.to_le_bytes());
@@ -772,8 +776,7 @@ fn validate_home_target<D: BlockDevice>(
             "redo target overlaps the journal region",
         ));
     }
-    let block_size =
-        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     if contents_len != block_size {
         return Err(Error::InvalidInput("redo image has incorrect block size"));
     }
