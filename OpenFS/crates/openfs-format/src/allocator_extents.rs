@@ -1574,7 +1574,7 @@ impl OpenedVolume {
 }
 
 /// Reject free bits that refer to metadata-reserved blocks or bitmap padding.
-fn validate_bitmap_reserved_bits(
+pub(crate) fn validate_bitmap_reserved_bits(
     bitmap: &[u8],
     segment_base: u64,
     data_start: u64,
