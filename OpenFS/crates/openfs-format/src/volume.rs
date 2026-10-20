@@ -2463,6 +2463,98 @@ impl OpenedVolume {
         self.read_file_range(device, &namespace, &extent_maps, object_id, offset, length)
     }
 
+    /// Stream a bounded range of a persistent file without allocating the requested length.
+    ///
+    /// Namespace and extent ownership are validated once before output begins. Memory use
+    /// remains bounded by one filesystem block even when the requested range is very large.
+    pub fn stream_persistent_path_range_to_writer<
+        D: BlockDevice,
+        W: std::io::Write,
+    >(
+        &self,
+        device: &mut D,
+        path: &str,
+        offset: u64,
+        length: u64,
+        writer: &mut W,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent file reads require a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path is not a regular file"));
+        }
+        if length == 0 || offset >= record.size {
+            writer.flush()?;
+            return Ok(0);
+        }
+
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let map = extent_maps.get(&object_id);
+        if record.extent_root_block.is_some() && map.is_none() {
+            return Err(Error::Corrupt(
+                "file extent map is missing from loaded inventory",
+            ));
+        }
+        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
+            return Err(Error::Corrupt(
+                "file has extents without a persistent extent-map root",
+            ));
+        }
+
+        let block_size = u64::from(self.volume.block_size);
+        let logical_blocks = record.size / block_size + u64::from(record.size % block_size != 0);
+        if let Some(map) = map {
+            self.validate_extent_allocations(device, map, logical_blocks)?;
+        }
+
+        let remaining_len = (record.size - offset).min(length);
+        let end = offset
+            .checked_add(remaining_len)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let first_logical = offset / block_size;
+        let last_logical = (end - 1) / block_size;
+        let block_len =
+            usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let mut block_buffer = vec![0_u8; block_len];
+        let mut written = 0_u64;
+        for logical in first_logical..=last_logical {
+            let block_start = logical
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let copy_start = offset.max(block_start);
+            let copy_end = end.min(
+                block_start
+                    .checked_add(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let within_start = usize::try_from(copy_start - block_start)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let within_end = usize::try_from(copy_end - block_start)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
+                device.read_blocks(physical, &mut block_buffer)?;
+                writer.write_all(&block_buffer[within_start..within_end])?;
+            } else {
+                let zero_len = within_end - within_start;
+                let zeros = vec![0_u8; zero_len];
+                writer.write_all(&zeros)?;
+            }
+            written = written
+                .checked_add(u64::try_from(within_end - within_start).map_err(|_| Error::ArithmeticOverflow)?)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+        writer.flush()?;
+        Ok(written)
+    }
+
     /// Stream a persistent file to a host writer after validating its metadata once.
     ///
     /// Unlike repeated calls to `read_persistent_path_range`, this checks the published
