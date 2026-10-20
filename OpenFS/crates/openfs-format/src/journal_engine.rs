@@ -175,7 +175,13 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
         // Preflight every counter before replay: a counter overflow must never leave
         // home blocks modified while recovery cannot publish its checkpoint.
-        let highest_sequence = scanned.records.last().unwrap().sequence;
+        let highest_sequence = scanned
+            .records
+            .last()
+            .ok_or(Error::Corrupt(
+                "journal recovery scan returned no records for a non-empty recovery set",
+            ))?
+            .sequence;
         let next_sequence = highest_sequence
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -184,7 +190,9 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             .iter()
             .map(|record| record.transaction_id)
             .max()
-            .unwrap();
+            .ok_or(Error::Corrupt(
+                "journal recovery scan has no transaction identifier",
+            ))?;
         let next_transaction_id = highest_transaction
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
