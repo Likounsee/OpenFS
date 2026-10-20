@@ -1263,13 +1263,33 @@ impl OpenedVolume {
     /// This path-oriented entry point complements the object-ID API for callers such as
     /// command-line tools and future OS adapters. It resolves the parent and publishes the
     /// updated inventory after Namespace::insert validates the new entry.
-    /// Create several empty files/directories under one persistent parent.
+    /// Create multiple empty files/directories in one persistent namespace publication.
     ///
-    /// All entries are validated in memory first and published through one copy-on-write
-    /// inventory replacement. This avoids rediscovering, serializing, staging and journaling
-    /// the entire namespace once per child when importing a directory tree or creating a batch.
-    /// Each tuple is (object ID, kind, name); only regular files and directories are supported.
-    /// An empty batch is a no-op and performs no device I/O.
+    /// Each tuple is (parent object ID, new object ID, kind, name). A parent may be an
+    /// existing directory or a directory created earlier in this same batch, allowing a
+    /// shallow-to-deep tree import without publishing each intermediate state. All changes
+    /// are validated in memory, then made visible by one copy-on-write inventory replacement.
+    /// Only regular files and directories are supported. An empty batch is a no-op.
+    pub fn create_persistent_objects<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        objects: &[(ObjectId, ObjectId, crate::ObjectKind, String)],
+    ) -> Result<Vec<ObjectId>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "no persistent namespace exists for object creation",
+            ));
+        };
+        self.create_persistent_objects_in_namespace(device, namespace, objects)
+    }
+
+    /// Create several empty files/directories under one persistent parent path.
+    ///
+    /// This convenience form resolves the parent once; see create_persistent_objects for
+    /// batches that include children under different parents.
     pub fn create_persistent_objects_at_path<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1279,14 +1299,27 @@ impl OpenedVolume {
         if objects.is_empty() {
             return Ok(Vec::new());
         }
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "no persistent namespace exists for object creation",
             ));
         };
         let parent_id = namespace.resolve_path(parent_path)?;
+        let expanded = objects
+            .iter()
+            .map(|(object_id, kind, name)| (parent_id, *object_id, *kind, name.clone()))
+            .collect::<Vec<_>>();
+        self.create_persistent_objects_in_namespace(device, namespace, &expanded)
+    }
+
+    fn create_persistent_objects_in_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        mut namespace: Namespace,
+        objects: &[(ObjectId, ObjectId, crate::ObjectKind, String)],
+    ) -> Result<Vec<ObjectId>> {
         let mut created = Vec::with_capacity(objects.len());
-        for (object_id, kind, name) in objects {
+        for (parent_id, object_id, kind, name) in objects {
             if !matches!(kind, crate::ObjectKind::File | crate::ObjectKind::Directory) {
                 return Err(Error::InvalidInput(
                     "persistent creation supports only files and directories",
