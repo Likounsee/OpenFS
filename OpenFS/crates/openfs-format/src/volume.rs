@@ -4395,13 +4395,13 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         let end = block.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         owned_ranges.push((*block, end));
     }
+    let mut extent_map_bytes = vec![0_u8; block_size];
     for record in namespace.objects() {
         let Some(root) = record.extent_root_block else {
             continue;
         };
-        let mut bytes = vec![0_u8; block_size];
-        device.read_blocks(root, &mut bytes)?;
-        let map = ExtentMap::decode_block(&bytes)?;
+        device.read_blocks(root, &mut extent_map_bytes)?;
+        let map = ExtentMap::decode_block(&extent_map_bytes)?;
         map.validate_file_size(record.size, layout.block_size)?;
         map.validate_physical_bounds(layout.data_start, layout.backup_superblock)?;
         for extent in map.extents() {
