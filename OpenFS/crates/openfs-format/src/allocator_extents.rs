@@ -817,6 +817,9 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut free = Vec::new();
+        // Reuse one bitmap page while walking the inventory to avoid allocating a
+        // fresh block-sized buffer for every segment.
+        let mut bitmap = vec![0_u8; layout.block_size as usize];
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -883,6 +886,9 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut extents = Vec::new();
+        // The same scratch page is reused for every segment; inventory is read-only
+        // and does not need to retain bitmap images after each scan.
+        let mut bitmap = vec![0_u8; layout.block_size as usize];
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
