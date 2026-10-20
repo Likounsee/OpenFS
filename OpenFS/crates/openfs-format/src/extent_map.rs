@@ -202,9 +202,7 @@ impl ExtentMap {
         // physical range again after insertion.
         for existing in &self.extents {
             let existing_end = existing.physical_end()?;
-            if extent.physical_start < existing_end
-                && existing.physical_start < physical_end
-            {
+            if extent.physical_start < existing_end && existing.physical_start < physical_end {
                 return Err(Error::InvalidInput("physical extents overlap"));
             }
         }
