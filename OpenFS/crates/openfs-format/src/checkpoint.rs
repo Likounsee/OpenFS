@@ -94,7 +94,9 @@ impl JournalCheckpoint {
                 "journal checkpoint sequence counters disagree",
             ));
         }
-        checkpoint.validate()?;
+        checkpoint
+            .validate()
+            .map_err(|_| Error::Corrupt("invalid journal checkpoint state"))?;
         Ok(checkpoint)
     }
 
@@ -250,7 +252,7 @@ mod tests {
         refresh_checksum(&mut bytes);
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::InvalidInput(_))
+            Err(Error::Corrupt("invalid journal checkpoint state"))
         ));
 
         let impossible = JournalCheckpoint {
@@ -306,7 +308,7 @@ mod tests {
         refresh_checksum(&mut bytes);
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::InvalidInput(_))
+            Err(Error::Corrupt("invalid journal checkpoint state"))
         ));
 
         let mut bytes = sample().encode().unwrap();
@@ -314,7 +316,7 @@ mod tests {
         refresh_checksum(&mut bytes);
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::InvalidInput(_))
+            Err(Error::Corrupt("invalid journal checkpoint state"))
         ));
 
         assert!(matches!(
