@@ -355,6 +355,7 @@ impl Namespace {
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         let old_parent_id = ObjectId::new(record.parent_id)?;
+        self.validate_directory_ancestry(old_parent_id, None)?;
         let old_name = self.entry_name_for(old_parent_id, object_id)?;
         let old_entry = self
             .names
@@ -454,6 +455,20 @@ impl Namespace {
         if current.kind != ObjectKind::File {
             return Err(Error::InvalidInput("only files have a file layout"));
         }
+        // Metadata updates must not silently preserve or deepen a broken namespace edge.
+        let parent_id = ObjectId::new(current.parent_id)
+            .map_err(|_| Error::Corrupt("file metadata has an invalid parent ID"))?;
+        self.validate_directory_ancestry(parent_id, None)?;
+        let indexed_name = self.entry_name_for(parent_id, object_id)?;
+        let entry = self.names.get(&(parent_id, indexed_name.clone()))
+            .ok_or(Error::Corrupt("file directory entry is missing"))?;
+        if entry.object_id != object_id.0
+            || entry.parent_id != parent_id.0
+            || entry.name != indexed_name
+            || entry.kind != current.kind
+        {
+            return Err(Error::Corrupt("file metadata disagrees with its directory entry"));
+        }
         if let Some(root_block) = extent_root_block {
             if size == 0 {
                 return Err(Error::InvalidInput("empty files cannot own an extent-map root"));
@@ -541,6 +556,7 @@ impl Namespace {
 
         let (parent_id, name) = self.parents.get(&object_id).cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
+        self.validate_directory_ancestry(parent_id, None)?;
         if record.parent_id != parent_id.0 {
             return Err(Error::Corrupt("parent index disagrees with object metadata"));
         }
