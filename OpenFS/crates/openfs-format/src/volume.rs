@@ -3509,17 +3509,21 @@ impl OpenedVolume {
                 // without making temporary memory proportional to the entire append.
                 // Every successful fallback allocation is tracked immediately for rollback.
                 const APPEND_BATCH_BLOCKS: usize = 8;
-                let chunks = data[consumed..].chunks(block_size_usize).collect::<Vec<_>>();
-                for chunk_group in chunks.chunks(APPEND_BATCH_BLOCKS) {
-                    let count = u64::try_from(chunk_group.len())
+                let batch_bytes = block_size_usize
+                    .checked_mul(APPEND_BATCH_BLOCKS)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                for byte_group in data[consumed..].chunks(batch_bytes) {
+                    let chunk_count = byte_group.len() / block_size_usize
+                        + usize::from(byte_group.len() % block_size_usize != 0);
+                    let count = u64::try_from(chunk_count)
                         .map_err(|_| Error::ArithmeticOverflow)?;
                     let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
                         Ok(blocks) => (blocks, false),
                         Err(Error::InvalidInput(
                             "no bitmap segment has enough free data blocks for this batch",
                         )) => {
-                            let mut blocks = Vec::with_capacity(chunk_group.len());
-                            for _ in chunk_group {
+                            let mut blocks = Vec::with_capacity(chunk_count);
+                            for _ in 0..chunk_count {
                                 let block = self.allocate_block(device)?;
                                 allocated.push(block);
                                 blocks.push(block);
@@ -3531,7 +3535,7 @@ impl OpenedVolume {
                     if !already_tracked {
                         allocated.extend(blocks.iter().copied());
                     }
-                    for (chunk, block) in chunk_group.iter().zip(blocks.iter()) {
+                    for (chunk, block) in byte_group.chunks(block_size_usize).zip(blocks.iter()) {
                         let mut contents = vec![0_u8; block_size_usize];
                         contents[..chunk.len()].copy_from_slice(chunk);
                         device.write_blocks(*block, &contents)?;
