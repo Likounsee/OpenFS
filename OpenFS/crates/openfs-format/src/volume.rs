@@ -236,6 +236,11 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
+            // Select and mark a candidate before leaving the scan, then move the
+            // bitmap page into the redo image. Cloning a full block here doubled
+            // transient bitmap memory and copied every byte for each single-block
+            // allocation, including allocations on nearly-full volumes.
+            let mut selected = None;
             for (byte_index, byte) in bitmap
                 .iter_mut()
                 .enumerate()
@@ -262,26 +267,30 @@ impl OpenedVolume {
                     let block = bitmap_base
                         .checked_add(local)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    // A failed descriptor publication may have staged descriptor bytes in
-                    // a still-free block. Clear that reserved magic before exposing the
-                    // block as a different allocation, otherwise discovery could mistake
-                    // stale bytes for a live descriptor.
-                    device.read_blocks(block, &mut existing)?;
-                    if existing.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                        existing.fill(0);
-                        device.write_blocks(block, &existing)?;
-                        device.flush()?;
-                    }
                     *byte |= 1_u8 << bit;
-                    self.journal.commit(
-                        device,
-                        &[RedoUpdate {
-                            target_block: bitmap_block,
-                            contents: bitmap.clone(),
-                        }],
-                    )?;
-                    return Ok(block);
+                    selected = Some(block);
+                    break;
                 }
+            }
+            if let Some(block) = selected {
+                // A failed descriptor publication may have staged descriptor bytes in
+                // a still-free block. Clear that reserved magic before exposing the
+                // block as a different allocation, otherwise discovery could mistake
+                // stale bytes for a live descriptor.
+                device.read_blocks(block, &mut existing)?;
+                if existing.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                    existing.fill(0);
+                    device.write_blocks(block, &existing)?;
+                    device.flush()?;
+                }
+                self.journal.commit(
+                    device,
+                    &[RedoUpdate {
+                        target_block: bitmap_block,
+                        contents: bitmap,
+                    }],
+                )?;
+                return Ok(block);
             }
         }
         Err(Error::InvalidInput("volume has no free data blocks"))
