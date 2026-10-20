@@ -1525,11 +1525,26 @@ impl OpenedVolume {
         // Collect and validate every target against the same original namespace before
         // mutating the in-memory view. This also lets us load extent maps only once.
         let mut records = Vec::with_capacity(object_ids.len());
+        let mut removal_order = Vec::with_capacity(object_ids.len());
+        let mut seen = std::collections::BTreeSet::new();
         let mut needs_extent_maps = false;
         for object_id in object_ids {
+            if !seen.insert(*object_id) {
+                return Err(Error::InvalidInput(
+                    "an object may be removed only once per batch",
+                ));
+            }
+            if *object_id == namespace.root_id() {
+                return Err(Error::InvalidInput("the namespace root cannot be removed"));
+            }
             let record = namespace.object(*object_id)
                 .cloned()
                 .ok_or(Error::InvalidInput("object does not exist"))?;
+            let depth = namespace.path_of(*object_id)?
+                .split('/')
+                .filter(|component| !component.is_empty())
+                .count();
+            removal_order.push((depth, *object_id));
             if record.kind == crate::ObjectKind::File {
                 if record.extent_root_block.is_some() {
                     needs_extent_maps = true;
@@ -1541,6 +1556,11 @@ impl OpenedVolume {
             }
             records.push(record);
         }
+        // Process descendants before their ancestors, so a batch can remove a whole
+        // subtree regardless of the caller's input order. Unrequested children still
+        // make Namespace::remove reject their parent.
+        removal_order.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
+
         let extent_maps = if needs_extent_maps {
             Some(self.read_namespace_extent_maps(device, &namespace)?)
         } else {
@@ -1564,9 +1584,8 @@ impl OpenedVolume {
                 reclaim_blocks.push(root);
             }
         }
-        // Namespace::remove rejects non-empty directories and duplicate IDs naturally;
-        // no persistent block is reclaimed until every requested removal validates.
-        for object_id in object_ids {
+        // No persistent block is reclaimed until every requested removal validates.
+        for (_, object_id) in &removal_order {
             namespace.remove(*object_id)?;
         }
         if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
