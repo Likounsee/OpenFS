@@ -189,6 +189,66 @@ impl ExtentMap {
         Ok(())
     }
 
+    /// Append a validated batch of logical extents with one physical-overlap scan.
+    ///
+    /// Reader-driven imports often produce many extents on fragmented volumes. Calling
+    /// `push_coalescing` for each run rescans all earlier extents each time, making import
+    /// bookkeeping quadratic. This batch path validates all incoming and existing physical
+    /// ranges together, then appends/coalesces only after the full batch is known to be valid.
+    pub(crate) fn push_coalescing_batch(&mut self, incoming: Vec<Extent>) -> Result<()> {
+        if incoming.is_empty() {
+            return Ok(());
+        }
+        for extent in &incoming {
+            validate_extent(*extent)?;
+        }
+
+        if let Some(last) = self.extents.last() {
+            let logical_end = last.logical_end()?;
+            if incoming[0].logical_start < logical_end {
+                return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
+            }
+        }
+        for pair in incoming.windows(2) {
+            if pair[0].logical_end()? > pair[1].logical_start {
+                return Err(Error::InvalidInput("batch extents overlap logical blocks"));
+            }
+        }
+
+        let range_count = self
+            .extents
+            .len()
+            .checked_add(incoming.len())
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut physical_ranges = Vec::with_capacity(range_count);
+        for extent in self.extents.iter().chain(incoming.iter()) {
+            physical_ranges.push((extent.physical_start, extent.physical_end()?));
+        }
+        physical_ranges.sort_unstable();
+        if physical_ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+            return Err(Error::InvalidInput("physical extents overlap"));
+        }
+
+        self.extents
+            .try_reserve(incoming.len())
+            .map_err(|_| Error::InvalidInput("unable to reserve extent-map batch"))?;
+        for extent in incoming {
+            if let Some(last) = self.extents.last_mut() {
+                if last.logical_end()? == extent.logical_start
+                    && last.physical_end()? == extent.physical_start
+                {
+                    last.block_count = last
+                        .block_count
+                        .checked_add(extent.block_count)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    continue;
+                }
+            }
+            self.extents.push(extent);
+        }
+        Ok(())
+    }
+
     /// Insert an extent at any logical position, merging adjacent logical and physical runs.
     ///
     /// This supports rebuilding a file's map when newly allocated blocks are not physically
