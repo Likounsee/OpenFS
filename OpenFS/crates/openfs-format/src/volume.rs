@@ -2492,19 +2492,21 @@ impl OpenedVolume {
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
         let map = extent_maps.get(&object_id);
-        if let Some(root_block) = record.extent_root_block {
+        if record.extent_root_block.is_some() {
             let loaded_map = map.ok_or(Error::Corrupt(
                 "file extent map is missing from loaded inventory",
             ))?;
-            // Do not trust a caller-supplied map merely because its blocks are allocated.
-            // It must match the checksummed map stored at the root named by this metadata
-            // record; otherwise a stale or substituted map could redirect reads into
-            // unrelated allocated blocks (including other filesystem metadata).
-            let persisted_map = self.read_extent_map(device, root_block, record.size)?;
-            if loaded_map != &persisted_map {
-                return Err(Error::Corrupt(
-                    "loaded extent map does not match persistent extent-map root",
-                ));
+            // Public callers may supply an arbitrary map, so the standalone API must
+            // compare it with disk. Path-based callers pass maps just loaded and checked
+            // by read_namespace_extent_maps; rereading the root here would duplicate I/O.
+            if validate_extent_graph {
+                let root_block = record.extent_root_block.expect("root presence was checked");
+                let persisted_map = self.read_extent_map(device, root_block, record.size)?;
+                if loaded_map != &persisted_map {
+                    return Err(Error::Corrupt(
+                        "loaded extent map does not match persistent extent-map root",
+                    ));
+                }
             }
         }
         if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
@@ -2818,11 +2820,8 @@ impl OpenedVolume {
             ));
         }
 
-        let block_size = u64::from(self.volume.block_size);
-        let logical_blocks = record.size / block_size + u64::from(record.size % block_size != 0);
-        if let Some(map) = map {
-            self.validate_extent_allocations(device, map, logical_blocks)?;
-        }
+        // read_namespace_extent_maps already validates every extent map against the
+        // allocation bitmap and global ownership graph; do not scan the same bits again.
         if length == 0 || offset >= record.size {
             writer.flush()?;
             return Ok(0);
@@ -2909,14 +2908,9 @@ impl OpenedVolume {
             ));
         }
 
-        // Validate every physical allocation before emitting bytes. This both catches
-        // free/out-of-range blocks before a partial host output is produced and lets the
-        // allocator verifier reuse its bitmap-page cache across fragmented extents.
+        // read_namespace_extent_maps has already checked all roots, physical ranges,
+        // allocation bits and cross-file aliases before any bytes are emitted.
         let block_size = u64::from(self.volume.block_size);
-        let logical_blocks = record.size / block_size + u64::from(record.size % block_size != 0);
-        if let Some(map) = map {
-            self.validate_extent_allocations(device, map, logical_blocks)?;
-        }
         let block_len =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         // Reuse the data buffer for holes instead of allocating a second block-sized buffer.
