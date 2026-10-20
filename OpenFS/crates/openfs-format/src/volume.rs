@@ -761,7 +761,10 @@ impl OpenedVolume {
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate = None;
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -923,7 +926,10 @@ impl OpenedVolume {
                 usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
             let mut candidate_local = None;
-            for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut valid_mask = u8::MAX;
                 if byte_index == first_byte {
                     valid_mask &= u8::MAX << (local_start % 8);
@@ -1205,9 +1211,10 @@ impl OpenedVolume {
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
 
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
@@ -5208,7 +5215,10 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
                 / 8,
         )
         .map_err(|_| Error::ArithmeticOverflow)?;
-        for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+        for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
             let mut mask = u8::MAX;
             if byte_index == first_byte {
                 mask &= u8::MAX << ((first - base) % 8);
@@ -5293,12 +5303,10 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     / 8,
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
-            for (byte_index, value) in scan_bitmap
-                .iter()
-                .enumerate()
-                .take(end_byte)
-                .skip(first_byte)
-            {
+            for (byte_offset, value) in scan_bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_base = bitmap_base
                     .checked_add(
                         u64::try_from(byte_index)
@@ -5528,7 +5536,10 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 / 8,
         )
         .map_err(|_| Error::ArithmeticOverflow)?;
-        for (byte_index, byte) in bitmap.iter().enumerate().take(end_byte).skip(first_byte) {
+        for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
             let byte_base = bitmap_base
                 .checked_add(
                     u64::try_from(byte_index)
