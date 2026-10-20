@@ -3417,9 +3417,26 @@ impl OpenedVolume {
             for block in start..end {
                 let bitmap_index = block / bits_per_block;
                 if cached_bitmap_index != Some(bitmap_index) {
-                    device.read_blocks(
-                        self.volume.layout.bitmap_start + bitmap_index,
-                        &mut cached_bitmap,
+                    let base = bitmap_index
+                        .checked_mul(bits_per_block)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let bitmap_block = self
+                        .volume
+                        .layout
+                        .bitmap_start
+                        .checked_add(bitmap_index)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    device.read_blocks(bitmap_block, &mut cached_bitmap)?;
+                    let segment_start = self.volume.layout.data_start.max(base);
+                    let segment_end = self.volume.layout.backup_superblock.min(
+                        base.checked_add(bits_per_block)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    crate::allocator_extents::validate_bitmap_reserved_bits(
+                        &cached_bitmap,
+                        base,
+                        segment_start,
+                        segment_end,
                     )?;
                     cached_bitmap_index = Some(bitmap_index);
                 }
