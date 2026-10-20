@@ -1,9 +1,9 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
-Last source audit: 2026-10-14  
+Last source audit: 2026-10-20  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
 Code baseline audited: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
-Current code HEAD before this roadmap revision: 8c64e2bcbe9e94f30b603f78d7872ac3a968beee  
+Current code HEAD before this roadmap revision: d6cdc157c07a3f360c1ef16041c8d19667e5b5d3  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
@@ -14,16 +14,25 @@ Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a
 | Phase | Poids global | Avancement estimé | Périmètre / état |
 | --- | ---: | ---: | --- |
 | **P0 — Socle d'ingénierie et sécurité** | 10 % | **100 %** | Socle validé; rouvrir en cas de défaut concret de sécurité ou d'intégrité. |
-| **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **63 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
-| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **26 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
+| **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **64 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
+| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **28 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
 | **P3 — Périphériques sûrs, intégration OS et livraison** | 25 % | **3 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
-| **Global pondéré** | **100 %** | **40 %** | Estimation provisoire : 40,15 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
+| **Global pondéré** | **100 %** | **42 %** | Estimation provisoire : 41,55 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
 
 Les anciens lots sont regroupés sans faire passer du travail non réalisé pour terminé :
 - **P0** garde le socle d'ingénierie.
 - **P1** rassemble format/layout/allocateur et protocole transactionnel/récupération.
 - **P2** rassemble vérification/réparation et namespace/fichiers persistants.
 - **P3** rassemble découverte et formatage sûrs, intégration OS, compatibilité et livraison.
+
+### Mise à jour du 2026-10-20
+
+- `9091b25` — corrige le formatage Rust du calcul des octets logiques alloués dans `stat`. La CI exacte-SHA a validé formatage, tests workspace et Clippy sous Linux avant annulation des jobs par un push plus récent; ce n'est pas une validation complète Linux/Windows.
+- `b6df8cd` — ajoute les compteurs d'entrées directes, fichiers et sous-répertoires dans `stat`.
+- `d868ee9` — documente les précautions des commandes d'inspection/audit et les effets possibles de récupération.
+- `8d6f071` — étend `stat` des répertoires avec un parcours itératif du sous-arbre, les totaux récursifs de fichiers/répertoires et la somme des tailles logiques. Les additions sont vérifiées et le parcours évite la récursion sur la pile native.
+- `d6cdc15` — documente le comportement récursif de `stat` dans le README.
+- Ces améliorations de diagnostic ne prouvent pas la robustesse transactionnelle générale. La CI exacte-SHA du dernier commit reste à vérifier avant de déclarer le lot validé.
 
 ### Dernier lot de code documenté
 
