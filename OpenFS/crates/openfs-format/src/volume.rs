@@ -5031,12 +5031,15 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
         let first = index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
+        let end = first
+            .checked_add(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
         let bitmap_block = layout
             .bitmap_start
             .checked_add(index)
             .ok_or(Error::ArithmeticOverflow)?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
-        for block in first..first + bits_per_block {
+        for block in first..end {
             if layout.is_reserved(block) || block >= layout.total_blocks {
                 let local = block - first;
                 if bitmap[(local / 8) as usize] & (1 << (local % 8)) == 0 {
