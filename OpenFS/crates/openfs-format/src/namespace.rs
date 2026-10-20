@@ -382,11 +382,33 @@ impl Namespace {
             .ok_or(Error::ArithmeticOverflow)?;
         updated_record.encode()?;
 
+        // Directory generations track child-name changes too. Prepare both parent
+        // updates before publishing the moved entry, including same-directory renames.
+        let mut updated_old_parent = self.objects.get(&old_parent_id).cloned()
+            .ok_or(Error::Corrupt("old parent directory is missing"))?;
+        updated_old_parent.generation = updated_old_parent.generation
+            .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        updated_old_parent.encode()?;
+        let updated_new_parent = if new_parent_id == old_parent_id {
+            None
+        } else {
+            let mut parent = self.objects.get(&new_parent_id).cloned()
+                .ok_or(Error::Corrupt("destination directory is missing"))?;
+            parent.generation = parent.generation
+                .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            parent.encode()?;
+            Some(parent)
+        };
+
         let old_key = (old_parent_id, old_entry.name.clone());
         self.names.remove(&old_key);
         self.names.insert(new_key, updated_entry.clone());
         self.parents.insert(object_id, (new_parent_id, updated_entry.name));
         self.objects.insert(object_id, updated_record);
+        self.objects.insert(old_parent_id, updated_old_parent);
+        if let Some(parent) = updated_new_parent {
+            self.objects.insert(new_parent_id, parent);
+        }
         Ok(())
     }
 
