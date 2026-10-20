@@ -1421,9 +1421,10 @@ impl OpenedVolume {
         while checked_start < sorted.len() {
             let bitmap_index = sorted[checked_start] / bits_per_block;
             let mut checked_end = checked_start + 1;
-            while checked_end < sorted.len()
-                && sorted[checked_end] / bits_per_block == bitmap_index
-            {
+            while checked_end < sorted.len() {
+                if sorted[checked_end] / bits_per_block != bitmap_index {
+                    break;
+                }
                 checked_end += 1;
             }
             let base = bitmap_index
