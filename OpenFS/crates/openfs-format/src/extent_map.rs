@@ -158,26 +158,23 @@ impl ExtentMap {
     /// Failed insertions leave the original map unchanged.
     pub fn push_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
-        let mut candidate = self.extents.clone();
-        if let Some(last) = candidate.last_mut() {
-            if last.logical_end()? == extent.logical_start
-                && last.physical_end()? == extent.physical_start
-            {
+        if let Some(last) = self.extents.last_mut() {
+            let logical_end = last.logical_end()?;
+            let physical_end = last.physical_end()?;
+            if logical_end == extent.logical_start && physical_end == extent.physical_start {
+                // Appending is already ordered, so merge in place instead of cloning
+                // and revalidating the entire extent vector on every appended run.
                 last.block_count = last
                     .block_count
                     .checked_add(extent.block_count)
                     .ok_or(Error::ArithmeticOverflow)?;
-            } else {
-                if extent.logical_start < last.logical_end()? {
-                    return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
-                }
-                candidate.push(extent);
+                return Ok(());
             }
-        } else {
-            candidate.push(extent);
+            if extent.logical_start < logical_end {
+                return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
+            }
         }
-        let validated = Self::new(candidate)?;
-        self.extents = validated.extents;
+        self.extents.push(extent);
         Ok(())
     }
 
