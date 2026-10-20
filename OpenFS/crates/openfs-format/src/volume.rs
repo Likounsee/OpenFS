@@ -2543,6 +2543,39 @@ impl OpenedVolume {
         }
 
         let mut output = vec![0_u8; read_len];
+        // Aligned reads that map to one physically contiguous run can be issued as a
+        // single device operation. This is the common sequential-I/O path and avoids
+        // one block-device call plus one scratch-buffer copy for every block.
+        if offset % block_size == 0 && read_len as u64 % block_size == 0 {
+            if let Some(extent_map) = map {
+                let mut expected_physical = None;
+                let mut contiguous = true;
+                for logical in first_logical..=last_logical {
+                    let Some(physical) = extent_map.physical_block(logical) else {
+                        contiguous = false;
+                        break;
+                    };
+                    match expected_physical {
+                        None => expected_physical = Some(physical),
+                        Some(expected) if physical == expected => {}
+                        Some(_) => {
+                            contiguous = false;
+                            break;
+                        }
+                    }
+                    expected_physical = physical.checked_add(1);
+                    if expected_physical.is_none() && logical != last_logical {
+                        return Err(Error::ArithmeticOverflow);
+                    }
+                }
+                if contiguous {
+                    if let Some(physical_start) = extent_map.physical_block(first_logical) {
+                        device.read_blocks(physical_start, &mut output)?;
+                        return Ok(output);
+                    }
+                }
+            }
+        }
         let mut block_buffer = vec![0_u8; self.volume.block_size as usize];
         for logical in first_logical..=last_logical {
             let block_start = logical
