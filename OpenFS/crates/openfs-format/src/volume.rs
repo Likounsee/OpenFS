@@ -682,17 +682,26 @@ impl OpenedVolume {
         let layout = self.volume.layout;
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
-        let last_data_block = layout.backup_superblock - 1;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_bitmap_block;
         let mut selected = None;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let bitmap_block = layout.bitmap_start + bitmap_index;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut bitmap = vec![0_u8; block_size];
             device.read_blocks(bitmap_block, &mut bitmap)?;
-            let bitmap_base = bitmap_index * bits_per_bitmap_block;
+            let bitmap_base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
             let first_block = bitmap_base.max(layout.data_start);
             let end_block = bitmap_base
-                .saturating_add(bits_per_bitmap_block)
+                .checked_add(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?
                 .min(layout.backup_superblock);
             let local_start = first_block - bitmap_base;
             let local_end = end_block - bitmap_base;
