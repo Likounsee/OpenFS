@@ -1887,6 +1887,22 @@ pub(crate) fn validate_bitmap_reserved_bits(
     data_start: u64,
     data_end: u64,
 ) -> Result<()> {
+    if data_start < segment_base || data_end <= data_start {
+        return Err(Error::Corrupt("allocation bitmap scan range is invalid"));
+    }
+    let bitmap_bits = u64::try_from(bitmap.len())
+        .map_err(|_| Error::ArithmeticOverflow)?
+        .checked_mul(8)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let segment_end = segment_base
+        .checked_add(bitmap_bits)
+        .ok_or(Error::ArithmeticOverflow)?;
+    if data_end > segment_end {
+        return Err(Error::Corrupt(
+            "allocation bitmap scan range exceeds its bitmap segment",
+        ));
+    }
+
     let first_data_bit = data_start - segment_base;
     let end_data_bit = data_end - segment_base;
     let first_data_byte =
