@@ -97,7 +97,13 @@ impl Namespace {
                     "duplicate directory name in metadata inventory",
                 ));
             }
-            if parents.insert(ObjectId::new(entry.object_id)?, (ObjectId(entry.parent_id), entry.name)).is_some() {
+            if parents
+                .insert(
+                    ObjectId::new(entry.object_id)?,
+                    (ObjectId(entry.parent_id), entry.name),
+                )
+                .is_some()
+            {
                 return Err(Error::Corrupt(
                     "an object has multiple parent directory entries",
                 ));
@@ -205,10 +211,15 @@ impl Namespace {
                 .objects
                 .get(&current)
                 .ok_or(Error::Corrupt("path object metadata is missing"))?;
-            let (parent_id, name) = self.parents.get(&current).cloned()
+            let (parent_id, name) = self
+                .parents
+                .get(&current)
+                .cloned()
                 .ok_or(Error::Corrupt("path directory entry is missing"))?;
             if record.parent_id != parent_id.0 {
-                return Err(Error::Corrupt("parent index disagrees with object metadata"));
+                return Err(Error::Corrupt(
+                    "parent index disagrees with object metadata",
+                ));
             }
             let entry = self
                 .names
@@ -297,7 +308,9 @@ impl Namespace {
             return Err(Error::InvalidInput("object ID already exists"));
         }
         if self.extent_roots.values().any(|owner| *owner == object_id) {
-            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
+            return Err(Error::Corrupt(
+                "extent-root ownership index contains a stale entry",
+            ));
         }
         if let Some(root_block) = record.extent_root_block {
             if record.kind != ObjectKind::File || record.size == 0 {
@@ -318,7 +331,9 @@ impl Namespace {
 
         // A directory generation changes whenever its child set changes.
         // Validate the increment before mutating either namespace index.
-        updated_parent.generation = updated_parent.generation.checked_add(1)
+        updated_parent.generation = updated_parent
+            .generation
+            .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         updated_parent.encode()?;
 
@@ -328,7 +343,8 @@ impl Namespace {
             self.extent_roots.insert(root_block, object_id);
         }
         self.objects.insert(object_id, record);
-        self.parents.insert(object_id, (parent_id, entry.name.clone()));
+        self.parents
+            .insert(object_id, (parent_id, entry.name.clone()));
         self.names.insert(key, entry);
         Ok(())
     }
@@ -406,21 +422,31 @@ impl Namespace {
 
         // Directory generations track child-name changes too. Prepare both parent
         // updates before publishing the moved entry, including same-directory renames.
-        let mut updated_old_parent = self.objects.get(&old_parent_id).cloned()
+        let mut updated_old_parent = self
+            .objects
+            .get(&old_parent_id)
+            .cloned()
             .ok_or(Error::Corrupt("old parent directory is missing"))?;
         if updated_old_parent.kind != ObjectKind::Directory {
             return Err(Error::Corrupt("old parent object is not a directory"));
         }
-        updated_old_parent.generation = updated_old_parent.generation
-            .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        updated_old_parent.generation = updated_old_parent
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         updated_old_parent.encode()?;
         let updated_new_parent = if new_parent_id == old_parent_id {
             None
         } else {
-            let mut parent = self.objects.get(&new_parent_id).cloned()
+            let mut parent = self
+                .objects
+                .get(&new_parent_id)
+                .cloned()
                 .ok_or(Error::Corrupt("destination directory is missing"))?;
-            parent.generation = parent.generation
-                .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            parent.generation = parent
+                .generation
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
             parent.encode()?;
             Some(parent)
         };
@@ -428,7 +454,8 @@ impl Namespace {
         let old_key = (old_parent_id, old_entry.name.clone());
         self.names.remove(&old_key);
         self.names.insert(new_key, updated_entry.clone());
-        self.parents.insert(object_id, (new_parent_id, updated_entry.name));
+        self.parents
+            .insert(object_id, (new_parent_id, updated_entry.name));
         self.objects.insert(object_id, updated_record);
         self.objects.insert(old_parent_id, updated_old_parent);
         if let Some(parent) = updated_new_parent {
@@ -460,18 +487,24 @@ impl Namespace {
             .map_err(|_| Error::Corrupt("file metadata has an invalid parent ID"))?;
         self.validate_directory_ancestry(parent_id, None)?;
         let indexed_name = self.entry_name_for(parent_id, object_id)?;
-        let entry = self.names.get(&(parent_id, indexed_name.clone()))
+        let entry = self
+            .names
+            .get(&(parent_id, indexed_name.clone()))
             .ok_or(Error::Corrupt("file directory entry is missing"))?;
         if entry.object_id != object_id.0
             || entry.parent_id != parent_id.0
             || entry.name != indexed_name
             || entry.kind != current.kind
         {
-            return Err(Error::Corrupt("file metadata disagrees with its directory entry"));
+            return Err(Error::Corrupt(
+                "file metadata disagrees with its directory entry",
+            ));
         }
         if let Some(root_block) = extent_root_block {
             if size == 0 {
-                return Err(Error::InvalidInput("empty files cannot own an extent-map root"));
+                return Err(Error::InvalidInput(
+                    "empty files cannot own an extent-map root",
+                ));
             }
             match self.extent_roots.get(&root_block) {
                 Some(owner) if *owner != object_id => {
@@ -494,13 +527,19 @@ impl Namespace {
         // record must not make a stale ownership index appear valid.
         if let Some(old_root) = current.extent_root_block {
             if self.extent_roots.get(&old_root) != Some(&object_id) {
-                return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                return Err(Error::Corrupt(
+                    "extent-root ownership index is inconsistent",
+                ));
             }
         }
-        if self.extent_roots.iter().any(|(root, owner)| {
-            *owner == object_id && current.extent_root_block != Some(*root)
-        }) {
-            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
+        if self
+            .extent_roots
+            .iter()
+            .any(|(root, owner)| *owner == object_id && current.extent_root_block != Some(*root))
+        {
+            return Err(Error::Corrupt(
+                "extent-root ownership index contains a stale entry",
+            ));
         }
 
         // Do not consume a generation when the requested layout is already current.
@@ -554,11 +593,16 @@ impl Namespace {
             return Err(Error::InvalidInput("directory is not empty"));
         }
 
-        let (parent_id, name) = self.parents.get(&object_id).cloned()
+        let (parent_id, name) = self
+            .parents
+            .get(&object_id)
+            .cloned()
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         self.validate_directory_ancestry(parent_id, None)?;
         if record.parent_id != parent_id.0 {
-            return Err(Error::Corrupt("parent index disagrees with object metadata"));
+            return Err(Error::Corrupt(
+                "parent index disagrees with object metadata",
+            ));
         }
         let key = (parent_id, name);
         let entry = self
@@ -575,24 +619,35 @@ impl Namespace {
             ));
         }
 
-        let mut parent_record = self.objects.get(&parent_id).cloned()
+        let mut parent_record = self
+            .objects
+            .get(&parent_id)
+            .cloned()
             .ok_or(Error::Corrupt("parent directory metadata is missing"))?;
         if parent_record.kind != ObjectKind::Directory {
             return Err(Error::Corrupt("object parent is not a directory"));
         }
-        parent_record.generation = parent_record.generation.checked_add(1)
+        parent_record.generation = parent_record
+            .generation
+            .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         parent_record.encode()?;
 
         if let Some(root_block) = record.extent_root_block {
             if self.extent_roots.get(&root_block) != Some(&object_id) {
-                return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                return Err(Error::Corrupt(
+                    "extent-root ownership index is inconsistent",
+                ));
             }
         }
-        if self.extent_roots.iter().any(|(root, owner)| {
-            *owner == object_id && record.extent_root_block != Some(*root)
-        }) {
-            return Err(Error::Corrupt("extent-root ownership index contains a stale entry"));
+        if self
+            .extent_roots
+            .iter()
+            .any(|(root, owner)| *owner == object_id && record.extent_root_block != Some(*root))
+        {
+            return Err(Error::Corrupt(
+                "extent-root ownership index contains a stale entry",
+            ));
         }
 
         // All consistency checks are complete before the first mutation.
@@ -625,12 +680,18 @@ impl Namespace {
                 return Err(Error::InvalidInput("directory move would create a cycle"));
             }
             if !visited.insert(current) {
-                return Err(Error::Corrupt("directory ancestry already contains a cycle"));
+                return Err(Error::Corrupt(
+                    "directory ancestry already contains a cycle",
+                ));
             }
-            let record = self.objects.get(&current)
+            let record = self
+                .objects
+                .get(&current)
                 .ok_or(Error::Corrupt("directory ancestor is missing"))?;
             if record.kind != ObjectKind::Directory {
-                return Err(Error::Corrupt("directory ancestry passes through a non-directory"));
+                return Err(Error::Corrupt(
+                    "directory ancestry passes through a non-directory",
+                ));
             }
             if current == self.root_id {
                 if record.parent_id != 0 {
@@ -642,24 +703,32 @@ impl Namespace {
             let parent_id = ObjectId::new(record.parent_id)
                 .map_err(|_| Error::Corrupt("non-root directory has an invalid parent ID"))?;
             let name = self.entry_name_for(parent_id, current)?;
-            let entry = self.names.get(&(parent_id, name.clone()))
+            let entry = self
+                .names
+                .get(&(parent_id, name.clone()))
                 .ok_or(Error::Corrupt("directory ancestor entry is missing"))?;
             if entry.object_id != current.0
                 || entry.parent_id != parent_id.0
                 || entry.name != name
                 || entry.kind != record.kind
             {
-                return Err(Error::Corrupt("directory ancestor metadata disagrees with its entry"));
+                return Err(Error::Corrupt(
+                    "directory ancestor metadata disagrees with its entry",
+                ));
             }
             current = parent_id;
         }
     }
 
     fn entry_name_for(&self, parent_id: ObjectId, object_id: ObjectId) -> Result<String> {
-        let (indexed_parent, name) = self.parents.get(&object_id)
+        let (indexed_parent, name) = self
+            .parents
+            .get(&object_id)
             .ok_or(Error::Corrupt("object has no matching directory entry"))?;
         if *indexed_parent != parent_id {
-            return Err(Error::Corrupt("parent index disagrees with object metadata"));
+            return Err(Error::Corrupt(
+                "parent index disagrees with object metadata",
+            ));
         }
         Ok(name.clone())
     }
@@ -680,7 +749,8 @@ impl Namespace {
         root.encode()
             .map_err(|_| Error::Corrupt("invalid root metadata record in namespace"))?;
         if self.names.len() != self.parents.len()
-            || self.names.len().checked_add(1) != Some(self.objects.len()) {
+            || self.names.len().checked_add(1) != Some(self.objects.len())
+        {
             return Err(Error::Corrupt(
                 "namespace object and directory-entry counts disagree",
             ));
@@ -707,7 +777,10 @@ impl Namespace {
                 ));
             }
             if let Some(root_block) = record.extent_root_block {
-                if expected_extent_roots.insert(root_block, record.id).is_some() {
+                if expected_extent_roots
+                    .insert(root_block, record.id)
+                    .is_some()
+                {
                     return Err(Error::Corrupt(
                         "multiple namespace objects claim the same extent-map root block",
                     ));
@@ -715,7 +788,9 @@ impl Namespace {
             }
         }
         if expected_extent_roots != self.extent_roots {
-            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+            return Err(Error::Corrupt(
+                "extent-root ownership index is inconsistent",
+            ));
         }
 
         let mut referenced = std::collections::BTreeSet::new();
@@ -823,7 +898,9 @@ impl Namespace {
                 // A matching count alone is insufficient: a stale index could point
                 // at the wrong owner while still having the expected number of keys.
                 if self.extent_roots.get(&root) != Some(&record.id) {
-                    return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                    return Err(Error::Corrupt(
+                        "extent-root ownership index is inconsistent",
+                    ));
                 }
                 owner_count = owner_count
                     .checked_add(1)
@@ -840,7 +917,9 @@ impl Namespace {
                     .map_or(true, |record| record.extent_root_block != Some(*root))
             })
         {
-            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+            return Err(Error::Corrupt(
+                "extent-root ownership index is inconsistent",
+            ));
         }
         Ok(self.extent_roots.keys().copied().collect())
     }
@@ -853,7 +932,9 @@ impl Namespace {
                 .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
             if let Some(root) = record.extent_root_block {
                 if self.extent_roots.get(&root) != Some(&record.id) {
-                    return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+                    return Err(Error::Corrupt(
+                        "extent-root ownership index is inconsistent",
+                    ));
                 }
             }
             count
@@ -867,7 +948,9 @@ impl Namespace {
                     .map_or(true, |record| record.extent_root_block != Some(*root))
             })
         {
-            return Err(Error::Corrupt("extent-root ownership index is inconsistent"));
+            return Err(Error::Corrupt(
+                "extent-root ownership index is inconsistent",
+            ));
         }
         Ok(count)
     }
