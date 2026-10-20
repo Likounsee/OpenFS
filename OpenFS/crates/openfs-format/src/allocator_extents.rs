@@ -1231,6 +1231,11 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             let start = layout.data_start.max(base);
             let end = layout.backup_superblock.min(bitmap_end);
+            // Bitmap pages wholly before the first data block contain metadata only.
+            // Skip them instead of passing an empty/reversed range to the data scanner.
+            if start >= end {
+                continue;
+            }
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
