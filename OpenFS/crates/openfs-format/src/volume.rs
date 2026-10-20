@@ -3007,12 +3007,20 @@ impl OpenedVolume {
         // Bound scratch memory while coalescing physically adjacent blocks into
         // larger device reads. This reduces I/O calls for fragmented files without
         // allocating a second buffer proportional to the full requested file range.
-        const MAX_READ_BATCH_BLOCKS: u64 = 128;
+        // Cap scratch memory at 1 MiB while adapting block count to the device's
+        // filesystem block size. Small blocks get larger batches; large blocks do not
+        // multiply a fixed block count into several MiB of transient memory.
+        const MAX_READ_BATCH_BYTES: usize = 1024 * 1024;
+        const MAX_READ_BATCH_BLOCKS: usize = 128;
         let requested_blocks = last_logical
             .checked_sub(first_logical)
             .and_then(|count| count.checked_add(1))
             .ok_or(Error::ArithmeticOverflow)?;
-        let batch_blocks = requested_blocks.min(MAX_READ_BATCH_BLOCKS);
+        let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let max_batch_blocks = (MAX_READ_BATCH_BYTES / block_len).clamp(1, MAX_READ_BATCH_BLOCKS);
+        let batch_blocks = requested_blocks.min(
+            u64::try_from(max_batch_blocks).map_err(|_| Error::ArithmeticOverflow)?,
+        );
         let batch_bytes = usize::try_from(
             batch_blocks
                 .checked_mul(block_size)
@@ -3364,9 +3372,14 @@ impl OpenedVolume {
         // Reusing it avoids a second allocation proportional to the filesystem block size.
         // Batch contiguous full-block reads while keeping memory bounded.
         // Partial first/last blocks are emitted separately to preserve range boundaries.
-        const STREAM_BATCH_BLOCKS: usize = 16;
+        // Keep each streaming scratch buffer near 1 MiB regardless of the
+        // filesystem block size, avoiding tiny device requests on 4 KiB volumes.
+        const STREAM_BATCH_BYTES: usize = 1024 * 1024;
+        const MAX_STREAM_BATCH_BLOCKS: usize = 64;
+        let stream_batch_blocks =
+            (STREAM_BATCH_BYTES / block_len).clamp(1, MAX_STREAM_BATCH_BLOCKS);
         let batch_capacity = block_len
-            .checked_mul(STREAM_BATCH_BLOCKS)
+            .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut block_buffer = vec![0_u8; block_len];
         let mut batch_buffer = vec![0_u8; batch_capacity];
@@ -3388,7 +3401,7 @@ impl OpenedVolume {
             if within_start == 0 && within_end == block_len {
                 let first_physical = map.and_then(|value| value.physical_block(logical));
                 let max_blocks =
-                    usize::try_from((last_logical - logical + 1).min(STREAM_BATCH_BLOCKS as u64))
+                    usize::try_from((last_logical - logical + 1).min(stream_batch_blocks as u64))
                         .map_err(|_| Error::ArithmeticOverflow)?;
                 let mut run_blocks = 1_usize;
                 while run_blocks < max_blocks {
@@ -3506,9 +3519,14 @@ impl OpenedVolume {
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         // Bound memory independently of file size while amortizing device calls for
         // contiguous extents. Fragmented blocks and sparse holes remain separate runs.
-        const STREAM_BATCH_BLOCKS: usize = 16;
+        // Keep each streaming scratch buffer near 1 MiB regardless of the
+        // filesystem block size, avoiding tiny device requests on 4 KiB volumes.
+        const STREAM_BATCH_BYTES: usize = 1024 * 1024;
+        const MAX_STREAM_BATCH_BLOCKS: usize = 64;
+        let stream_batch_blocks =
+            (STREAM_BATCH_BYTES / block_len).clamp(1, MAX_STREAM_BATCH_BLOCKS);
         let batch_capacity = block_len
-            .checked_mul(STREAM_BATCH_BLOCKS)
+            .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut batch_buffer = vec![0_u8; batch_capacity];
         let mut logical = 0_u64;
@@ -3517,7 +3535,7 @@ impl OpenedVolume {
             if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
                 let mut run_blocks = 1_usize;
                 let max_blocks =
-                    usize::try_from((remaining / block_size).min(STREAM_BATCH_BLOCKS as u64))
+                    usize::try_from((remaining / block_size).min(stream_batch_blocks as u64))
                         .map_err(|_| Error::ArithmeticOverflow)?;
                 while run_blocks < max_blocks {
                     let next_logical = logical
@@ -3559,7 +3577,7 @@ impl OpenedVolume {
                 // Emit a bounded run of sparse zeros without issuing disk reads.
                 let mut hole_blocks = 1_usize;
                 let max_blocks =
-                    usize::try_from((remaining / block_size).min(STREAM_BATCH_BLOCKS as u64))
+                    usize::try_from((remaining / block_size).min(stream_batch_blocks as u64))
                         .map_err(|_| Error::ArithmeticOverflow)?;
                 while hole_blocks < max_blocks {
                     let next_logical = logical
