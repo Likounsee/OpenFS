@@ -1005,7 +1005,11 @@ impl OpenedVolume {
         // and would otherwise repeat the same I/O and parsing work.
         let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
         let first_bitmap = layout.data_start / bits_per_bitmap_block;
-        let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
+        let last_data_block = layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_bitmap_block;
         let mut discovered = None;
         let mut pending_blocks: Vec<u64> = Vec::with_capacity(INVENTORY_DISCOVERY_BATCH_BLOCKS);
         // Descriptor references often share bitmap pages. Keep only the pages actually
@@ -1028,7 +1032,12 @@ impl OpenedVolume {
                 let byte_start = offset
                     .checked_mul(block_size)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let block_bytes = &batch[byte_start..byte_start + block_size];
+                let byte_end = byte_start
+                    .checked_add(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let block_bytes = batch
+                    .get(byte_start..byte_end)
+                    .ok_or(Error::Corrupt("inventory discovery batch bounds are invalid"))?;
                 if block_bytes.get(..INVENTORY_DESCRIPTOR_MAGIC.len())
                     != Some(INVENTORY_DESCRIPTOR_MAGIC.as_slice())
                 {
