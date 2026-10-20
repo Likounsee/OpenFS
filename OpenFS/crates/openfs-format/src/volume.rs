@@ -5356,7 +5356,14 @@ fn check_journal_read_only<D: BlockDevice>(
         block_number: u64,
         region: JournalRegion,
     ) -> Result<JournalCheckpoint> {
-        let mut block = vec![0_u8; device.block_size() as usize];
+        let block_size =
+            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        if block_size < JOURNAL_CHECKPOINT_SIZE {
+            return Err(Error::InvalidInput(
+                "device block is too small for journal checkpoints",
+            ));
+        }
+        let mut block = vec![0_u8; block_size];
         device.read_blocks(block_number, &mut block)?;
         if block[JOURNAL_CHECKPOINT_SIZE..]
             .iter()
