@@ -1429,6 +1429,112 @@ impl OpenedVolume {
         )
     }
 
+    /// Rename or move several objects with a single namespace publication.
+    ///
+    /// Each tuple is (object ID, destination parent ID, new name). Changes are applied
+    /// to a reconstructed in-memory namespace first; a failed validation leaves storage
+    /// untouched, and a valid batch is published once rather than once per rename.
+    pub fn rename_persistent_objects<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        changes: &[(ObjectId, ObjectId, String)],
+    ) -> Result<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent rename requires a published inventory",
+            ));
+        };
+        for (object_id, parent_id, name) in changes {
+            namespace.rename(*object_id, *parent_id, name)?;
+        }
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
+            // A late I/O error may follow a durable descriptor switch. Verify the whole
+            // requested batch before deciding whether the operation actually committed.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if changes.iter().all(|(object_id, parent_id, name)| {
+                        active.object(*object_id).is_some_and(|record| {
+                            record.parent_id == parent_id.0
+                                && active.lookup(*parent_id, name)
+                                    .is_some_and(|entry| entry.object_id == object_id.0)
+                        })
+                    }) => return Ok(()),
+                _ => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove multiple files or empty directories with one namespace publication.
+    ///
+    /// File data and extent-map roots are reclaimed only after the new namespace is
+    /// discoverable, so a failed pre-publication validation cannot free live blocks.
+    pub fn remove_persistent_objects<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_ids: &[ObjectId],
+    ) -> Result<()> {
+        if object_ids.is_empty() {
+            return Ok(());
+        }
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent removal requires a published inventory",
+            ));
+        };
+        let mut reclaim_blocks = Vec::new();
+        for object_id in object_ids {
+            let record = namespace.object(*object_id)
+                .cloned()
+                .ok_or(Error::InvalidInput("object does not exist"))?;
+            if record.kind == crate::ObjectKind::File {
+                if let Some(root) = record.extent_root_block {
+                    let maps = self.read_namespace_extent_maps(device, &namespace)?;
+                    let map = maps.get(object_id)
+                        .ok_or(Error::Corrupt("file extent map is missing"))?;
+                    for extent in map.extents() {
+                        for delta in 0..extent.block_count {
+                            reclaim_blocks.push(
+                                extent.physical_start.checked_add(delta)
+                                    .ok_or(Error::ArithmeticOverflow)?,
+                            );
+                        }
+                    }
+                    reclaim_blocks.push(root);
+                } else if record.size != 0 {
+                    return Err(Error::Corrupt(
+                        "non-empty file is missing its extent-map root",
+                    ));
+                }
+            }
+            namespace.remove(*object_id)?;
+        }
+        // Namespace::remove rejects non-empty directories and duplicate IDs naturally;
+        // no persistent block is reclaimed until every requested removal validates.
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if object_ids.iter().all(|id| active.object(*id).is_none()) =>
+                {
+                    self.reclaim_persistent_blocks(device, &reclaim_blocks)
+                        .map_err(|_| Error::Corrupt(
+                            "objects were removed but some blocks could not be reclaimed",
+                        ))?;
+                    return Ok(());
+                }
+                _ => return Err(error),
+            }
+        }
+        self.reclaim_persistent_blocks(device, &reclaim_blocks)
+            .map_err(|_| Error::Corrupt(
+                "objects were removed but some blocks could not be reclaimed",
+            ))?;
+        Ok(())
+    }
+
     /// Initialize the first durable namespace on a freshly formatted volume.
     ///
     /// A single root-directory metadata record is staged and flushed before its inventory
