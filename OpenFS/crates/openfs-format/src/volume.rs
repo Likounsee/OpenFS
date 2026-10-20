@@ -1319,6 +1319,14 @@ impl OpenedVolume {
         objects: &[(ObjectId, ObjectId, crate::ObjectKind, String)],
     ) -> Result<Vec<ObjectId>> {
         let mut created = Vec::with_capacity(objects.len());
+        let mut seen_ids = std::collections::BTreeSet::new();
+        for (_, object_id, _, _) in objects {
+            if !seen_ids.insert(*object_id) {
+                return Err(Error::InvalidInput(
+                    "an object ID may be created only once per batch",
+                ));
+            }
+        }
         for (parent_id, object_id, kind, name) in objects {
             if !matches!(kind, crate::ObjectKind::File | crate::ObjectKind::Directory) {
                 return Err(Error::InvalidInput(
@@ -1346,8 +1354,34 @@ impl OpenedVolume {
             created.push(*object_id);
         }
         // The sole publication is the visibility point for the whole batch: callers
-        // observe either the previous inventory or all requested children.
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        // observe either the previous inventory or all requested children. A reported
+        // I/O failure can still occur after the descriptor switch became durable.
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if objects.iter().all(|(parent_id, object_id, kind, name)| {
+                        active.object(*object_id).is_some_and(|record| {
+                            record.parent_id == parent_id.0
+                                && record.kind == *kind
+                                && record.size == 0
+                                && record.extent_root_block.is_none()
+                                && record.generation == 1
+                                && active.lookup(*parent_id, name)
+                                    .is_some_and(|entry| {
+                                        entry.object_id == object_id.0 && entry.kind == *kind
+                                    })
+                        })
+                    }) => return Ok(created),
+                Ok(Some((_, active)))
+                    if objects.iter().all(|(_, object_id, _, _)| active.object(*object_id).is_none()) =>
+                {
+                    return Err(error);
+                }
+                _ => return Err(Error::Corrupt(
+                    "batch creation publication outcome is uncertain; preserve the image and recover before further writes",
+                )),
+            }
+        }
         Ok(created)
     }
 
