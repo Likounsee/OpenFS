@@ -482,8 +482,18 @@ impl Namespace {
             ));
         }
 
+        let mut parent_record = self.objects.get(&parent_id).cloned()
+            .ok_or(Error::Corrupt("parent directory metadata is missing"))?;
+        if parent_record.kind != ObjectKind::Directory {
+            return Err(Error::Corrupt("object parent is not a directory"));
+        }
+        parent_record.generation = parent_record.generation.checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        parent_record.encode()?;
+
         self.names.remove(&key);
         self.parents.remove(&object_id);
+        self.objects.insert(parent_id, parent_record);
         self.objects
             .remove(&object_id)
             .ok_or(Error::Corrupt("object disappeared during removal"))
