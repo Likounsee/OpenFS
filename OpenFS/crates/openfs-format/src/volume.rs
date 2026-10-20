@@ -2717,13 +2717,6 @@ impl OpenedVolume {
             return Ok(());
         }
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        if let Some(current_map) = extent_maps.get(&object_id) {
-            let validation_block_size = u64::from(self.volume.block_size);
-            let logical_blocks = record.size / validation_block_size
-                + u64::from(record.size % validation_block_size != 0);
-            self.validate_extent_allocations(device, current_map, logical_blocks)?;
-        }
-
         let next_generation = record
             .generation
             .checked_add(1)
@@ -3351,13 +3344,6 @@ impl OpenedVolume {
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        if let Some(current_map) = extent_maps.get(&object_id) {
-            let validation_block_size = u64::from(self.volume.block_size);
-            let logical_blocks = record.size / validation_block_size
-                + u64::from(record.size % validation_block_size != 0);
-            self.validate_extent_allocations(device, current_map, logical_blocks)?;
-        }
-
         // Appends that fit in the current final block need no extent-map replacement.
         // Larger appends stage new data and a new extent root before publishing the new size.
         if !data.is_empty() && offset == record.size {
