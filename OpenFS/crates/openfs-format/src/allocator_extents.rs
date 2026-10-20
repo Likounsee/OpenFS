@@ -17,28 +17,36 @@ fn scrub_descriptor_batch<D: BlockDevice>(
     block_size: usize,
     contents: &mut [u8],
 ) -> Result<bool> {
-    let mut stale = Vec::new();
-    for (offset, chunk) in contents.chunks_exact_mut(block_size).enumerate() {
-        if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-            chunk.fill(0);
-            stale.push(offset);
-        }
-    }
-
+    let block_count = contents.len() / block_size;
     let mut changed = false;
     let mut cursor = 0_usize;
-    while cursor < stale.len() {
-        let first = stale[cursor];
-        let mut after_last = first + 1;
-        cursor += 1;
-        while cursor < stale.len() && stale[cursor] == after_last {
-            after_last += 1;
-            cursor += 1;
-        }
-        let byte_start = first
+    while cursor < block_count {
+        let byte_start = cursor
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
-        let byte_end = after_last
+        let chunk = &contents[byte_start..byte_start + block_size];
+        if !chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+            cursor += 1;
+            continue;
+        }
+
+        // Scrub and write one contiguous run immediately. This avoids building a
+        // per-batch vector of stale block indices, even for heavily fragmented data.
+        let first = cursor;
+        while cursor < block_count {
+            let byte_offset = cursor
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let end = byte_offset
+                .checked_add(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if !contents[byte_offset..end].starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                break;
+            }
+            contents[byte_offset..end].fill(0);
+            cursor += 1;
+        }
+        let byte_end = cursor
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
         let target = start_block
