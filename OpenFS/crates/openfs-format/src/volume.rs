@@ -1262,6 +1262,23 @@ impl OpenedVolume {
                 "persistent storage reclamation contains a non-data block",
             ));
         }
+        // Preflight the complete reclamation set before the first bitmap write.
+        // Segment-local validation alone can leave earlier segments freed if a later
+        // segment contains an already-free block or a block still owned by the inventory.
+        self.ensure_inventory_blocks_releasable(device, &sorted)?;
+        for block in &sorted {
+            if !self.is_data_block_allocated(device, *block)? {
+                return Err(Error::Corrupt(
+                    "persistent storage reclamation contains an already-free block",
+                ));
+            }
+            crate::inventory_descriptor::reject_freeing_inventory_descriptor(
+                device,
+                *block,
+                self.volume.block_size,
+            )?;
+        }
+
         let mut start = 0;
         while start < sorted.len() {
             let bitmap_segment = sorted[start] / bits_per_block;
