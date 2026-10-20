@@ -1857,9 +1857,9 @@ pub(crate) fn bitmap_range_matches(
 ) -> Result<bool> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
     for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
-                let byte_index = first_byte
-                    .checked_add(byte_offset)
-                    .ok_or(Error::ArithmeticOverflow)?;
+        let byte_index = first_byte
+            .checked_add(byte_offset)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         let bits = *byte & mask;
         if (allocated && bits != mask) || (!allocated && bits != 0) {
