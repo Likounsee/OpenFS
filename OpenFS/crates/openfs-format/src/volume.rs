@@ -1935,14 +1935,39 @@ impl OpenedVolume {
                 segment_start,
                 segment_end,
             )?;
-            for block in &sorted[checked_start..checked_end] {
-                let local = *block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+            // Check whole contiguous runs through the shared byte-mask helper.
+            // This keeps the global all-segments preflight intact while avoiding
+            // per-block bit arithmetic for large, mostly contiguous files.
+            let segment_blocks = &sorted[checked_start..checked_end];
+            let mut run_start = segment_blocks[0];
+            let mut previous = segment_blocks[0];
+            for &block in segment_blocks.iter().skip(1) {
+                if previous.checked_add(1) == Some(block) {
+                    previous = block;
+                    continue;
+                }
+                if !crate::allocator_extents::bitmap_range_matches(
+                    &bitmap,
+                    run_start - base,
+                    previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
+                    true,
+                )? {
                     return Err(Error::Corrupt(
                         "persistent storage reclamation contains an already-free block",
                     ));
                 }
+                run_start = block;
+                previous = block;
+            }
+            if !crate::allocator_extents::bitmap_range_matches(
+                &bitmap,
+                run_start - base,
+                previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
+                true,
+            )? {
+                return Err(Error::Corrupt(
+                    "persistent storage reclamation contains an already-free block",
+                ));
             }
             checked_start = checked_end;
         }
