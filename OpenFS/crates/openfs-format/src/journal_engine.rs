@@ -152,6 +152,13 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             "journal metadata overlaps a protected volume-control block",
         ));
     }
+    // Target protection is checked for every redo image during both recovery and
+    // normal commits. Normalize once at open so those checks do not repeatedly
+    // scan an unsorted list of volume-control blocks.
+    let mut protected_blocks = protected_blocks.to_vec();
+    protected_blocks.sort_unstable();
+    protected_blocks.dedup();
+
     let (mut checkpoint, active_copy) = read_checkpoint_pair(device, region)?;
     let scanned = scan_uncheckpointed_records(
         device,
@@ -190,7 +197,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             let updates = decode_redo_updates(&transaction.updates, block_size)?;
             for update in &updates {
                 validate_home_target(device, region, update.target_block, update.contents.len())?;
-                validate_protected_target(protected_blocks, update.target_block)?;
+                validate_protected_target(&protected_blocks, update.target_block)?;
             }
             validated.push(updates);
         }
@@ -218,7 +225,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             checkpoint,
             active_checkpoint_copy: next_copy,
             recovery_required: false,
-            protected_blocks: protected_blocks.to_vec(),
+            protected_blocks: protected_blocks.clone(),
         });
     }
 
@@ -227,7 +234,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         checkpoint,
         active_checkpoint_copy: active_copy,
         recovery_required: false,
-        protected_blocks: protected_blocks.to_vec(),
+        protected_blocks: protected_blocks.clone(),
     })
 }
 
@@ -677,7 +684,7 @@ fn validate_home_target<D: BlockDevice>(
 }
 
 fn validate_protected_target(protected_blocks: &[u64], target: u64) -> Result<()> {
-    if protected_blocks.contains(&target) {
+    if protected_blocks.binary_search(&target).is_ok() {
         return Err(Error::InvalidInput(
             "redo target overlaps a protected volume-control block",
         ));
