@@ -119,7 +119,8 @@ impl VolumeLayout {
 
     fn is_reserved(&self, block: u64) -> bool {
         block == 0
-            || (block >= self.bitmap_start && block < self.bitmap_start + self.bitmap_blocks)
+            || (block >= self.bitmap_start
+                && block - self.bitmap_start < self.bitmap_blocks)
             || block == self.journal.checkpoint_a
             || block == self.journal.checkpoint_b
             || (block >= self.journal.ring_start
@@ -945,13 +946,17 @@ impl OpenedVolume {
                 bitmap[byte] &= !mask;
             }
         }
-        let updates = bitmaps
-            .into_iter()
-            .map(|(bitmap_index, contents)| RedoUpdate {
-                target_block: layout.bitmap_start + bitmap_index,
+        let mut updates = Vec::with_capacity(bitmaps.len());
+        for (bitmap_index, contents) in bitmaps {
+            let target_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            updates.push(RedoUpdate {
+                target_block,
                 contents,
-            })
-            .collect::<Vec<_>>();
+            });
+        }
         self.journal.required_record_count(device, updates.len())?;
 
         // Stage the complete descriptor only after the whole ownership transaction is
@@ -4194,7 +4199,11 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         let mut allocated = std::collections::BTreeSet::new();
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
             let mut bitmap = vec![0_u8; block_size];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             let bitmap_base = bitmap_index * bits_per_bitmap_block;
             let start = batch_start.max(bitmap_base);
             let end = batch_end.min(bitmap_base.saturating_add(bits_per_bitmap_block));
@@ -4286,7 +4295,11 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                             reference_bitmaps.pop_first();
                         }
                         let mut bitmap = vec![0_u8; block_size];
-                        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                        let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
                         reference_bitmaps.insert(bitmap_index, bitmap);
                     }
                     let local_bit = *inventory_block % bits_per_bitmap_block;
@@ -4348,7 +4361,11 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 reference_bitmaps.pop_first();
             }
             let mut bitmap = vec![0_u8; block_size];
-            device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            device.read_blocks(bitmap_block, &mut bitmap)?;
             reference_bitmaps.insert(bitmap_index, bitmap);
         }
         let local_bit = *root % bits_per_bitmap_block;
