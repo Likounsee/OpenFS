@@ -158,10 +158,21 @@ impl ExtentMap {
     /// Failed insertions leave the original map unchanged.
     pub fn push_coalescing(&mut self, extent: Extent) -> Result<()> {
         validate_extent(extent)?;
+        let physical_end = extent.physical_end()?;
+        // Physical addresses are not necessarily ordered with logical addresses, so
+        // check ownership overlap before either appending or coalescing. This keeps
+        // the fast path equivalent to full-map validation without cloning/sorting.
+        for existing in &self.extents {
+            let existing_end = existing.physical_end()?;
+            if extent.physical_start < existing_end && existing.physical_start < physical_end {
+                return Err(Error::InvalidInput("physical extents overlap"));
+            }
+        }
+
         if let Some(last) = self.extents.last_mut() {
             let logical_end = last.logical_end()?;
-            let physical_end = last.physical_end()?;
-            if logical_end == extent.logical_start && physical_end == extent.physical_start {
+            let last_physical_end = last.physical_end()?;
+            if logical_end == extent.logical_start && last_physical_end == extent.physical_start {
                 // Appending is already ordered, so merge in place instead of cloning
                 // and revalidating the entire extent vector on every appended run.
                 last.block_count = last
@@ -173,17 +184,6 @@ impl ExtentMap {
             if extent.logical_start < logical_end {
                 return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
             }
-        }
-        let physical_end = extent.physical_end()?;
-        if self.extents.iter().any(|existing| {
-            existing
-                .physical_end()
-                .is_ok_and(|existing_end| {
-                    extent.physical_start < existing_end
-                        && existing.physical_start < physical_end
-                })
-        }) {
-            return Err(Error::InvalidInput("physical extents overlap"));
         }
         self.extents.push(extent);
         Ok(())
