@@ -5779,7 +5779,14 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
 }
 
 fn read_superblock<D: BlockDevice>(device: &mut D, block: u64) -> Result<[u8; SUPERBLOCK_SIZE]> {
-    let mut buffer = vec![0; device.block_size() as usize];
+    let block_size =
+        usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    if block_size < SUPERBLOCK_SIZE {
+        return Err(Error::InvalidInput(
+            "device block is smaller than the superblock",
+        ));
+    }
+    let mut buffer = vec![0; block_size];
     device.read_blocks(block, &mut buffer)?;
     let mut record = [0; SUPERBLOCK_SIZE];
     record.copy_from_slice(&buffer[..SUPERBLOCK_SIZE]);
