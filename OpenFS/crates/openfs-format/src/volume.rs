@@ -1131,6 +1131,8 @@ impl OpenedVolume {
         // Walk bitmap pages and set bits directly. At most one bitmap page, one cached
         // descriptor-reference page per touched bitmap, and 64 candidate block numbers
         // are retained; the number of allocated blocks no longer controls peak memory.
+        // Keep the page buffer outside the loop to avoid one allocation per bitmap page.
+        let mut bitmap = vec![0_u8; block_size];
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_bitmap_block)
@@ -1140,7 +1142,6 @@ impl OpenedVolume {
                 base.checked_add(bits_per_bitmap_block)
                     .ok_or(Error::ArithmeticOverflow)?,
             );
-            let mut bitmap = vec![0_u8; block_size];
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
