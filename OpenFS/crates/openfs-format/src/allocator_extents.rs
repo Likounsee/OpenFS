@@ -912,9 +912,13 @@ impl OpenedVolume {
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
             let mut current: Option<FreeExtent> = None;
-            for (byte_index, bitmap_byte) in
-                bitmap.iter().enumerate().take(end_byte).skip(first_byte)
-            {
+            // Start at the first relevant bitmap byte. Enumerating the whole page
+            // with take/skip repeatedly revisits bytes before the data region on the
+            // first segment, which is wasteful for large block sizes and many scans.
+            for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                let byte_index = first_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
