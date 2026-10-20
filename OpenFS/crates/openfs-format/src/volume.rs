@@ -1948,7 +1948,7 @@ impl OpenedVolume {
         // Preflight the complete reclamation set before the first bitmap write.
         // Segment-local validation alone can leave earlier segments freed if a later
         // segment contains an already-free block or a block still owned by the inventory.
-        self.ensure_inventory_blocks_releasable(device, &sorted)?;
+        self.ensure_inventory_blocks_releasable(device, sorted)?;
 
         // Preflight allocation state once per bitmap segment, not once per block.
         // Reclamation can contain thousands of blocks; a per-block bitmap read would
@@ -2909,6 +2909,7 @@ impl OpenedVolume {
 
     /// Read using a namespace and extent inventory reconstructed and validated by the caller.
     /// This avoids repeating the full inventory/ownership scan on path-based reads.
+    #[allow(clippy::too_many_arguments)]
     fn read_file_range_from_validated_namespace<D: BlockDevice>(
         &self,
         device: &mut D,
