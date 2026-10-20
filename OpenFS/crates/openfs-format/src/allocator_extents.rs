@@ -378,11 +378,26 @@ impl OpenedVolume {
             // Staged descriptors left by interrupted publication must be scrubbed
             // before this allocation becomes visible in the bitmap.
             clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
-            for block in &selected {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                bitmap[byte] |= 1_u8 << (local % 8);
+            // Selected blocks are emitted in ascending order. Set consecutive runs
+            // with byte-range masks instead of recomputing byte/bit positions for every
+            // block, which is especially useful for large sequential allocations.
+            let mut run_start = selected[0];
+            let mut previous = selected[0];
+            for &block in selected.iter().skip(1) {
+                if previous.checked_add(1) == Some(block) {
+                    previous = block;
+                    continue;
+                }
+                set_bitmap_range(&mut bitmap, run_start - base, previous - base + 1, true)?;
+                run_start = block;
+                previous = block;
             }
+            set_bitmap_range(
+                &mut bitmap,
+                run_start - base,
+                previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
+                true,
+            )?;
             self.journal.commit(
                 device,
                 &[RedoUpdate {
