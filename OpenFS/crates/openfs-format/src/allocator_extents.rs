@@ -507,11 +507,25 @@ impl OpenedVolume {
             run_end,
             self.volume.block_size,
         )?;
-        for block in sorted {
-            let local = *block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            bitmap[byte] &= !(1_u8 << (local % 8));
+        // Clear contiguous runs byte-wise; sparse blocks still cost O(n), but
+        // long extents avoid repeating division, modulo and mask construction per block.
+        let mut run_start = sorted[0];
+        let mut previous = sorted[0];
+        for &block in sorted.iter().skip(1) {
+            if previous.checked_add(1) == Some(block) {
+                previous = block;
+                continue;
+            }
+            set_bitmap_range(&mut bitmap, run_start - base, previous - base + 1, false)?;
+            run_start = block;
+            previous = block;
         }
+        set_bitmap_range(
+            &mut bitmap,
+            run_start - base,
+            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
+            false,
+        )?;
         self.journal
             .commit(
                 device,
