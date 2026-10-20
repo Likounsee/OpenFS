@@ -3505,24 +3505,45 @@ impl OpenedVolume {
                         .ok_or(Error::ArithmeticOverflow)?;
                 }
 
-                // Reuse a single block buffer while staging the appended tail.
-                // Clear it on every iteration because the final chunk may be shorter
-                // than a block and must not inherit bytes from the previous chunk.
-                let mut contents = vec![0_u8; block_size_usize];
-                for chunk in data[consumed..].chunks(block_size_usize) {
-                    contents.fill(0);
-                    contents[..chunk.len()].copy_from_slice(chunk);
-                    let block = self.allocate_block(device)?;
-                    allocated.push(block);
-                    device.write_blocks(block, &contents)?;
-                    updated_map.insert_coalescing(crate::Extent {
-                        logical_start: next_logical,
-                        physical_start: block,
-                        block_count: 1,
-                    })?;
-                    next_logical = next_logical
-                        .checked_add(1)
-                        .ok_or(Error::ArithmeticOverflow)?;
+                // Allocate appended data in bounded groups to amortize bitmap updates
+                // without making temporary memory proportional to the entire append.
+                // Every successful fallback allocation is tracked immediately for rollback.
+                const APPEND_BATCH_BLOCKS: usize = 8;
+                let chunks = data[consumed..].chunks(block_size_usize).collect::<Vec<_>>();
+                for chunk_group in chunks.chunks(APPEND_BATCH_BLOCKS) {
+                    let count = u64::try_from(chunk_group.len())
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
+                        Ok(blocks) => (blocks, false),
+                        Err(Error::InvalidInput(
+                            "no bitmap segment has enough free data blocks for this batch",
+                        )) => {
+                            let mut blocks = Vec::with_capacity(chunk_group.len());
+                            for _ in chunk_group {
+                                let block = self.allocate_block(device)?;
+                                allocated.push(block);
+                                blocks.push(block);
+                            }
+                            (blocks, true)
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    if !already_tracked {
+                        allocated.extend(blocks.iter().copied());
+                    }
+                    for (chunk, block) in chunk_group.iter().zip(blocks.iter()) {
+                        let mut contents = vec![0_u8; block_size_usize];
+                        contents[..chunk.len()].copy_from_slice(chunk);
+                        device.write_blocks(*block, &contents)?;
+                        updated_map.insert_coalescing(crate::Extent {
+                            logical_start: next_logical,
+                            physical_start: *block,
+                            block_count: 1,
+                        })?;
+                        next_logical = next_logical
+                            .checked_add(1)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                    }
                 }
 
                 let encoded = updated_map.encode_block(block_size_usize)?;
