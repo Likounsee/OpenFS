@@ -1782,11 +1782,6 @@ impl OpenedVolume {
     }
 }
 
-/// Check whether every bit in a half-open bitmap range has the requested state.
-pub(crate) fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
-    if start_bit > end_bit {
-        return Err(Error::InvalidInput("bitmap range start exceeds end"));
-    }
 /// Resolve the exact byte span and edge masks for a half-open bitmap range.
 fn bitmap_range_span(bitmap_len: usize, start_bit: u64, end_bit: u64) -> Result<(usize, usize)> {
     if start_bit > end_bit {
@@ -1815,7 +1810,12 @@ fn bitmap_range_mask(byte_index: usize, first_byte: usize, end_byte: usize, star
 }
 
 /// Check whether every bit in a half-open bitmap range has the requested state.
-fn bitmap_range_matches(bitmap: &[u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<bool> {
+pub(crate) fn bitmap_range_matches(
+    bitmap: &[u8],
+    start_bit: u64,
+    end_bit: u64,
+    allocated: bool,
+) -> Result<bool> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
     for byte_index in first_byte..end_byte {
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
