@@ -2896,6 +2896,24 @@ impl OpenedVolume {
                         ))?;
                 let in_block =
                     usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?;
+                // Prepare every fallible metadata change before modifying the old
+                // tail in place. In particular, generation overflow must not leave
+                // unpublished bytes beyond EOF in an otherwise unchanged file.
+                let next_generation = record
+                    .generation
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+                let updated = records
+                    .iter_mut()
+                    .find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
+                updated.size = end;
+                updated.generation = next_generation;
+                let entries = namespace.entries().cloned().collect::<Vec<_>>();
+                let updated_namespace =
+                    Namespace::from_records(namespace.root_id(), records, entries)?;
+
                 let mut block = vec![0_u8; self.volume.block_size as usize];
                 device.read_blocks(physical_block, &mut block)?;
                 let finish = in_block
@@ -2936,20 +2954,6 @@ impl OpenedVolume {
                     return Err(error);
                 }
 
-                let next_generation = record
-                    .generation
-                    .checked_add(1)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
-                let updated = records
-                    .iter_mut()
-                    .find(|item| item.id == object_id)
-                    .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
-                updated.size = end;
-                updated.generation = next_generation;
-                let entries = namespace.entries().cloned().collect::<Vec<_>>();
-                let updated_namespace =
-                    Namespace::from_records(namespace.root_id(), records, entries)?;
                 if let Err(error) =
                     self.replace_persistent_namespace_inventory(device, &updated_namespace)
                 {
