@@ -2562,7 +2562,6 @@ impl OpenedVolume {
                 "persistent truncation requires a published inventory",
             ));
         };
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let object_id = namespace.resolve_path(path)?;
         let record = namespace
             .object(object_id)
