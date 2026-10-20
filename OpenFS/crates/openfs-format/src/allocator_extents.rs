@@ -1237,39 +1237,28 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
 
-            // Validate reserved/padding bits and measure fragmentation in one bitmap
-            // pass. The diagnostic must inspect every byte for corruption, while run
-            // accounting only consumes bytes overlapping the usable data region.
+            // Validate reserved/padding bits separately in bulk, then account for
+            // free runs only across bytes that overlap the usable data region.
+            crate::allocator_extents::validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_data_bit = start - base;
             let end_data_bit = end - base;
             let first_data_byte =
                 usize::try_from(first_data_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_data_byte = usize::try_from(end_data_bit.saturating_add(7) / 8)
-                .map_err(|_| Error::ArithmeticOverflow)?;
+            let end_data_byte = usize::try_from(
+                end_data_bit
+                    .checked_add(7)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / 8,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
             let first_local = start - base;
             let end_local = end - base;
             let mut run_len = 0_u64;
 
-            for (byte_index, byte) in bitmap.iter().enumerate() {
-                let mut data_mask = 0_u8;
-                if byte_index >= first_data_byte && byte_index < end_data_byte {
-                    data_mask = u8::MAX;
-                    if byte_index == first_data_byte {
-                        data_mask &= u8::MAX << (first_data_bit % 8);
-                    }
-                    if byte_index + 1 == end_data_byte && end_data_bit % 8 != 0 {
-                        data_mask &= (1_u8 << (end_data_bit % 8)) - 1;
-                    }
-                }
-                if !*byte & !data_mask != 0 {
-                    return Err(Error::Corrupt(
-                        "allocation bitmap marks a reserved or padding block free",
-                    ));
-                }
-
-                if byte_index < first_data_byte || byte_index >= end_data_byte {
-                    continue;
-                }
+            for (byte_offset, byte) in bitmap[first_data_byte..end_data_byte].iter().enumerate() {
+                let byte_index = first_data_byte
+                    .checked_add(byte_offset)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let byte_start = u64::try_from(byte_index)
                     .map_err(|_| Error::ArithmeticOverflow)?
                     .checked_mul(8)
