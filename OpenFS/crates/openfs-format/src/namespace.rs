@@ -177,11 +177,15 @@ impl Namespace {
 
         let mut current = object_id;
         let mut components = Vec::new();
-        let mut visited = std::collections::BTreeSet::new();
+        // A valid parent chain reaches root in at most objects.len() edges. Use that
+        // structural bound for cycle detection instead of allocating a tree set on
+        // every path lookup.
+        let mut traversed = 0_usize;
         while current != self.root_id {
-            if !visited.insert(current) || visited.len() > self.objects.len() {
+            if traversed >= self.objects.len() {
                 return Err(Error::Corrupt("namespace parent chain contains a cycle"));
             }
+            traversed += 1;
             let record = self
                 .objects
                 .get(&current)
