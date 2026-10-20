@@ -1874,7 +1874,7 @@ impl OpenedVolume {
         device: &mut D,
         sorted: &mut [u64],
     ) -> Result<()> {
-        if blocks.is_empty() {
+        if sorted.is_empty() {
             return Ok(());
         }
         let layout = self.volume.layout;
@@ -1979,7 +1979,7 @@ impl OpenedVolume {
             while end < sorted.len() && sorted[end] / bits_per_block == bitmap_segment {
                 end += 1;
             }
-            self.free_blocks(device, &sorted[start..end])?;
+            self.free_blocks_sorted(device, &sorted[start..end])?;
             start = end;
         }
         Ok(())
