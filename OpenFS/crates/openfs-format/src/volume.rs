@@ -2459,9 +2459,13 @@ impl OpenedVolume {
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
 
+        // Validate the complete current extent ownership before staging replacement
+        // data. This prevents an import from writing new blocks while the old file's
+        // map is malformed or aliases storage owned by another file.
+        let current_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let mut reclaim_blocks = Vec::new();
         if let Some(old_root) = existing.extent_root_block {
-            let maps = self.read_namespace_extent_maps(device, &namespace)?;
+            let maps = &current_maps;
             let old_map = maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
