@@ -286,8 +286,7 @@ impl OpenedVolume {
                 "batch allocation count must fit within one bitmap block",
             ));
         }
-        let requested_count =
-            usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
+        let requested_count = usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
         let layout = self.volume.layout;
         let first_bitmap = layout.data_start / bits_per_block;
         let last_data_block = layout
@@ -345,9 +344,7 @@ impl OpenedVolume {
                         .checked_mul(8)
                         .and_then(|value| value.checked_add(bit))
                         .ok_or(Error::ArithmeticOverflow)?;
-                    selected.push(
-                        base.checked_add(local).ok_or(Error::ArithmeticOverflow)?,
-                    );
+                    selected.push(base.checked_add(local).ok_or(Error::ArithmeticOverflow)?);
                     if selected.len() == requested_count {
                         break;
                     }
@@ -1788,17 +1785,21 @@ fn bitmap_range_span(bitmap_len: usize, start_bit: u64, end_bit: u64) -> Result<
         return Err(Error::InvalidInput("bitmap range start exceeds end"));
     }
     let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-    let end_byte = usize::try_from(
-        end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
-    )
-    .map_err(|_| Error::ArithmeticOverflow)?;
+    let end_byte = usize::try_from(end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+        .map_err(|_| Error::ArithmeticOverflow)?;
     if end_byte > bitmap_len {
         return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
     }
     Ok((first_byte, end_byte))
 }
 
-fn bitmap_range_mask(byte_index: usize, first_byte: usize, end_byte: usize, start_bit: u64, end_bit: u64) -> u8 {
+fn bitmap_range_mask(
+    byte_index: usize,
+    first_byte: usize,
+    end_byte: usize,
+    start_bit: u64,
+    end_bit: u64,
+) -> u8 {
     let mut mask = u8::MAX;
     if byte_index == first_byte {
         mask &= u8::MAX << (start_bit % 8);
@@ -1828,7 +1829,12 @@ pub(crate) fn bitmap_range_matches(
 }
 
 /// Set a half-open bitmap range while preserving bits outside its exact boundaries.
-fn set_bitmap_range(bitmap: &mut [u8], start_bit: u64, end_bit: u64, allocated: bool) -> Result<()> {
+fn set_bitmap_range(
+    bitmap: &mut [u8],
+    start_bit: u64,
+    end_bit: u64,
+    allocated: bool,
+) -> Result<()> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
     for byte_index in first_byte..end_byte {
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
