@@ -1842,7 +1842,12 @@ fn set_bitmap_range(
     allocated: bool,
 ) -> Result<()> {
     let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
-    for (byte_index, byte) in bitmap.iter_mut().enumerate().take(end_byte).skip(first_byte) {
+    for (byte_index, byte) in bitmap
+        .iter_mut()
+        .enumerate()
+        .take(end_byte)
+        .skip(first_byte)
+    {
         let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
         if allocated {
             *byte |= mask;
