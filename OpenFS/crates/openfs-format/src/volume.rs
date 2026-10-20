@@ -3018,9 +3018,8 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)?;
         let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let max_batch_blocks = (MAX_READ_BATCH_BYTES / block_len).clamp(1, MAX_READ_BATCH_BLOCKS);
-        let batch_blocks = requested_blocks.min(
-            u64::try_from(max_batch_blocks).map_err(|_| Error::ArithmeticOverflow)?,
-        );
+        let batch_blocks = requested_blocks
+            .min(u64::try_from(max_batch_blocks).map_err(|_| Error::ArithmeticOverflow)?);
         let batch_bytes = usize::try_from(
             batch_blocks
                 .checked_mul(block_size)
