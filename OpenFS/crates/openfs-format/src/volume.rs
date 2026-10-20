@@ -1261,8 +1261,8 @@ impl OpenedVolume {
     /// Create an empty file beneath a directory resolved by its persistent path.
     ///
     /// This path-oriented entry point complements the object-ID API for callers such as
-    /// command-line tools and future OS adapters. The existing creation path remains the
-    /// single implementation of namespace validation and durable publication.
+    /// command-line tools and future OS adapters. It resolves the parent and publishes the
+    /// updated inventory after Namespace::insert validates the new entry.
     pub fn create_persistent_file_at_path<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -3057,13 +3057,10 @@ impl OpenedVolume {
         path: &str,
         new_size: u64,
     ) -> Result<()> {
-        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "persistent truncation requires a published inventory",
-            ));
-        };
-        let object_id = namespace.resolve_path(path)?;
-        self.truncate_persistent_file(device, object_id, new_size)
+        // The canonical truncation routine already resolves the path, validates the
+        // target and loads the namespace. Delegate directly so this wrapper does not
+        // perform a redundant full inventory reconstruction.
+        self.truncate_persistent_file(device, path, new_size)
     }
 
     /// Replace a persistent file from a reader without buffering the complete input.
