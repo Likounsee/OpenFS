@@ -104,6 +104,23 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             list_namespace(Path::new(&path), block_size, &target)
         }
+        Some("tree") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().unwrap_or_else(|| "/".to_owned());
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            tree_namespace(Path::new(&path), block_size, &target)
+        }
+        Some("space") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            report_space(Path::new(&path), block_size)
+        }
         Some("cat") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -496,6 +513,80 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             "{kind}\t{}\t{} bytes\tgeneration {}\t{}",
             entry.object_id, record.size, record.generation, entry.name
         );
+    }
+    Ok(())
+}
+
+/// Print a namespace subtree without recursive calls, so deeply nested trees
+/// cannot exhaust the process stack. The persistent inventory is reconstructed and
+/// validated by the same path used by ls/stat before traversal begins.
+fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let root_id = namespace.resolve_path(target)?;
+    let root_record = namespace
+        .object(root_id)
+        .ok_or("tree root metadata is missing")?;
+    println!("{}", if target.is_empty() { "/" } else { target });
+
+    let mut stack: Vec<(ObjectId, usize)> = if root_record.kind == ObjectKind::Directory {
+        vec![(root_id, 0)]
+    } else {
+        Vec::new()
+    };
+    while let Some((directory_id, depth)) = stack.pop() {
+        let mut children = namespace.children(directory_id).cloned().collect::<Vec<_>>();
+        children.reverse();
+        for entry in children {
+            let child_id = ObjectId(entry.object_id);
+            let record = namespace
+                .object(child_id)
+                .ok_or("directory entry references missing object metadata")?;
+            let indent = "  ".repeat(depth + 1);
+            let suffix = if record.kind == ObjectKind::Directory { "/" } else { "" };
+            println!("{indent}{}{suffix}", entry.name);
+            if record.kind == ObjectKind::Directory {
+                stack.push((child_id, depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Report usable capacity and fragmentation from the on-disk allocation bitmap.
+fn report_space(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let allocation = volume.allocation_stats(&mut device)?;
+    let fragmentation = volume.free_extent_stats(&mut device)?;
+    let block_bytes = u64::from(block_size);
+    let total_bytes = allocation.total_data_blocks.checked_mul(block_bytes)
+        .ok_or("total capacity overflows byte count")?;
+    let allocated_bytes = allocation.allocated_data_blocks.checked_mul(block_bytes)
+        .ok_or("allocated capacity overflows byte count")?;
+    let free_bytes = allocation.free_data_blocks.checked_mul(block_bytes)
+        .ok_or("free capacity overflows byte count")?;
+
+    println!("OpenFS data-space report");
+    println!("Total data blocks: {}", allocation.total_data_blocks);
+    println!("Allocated data blocks: {}", allocation.allocated_data_blocks);
+    println!("Free data blocks: {}", allocation.free_data_blocks);
+    println!("Total data capacity: {total_bytes} bytes");
+    println!("Allocated data capacity: {allocated_bytes} bytes");
+    println!("Free data capacity: {free_bytes} bytes");
+    println!("Free-space extents: {}", fragmentation.free_extent_count);
+    println!("Largest free extent: {} blocks ({} bytes)",
+        fragmentation.largest_free_extent_blocks,
+        fragmentation.largest_free_extent_blocks.checked_mul(block_bytes)
+            .ok_or("largest extent byte count overflows")?);
+    if allocation.free_data_blocks == 0 {
+        println!("Free-space ratio: 0.00%");
+    } else {
+        let ratio = (allocation.free_data_blocks as f64 / allocation.total_data_blocks as f64) * 100.0;
+        println!("Free-space ratio: {ratio:.2}%");
     }
     Ok(())
 }
@@ -998,6 +1089,8 @@ fn print_usage() {
     eprintln!("  openfs mkdir <image> <block-size> <path>");
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
+    eprintln!("  openfs tree <image> <block-size> [path]");
+    eprintln!("  openfs space <image> <block-size>");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
