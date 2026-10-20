@@ -3754,7 +3754,9 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
-                    return Err(error);
+                    // The inventory switch is already durable: preserve the new
+                    // allocation and report the committed operation as successful.
+                    return Ok(file_size);
                 }
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
