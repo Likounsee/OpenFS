@@ -1740,6 +1740,7 @@ impl OpenedVolume {
         };
         let record = namespace
             .object(object_id)
+            .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
         // Avoid copy-on-write inventory publication when the requested name and parent
         // already identify this object. The in-memory rename path is also a no-op, but
@@ -1751,8 +1752,42 @@ impl OpenedVolume {
         {
             return Ok(());
         }
+        let old_parent_id = ObjectId::new(record.parent_id)
+            .map_err(|_| Error::Corrupt("renamed object has an invalid parent"))?;
+        let old_name = namespace.entries()
+            .find(|entry| entry.object_id == object_id.0)
+            .map(|entry| entry.name.clone())
+            .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
         namespace.rename(object_id, new_parent_id, new_name)?;
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
+            // The descriptor may have committed even if a later journal/device operation
+            // returned an error. Report success only if rediscovery proves the new edge is live.
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.parent_id == new_parent_id.0
+                            && active.lookup(new_parent_id, new_name)
+                                .is_some_and(|entry| entry.object_id == object_id.0)
+                    }) =>
+                {
+                    return Ok(());
+                }
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.parent_id == old_parent_id.0
+                            && active.lookup(old_parent_id, &old_name)
+                                .is_some_and(|entry| entry.object_id == object_id.0)
+                    }) =>
+                {
+                    return Err(error);
+                }
+                _ => {
+                    return Err(Error::Corrupt(
+                        "rename publication outcome is uncertain; preserve the image and recover before further writes",
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
