@@ -3484,8 +3484,28 @@ impl OpenedVolume {
             if let std::collections::btree_map::Entry::Vacant(entry) =
                 allocation_bitmaps.entry(bitmap_index)
             {
+                let base = bitmap_index
+                    .checked_mul(bits_per_bitmap_block)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let bitmap_block = self
+                    .volume
+                    .layout
+                    .bitmap_start
+                    .checked_add(bitmap_index)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let mut bitmap = vec![0_u8; block_size];
-                device.read_blocks(self.volume.layout.bitmap_start + bitmap_index, &mut bitmap)?;
+                device.read_blocks(bitmap_block, &mut bitmap)?;
+                let segment_start = self.volume.layout.data_start.max(base);
+                let segment_end = self.volume.layout.backup_superblock.min(
+                    base.checked_add(bits_per_bitmap_block)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                );
+                crate::allocator_extents::validate_bitmap_reserved_bits(
+                    &bitmap,
+                    base,
+                    segment_start,
+                    segment_end,
+                )?;
                 entry.insert(bitmap);
             }
             let bitmap = allocation_bitmaps
