@@ -240,10 +240,29 @@ impl OpenedVolume {
             ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let bitmap_block = self.volume.layout.bitmap_start + block / bits_per_block;
-        let local = block % bits_per_block;
+        let bitmap_index = block / bits_per_block;
+        let bitmap_base = bitmap_index
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_block = self
+            .volume
+            .layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let local = block - bitmap_base;
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         device.read_blocks(bitmap_block, &mut bitmap)?;
+        crate::allocator_extents::validate_bitmap_reserved_bits(
+            &bitmap,
+            bitmap_base,
+            self.volume.layout.data_start.max(bitmap_base),
+            self.volume.layout.backup_superblock.min(
+                bitmap_base
+                    .checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            ),
+        )?;
         let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let mask = 1_u8 << (local % 8);
         Ok(bitmap[byte] & mask != 0)
@@ -263,13 +282,27 @@ impl OpenedVolume {
         // Reuse the bitmap buffer across pages to keep allocator memory churn bounded.
         let mut bitmap = vec![0_u8; self.volume.block_size as usize];
         for bitmap_index in first_bitmap..=last_bitmap {
-            let bitmap_block = self.volume.layout.bitmap_start + bitmap_index;
+            let bitmap_base = bitmap_index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_block = self
+                .volume
+                .layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
-            let bitmap_base = bitmap_index * bits_per_block;
             let first_block = bitmap_base.max(self.volume.layout.data_start);
             let end_block = bitmap_base
-                .saturating_add(bits_per_block)
+                .checked_add(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?
                 .min(self.volume.layout.backup_superblock);
+            crate::allocator_extents::validate_bitmap_reserved_bits(
+                &bitmap,
+                bitmap_base,
+                first_block,
+                end_block,
+            )?;
             let local_start = first_block - bitmap_base;
             let local_end = end_block - bitmap_base;
             let first_byte =
