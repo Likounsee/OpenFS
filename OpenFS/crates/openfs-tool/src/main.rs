@@ -659,7 +659,23 @@ fn stat_namespace_entry(
         println!("Allocated data blocks: {allocated_blocks}");
         println!("Allocated data bytes: {allocated_bytes}");
         println!("Physical extents: {}", map.extents().len());
-        let allocated_logical_bytes = allocated_bytes.min(record.size);
+        let allocated_logical_bytes =
+            map.extents().iter().try_fold(0_u64, |total, extent| {
+                let start = extent
+                    .logical_start
+                    .checked_mul(block_size_bytes)
+                    .ok_or("logical extent start overflows")?;
+                let end_block = extent
+                    .logical_start
+                    .checked_add(extent.block_count)
+                    .ok_or("logical extent end overflows")?;
+                let end = end_block
+                    .checked_mul(block_size_bytes)
+                    .ok_or("logical extent byte end overflows")?;
+                total
+                    .checked_add(record.size.min(end).saturating_sub(start.min(record.size)))
+                    .ok_or("allocated logical byte count overflows")
+            })?;
         println!(
             "Sparse logical bytes: {}",
             record.size - allocated_logical_bytes
