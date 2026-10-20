@@ -4109,13 +4109,6 @@ impl OpenedVolume {
             maps.insert(record.id, map);
         }
         owned_ranges.sort_unstable_by_key(|(start, end, owner)| (*start, *end, *owner));
-        // Validate every file's physical allocations in one ordered bitmap scan instead
-        // of rereading the same bitmap pages separately for every file.
-        let physical_ranges: Vec<(u64, u64)> = owned_ranges
-            .iter()
-            .map(|(start, end, _)| (*start, *end))
-            .collect();
-        self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         for pair in owned_ranges.windows(2) {
             // Physical blocks must have exactly one logical owner. Checking only
             // cross-file overlaps misses two extents in the same file that alias
@@ -4127,6 +4120,13 @@ impl OpenedVolume {
                 ));
             }
         }
+        // Validate every file's physical allocations in one ordered bitmap scan instead
+        // of rereading the same bitmap pages separately for every file.
+        let physical_ranges: Vec<(u64, u64)> = owned_ranges
+            .iter()
+            .map(|(start, end, _)| (*start, *end))
+            .collect();
+        self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         // Keep this explicit: every root must map to exactly one object, even if a future
         // Namespace implementation changes its validation guarantees.
         if root_owners.len() != roots.len() {
