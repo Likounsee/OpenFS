@@ -1047,12 +1047,19 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
 
-        ns.set_file_layout(ObjectId(3), 1, Some(30)).unwrap();
+        // Layout updates reject aliases immediately instead of allowing the
+        // namespace's reverse ownership index to become inconsistent.
         assert!(matches!(
-            ns.validated_extent_root_inventory(8, 40),
-            Err(Error::Corrupt(_))
+            ns.set_file_layout(ObjectId(3), 1, Some(30)),
+            Err(Error::InvalidInput(
+                "extent-map root is already owned by another object"
+            ))
         ));
-        assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
+        assert_eq!(
+            ns.validated_extent_root_inventory(8, 40).unwrap(),
+            vec![12, 30]
+        );
+        ns.validate().unwrap();
     }
 
     #[test]
