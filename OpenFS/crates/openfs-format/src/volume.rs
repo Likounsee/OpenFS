@@ -13,6 +13,14 @@ use crate::{
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
+struct SparseRangeWrite<'a> {
+    object_id: ObjectId,
+    record: MetadataRecord,
+    map: &'a ExtentMap,
+    offset: u64,
+    data: &'a [u8],
+}
+
 const MAGIC: &[u8; 8] = b"OPENFS\0\0";
 const VERSION: u16 = 4;
 const LEGACY_VERSION: u16 = 2;
@@ -612,7 +620,7 @@ impl OpenedVolume {
                 .filter_map(|record| record.extent_root_block),
         );
         extent_roots.sort_unstable();
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let extent_maps = self.read_namespace_extent_maps(device, namespace)?;
         let range_count = extent_maps.values().try_fold(0_usize, |count, map| {
             count
                 .checked_add(map.extents().len())
@@ -4145,7 +4153,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records = try_clone_namespace_records(&namespace)?;
+            let mut records = try_clone_namespace_records(namespace)?;
             let updated =
                 records
                     .iter_mut()
@@ -4156,7 +4164,7 @@ impl OpenedVolume {
             updated.size = new_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
-            let entries = try_clone_namespace_entries(&namespace)?;
+            let entries = try_clone_namespace_entries(namespace)?;
             Namespace::from_records(namespace.root_id(), records, entries)
         })();
         let updated_namespace = match updated_namespace {
@@ -5005,12 +5013,15 @@ impl OpenedVolume {
         &mut self,
         device: &mut D,
         namespace: &Namespace,
-        object_id: ObjectId,
-        record: MetadataRecord,
-        map: &ExtentMap,
-        offset: u64,
-        data: &[u8],
+        request: SparseRangeWrite<'_>,
     ) -> Result<()> {
+        let SparseRangeWrite {
+            object_id,
+            record,
+            map,
+            offset,
+            data,
+        } = request;
         let block_size = u64::from(self.volume.block_size);
         let block_size_usize =
             usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
@@ -5269,12 +5280,14 @@ impl OpenedVolume {
                 if (first..=last).any(|logical| map.physical_block(logical).is_none()) {
                     return self.write_persistent_sparse_range_from_namespace(
                         device,
-                        &namespace,
-                        object_id,
-                        record.clone(),
-                        map,
-                        offset,
-                        data,
+                        namespace,
+                        SparseRangeWrite {
+                            object_id,
+                            record: record.clone(),
+                            map,
+                            offset,
+                            data,
+                        },
                     );
                 }
             }
