@@ -2526,14 +2526,18 @@ impl OpenedVolume {
         let mut metadata_bytes = Vec::new();
         metadata_bytes
             .try_reserve_exact(metadata_bytes_needed)
-            .map_err(|_| Error::InvalidInput("allocation failed while serializing namespace metadata"))?;
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while serializing namespace metadata")
+            })?;
         for record in namespace.objects() {
             metadata_bytes.extend_from_slice(&record.encode()?);
         }
         let mut directory_bytes = Vec::new();
         directory_bytes
             .try_reserve_exact(directory_bytes_needed)
-            .map_err(|_| Error::InvalidInput("allocation failed while serializing namespace entries"))?;
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while serializing namespace entries")
+            })?;
         for entry in namespace.entries() {
             directory_bytes.extend_from_slice(&entry.encode()?);
         }
@@ -2639,7 +2643,9 @@ impl OpenedVolume {
         let mut blocks = Vec::new();
         blocks
             .try_reserve_exact(block_count)
-            .map_err(|_| Error::InvalidInput("allocation failed while staging inventory blocks"))?;
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging inventory blocks")
+            })?;
         // Inventory streams may span many blocks. Reuse one zero-padded block buffer
         // instead of allocating a fresh Vec for every chunk; clear it before each copy
         // so a short final chunk cannot expose bytes left by the preceding chunk.

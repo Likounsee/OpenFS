@@ -80,7 +80,9 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
     let mut contents = Vec::new();
     contents
         .try_reserve_exact(max_batch_bytes)
-        .map_err(|_| Error::InvalidInput("allocation failed while scrubbing descriptor blocks"))?;
+        .map_err(|_| {
+            Error::InvalidInput("allocation failed while scrubbing descriptor blocks")
+        })?;
     contents.resize(max_batch_bytes, 0);
     let mut cursor = 0_usize;
     while cursor < blocks.len() {
@@ -309,7 +311,9 @@ impl OpenedVolume {
         let mut selected = Vec::new();
         selected
             .try_reserve_exact(requested_count)
-            .map_err(|_| Error::InvalidInput("allocation failed while selecting free extents"))?;
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while selecting free extents")
+            })?;
         for index in first_bitmap..=last_bitmap {
             selected.clear();
             let base = index
