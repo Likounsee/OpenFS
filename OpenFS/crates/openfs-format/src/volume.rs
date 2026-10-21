@@ -5029,11 +5029,15 @@ impl OpenedVolume {
         let end = offset
             .checked_add(data_len)
             .ok_or(Error::ArithmeticOverflow)?;
-        if end > record.size {
+        if offset > record.size || (end > record.size && offset != record.size) {
             return Err(Error::InvalidInput(
-                "sparse range replacement must stay within the existing file length",
+                "sparse range replacement must stay within the file or append at EOF",
             ));
         }
+        // Appending through a sparse hole is handled by the same copy-on-write path.
+        // The implicit gap remains zero-filled, and the larger size is published only
+        // after replacement data and the new extent-map root have been flushed.
+        let new_size = record.size.max(end);
         let first_logical = offset / block_size;
         let last_logical = (end - 1) / block_size;
         let touched_count = usize::try_from(
@@ -5157,6 +5161,7 @@ impl OpenedVolume {
                     .ok_or(Error::Corrupt(
                         "file metadata disappeared during sparse write",
                     ))?;
+            updated.size = new_size;
             updated.extent_root_block = Some(new_root);
             updated.generation = next_generation;
             Namespace::from_records(
@@ -5182,7 +5187,7 @@ impl OpenedVolume {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
-                        item.size == record.size
+                        item.size == new_size
                             && item.extent_root_block == Some(new_root)
                             && item.generation == next_generation
                     }) =>
@@ -5263,15 +5268,15 @@ impl OpenedVolume {
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        // Writes that stay inside EOF but touch sparse holes use copy-on-write block
+        // Writes inside EOF and appends that touch sparse holes use copy-on-write
         // replacement. This fills holes without materializing the whole sparse file.
-        if offset < record.size {
+        if offset <= record.size {
             let block_size = u64::from(self.volume.block_size);
             let data_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
             let write_end = offset
                 .checked_add(data_len)
                 .ok_or(Error::ArithmeticOverflow)?;
-            if write_end <= record.size {
+            if write_end <= record.size || offset == record.size {
                 let map = extent_maps
                     .get(&object_id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
