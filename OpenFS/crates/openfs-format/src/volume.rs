@@ -5845,11 +5845,13 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(
-        required_blocks
-            .checked_mul(block_size)
-            .ok_or(Error::ArithmeticOverflow)?,
-    )
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+            required_blocks
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?,
+        )
+        .map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
     let mut cursor = 0;
     while cursor < blocks.len() {
         let mut end = cursor + 1;
