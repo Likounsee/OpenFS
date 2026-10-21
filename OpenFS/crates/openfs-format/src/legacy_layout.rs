@@ -83,7 +83,8 @@ impl Volume {
         let block_size =
             usize::try_from(self.layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
-        let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy allocation bitmap")?;
+        let mut bitmap =
+            try_zeroed_block(block_size, "unable to allocate legacy allocation bitmap")?;
 
         for block in self.layout.data_start..self.layout.backup_superblock {
             let bitmap_index = block / bits_per_bitmap_block;
@@ -164,8 +165,10 @@ pub fn format_volume<D: BlockDevice>(
         usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
-    let mut bitmap =
-        try_zeroed_block(bytes_per_bitmap_block, "unable to allocate legacy format bitmap")?;
+    let mut bitmap = try_zeroed_block(
+        bytes_per_bitmap_block,
+        "unable to allocate legacy format bitmap",
+    )?;
     // Write backup first; the primary is published only after the bitmap is persisted.
     write_superblock_block(device, layout.backup_superblock, &encoded)?;
     for bitmap_index in 0..layout.bitmap_blocks {
