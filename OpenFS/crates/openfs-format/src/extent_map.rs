@@ -448,7 +448,9 @@ impl ExtentMap {
             .checked_add(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
         if logical_end > logical_block_count {
-            return Err(Error::InvalidInput("logical range exceeds file block count"));
+            return Err(Error::InvalidInput(
+                "logical range exceeds file block count",
+            ));
         }
         self.validate_ordering()?;
 
