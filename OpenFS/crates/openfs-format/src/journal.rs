@@ -247,7 +247,9 @@ pub fn plan_recovery(
                 let mut payload = Vec::new();
                 payload
                     .try_reserve_exact(record.payload.len())
-                    .map_err(|_| Error::AllocationFailed("unable to copy journal recovery payload"))?;
+                    .map_err(|_| {
+                        Error::AllocationFailed("unable to copy journal recovery payload")
+                    })?;
                 payload.extend_from_slice(&record.payload);
                 transaction.updates.push(payload);
             }
@@ -263,9 +265,9 @@ pub fn plan_recovery(
                         "committed journal transaction contains no redo updates",
                     ));
                 }
-                completed
-                    .try_reserve(1)
-                    .map_err(|_| Error::AllocationFailed("unable to reserve recovered transactions"))?;
+                completed.try_reserve(1).map_err(|_| {
+                    Error::AllocationFailed("unable to reserve recovered transactions")
+                })?;
                 completed.push(transaction);
             }
             JournalRecordKind::Abort => {
