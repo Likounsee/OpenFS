@@ -2773,15 +2773,56 @@ impl OpenedVolume {
             })?;
 
         let metadata_blocks = self.stage_packed_inventory(device, &metadata_bytes)?;
+        staged_blocks.extend_from_slice(&metadata_blocks);
         let directory_blocks = match self.stage_packed_inventory(device, &directory_bytes) {
-            Ok(blocks) => blocks,
+            Ok(blocks) => {
+                staged_blocks.extend_from_slice(&blocks);
+                blocks
+            }
             Err(error) => {
                 if self
-                    .reclaim_persistent_blocks(device, &metadata_blocks)
+                    .reclaim_persistent_blocks(device, &staged_blocks)
                     .is_err()
                 {
                     return Err(Error::Corrupt(
-                        "failed to reclaim metadata after directory staging failed",
+                        "failed to reclaim staged inventory after directory staging failed",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        // Descriptor-owned copies also allocate. Make those allocations fallible and
+        // reclaim the already-staged streams if either copy cannot be prepared.
+        let descriptor_metadata_blocks = match try_copy_block_numbers(
+            &metadata_blocks,
+            "allocation failed while preparing inventory descriptor metadata",
+        ) {
+            Ok(blocks) => blocks,
+            Err(error) => {
+                if self
+                    .reclaim_persistent_blocks(device, &staged_blocks)
+                    .is_err()
+                {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim staged inventory after descriptor allocation failed",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+        let descriptor_directory_blocks = match try_copy_block_numbers(
+            &directory_blocks,
+            "allocation failed while preparing inventory descriptor directory",
+        ) {
+            Ok(blocks) => blocks,
+            Err(error) => {
+                if self
+                    .reclaim_persistent_blocks(device, &staged_blocks)
+                    .is_err()
+                {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim staged inventory after descriptor allocation failed",
                     ));
                 }
                 return Err(error);
@@ -2789,14 +2830,12 @@ impl OpenedVolume {
         };
         let descriptor = PersistentInventoryDescriptor {
             root_id: namespace.root_id(),
-            metadata_blocks: metadata_blocks.clone(),
+            metadata_blocks: descriptor_metadata_blocks,
             metadata_record_count: namespace.object_count(),
-            directory_blocks: directory_blocks.clone(),
+            directory_blocks: descriptor_directory_blocks,
             directory_entry_count: namespace.entry_count(),
         };
         if let Err(error) = descriptor.encode(block_size) {
-            staged_blocks.extend_from_slice(&metadata_blocks);
-            staged_blocks.extend_from_slice(&directory_blocks);
             if self
                 .reclaim_persistent_blocks(device, &staged_blocks)
                 .is_err()
@@ -2817,24 +2856,17 @@ impl OpenedVolume {
                 match self.discover_persistent_inventory(device) {
                     Ok(Some((block, active))) if active == descriptor => Ok(block),
                     Ok(Some((_, _))) | Ok(None) => {
-                        staged_blocks.clear();
-                        staged_blocks.extend_from_slice(&metadata_blocks);
-                        staged_blocks.extend_from_slice(&directory_blocks);
                         if self
                             .reclaim_persistent_blocks(device, &staged_blocks)
                             .is_err()
                         {
                             return Err(Error::Corrupt(
-                                "inventory publication failed and staged blocks could not be reclaimed",
+                                "failed to reclaim staged inventory after publication failed",
                             ));
                         }
                         Err(error)
                     }
-                    Err(_) => {
-                        // The publication outcome remains unknown; retaining the staged
-                        // blocks avoids freeing metadata that may already be authoritative.
-                        Err(error)
-                    }
+                    Err(_) => Err(error),
                 }
             }
         }
