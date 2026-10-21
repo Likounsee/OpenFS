@@ -5161,11 +5161,7 @@ impl OpenedVolume {
         physical_ranges
             .try_reserve_exact(owned_ranges.len())
             .map_err(|_| Error::InvalidInput("unable to allocate physical ownership ranges"))?;
-        physical_ranges.extend(
-            owned_ranges
-                .iter()
-                .map(|(start, end, _)| (*start, *end)),
-        );
+        physical_ranges.extend(owned_ranges.iter().map(|(start, end, _)| (*start, *end)));
         self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         // Keep this explicit: every root must map to exactly one object, even if a future
         // Namespace implementation changes its validation guarantees.
