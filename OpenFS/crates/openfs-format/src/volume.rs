@@ -1042,9 +1042,9 @@ impl OpenedVolume {
             }
         }
         let mut updates = Vec::new();
-    updates
-        .try_reserve_exact(bitmaps.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        updates.try_reserve_exact(bitmaps.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
         for (bitmap_index, contents) in bitmaps {
             let target_block = layout
                 .bitmap_start
@@ -1112,9 +1112,7 @@ impl OpenedVolume {
         pending_blocks
             .try_reserve_exact(INVENTORY_DISCOVERY_BATCH_BLOCKS)
             .map_err(|_| {
-                Error::InvalidInput(
-                    "allocation failed while preparing inventory discovery batch",
-                )
+                Error::InvalidInput("allocation failed while preparing inventory discovery batch")
             })?;
         // Descriptor references often share bitmap pages. Keep only the pages actually
         // needed to validate a candidate descriptor's inventory references.
@@ -1437,9 +1435,9 @@ impl OpenedVolume {
         objects: &[(ObjectId, ObjectId, crate::ObjectKind, String)],
     ) -> Result<Vec<ObjectId>> {
         let mut created = Vec::new();
-    created
-        .try_reserve_exact(objects.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        created.try_reserve_exact(objects.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
         let mut seen_ids = std::collections::BTreeSet::new();
         for (_, object_id, _, _) in objects {
             if !seen_ids.insert(*object_id) {
@@ -1613,9 +1611,11 @@ impl OpenedVolume {
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut seen = std::collections::BTreeSet::new();
         let mut original_locations = Vec::new();
-    original_locations
-        .try_reserve_exact(changes.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        original_locations
+            .try_reserve_exact(changes.len())
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging persistent namespace data")
+            })?;
         for (object_id, _, _) in changes {
             if !seen.insert(*object_id) {
                 return Err(Error::InvalidInput(
@@ -1688,13 +1688,15 @@ impl OpenedVolume {
         // Collect and validate every target against the same original namespace before
         // mutating the in-memory view. This also lets us load extent maps only once.
         let mut records = Vec::new();
-    records
-        .try_reserve_exact(object_ids.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        records.try_reserve_exact(object_ids.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
         let mut removal_order = Vec::new();
-    removal_order
-        .try_reserve_exact(object_ids.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        removal_order
+            .try_reserve_exact(object_ids.len())
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging persistent namespace data")
+            })?;
         let mut seen = std::collections::BTreeSet::new();
         let mut needs_extent_maps = false;
         for object_id in object_ids {
@@ -3089,13 +3091,7 @@ impl OpenedVolume {
             }
         }
 
-        let mut output = try_zeroed_block(
-
-            read_len,
-
-            "unable to allocate file range read buffer",
-
-        )?;
+        let mut output = try_zeroed_block(read_len, "unable to allocate file range read buffer")?;
         // A request contained in one extent is physically contiguous by construction.
         // Inspect extent descriptors rather than probing every logical block, keeping
         // large sequential reads O(number of extents) instead of O(number of blocks).
@@ -4360,9 +4356,11 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
         let mut allocated = Vec::new();
-    allocated
-        .try_reserve_exact(block_count.saturating_add(1))
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        allocated
+            .try_reserve_exact(block_count.saturating_add(1))
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging persistent namespace data")
+            })?;
         let staged = (|| -> Result<Option<u64>> {
             if data.is_empty() {
                 return Ok(None);
@@ -4598,11 +4596,8 @@ impl OpenedVolume {
                 let entries = namespace.entries().cloned().collect::<Vec<_>>();
                 let updated_namespace =
                     Namespace::from_records(namespace.root_id(), records, entries)?;
-
                 let mut block = try_zeroed_block(
-
                     self.volume.block_size as usize,
-
                     "allocation failed while preparing persistent I/O buffer",
 
                 )?;
@@ -4780,9 +4775,11 @@ impl OpenedVolume {
                             "no bitmap segment has enough free data blocks for this batch",
                         )) => {
                             let mut blocks = Vec::new();
-    blocks
-        .try_reserve_exact(chunk_count)
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+                            blocks.try_reserve_exact(chunk_count).map_err(|_| {
+                                Error::InvalidInput(
+                                    "allocation failed while staging persistent namespace data",
+                                )
+                            })?;
                             for _ in 0..chunk_count {
                                 let block = self.allocate_block(device)?;
                                 allocated.push(block);
@@ -5262,9 +5259,9 @@ impl OpenedVolume {
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut packed = Vec::new();
-    packed
-        .try_reserve_exact(packed_capacity)
-        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        packed.try_reserve_exact(packed_capacity).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
         let mut cursor = 0;
         while cursor < blocks.len() {
             let mut end = cursor + 1;

@@ -322,7 +322,10 @@ impl OpenedVolume {
         // Reuse one bitmap image and one selection buffer across segment scans.
         // Highly fragmented volumes can require checking many segments before finding
         // a large enough run; reallocating the candidate vector each time is avoidable.
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         let mut selected = Vec::new();
         selected
             .try_reserve_exact(requested_count)
@@ -459,10 +462,7 @@ impl OpenedVolume {
         if blocks.windows(2).all(|pair| pair[0] < pair[1]) {
             return self.free_blocks_sorted(device, blocks);
         }
-        let mut sorted = try_copy_blocks(
-            blocks,
-            "allocation failed while sorting blocks to free",
-        )?;
+        let mut sorted = try_copy_blocks(blocks, "allocation failed while sorting blocks to free")?;
         sorted.sort_unstable();
         if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::InvalidInput("batch free list contains duplicates"));
@@ -510,7 +510,10 @@ impl OpenedVolume {
         let base = bitmap_index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = layout.data_start.max(base);
         let segment_end = layout.backup_superblock.min(
@@ -642,7 +645,10 @@ impl OpenedVolume {
         let base = bitmap_index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = layout.data_start.max(base);
         let segment_end = layout.backup_superblock.min(
@@ -703,7 +709,10 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
         // Reuse the same block-sized buffer while inspecting each bitmap segment.
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for index in first_bitmap..=last_bitmap {
             let bitmap_block = layout
                 .bitmap_start
@@ -826,7 +835,10 @@ impl OpenedVolume {
         let base = bitmap_index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
         let segment_end = self.volume.layout.backup_superblock.min(
@@ -870,7 +882,10 @@ impl OpenedVolume {
         let mut free = Vec::new();
         // Reuse one bitmap page while walking the inventory to avoid allocating a
         // fresh block-sized buffer for every segment.
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -939,7 +954,10 @@ impl OpenedVolume {
         let mut extents = Vec::new();
         // The same scratch page is reused for every segment; inventory is read-only
         // and does not need to retain bitmap images after each scan.
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1057,7 +1075,10 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_block;
         let mut best: Option<FreeExtent> = None;
         // Keep memory bounded to one bitmap block even when scanning many segments.
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
 
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
@@ -1201,7 +1222,10 @@ impl OpenedVolume {
         let base = bitmap_index
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(self.volume.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            self.volume.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         let segment_start = self.volume.layout.data_start.max(base);
         let segment_end = self.volume.layout.backup_superblock.min(
@@ -1251,7 +1275,10 @@ impl OpenedVolume {
         let mut stats = FreeExtentStats::default();
         // Fragmentation diagnostics may scan the entire volume; allocate the
         // bitmap buffer once instead of once per segment.
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
 
         for bitmap_index in 0..layout.bitmap_blocks {
             let base = bitmap_index
@@ -1384,7 +1411,10 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut allocated = Vec::new();
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1470,9 +1500,9 @@ impl OpenedVolume {
         // Merge adjacent runs across maps too, so the bitmap checker visits each
         // physical ownership run once even when a file boundary splits that run.
         let mut coalesced_ranges: Vec<(u64, u64)> = Vec::new();
-    coalesced_ranges
-        .try_reserve_exact(owned_ranges.len())
-        .map_err(|_| Error::InvalidInput("allocation failed while coalescing owned ranges"))?;
+        coalesced_ranges
+            .try_reserve_exact(owned_ranges.len())
+            .map_err(|_| Error::InvalidInput("allocation failed while coalescing owned ranges"))?;
         for (start, end) in owned_ranges {
             if let Some(last) = coalesced_ranges.last_mut() {
                 if last.1 == start {
@@ -1507,7 +1537,10 @@ impl OpenedVolume {
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut range_index = 0_usize;
         let mut report = AllocationOwnershipReport::default();
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
 
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
@@ -1663,7 +1696,10 @@ impl OpenedVolume {
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut owner_index = 0_usize;
         let mut report = AllocationOwnershipReport::default();
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1766,7 +1802,10 @@ impl OpenedVolume {
         let mut report = AllocationBitmapReport::default();
         // Reuse the read buffer across all bitmap blocks so the bounded diagnostic
         // remains allocation-light even on large volumes.
-        let mut bitmap = try_zeroed_buffer(layout.block_size as usize, "allocation failed while preparing allocator bitmap")?;
+        let mut bitmap = try_zeroed_buffer(
+            layout.block_size as usize,
+            "allocation failed while preparing allocator bitmap",
+        )?;
         for index in 0..layout.bitmap_blocks {
             let base = index
                 .checked_mul(bits_per_block)
