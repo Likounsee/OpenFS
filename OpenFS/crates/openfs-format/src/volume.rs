@@ -4102,8 +4102,8 @@ impl OpenedVolume {
             usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let mut updated_map = extent_maps
             .get(&object_id)
-            .cloned()
-            .ok_or(Error::Corrupt("file extent map is missing"))?;
+            .ok_or(Error::Corrupt("file extent map is missing"))?
+            .try_clone()?;
         let keep_blocks = new_size / block_size + u64::from(new_size % block_size != 0);
         let removed_extents = updated_map.truncate(keep_blocks)?;
         let reclaim_capacity = removed_extents.iter().try_fold(0_u64, |count, extent| {
@@ -4113,6 +4113,11 @@ impl OpenedVolume {
         })?;
         let reclaim_capacity =
             usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
+        // The old extent-map root is retired together with removed data blocks.
+        // Reserve its slot now so Vec growth cannot fail after the metadata commit.
+        let reclaim_capacity = reclaim_capacity
+            .checked_add(usize::from(record.extent_root_block.is_some()))
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut reclaim_blocks = Vec::new();
         reclaim_blocks
             .try_reserve_exact(reclaim_capacity)
@@ -4193,9 +4198,9 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
-                    // The new generation is already authoritative. The requested
-                    // truncation is committed, so do not report a false failure.
-                    return Ok(());
+                    // The new generation is already authoritative. Continue through
+                    // tail scrubbing and reclamation; returning here would leak the
+                    // retired extents and the old extent-map root.
                 }
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -5231,10 +5236,10 @@ impl OpenedVolume {
     /// Write bytes to a file resolved from the published on-disk inventory.
     ///
     /// The namespace and extent maps are reconstructed from disk rather than supplied by
-    /// the caller. Writes inside the existing file must stay within its allocated extents.
-    /// A write beginning at EOF appends data and may allocate new extents when the final
-    /// allocated block has insufficient space. Sparse-hole writes and ranges beyond EOF
-    /// that do not begin exactly at EOF are rejected.
+    /// the caller. Writes within the existing file may fill sparse holes through a
+    /// copy-on-write extent-map replacement. A write beginning at EOF appends data and may
+    /// allocate new extents; offsets beyond EOF are rejected until the caller explicitly
+    /// extends the file with the sparse-extension operation.
     pub fn write_persistent_path_range<D: BlockDevice>(
         &mut self,
         device: &mut D,
