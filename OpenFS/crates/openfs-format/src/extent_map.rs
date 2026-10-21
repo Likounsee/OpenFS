@@ -419,17 +419,55 @@ impl ExtentMap {
     pub fn is_fully_allocated(&self, logical_block_count: u64) -> Result<bool> {
         self.validate_ordering()?;
         let mut cursor = 0_u64;
+        let mut fully_allocated = true;
         for extent in &self.extents {
             let end = extent.logical_end()?;
             if end > logical_block_count {
                 return Err(Error::Corrupt("extent exceeds logical file block count"));
             }
             if extent.logical_start != cursor {
-                return Ok(false);
+                fully_allocated = false;
             }
             cursor = end;
         }
-        Ok(cursor == logical_block_count)
+        Ok(fully_allocated && cursor == logical_block_count)
+    }
+
+    /// Check whether a logical block range is fully backed by extents.
+    ///
+    /// The requested range must fit inside the file logical block count. Sparse holes
+    /// return false; malformed extents are reported as corruption even if a hole was
+    /// encountered earlier in the map.
+    pub fn logical_range_is_allocated(
+        &self,
+        logical_start: u64,
+        block_count: u64,
+        logical_block_count: u64,
+    ) -> Result<bool> {
+        let logical_end = logical_start
+            .checked_add(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if logical_end > logical_block_count {
+            return Err(Error::InvalidInput("logical range exceeds file block count"));
+        }
+        self.validate_ordering()?;
+
+        let mut cursor = logical_start;
+        let mut fully_allocated = true;
+        for extent in &self.extents {
+            let extent_end = extent.logical_end()?;
+            if extent_end > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file block count"));
+            }
+            if extent_end <= logical_start || extent.logical_start >= logical_end {
+                continue;
+            }
+            if extent.logical_start > cursor {
+                fully_allocated = false;
+            }
+            cursor = extent_end.min(logical_end);
+        }
+        Ok(block_count == 0 || (fully_allocated && cursor == logical_end))
     }
 
     /// Return validated physical ranges as sorted, coalesced (start, end-exclusive) pairs.
