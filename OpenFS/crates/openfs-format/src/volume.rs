@@ -4599,7 +4599,6 @@ impl OpenedVolume {
                 let mut block = try_zeroed_block(
                     self.volume.block_size as usize,
                     "allocation failed while preparing persistent I/O buffer",
-
                 )?;
                 device.read_blocks(physical_block, &mut block)?;
                 let finish = in_block
