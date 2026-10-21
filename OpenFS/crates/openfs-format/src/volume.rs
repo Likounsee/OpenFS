@@ -2372,23 +2372,25 @@ impl OpenedVolume {
                 let map = extent_maps
                     .get(&object_id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
+                let reclaim_capacity = usize::try_from(
+                    map.allocated_blocks()?
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                )
+                .map_err(|_| Error::ArithmeticOverflow)?;
+                reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
+                    Error::InvalidInput("allocation failed while staging reclaimed file blocks")
+                })?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
-                        let block = extent
-                            .physical_start
-                            .checked_add(delta)
-                            .ok_or(Error::ArithmeticOverflow)?;
-                        reclaim_blocks.try_reserve(1).map_err(|_| {
-                            Error::InvalidInput(
-                                "allocation failed while staging reclaimed file blocks",
-                            )
-                        })?;
-                        reclaim_blocks.push(block);
+                        reclaim_blocks.push(
+                            extent
+                                .physical_start
+                                .checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?,
+                        );
                     }
                 }
-                reclaim_blocks.try_reserve(1).map_err(|_| {
-                    Error::InvalidInput("allocation failed while staging reclaimed extent roots")
-                })?;
                 reclaim_blocks.push(root);
             } else if record.size != 0 {
                 return Err(Error::Corrupt(
@@ -2525,7 +2527,34 @@ impl OpenedVolume {
         }
 
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let mut reclaim_capacity = 0_u64;
+        for id in &removed_ids {
+            let record = namespace
+                .object(*id)
+                .ok_or(Error::Corrupt("subtree metadata disappeared"))?;
+            if record.kind != crate::ObjectKind::File {
+                continue;
+            }
+            if let Some(_) = record.extent_root_block {
+                let map = extent_maps
+                    .get(id)
+                    .ok_or(Error::Corrupt("file extent map is missing"))?;
+                reclaim_capacity = reclaim_capacity
+                    .checked_add(map.allocated_blocks()?)
+                    .and_then(|count| count.checked_add(1))
+                    .ok_or(Error::ArithmeticOverflow)?;
+            } else if record.size != 0 {
+                return Err(Error::Corrupt(
+                    "non-empty file is missing its extent-map root",
+                ));
+            }
+        }
+        let reclaim_capacity =
+            usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
         let mut reclaim_blocks = Vec::new();
+        reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging reclaimed subtree blocks")
+        })?;
         for id in &removed_ids {
             let record = namespace
                 .object(*id)
@@ -4057,7 +4086,17 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("file extent map is missing"))?;
         let keep_blocks = new_size / block_size + u64::from(new_size % block_size != 0);
         let removed_extents = updated_map.truncate(keep_blocks)?;
+        let reclaim_capacity = removed_extents.iter().try_fold(0_u64, |count, extent| {
+            count
+                .checked_add(extent.block_count)
+                .ok_or(Error::ArithmeticOverflow)
+        })?;
+        let reclaim_capacity =
+            usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
         let mut reclaim_blocks = Vec::new();
+        reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging truncated file blocks")
+        })?;
         for extent in removed_extents {
             for delta in 0..extent.block_count {
                 reclaim_blocks.push(
