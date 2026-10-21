@@ -1800,7 +1800,9 @@ impl OpenedVolume {
                             .checked_add(delta)
                             .ok_or(Error::ArithmeticOverflow)?;
                         reclaim_blocks.try_reserve(1).map_err(|_| {
-                            Error::InvalidInput("allocation failed while staging reclaimed file blocks")
+                            Error::InvalidInput(
+                                "allocation failed while staging reclaimed file blocks",
+                            )
                         })?;
                         reclaim_blocks.push(block);
                     }
@@ -2354,9 +2356,9 @@ impl OpenedVolume {
         }
         let mut removed_ids = std::collections::BTreeSet::new();
         let mut pending = Vec::new();
-        pending
-            .try_reserve_exact(1)
-            .map_err(|_| Error::InvalidInput("allocation failed while staging namespace subtree traversal"))?;
+        pending.try_reserve_exact(1).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging namespace subtree traversal")
+        })?;
         pending.push(object_id);
         while let Some(current) = pending.pop() {
             if !removed_ids.insert(current) {
@@ -2406,9 +2408,11 @@ impl OpenedVolume {
             .objects()
             .filter(|record| !removed_ids.contains(&record.id))
             .count();
-        records.try_reserve_exact(remaining_record_count).map_err(|_| {
-            Error::InvalidInput("allocation failed while staging remaining namespace objects")
-        })?;
+        records
+            .try_reserve_exact(remaining_record_count)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging remaining namespace objects")
+            })?;
         records.extend(
             namespace
                 .objects()
@@ -2420,9 +2424,11 @@ impl OpenedVolume {
             .entries()
             .filter(|entry| !removed_ids.contains(&ObjectId(entry.object_id)))
             .count();
-        entries.try_reserve_exact(remaining_entry_count).map_err(|_| {
-            Error::InvalidInput("allocation failed while staging remaining namespace entries")
-        })?;
+        entries
+            .try_reserve_exact(remaining_entry_count)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging remaining namespace entries")
+            })?;
         entries.extend(
             namespace
                 .entries()
