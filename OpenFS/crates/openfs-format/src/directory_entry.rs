@@ -296,16 +296,14 @@ mod tests {
 
     #[test]
     fn name_validation_rejects_unicode_control_and_path_separators() {
-        for name in ["tab\\tname", "carriage\\rreturn", "slash／name", "backslash\\\\name"] {
+        for name in ["tab\tname", "carriage\rreturn", "slash/name", "backslash\\name", "nul\0byte", "control\u{0001}byte"] {
             let mut entry = sample();
             entry.name = name.to_owned();
-            if name.contains('\\t') || name.contains('\\r') || name.contains('\\\\') {
-                assert!(matches!(entry.encode(), Err(Error::InvalidInput(_))), "{name:?}");
-            }
+            assert!(
+                matches!(entry.encode(), Err(Error::InvalidInput(_))),
+                "{name:?}"
+            );
         }
-        let mut nul = sample();
-        nul.name = "nul\\u{0001}byte".to_owned();
-        assert!(matches!(nul.encode(), Err(Error::InvalidInput(_))));
     }
 
     #[test]
