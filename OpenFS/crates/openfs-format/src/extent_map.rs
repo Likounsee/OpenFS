@@ -2010,7 +2010,7 @@ mod tests {
             vec![(100, 103), (200, 202)]
         );
         assert!(map.validated_physical_ranges(4, 10, 300).is_err());
-        assert!(map.validated_physical_block_inventory(5, 100, 300).is_err());
+        assert!(map.validated_physical_block_inventory(5, 101, 300).is_err());
     }
 
     #[test]
