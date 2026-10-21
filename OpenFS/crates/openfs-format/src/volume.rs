@@ -748,7 +748,17 @@ impl OpenedVolume {
             ));
         }
         let encoded = descriptor.encode(self.volume.block_size as usize)?;
-        let mut claimed = std::collections::BTreeSet::new();
+        let mut claimed = try_join_block_numbers(
+            &descriptor.metadata_blocks,
+            &descriptor.directory_blocks,
+            "allocation failed while checking inventory block ownership",
+        )?;
+        claimed.sort_unstable();
+        if claimed.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "inventory descriptor contains overlapping block lists",
+            ));
+        }
         let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         let block_size = self.volume.block_size as usize;
@@ -764,12 +774,7 @@ impl OpenedVolume {
                     "inventory descriptor references a block outside the data region",
                 ));
             }
-            if !claimed.insert(*block) {
-                return Err(Error::InvalidInput(
-                    "inventory descriptor contains overlapping block lists",
-                ));
-            }
-
+            // Ownership duplicates were rejected in the preflight pass above.
             // Keep bitmap-cache memory bounded even when an inventory spans many
             // bitmap pages. Clearing is safe: it only trades cache hits for device reads.
             let bitmap_index = *block / bits_per_bitmap_block;
@@ -2982,13 +2987,16 @@ impl OpenedVolume {
         directory_blocks: &[u64],
         directory_entry_count: usize,
     ) -> Result<Namespace> {
-        let mut claimed = std::collections::BTreeSet::new();
-        for block in metadata_blocks.iter().chain(directory_blocks.iter()) {
-            if !claimed.insert(*block) {
-                return Err(Error::Corrupt(
-                    "metadata and directory inventories share a physical block",
-                ));
-            }
+        let mut claimed = try_join_block_numbers(
+            metadata_blocks,
+            directory_blocks,
+            "allocation failed while validating namespace inventory ownership",
+        )?;
+        claimed.sort_unstable();
+        if claimed.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Corrupt(
+                "metadata and directory inventories share a physical block",
+            ));
         }
         let records = self.read_metadata_inventory(device, metadata_blocks, metadata_count)?;
         let entries =
@@ -2999,7 +3007,7 @@ impl OpenedVolume {
             self.volume.layout.backup_superblock,
         )?;
         for root in &roots {
-            if claimed.contains(root) {
+            if claimed.binary_search(root).is_ok() {
                 return Err(Error::Corrupt(
                     "extent-map root aliases a metadata or directory inventory block",
                 ));
@@ -5412,13 +5420,17 @@ impl OpenedVolume {
                 "inventory block list does not match its record count",
             ));
         }
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = try_copy_block_numbers(
+            blocks,
+            "allocation failed while validating inventory block ownership",
+        )?;
+        seen.sort_unstable();
+        if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Corrupt("inventory repeats a physical block"));
+        }
         let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
         for block in blocks {
-            if !seen.insert(*block) {
-                return Err(Error::Corrupt("inventory repeats a physical block"));
-            }
             if *block < self.volume.layout.data_start
                 || *block >= self.volume.layout.backup_superblock
             {
@@ -5784,16 +5796,21 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                         "multiple persistent inventory descriptors were discovered",
                     ));
                 }
-                let mut references = std::collections::BTreeSet::new();
-                for inventory_block in descriptor
-                    .metadata_blocks
-                    .iter()
-                    .chain(descriptor.directory_blocks.iter())
-                {
-                    if *inventory_block < layout.data_start
-                        || *inventory_block >= layout.backup_superblock
-                        || *inventory_block == block
-                        || !references.insert(*inventory_block)
+                let mut references = try_join_block_numbers(
+                    &descriptor.metadata_blocks,
+                    &descriptor.directory_blocks,
+                    "allocation failed while validating persistent inventory ownership",
+                )?;
+                references.sort_unstable();
+                if references.windows(2).any(|pair| pair[0] == pair[1]) {
+                    return Err(Error::Corrupt(
+                        "persistent inventory descriptor has invalid block ownership",
+                    ));
+                }
+                for inventory_block in references {
+                    if inventory_block < layout.data_start
+                        || inventory_block >= layout.backup_superblock
+                        || inventory_block == block
                     {
                         return Err(Error::Corrupt(
                             "persistent inventory descriptor has invalid block ownership",
@@ -6057,10 +6074,18 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
             "persistent inventory block count does not match its record count",
         ));
     }
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = try_copy_block_numbers(
+        blocks,
+        "allocation failed while validating persistent inventory stream ownership",
+    )?;
+    seen.sort_unstable();
+    if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(Error::Corrupt(
+            "persistent inventory stream has invalid block ownership",
+        ));
+    }
     for block in blocks {
-        if *block < layout.data_start || *block >= layout.backup_superblock || !seen.insert(*block)
-        {
+        if *block < layout.data_start || *block >= layout.backup_superblock {
             return Err(Error::Corrupt(
                 "persistent inventory stream has invalid block ownership",
             ));
