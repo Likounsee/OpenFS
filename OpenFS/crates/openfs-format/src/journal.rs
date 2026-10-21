@@ -64,7 +64,7 @@ impl JournalRecord {
         let payload_len = u32::try_from(self.payload.len())
             .map_err(|_| Error::InvalidInput("journal payload is too large"))?;
 
-        let mut bytes = vec![0_u8; total_size];
+        let mut bytes = try_zeroed_vec(total_size, "unable to allocate encoded journal record")?;
         bytes[0..8].copy_from_slice(MAGIC);
         put_u16(&mut bytes, 8, JOURNAL_VERSION);
         put_u16(&mut bytes, 10, JOURNAL_HEADER_SIZE as u16);
@@ -119,11 +119,16 @@ impl JournalRecord {
             return Err(Error::Corrupt("journal record CRC32C mismatch"));
         }
 
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(payload_len)
+            .map_err(|_| Error::InvalidInput("unable to allocate decoded journal payload"))?;
+        payload.extend_from_slice(&bytes[JOURNAL_HEADER_SIZE..]);
         let record = Self {
             kind: JournalRecordKind::try_from(get_u16(bytes, 12))?,
             sequence: get_u64(bytes, 16),
             transaction_id: get_u64(bytes, 24),
-            payload: bytes[JOURNAL_HEADER_SIZE..].to_vec(),
+            payload,
         };
         validate_record(&record)?;
         Ok(record)
@@ -142,7 +147,7 @@ impl JournalRecord {
                 "journal record does not fit in one journal block",
             ));
         }
-        let mut block = vec![0_u8; block_size];
+        let mut block = try_zeroed_vec(block_size, "unable to allocate journal block")?;
         block[..encoded.len()].copy_from_slice(&encoded);
         Ok(block)
     }
@@ -236,7 +241,16 @@ pub fn plan_recovery(
                 if transaction.transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal UPDATE transaction ID mismatch"));
                 }
-                transaction.updates.push(record.payload.clone());
+                transaction
+                    .updates
+                    .try_reserve(1)
+                    .map_err(|_| Error::InvalidInput("unable to reserve journal recovery updates"))?;
+                let mut payload = Vec::new();
+                payload
+                    .try_reserve_exact(record.payload.len())
+                    .map_err(|_| Error::InvalidInput("unable to copy journal recovery payload"))?;
+                payload.extend_from_slice(&record.payload);
+                transaction.updates.push(payload);
             }
             JournalRecordKind::Commit => {
                 let transaction = active
@@ -250,6 +264,9 @@ pub fn plan_recovery(
                         "committed journal transaction contains no redo updates",
                     ));
                 }
+                completed
+                    .try_reserve(1)
+                    .map_err(|_| Error::InvalidInput("unable to reserve recovered transactions"))?;
                 completed.push(transaction);
             }
             JournalRecordKind::Abort => {
@@ -278,6 +295,15 @@ pub fn plan_recovery(
 
     // Any transaction still active at the end lacks a durable terminal record.
     Ok(completed)
+}
+
+fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    bytes.resize(length, 0);
+    Ok(bytes)
 }
 
 fn validate_record(record: &JournalRecord) -> Result<()> {

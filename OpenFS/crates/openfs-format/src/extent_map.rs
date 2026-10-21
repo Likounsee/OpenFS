@@ -185,6 +185,9 @@ impl ExtentMap {
                 return Err(Error::InvalidInput("extent overlaps prior logical blocks"));
             }
         }
+        self.extents
+            .try_reserve(1)
+            .map_err(|_| Error::InvalidInput("unable to reserve extent-map append"))?;
         self.extents.push(extent);
         Ok(())
     }
