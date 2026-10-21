@@ -2523,11 +2523,17 @@ impl OpenedVolume {
         // Counts and fixed record widths were checked above, so reserve the exact
         // serialized sizes once. This avoids geometric Vec growth and transient copies
         // when replacing a large namespace near the descriptor's capacity limit.
-        let mut metadata_bytes = Vec::with_capacity(metadata_bytes_needed);
+        let mut metadata_bytes = Vec::new();
+        metadata_bytes
+            .try_reserve_exact(metadata_bytes_needed)
+            .map_err(|_| Error::InvalidInput("allocation failed while serializing namespace metadata"))?;
         for record in namespace.objects() {
             metadata_bytes.extend_from_slice(&record.encode()?);
         }
-        let mut directory_bytes = Vec::with_capacity(directory_bytes_needed);
+        let mut directory_bytes = Vec::new();
+        directory_bytes
+            .try_reserve_exact(directory_bytes_needed)
+            .map_err(|_| Error::InvalidInput("allocation failed while serializing namespace entries"))?;
         for entry in namespace.entries() {
             directory_bytes.extend_from_slice(&entry.encode()?);
         }
@@ -2630,11 +2636,17 @@ impl OpenedVolume {
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
-        let mut blocks = Vec::with_capacity(block_count);
+        let mut blocks = Vec::new();
+        blocks
+            .try_reserve_exact(block_count)
+            .map_err(|_| Error::InvalidInput("allocation failed while staging inventory blocks"))?;
         // Inventory streams may span many blocks. Reuse one zero-padded block buffer
         // instead of allocating a fresh Vec for every chunk; clear it before each copy
         // so a short final chunk cannot expose bytes left by the preceding chunk.
-        let mut padded = vec![0_u8; block_size];
+        let mut padded = try_zeroed_block(
+            block_size,
+            "allocation failed while staging inventory block contents",
+        )?;
         let result = (|| {
             for chunk in bytes.chunks(block_size) {
                 padded.fill(0);
