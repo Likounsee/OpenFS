@@ -3009,8 +3009,7 @@ impl OpenedVolume {
             }
         }
 
-        let mut output =
-            try_zeroed_block(read_len, "unable to allocate file range read buffer")?;
+        let mut output = try_zeroed_block(read_len, "unable to allocate file range read buffer")?;
         // A request contained in one extent is physically contiguous by construction.
         // Inspect extent descriptors rather than probing every logical block, keeping
         // large sequential reads O(number of extents) instead of O(number of blocks).
