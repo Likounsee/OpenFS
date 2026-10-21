@@ -2630,6 +2630,44 @@ mod allocation_bitmap_report_tests {
     }
 
     #[test]
+    fn batch_free_rejects_duplicates_and_mixed_free_state_without_partial_mutation() {
+        let path = image_path("batch-free-atomic-validation");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let start = volume.allocate_contiguous_blocks(&mut device, 4).unwrap();
+
+            let before_duplicates = volume.allocation_stats(&mut device).unwrap();
+            assert!(matches!(
+                volume.free_blocks(&mut device, &[start + 1, start, start + 1]),
+                Err(Error::InvalidInput("batch free list contains duplicates"))
+            ));
+            assert_eq!(
+                volume.allocation_stats(&mut device).unwrap(),
+                before_duplicates,
+                "duplicate batch-free input must not alter allocation state"
+            );
+
+            volume.free_blocks(&mut device, &[start + 3]).unwrap();
+            let before_mixed = volume.allocation_stats(&mut device).unwrap();
+            assert!(matches!(
+                volume.free_blocks(&mut device, &[start, start + 1, start + 3]),
+                Err(Error::InvalidInput("batch free contains an already-free block"))
+            ));
+            assert_eq!(
+                volume.allocation_stats(&mut device).unwrap(),
+                before_mixed,
+                "a mixed allocated/free batch must be rejected atomically"
+            );
+            assert!(volume.is_data_block_allocated(&mut device, start).unwrap());
+            assert!(volume.is_data_block_allocated(&mut device, start + 1).unwrap());
+            assert!(volume.is_data_block_allocated(&mut device, start + 2).unwrap());
+            assert!(!volume.is_data_block_allocated(&mut device, start + 3).unwrap());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn bitmap_run_search_handles_byte_boundaries_and_fragmentation() {
         let path = image_path("bitmap-run-search");
         {

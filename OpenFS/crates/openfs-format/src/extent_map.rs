@@ -894,6 +894,40 @@ mod tests {
     }
 
     #[test]
+    fn batch_extent_append_rejects_physical_aliases_without_mutating_map() {
+        let mut map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 100,
+            block_count: 2,
+        }])
+        .unwrap();
+        let before = map.clone();
+
+        assert!(matches!(
+            map.push_coalescing_batch(vec![
+                Extent {
+                    logical_start: 4,
+                    physical_start: 200,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 8,
+                    physical_start: 101,
+                    block_count: 1,
+                },
+            ]),
+            Err(Error::InvalidInput("physical extents overlap"))
+        ));
+        assert_eq!(map, before);
+
+        assert!(matches!(
+            map.remove_range(3, 0),
+            Err(Error::InvalidInput("removed logical range must be nonzero"))
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
     fn validated_physical_inventory_is_sorted_and_rejects_invalid_ownership() {
         let map = ExtentMap::new(vec![
             Extent {
