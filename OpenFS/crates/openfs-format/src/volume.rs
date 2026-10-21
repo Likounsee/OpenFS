@@ -4995,6 +4995,194 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Copy-on-write a range that touches sparse holes inside an existing file.
+    ///
+    /// Every touched block is staged at a new physical address, including blocks that were
+    /// already allocated. The replacement extent map and namespace generation are published
+    /// only after all replacement blocks are durable, so a failed publication leaves the
+    /// previous file contents and ownership graph intact.
+    fn write_persistent_sparse_range_from_namespace<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: Namespace,
+        object_id: u64,
+        record: &crate::ObjectRecord,
+        map: &ExtentMap,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<()> {
+        let block_size = u64::from(self.volume.block_size);
+        let block_size_usize =
+            usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let data_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+        let end = offset
+            .checked_add(data_len)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if end > record.size {
+            return Err(Error::InvalidInput(
+                "sparse range replacement must stay within the existing file length",
+            ));
+        }
+        let first_logical = offset / block_size;
+        let last_logical = (end - 1) / block_size;
+        let touched_count = usize::try_from(
+            last_logical
+                .checked_sub(first_logical)
+                .and_then(|count| count.checked_add(1))
+                .ok_or(Error::ArithmeticOverflow)?,
+        )
+        .map_err(|_| Error::ArithmeticOverflow)?;
+        let next_generation = record
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let old_root = record.extent_root_block.ok_or(Error::Corrupt(
+            "non-empty file is missing its extent-map root",
+        ))?;
+        let mut updated_map = map.try_clone()?;
+        let mut allocated = Vec::new();
+        allocated.try_reserve_exact(
+            touched_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+        ).map_err(|_| Error::AllocationFailed(
+            "unable to reserve sparse-write allocation rollback inventory",
+        ))?;
+        let mut reclaim_blocks = Vec::new();
+        reclaim_blocks.try_reserve_exact(
+            touched_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+        ).map_err(|_| Error::AllocationFailed(
+            "unable to reserve sparse-write reclaimed block inventory",
+        ))?;
+
+        let staged = (|| -> Result<u64> {
+            for logical in first_logical..=last_logical {
+                let block_start = logical
+                    .checked_mul(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let block_end = block_start
+                    .checked_add(block_size)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let copy_start = offset.max(block_start);
+                let copy_end = end.min(block_end);
+                let within_start = usize::try_from(copy_start - block_start)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let within_end = usize::try_from(copy_end - block_start)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let source_start = usize::try_from(copy_start - offset)
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let source_end = source_start
+                    .checked_add(within_end - within_start)
+                    .ok_or(Error::ArithmeticOverflow)?;
+
+                let old_physical = updated_map.physical_block(logical);
+                let mut contents = try_zeroed_block(
+                    block_size_usize,
+                    "unable to allocate sparse-write block buffer",
+                )?;
+                if let Some(physical) = old_physical {
+                    device.read_blocks(physical, &mut contents)?;
+                }
+                contents[within_start..within_end].copy_from_slice(&data[source_start..source_end]);
+
+                let replacement = self.allocate_block(device)?;
+                allocated.push(replacement);
+                device.write_blocks(replacement, &contents)?;
+
+                if old_physical.is_some() {
+                    let removed = updated_map.remove_range(logical, 1)?;
+                    for extent in removed {
+                        for delta in 0..extent.block_count {
+                            reclaim_blocks.push(
+                                extent.physical_start.checked_add(delta)
+                                    .ok_or(Error::ArithmeticOverflow)?,
+                            );
+                        }
+                    }
+                }
+                updated_map.insert_coalescing(crate::Extent {
+                    logical_start: logical,
+                    physical_start: replacement,
+                    block_count: 1,
+                })?;
+            }
+
+            let encoded = updated_map.encode_block(block_size_usize)?;
+            let new_root = self.allocate_block(device)?;
+            allocated.push(new_root);
+            device.write_blocks(new_root, &encoded)?;
+            device.flush()?;
+            Ok(new_root)
+        })();
+
+        let new_root = match staged {
+            Ok(root) => root,
+            Err(error) => {
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to roll back sparse-range replacement blocks",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        let updated_namespace = (|| -> Result<Namespace> {
+            let mut records = try_clone_namespace_records(&namespace)?;
+            let updated = records.iter_mut().find(|item| item.id == object_id)
+                .ok_or(Error::Corrupt("file metadata disappeared during sparse write"))?;
+            updated.extent_root_block = Some(new_root);
+            updated.generation = next_generation;
+            Namespace::from_records(
+                namespace.root_id(),
+                records,
+                try_clone_namespace_entries(&namespace)?,
+            )
+        })();
+        let updated_namespace = match updated_namespace {
+            Ok(updated) => updated,
+            Err(error) => {
+                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim sparse-write blocks after metadata preparation failed",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active))) if active.object(object_id).is_some_and(|item| {
+                    item.size == record.size
+                        && item.extent_root_block == Some(new_root)
+                        && item.generation == next_generation
+                }) => return Ok(()),
+                Ok(Some((_, active))) if active.object(object_id).is_some_and(|item| {
+                    item.size == record.size
+                        && item.extent_root_block == record.extent_root_block
+                        && item.generation == record.generation
+                }) => {
+                    if self.reclaim_persistent_blocks(device, &allocated).is_err() {
+                        return Err(Error::Corrupt(
+                            "sparse-write publication failed and staged blocks could not be reclaimed",
+                        ));
+                    }
+                    return Err(error);
+                }
+                _ => return Err(Error::Corrupt(
+                    "sparse-write publication outcome is uncertain; staged storage was retained",
+                )),
+            }
+        }
+
+        reclaim_blocks.push(old_root);
+        if self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks).is_err() {
+            return Err(Error::Corrupt(
+                "sparse write succeeded but replaced blocks could not be fully reclaimed",
+            ));
+        }
+        Ok(())
+    }
+
     /// Write bytes to a file resolved from the published on-disk inventory.
     ///
     /// The namespace and extent maps are reconstructed from disk rather than supplied by
