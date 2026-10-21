@@ -545,13 +545,22 @@ impl OpenedVolume {
         else {
             return Ok(());
         };
-        let descriptor_blocks: std::collections::BTreeSet<u64> = descriptor
+        let descriptor_block_count = descriptor
             .metadata_blocks
+            .len()
+            .checked_add(descriptor.directory_blocks.len())
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut descriptor_blocks = Vec::new();
+        descriptor_blocks
+            .try_reserve_exact(descriptor_block_count)
+            .map_err(|_| Error::InvalidInput("unable to allocate inventory ownership index"))?;
+        descriptor_blocks.extend(descriptor.metadata_blocks.iter().copied());
+        descriptor_blocks.extend(descriptor.directory_blocks.iter().copied());
+        descriptor_blocks.sort_unstable();
+        if blocks
             .iter()
-            .chain(descriptor.directory_blocks.iter())
-            .copied()
-            .collect();
-        if blocks.iter().any(|block| descriptor_blocks.contains(block)) {
+            .any(|block| descriptor_blocks.binary_search(block).is_ok())
+        {
             return Err(Error::InvalidInput(
                 "cannot free a block referenced by persistent inventory descriptor",
             ));
@@ -565,12 +574,26 @@ impl OpenedVolume {
                 "persistent inventory disappeared during block-release validation",
             ));
         };
-        let extent_roots: std::collections::BTreeSet<u64> = namespace
-            .objects()
-            .filter_map(|record| record.extent_root_block)
-            .collect();
+        let mut extent_roots = Vec::new();
+        extent_roots
+            .try_reserve_exact(namespace.object_count())
+            .map_err(|_| Error::InvalidInput("unable to allocate extent-root ownership index"))?;
+        extent_roots.extend(
+            namespace
+                .objects()
+                .filter_map(|record| record.extent_root_block),
+        );
+        extent_roots.sort_unstable();
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let range_count = extent_maps.values().try_fold(0_usize, |count, map| {
+            count
+                .checked_add(map.extents().len())
+                .ok_or(Error::ArithmeticOverflow)
+        })?;
         let mut owned_ranges = Vec::new();
+        owned_ranges
+            .try_reserve_exact(range_count)
+            .map_err(|_| Error::InvalidInput("unable to allocate file ownership ranges"))?;
         for map in extent_maps.values() {
             for extent in map.extents() {
                 let end = extent
@@ -583,7 +606,7 @@ impl OpenedVolume {
         owned_ranges.sort_unstable();
 
         for block in blocks {
-            if extent_roots.contains(block) {
+            if extent_roots.binary_search(block).is_ok() {
                 return Err(Error::InvalidInput(
                     "cannot free a block referenced by a file extent map",
                 ));
@@ -5134,10 +5157,15 @@ impl OpenedVolume {
         }
         // Validate every file's physical allocations in one ordered bitmap scan instead
         // of rereading the same bitmap pages separately for every file.
-        let physical_ranges: Vec<(u64, u64)> = owned_ranges
-            .iter()
-            .map(|(start, end, _)| (*start, *end))
-            .collect();
+        let mut physical_ranges = Vec::new();
+        physical_ranges
+            .try_reserve_exact(owned_ranges.len())
+            .map_err(|_| Error::InvalidInput("unable to allocate physical ownership ranges"))?;
+        physical_ranges.extend(
+            owned_ranges
+                .iter()
+                .map(|(start, end, _)| (*start, *end)),
+        );
         self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         // Keep this explicit: every root must map to exactly one object, even if a future
         // Namespace implementation changes its validation guarantees.
