@@ -1331,6 +1331,54 @@ mod tests {
         assert!(map.truncate(64).unwrap().is_empty());
     }
     #[test]
+    fn physical_bounds_reject_reserved_blocks_and_volume_overflow() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 9,
+            block_count: 2,
+        }])
+        .unwrap();
+        assert!(matches!(
+            map.validate_physical_bounds(10, 100),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(0, 10),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(10, 10),
+            Err(Error::InvalidInput("data region bounds are invalid"))
+        ));
+    }
+
+    #[test]
+    fn file_size_validation_allows_sparse_holes_but_rejects_extents_past_eof() {
+        let sparse = ExtentMap::new(vec![
+            Extent {
+                logical_start: 2,
+                physical_start: 20,
+                block_count: 1,
+            },
+            Extent {
+                logical_start: 8,
+                physical_start: 40,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+        assert!(sparse.validate_file_size(10 * 4096 - 1, 4096).is_ok());
+        assert!(matches!(
+            sparse.validate_file_size(9 * 4096, 4096),
+            Err(Error::Corrupt("extent exceeds file byte length"))
+        ));
+        assert!(matches!(
+            sparse.validate_file_size(1, 0),
+            Err(Error::InvalidInput("block size must be nonzero"))
+        ));
+    }
+
+    #[test]
     fn rejects_overflow_zero_length_and_capacity_errors() {
         assert!(matches!(
             ExtentMap::new(vec![Extent {
