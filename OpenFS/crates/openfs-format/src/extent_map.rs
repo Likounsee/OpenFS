@@ -950,6 +950,49 @@ mod tests {
     }
 
     #[test]
+    fn range_removal_matches_blockwise_reference_for_sparse_maps() {
+        for logical_start in 0..10 {
+            for block_count in 1..=5 {
+                let mut map = sample();
+                let original = map.clone();
+                let logical_end = logical_start + block_count;
+                let expected_removed: Vec<(u64, u64)> = (logical_start..logical_end)
+                    .filter_map(|logical| {
+                        original
+                            .physical_block(logical)
+                            .map(|physical| (logical, physical))
+                    })
+                    .collect();
+
+                let removed = map.remove_range(logical_start, block_count).unwrap();
+                let actual_removed: Vec<(u64, u64)> = removed
+                    .iter()
+                    .flat_map(|extent| {
+                        (0..extent.block_count).map(move |offset| {
+                            (
+                                extent.logical_start + offset,
+                                extent.physical_start + offset,
+                            )
+                        })
+                    })
+                    .collect();
+                assert_eq!(
+                    actual_removed, expected_removed,
+                    "removed runs differ for start={logical_start}, count={block_count}"
+                );
+
+                for logical in 0..10 {
+                    if (logical_start..logical_end).contains(&logical) {
+                        assert_eq!(map.physical_block(logical), None);
+                    } else {
+                        assert_eq!(map.physical_block(logical), original.physical_block(logical));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn removing_disjoint_sparse_ranges_is_a_noop() {
         let mut map = sample();
         let before = map.clone();
