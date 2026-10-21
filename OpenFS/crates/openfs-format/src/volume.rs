@@ -5041,17 +5041,27 @@ impl OpenedVolume {
         ))?;
         let mut updated_map = map.try_clone()?;
         let mut allocated = Vec::new();
-        allocated.try_reserve_exact(
-            touched_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
-        ).map_err(|_| Error::AllocationFailed(
-            "unable to reserve sparse-write allocation rollback inventory",
-        ))?;
+        allocated
+            .try_reserve_exact(
+                touched_count
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| {
+                Error::AllocationFailed(
+                    "unable to reserve sparse-write allocation rollback inventory",
+                )
+            })?;
         let mut reclaim_blocks = Vec::new();
-        reclaim_blocks.try_reserve_exact(
-            touched_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
-        ).map_err(|_| Error::AllocationFailed(
-            "unable to reserve sparse-write reclaimed block inventory",
-        ))?;
+        reclaim_blocks
+            .try_reserve_exact(
+                touched_count
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| {
+                Error::AllocationFailed("unable to reserve sparse-write reclaimed block inventory")
+            })?;
 
         let staged = (|| -> Result<u64> {
             for logical in first_logical..=last_logical {
@@ -5067,8 +5077,8 @@ impl OpenedVolume {
                     .map_err(|_| Error::ArithmeticOverflow)?;
                 let within_end = usize::try_from(copy_end - block_start)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-                let source_start = usize::try_from(copy_start - offset)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+                let source_start =
+                    usize::try_from(copy_start - offset).map_err(|_| Error::ArithmeticOverflow)?;
                 let source_end = source_start
                     .checked_add(within_end - within_start)
                     .ok_or(Error::ArithmeticOverflow)?;
@@ -5092,7 +5102,9 @@ impl OpenedVolume {
                     for extent in removed {
                         for delta in 0..extent.block_count {
                             reclaim_blocks.push(
-                                extent.physical_start.checked_add(delta)
+                                extent
+                                    .physical_start
+                                    .checked_add(delta)
                                     .ok_or(Error::ArithmeticOverflow)?,
                             );
                         }
@@ -5127,8 +5139,13 @@ impl OpenedVolume {
 
         let updated_namespace = (|| -> Result<Namespace> {
             let mut records = try_clone_namespace_records(&namespace)?;
-            let updated = records.iter_mut().find(|item| item.id == object_id)
-                .ok_or(Error::Corrupt("file metadata disappeared during sparse write"))?;
+            let updated =
+                records
+                    .iter_mut()
+                    .find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt(
+                        "file metadata disappeared during sparse write",
+                    ))?;
             updated.extent_root_block = Some(new_root);
             updated.generation = next_generation;
             Namespace::from_records(
@@ -5149,21 +5166,27 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+        if let Err(error) =
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
             match self.reconstruct_discovered_namespace(device) {
-                Ok(Some((_, active))) if active.object(object_id).is_some_and(|item| {
-                    item.size == record.size
-                        && item.extent_root_block == Some(new_root)
-                        && item.generation == next_generation
-                }) => {
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.size == record.size
+                            && item.extent_root_block == Some(new_root)
+                            && item.generation == next_generation
+                    }) =>
+                {
                     // The replacement is authoritative despite the reported error.
                     // Continue below so the superseded blocks and old root are reclaimed.
                 }
-                Ok(Some((_, active))) if active.object(object_id).is_some_and(|item| {
-                    item.size == record.size
-                        && item.extent_root_block == record.extent_root_block
-                        && item.generation == record.generation
-                }) => {
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.size == record.size
+                            && item.extent_root_block == record.extent_root_block
+                            && item.generation == record.generation
+                    }) =>
+                {
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
                             "sparse-write publication failed and staged blocks could not be reclaimed",
@@ -5178,7 +5201,10 @@ impl OpenedVolume {
         }
 
         reclaim_blocks.push(old_root);
-        if self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks).is_err() {
+        if self
+            .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
+            .is_err()
+        {
             return Err(Error::Corrupt(
                 "sparse write succeeded but replaced blocks could not be fully reclaimed",
             ));
@@ -5232,9 +5258,12 @@ impl OpenedVolume {
         if offset < record.size {
             let block_size = u64::from(self.volume.block_size);
             let data_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
-            let write_end = offset.checked_add(data_len).ok_or(Error::ArithmeticOverflow)?;
+            let write_end = offset
+                .checked_add(data_len)
+                .ok_or(Error::ArithmeticOverflow)?;
             if write_end <= record.size {
-                let map = extent_maps.get(&object_id)
+                let map = extent_maps
+                    .get(&object_id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
                 let first = offset / block_size;
                 let last = (write_end - 1) / block_size;
