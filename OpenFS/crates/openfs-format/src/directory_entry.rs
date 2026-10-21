@@ -220,7 +220,9 @@ mod tests {
         too_long.name = "é".repeat(33);
         assert!(matches!(
             too_long.encode(),
-            Err(Error::InvalidInput("directory name must contain 1 to 64 UTF-8 bytes"))
+            Err(Error::InvalidInput(
+                "directory name must contain 1 to 64 UTF-8 bytes"
+            ))
         ));
     }
 
