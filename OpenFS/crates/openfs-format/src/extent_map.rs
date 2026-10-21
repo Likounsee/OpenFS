@@ -544,8 +544,8 @@ impl ExtentMap {
         let insertion = self
             .extents
             .partition_point(|extent| extent.logical_start < logical_start);
-        let overlaps_previous = insertion > 0
-            && self.extents[insertion - 1].logical_end()? > logical_start;
+        let overlaps_previous =
+            insertion > 0 && self.extents[insertion - 1].logical_end()? > logical_start;
         let overlaps_next = self
             .extents
             .get(insertion)
