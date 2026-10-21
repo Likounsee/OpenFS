@@ -1284,7 +1284,7 @@ impl OpenedVolume {
                             "inventory descriptor references a block outside the data region",
                         ));
                     }
-                    let bitmap_index = *inventory_block / bits_per_bitmap_block;
+                    let bitmap_index = inventory_block / bits_per_bitmap_block;
                     // Descriptor references can span the whole data region. Bound retained
                     // bitmap pages independently from the descriptor's number of references.
                     if !allocation_bitmaps.contains_key(&bitmap_index)
@@ -1309,7 +1309,7 @@ impl OpenedVolume {
                     let bitmap = allocation_bitmaps
                         .get(&bitmap_index)
                         .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
-                    let local_bit = *inventory_block % bits_per_bitmap_block;
+                    let local_bit = inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
                     if bitmap[byte_index] & (1_u8 << (local_bit % 8)) == 0 {
