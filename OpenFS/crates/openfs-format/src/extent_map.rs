@@ -795,7 +795,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{crc32c, Extent, ExtentMap};
+    use super::{crc32c, Extent, ExtentMap, CHECKSUM_SIZE, EXTENT_SIZE, HEADER_SIZE};
     use openfs_core::Error;
 
     fn sample() -> ExtentMap {
