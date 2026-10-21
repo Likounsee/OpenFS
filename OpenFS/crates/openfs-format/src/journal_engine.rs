@@ -163,7 +163,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
     let mut protected = Vec::new();
     protected
         .try_reserve_exact(protected_blocks.len())
-        .map_err(|_| Error::InvalidInput("unable to allocate protected journal targets"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate protected journal targets"))?;
     protected.extend_from_slice(protected_blocks);
     let mut protected_blocks = protected;
     protected_blocks.sort_unstable();
@@ -525,7 +525,7 @@ fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(length)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     bytes.resize(length, 0);
     Ok(bytes)
 }
