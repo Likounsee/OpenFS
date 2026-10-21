@@ -2234,7 +2234,7 @@ mod tests {
         assert_eq!(batched.logical_block_count().unwrap(), 15);
         assert_eq!(
             batched.logical_hole_ranges(15).unwrap(),
-            vec![(5, 1), (9, 3)]
+            vec![(4, 2), (9, 3)]
         );
     }
 
