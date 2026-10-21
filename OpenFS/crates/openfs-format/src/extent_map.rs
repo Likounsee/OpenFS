@@ -178,7 +178,7 @@ impl ExtentMap {
         for existing in &self.extents {
             let existing_end = existing.physical_end()?;
             if extent.physical_start < existing_end && existing.physical_start < physical_end {
-                return Err(Error::InvalidInput("physical extents overlap"));
+                return Err(Error::Corrupt("physical extents overlap"));
             }
         }
 
@@ -778,7 +778,7 @@ impl ExtentMap {
 
 fn validate_extent(extent: Extent) -> Result<()> {
     if extent.block_count == 0 {
-        return Err(Error::InvalidInput("extent block count must be nonzero"));
+        return Err(Error::Corrupt("extent block count must be nonzero"));
     }
     extent.logical_end()?;
     extent.physical_end()?;
