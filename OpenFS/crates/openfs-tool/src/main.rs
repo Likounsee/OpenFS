@@ -1269,11 +1269,19 @@ mod tests {
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
             let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
-            let ring_start = volume.volume.layout.journal.ring_start;
+            let region = volume.volume.layout.journal;
             drop(volume);
 
-            let corrupt_record = vec![0xA5; BLOCK_SIZE as usize];
-            device.write_blocks(ring_start, &corrupt_record).unwrap();
+            // Corrupt both checkpoint copies. Arbitrary bytes in an unused ring slot
+            // are intentionally ignored, so the corruption must invalidate journal
+            // state that the read-only checker actually consumes.
+            let corrupt_checkpoint = vec![0xA5; BLOCK_SIZE as usize];
+            device
+                .write_blocks(region.checkpoint_a, &corrupt_checkpoint)
+                .unwrap();
+            device
+                .write_blocks(region.checkpoint_b, &corrupt_checkpoint)
+                .unwrap();
             device.flush().unwrap();
         }
 
