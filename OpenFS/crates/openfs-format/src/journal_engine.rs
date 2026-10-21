@@ -1904,21 +1904,35 @@ mod tests {
 
     #[test]
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
-        let mut device = formatted();
-        let mut journal = open_journal(&mut device, REGION).unwrap();
-        // One block redo is encoded as multiple chunks; the commit record follows them.
-        // Tear inside the fixed header, before the checksum field is fully written.
-        // A 64-byte prefix would include the entire empty COMMIT record and is not torn.
-        let mut failing = TearWriteAt::new(device.clone(), 3, 20);
-        assert!(matches!(
-            journal.commit(&mut failing, &[update(0xA5)]),
-            Err(Error::Io(_))
-        ));
-        let mut recovered = failing.into_inner();
-        let reopened = open_journal(&mut recovered, REGION)
-            .expect("a malformed terminal commit must not make the old state unusable");
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
-        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
+        // Probe multiple torn-write boundaries in the terminal COMMIT record. A 64-byte
+        // prefix would include the complete empty COMMIT record and is not a tear.
+        for prefix_bytes in [1, 20, 32, 63] {
+            let mut device = formatted();
+            let mut journal = open_journal(&mut device, REGION).unwrap();
+            // One block redo is encoded as multiple chunks; the commit record follows them.
+            let mut failing = TearWriteAt::new(device.clone(), 3, prefix_bytes);
+            assert!(
+                matches!(
+                    journal.commit(&mut failing, &[update(0xA5)]),
+                    Err(Error::Io(_))
+                ),
+                "commit should fail after a {prefix_bytes}-byte terminal-record tear"
+            );
+            let mut recovered = failing.into_inner();
+            let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
+                panic!("old state should remain usable after a {prefix_bytes}-byte tear: {error:?}")
+            });
+            assert_eq!(
+                reopened.checkpoint().checkpoint_sequence,
+                3,
+                "torn terminal commit must not advance checkpoint sequence"
+            );
+            assert_eq!(
+                read_home(&mut recovered),
+                vec![0x11; BS as usize],
+                "torn terminal commit must preserve old home data"
+            );
+        }
     }
 
     #[test]

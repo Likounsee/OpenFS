@@ -553,3 +553,10 @@ Until that work is done, retain the existing values only as provisional estimate
 - La CI exacte-SHA de `a71b20b` a terminé avec succès sous Linux et Windows (formatage, tests du workspace et Clippy) : [run 39610130554](https://github.com/Likounsee/OpenFS/actions/runs/39610130554).
 - Le lot suivant retire les appels redondants à `try_reserve(1)` dans la collecte des blocs d'une suppression groupée : la capacité exacte est déjà réservée avant la boucle. Cela évite un contrôle d'allocation par bloc sans changer l'ordre de validation ni le moment de libération.
 - Les limites principales restent la propriété exclusive du volume entre plusieurs ouvreurs/processus, l'atomicité générale des mutations multi-étapes et l'intégration OS. Le journal protège des mises à jour de bitmap, pas chaque opération fichier comme transaction globale.
+
+
+### Mise à jour du 2026-10-22 — crash-cut du COMMIT terminal
+
+- Le test `torn_terminal_commit_record_is_ignored_and_home_data_is_preserved` couvre désormais quatre frontières de déchirure (1, 20, 32 et 63 octets) du bloc COMMIT terminal, plutôt qu'un seul préfixe. Chaque scénario exige une réouverture réussie, un checkpoint qui ne dépasse pas la séquence des UPDATE, et la conservation exacte du bloc home ancien.
+- Le commit précédent `72cc59b8144736dfa773d0b1ed938811f4593677` est confirmé vert sur Linux et Windows pour rustfmt, les tests workspace et Clippy : [run 39688617770](https://github.com/Likounsee/OpenFS/actions/runs/39688617770). La nouvelle modification doit encore passer la CI sur son propre SHA avant d'être considérée validée.
+- Ces tests simulent des écritures déchirées à la frontière du backend logiciel; ils ne prouvent pas la durabilité sur matériel réel ni le comportement de contrôleurs qui réordonnent ou mettent en cache les écritures.
