@@ -43,6 +43,24 @@ fn try_copy_block_numbers(blocks: &[u64], allocation_error: &'static str) -> Res
     Ok(copy)
 }
 
+fn try_join_block_numbers(
+    first: &[u64],
+    second: &[u64],
+    allocation_error: &'static str,
+) -> Result<Vec<u64>> {
+    let count = first
+        .len()
+        .checked_add(second.len())
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut blocks = Vec::new();
+    blocks
+        .try_reserve_exact(count)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    blocks.extend_from_slice(first);
+    blocks.extend_from_slice(second);
+    Ok(blocks)
+}
+
 fn try_single_block_list(block: u64, allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut blocks = Vec::new();
     blocks
@@ -2767,11 +2785,11 @@ impl OpenedVolume {
             directory_entry_count: namespace.entry_count(),
         };
         if let Err(error) = descriptor.encode(block_size) {
-            let staged_blocks: Vec<u64> = metadata_blocks
-                .iter()
-                .chain(directory_blocks.iter())
-                .copied()
-                .collect();
+            let staged_blocks = try_join_block_numbers(
+                &metadata_blocks,
+                &directory_blocks,
+                "allocation failed while tracking staged inventory blocks",
+            )?;
             if self
                 .reclaim_persistent_blocks(device, &staged_blocks)
                 .is_err()
@@ -2792,11 +2810,11 @@ impl OpenedVolume {
                 match self.discover_persistent_inventory(device) {
                     Ok(Some((block, active))) if active == descriptor => Ok(block),
                     Ok(Some((_, _))) | Ok(None) => {
-                        let staged_blocks: Vec<u64> = metadata_blocks
-                            .iter()
-                            .chain(directory_blocks.iter())
-                            .copied()
-                            .collect();
+                        let staged_blocks = try_join_block_numbers(
+                            &metadata_blocks,
+                            &directory_blocks,
+                            "allocation failed while tracking staged inventory blocks",
+                        )?;
                         if self
                             .reclaim_persistent_blocks(device, &staged_blocks)
                             .is_err()
