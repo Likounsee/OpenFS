@@ -1087,7 +1087,14 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_bitmap_block;
         let mut discovered = None;
-        let mut pending_blocks: Vec<u64> = Vec::with_capacity(INVENTORY_DISCOVERY_BATCH_BLOCKS);
+        let mut pending_blocks: Vec<u64> = Vec::new();
+        pending_blocks
+            .try_reserve_exact(INVENTORY_DISCOVERY_BATCH_BLOCKS)
+            .map_err(|_| {
+                Error::InvalidInput(
+                    "allocation failed while preparing inventory discovery batch",
+                )
+            })?;
         // Descriptor references often share bitmap pages. Keep only the pages actually
         // needed to validate a candidate descriptor's inventory references.
         let mut allocation_bitmaps = std::collections::BTreeMap::<u64, Vec<u8>>::new();
