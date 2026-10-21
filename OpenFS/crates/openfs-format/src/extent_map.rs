@@ -47,6 +47,19 @@ impl ExtentMap {
         Ok(map)
     }
 
+    /// Clone an extent map without relying on infallible vector growth.
+    ///
+    /// File mutation paths use this before touching persistent state so allocation
+    /// pressure is reported as an ordinary filesystem error rather than aborting midway.
+    pub fn try_clone(&self) -> Result<Self> {
+        let mut extents = Vec::new();
+        extents
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::AllocationFailed("unable to clone extent map"))?;
+        extents.extend_from_slice(&self.extents);
+        Ok(Self { extents })
+    }
+
     pub fn extents(&self) -> &[Extent] {
         &self.extents
     }
@@ -187,7 +200,7 @@ impl ExtentMap {
         }
         self.extents
             .try_reserve(1)
-            .map_err(|_| Error::InvalidInput("unable to reserve extent-map append"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent-map append"))?;
         self.extents.push(extent);
         Ok(())
     }
@@ -226,7 +239,7 @@ impl ExtentMap {
         let mut physical_ranges = Vec::new();
         physical_ranges
             .try_reserve_exact(range_count)
-            .map_err(|_| Error::InvalidInput("unable to reserve physical extent validation"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve physical extent validation"))?;
         for extent in self.extents.iter().chain(incoming.iter()) {
             physical_ranges.push((extent.physical_start, extent.physical_end()?));
         }
@@ -237,7 +250,7 @@ impl ExtentMap {
 
         self.extents
             .try_reserve(incoming.len())
-            .map_err(|_| Error::InvalidInput("unable to reserve extent-map batch"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent-map batch"))?;
         for extent in incoming {
             if let Some(last) = self.extents.last_mut() {
                 if last.logical_end()? == extent.logical_start
@@ -287,7 +300,7 @@ impl ExtentMap {
         let mut merged: Vec<Extent> = Vec::new();
         merged
             .try_reserve_exact(capacity)
-            .map_err(|_| Error::InvalidInput("unable to reserve extent insertion"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent insertion"))?;
         for current in self
             .extents
             .iter()
@@ -349,7 +362,7 @@ impl ExtentMap {
         let mut blocks: Vec<u64> = Vec::new();
         blocks
             .try_reserve_exact(block_count)
-            .map_err(|_| Error::InvalidInput("unable to reserve physical block inventory"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve physical block inventory"))?;
         blocks.extend(self.physical_blocks());
         blocks.sort_unstable();
         Ok(blocks)
@@ -384,7 +397,7 @@ impl ExtentMap {
         let mut ranges: Vec<(u64, u64)> = Vec::new();
         ranges
             .try_reserve_exact(self.extents.len())
-            .map_err(|_| Error::InvalidInput("unable to reserve physical extent ranges"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve physical extent ranges"))?;
         for extent in &self.extents {
             ranges.push((extent.physical_start, extent.physical_end()?));
         }
@@ -393,7 +406,7 @@ impl ExtentMap {
         let mut coalesced: Vec<(u64, u64)> = Vec::new();
         coalesced
             .try_reserve_exact(ranges.len())
-            .map_err(|_| Error::InvalidInput("unable to reserve coalesced extent ranges"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve coalesced extent ranges"))?;
         for (start, end) in ranges {
             if let Some(last) = coalesced.last_mut() {
                 if last.1 == start {
