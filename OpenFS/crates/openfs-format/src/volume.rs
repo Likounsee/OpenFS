@@ -1498,7 +1498,10 @@ impl OpenedVolume {
                 parent_id,
                 *object_id,
                 *kind,
-                try_clone_string(name, "allocation failed while copying persistent object name")?,
+                try_clone_string(
+                    name,
+                    "allocation failed while copying persistent object name",
+                )?,
             ));
         }
         self.create_persistent_objects_in_namespace(device, namespace, &expanded)
@@ -5776,10 +5779,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     claimed.extend(descriptor.metadata_blocks.iter().copied());
     claimed.extend(descriptor.directory_blocks.iter().copied());
     claimed.sort_unstable();
-    if roots
-        .iter()
-        .any(|root| claimed.binary_search(root).is_ok())
-    {
+    if roots.iter().any(|root| claimed.binary_search(root).is_ok()) {
         return Err(Error::Corrupt(
             "extent-map root aliases a metadata or directory inventory block",
         ));
