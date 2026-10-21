@@ -399,7 +399,9 @@ mod tests {
 
         assert!(matches!(
             DirectoryEntry::decode(&bytes),
-            Err(Error::Corrupt("directory-entry reserved bytes must be zero"))
+            Err(Error::Corrupt(
+                "directory-entry reserved bytes must be zero"
+            ))
         ));
     }
 }
