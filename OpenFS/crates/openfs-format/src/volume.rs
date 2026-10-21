@@ -2762,6 +2762,16 @@ impl OpenedVolume {
             ));
         }
 
+        // Reserve rollback tracking before allocating any on-disk staging blocks. The
+        // descriptor capacity is the upper bound for both streams combined, so cleanup
+        // never needs a fresh allocation after metadata has already been written.
+        let mut staged_blocks = Vec::new();
+        staged_blocks
+            .try_reserve_exact(descriptor_capacity)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while tracking staged inventory blocks")
+            })?;
+
         let metadata_blocks = self.stage_packed_inventory(device, &metadata_bytes)?;
         let directory_blocks = match self.stage_packed_inventory(device, &directory_bytes) {
             Ok(blocks) => blocks,
@@ -2785,11 +2795,8 @@ impl OpenedVolume {
             directory_entry_count: namespace.entry_count(),
         };
         if let Err(error) = descriptor.encode(block_size) {
-            let staged_blocks = try_join_block_numbers(
-                &metadata_blocks,
-                &directory_blocks,
-                "allocation failed while tracking staged inventory blocks",
-            )?;
+            staged_blocks.extend_from_slice(&metadata_blocks);
+            staged_blocks.extend_from_slice(&directory_blocks);
             if self
                 .reclaim_persistent_blocks(device, &staged_blocks)
                 .is_err()
@@ -2810,11 +2817,9 @@ impl OpenedVolume {
                 match self.discover_persistent_inventory(device) {
                     Ok(Some((block, active))) if active == descriptor => Ok(block),
                     Ok(Some((_, _))) | Ok(None) => {
-                        let staged_blocks = try_join_block_numbers(
-                            &metadata_blocks,
-                            &directory_blocks,
-                            "allocation failed while tracking staged inventory blocks",
-                        )?;
+                        staged_blocks.clear();
+                        staged_blocks.extend_from_slice(&metadata_blocks);
+                        staged_blocks.extend_from_slice(&directory_blocks);
                         if self
                             .reclaim_persistent_blocks(device, &staged_blocks)
                             .is_err()
