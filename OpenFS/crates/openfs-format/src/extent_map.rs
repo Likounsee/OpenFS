@@ -1836,7 +1836,7 @@ mod tests {
         let bytes = sample().encode_block(4096).unwrap();
 
         assert!(matches!(
-            ExtentMap::decode_block(&bytes[..31]),
+            ExtentMap::decode_block(&bytes[..19]),
             Err(Error::InvalidInput("extent-map block is too short"))
         ));
 
