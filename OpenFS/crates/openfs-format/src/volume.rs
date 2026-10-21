@@ -283,16 +283,14 @@ impl OpenedVolume {
                 }
             }
             if let Some(block) = selected {
-                // A failed descriptor publication may have staged descriptor bytes in
-                // a still-free block. Clear that reserved magic before exposing the
-                // block as a different allocation, otherwise discovery could mistake
-                // stale bytes for a live descriptor.
-                device.read_blocks(block, &mut existing)?;
-                if existing.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
-                    existing.fill(0);
-                    device.write_blocks(block, &existing)?;
-                    device.flush()?;
-                }
+                // Clear the whole block before publishing ownership. Besides removing
+                // a stale inventory descriptor left by an interrupted publication, this
+                // prevents a newly allocated file from observing data from a prior owner.
+                // If the write or flush fails, the bitmap is still unchanged and the block
+                // remains free from the filesystem's point of view.
+                existing.fill(0);
+                device.write_blocks(block, &existing)?;
+                device.flush()?;
                 self.journal.commit(
                     device,
                     &[RedoUpdate {
