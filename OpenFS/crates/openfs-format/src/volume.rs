@@ -5117,7 +5117,7 @@ impl OpenedVolume {
                         )) => {
                             let mut blocks = Vec::new();
                             blocks.try_reserve_exact(chunk_count).map_err(|_| {
-                                Error::InvalidInput(
+                                Error::AllocationFailed(
                                     "allocation failed while staging persistent namespace data",
                                 )
                             })?;
