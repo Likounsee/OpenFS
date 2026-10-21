@@ -253,7 +253,9 @@ mod tests {
         let entry = sample().encode().unwrap();
         assert!(matches!(
             super::decode_directory_entries(&entry[..DIRECTORY_ENTRY_SIZE - 1]),
-            Err(Error::InvalidInput("directory inventory is not record-aligned"))
+            Err(Error::InvalidInput(
+                "directory inventory is not record-aligned"
+            ))
         ));
     }
 
