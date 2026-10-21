@@ -34,7 +34,6 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
-
 fn collect_file_owned_blocks(
     namespace: &Namespace,
     extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
@@ -58,9 +57,9 @@ fn collect_file_owned_blocks(
     })?;
     let capacity = usize::try_from(block_count).map_err(|_| Error::ArithmeticOverflow)?;
     let mut blocks = Vec::new();
-    blocks.try_reserve_exact(capacity).map_err(|_| {
-        Error::AllocationFailed("unable to reserve file block ownership inventory")
-    })?;
+    blocks
+        .try_reserve_exact(capacity)
+        .map_err(|_| Error::AllocationFailed("unable to reserve file block ownership inventory"))?;
     for record in namespace.objects() {
         let Some(root) = record.extent_root_block else {
             continue;
@@ -1073,7 +1072,9 @@ impl OpenedVolume {
             "allocation failed while checking retired file-block ownership",
         )?;
         expected_file_reclaim.sort_unstable();
-        if expected_file_reclaim.windows(2).any(|pair| pair[0] == pair[1])
+        if expected_file_reclaim
+            .windows(2)
+            .any(|pair| pair[0] == pair[1])
             || expected_file_reclaim.iter().any(|block| {
                 *block == old_block
                     || old_inventory_blocks.binary_search(block).is_ok()
@@ -2069,7 +2070,11 @@ impl OpenedVolume {
         for (_, object_id) in &removal_order {
             namespace.remove(*object_id)?;
         }
-        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &namespace, &reclaim_blocks) {
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &namespace,
+            &reclaim_blocks,
+        ) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if object_ids.iter().all(|id| active.object(*id).is_none()) =>
@@ -2504,7 +2509,11 @@ impl OpenedVolume {
         }
 
         namespace.remove(object_id)?;
-        let publication = self.replace_persistent_namespace_inventory_with_reclaim(device, &namespace, &reclaim_blocks);
+        let publication = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &namespace,
+            &reclaim_blocks,
+        );
         if let Err(error) = publication {
             // A reported I/O error can occur after the descriptor was committed. Only
             // reclaim blocks if rediscovery proves the removed object is no longer live.
@@ -2727,7 +2736,11 @@ impl OpenedVolume {
                 .cloned(),
         );
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
-        let publication = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks);
+        let publication = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &updated_namespace,
+            &reclaim_blocks,
+        );
         if let Err(error) = publication {
             // Publication can report an I/O error after the new descriptor committed.
             // Reclaim only if the active inventory proves every removed ID is absent.
@@ -2894,11 +2907,11 @@ impl OpenedVolume {
         self.validate_device(device)?;
         namespace.validate()?;
         if !expected_file_reclaim_blocks.is_empty() {
-            let (_, old_namespace) = self
-                .reconstruct_discovered_namespace(device)?
-                .ok_or(Error::InvalidInput(
-                    "no persistent inventory descriptor exists to replace",
-                ))?;
+            let (_, old_namespace) =
+                self.reconstruct_discovered_namespace(device)?
+                    .ok_or(Error::InvalidInput(
+                        "no persistent inventory descriptor exists to replace",
+                    ))?;
             let old_maps = self.read_namespace_extent_maps(device, &old_namespace)?;
             let new_maps = self.read_namespace_extent_maps(device, namespace)?;
             let old_owned = collect_file_owned_blocks(&old_namespace, &old_maps)?;
@@ -4558,11 +4571,12 @@ impl OpenedVolume {
             }
         }
         if let Some(root) = record.extent_root_block {
-            self.reclaim_persistent_blocks(device, &[root]).map_err(|_| {
-                Error::Corrupt(
-                    "sparse extension succeeded but old extent-map root could not be reclaimed",
-                )
-            })?;
+            self.reclaim_persistent_blocks(device, &[root])
+                .map_err(|_| {
+                    Error::Corrupt(
+                        "sparse extension succeeded but old extent-map root could not be reclaimed",
+                    )
+                })?;
         }
         Ok(())
     }
@@ -4854,8 +4868,11 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks)
-        {
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &updated_namespace,
+            &reclaim_blocks,
+        ) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -5115,8 +5132,11 @@ impl OpenedVolume {
 
         // A publication error may be reported after the journal commit point. Rediscover
         // the active file version before deciding whether staged data can be reclaimed.
-        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks)
-        {
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &updated_namespace,
+            &reclaim_blocks,
+        ) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|record| {
