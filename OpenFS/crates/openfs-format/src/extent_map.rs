@@ -1928,4 +1928,42 @@ mod tests {
 
         assert_eq!(ExtentMap::decode_block(&bytes).unwrap(), map);
     }
+    #[test]
+    fn decode_rejects_logical_overlap_and_physical_aliasing() {
+        let original = sample().encode_block(4096).unwrap();
+        let checksum_offset = original.len() - 4;
+
+        let mut logical_overlap = original.clone();
+        logical_overlap[40..48].copy_from_slice(&2_u64.to_le_bytes());
+        let checksum = crc32c(&logical_overlap[..checksum_offset]);
+        logical_overlap[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            ExtentMap::decode_block(&logical_overlap),
+            Err(Error::Corrupt("logical extents overlap or are unordered"))
+        ));
+
+        let mut physical_alias = original;
+        physical_alias[40 + 8..40 + 16].copy_from_slice(&101_u64.to_le_bytes());
+        let checksum = crc32c(&physical_alias[..checksum_offset]);
+        physical_alias[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            ExtentMap::decode_block(&physical_alias),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_extent_arithmetic_overflow() {
+        let mut bytes = sample().encode_block(4096).unwrap();
+        bytes[16 + 16..16 + 24].copy_from_slice(&u64::MAX.to_le_bytes());
+        let checksum_offset = bytes.len() - 4;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
 }
