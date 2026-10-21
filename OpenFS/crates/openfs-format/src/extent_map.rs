@@ -605,7 +605,10 @@ impl ExtentMap {
         {
             return Err(Error::Corrupt("extent-map padding must be zero"));
         }
-        let mut extents = Vec::with_capacity(count);
+        let mut extents = Vec::new();
+        extents
+            .try_reserve_exact(count)
+            .map_err(|_| Error::AllocationFailed("unable to reserve decoded extent records"))?;
         for index in 0..count {
             let offset = HEADER_SIZE + index * EXTENT_SIZE;
             extents.push(Extent {
@@ -622,7 +625,10 @@ impl ExtentMap {
 
     fn validate_ordering(&self) -> Result<()> {
         let mut previous_end = 0_u64;
-        let mut physical = Vec::with_capacity(self.extents.len());
+        let mut physical = Vec::new();
+        physical
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent validation ranges"))?;
         for (index, extent) in self.extents.iter().copied().enumerate() {
             validate_extent(extent)?;
             if index > 0 && extent.logical_start < previous_end {
