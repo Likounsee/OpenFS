@@ -363,7 +363,7 @@ impl PersistentJournal {
         let mut targets = Vec::new();
         targets
             .try_reserve_exact(updates.len())
-            .map_err(|_| Error::InvalidInput("unable to reserve journal redo targets"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve journal redo targets"))?;
         for update in updates {
             if update.contents.len() != block_size {
                 return Err(Error::InvalidInput(
@@ -390,7 +390,7 @@ impl PersistentJournal {
         let mut encoded = Vec::new();
         encoded
             .try_reserve_exact(required_records)
-            .map_err(|_| Error::InvalidInput("unable to reserve encoded journal transaction"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve encoded journal transaction"))?;
         encoded.push(
             JournalRecord {
                 kind: JournalRecordKind::Begin,
@@ -615,7 +615,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     let mut records = Vec::new();
     records
         .try_reserve_exact(newer.len())
-        .map_err(|_| Error::InvalidInput("unable to reserve decoded journal records"))?;
+        .map_err(|_| Error::AllocationFailed("unable to reserve decoded journal records"))?;
     records.extend(newer.into_iter().map(|(_, record)| record));
     Ok(ScannedRecords { records })
 }
@@ -852,7 +852,7 @@ fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<
     let mut chunks = Vec::new();
     chunks
         .try_reserve_exact(count)
-        .map_err(|_| Error::InvalidInput("unable to reserve redo chunks"))?;
+        .map_err(|_| Error::AllocationFailed("unable to reserve redo chunks"))?;
     for index in 0..count {
         let start = index * chunk_size;
         let end = update.contents.len().min(start + chunk_size);
@@ -885,13 +885,13 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     let mut updates = Vec::new();
     updates
         .try_reserve_exact(payloads.len() / expected_count)
-        .map_err(|_| Error::InvalidInput("unable to reserve decoded redo images"))?;
+        .map_err(|_| Error::AllocationFailed("unable to reserve decoded redo images"))?;
     let mut target_active = None;
     let mut active_count = 0_u16;
     let mut current = Vec::new();
     current
         .try_reserve_exact(block_size)
-        .map_err(|_| Error::InvalidInput("unable to reserve redo image buffer"))?;
+        .map_err(|_| Error::AllocationFailed("unable to reserve redo image buffer"))?;
     for (payload_index, payload) in payloads.iter().enumerate() {
         if payload.len() < UPDATE_CHUNK_HEADER_SIZE {
             return Err(Error::Corrupt("redo chunk header is truncated"));
@@ -940,7 +940,7 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                 let mut replacement = Vec::new();
                 replacement
                     .try_reserve_exact(block_size)
-                    .map_err(|_| Error::InvalidInput("unable to reserve next redo image buffer"))?;
+                    .map_err(|_| Error::AllocationFailed("unable to reserve next redo image buffer"))?;
                 std::mem::replace(&mut current, replacement)
             };
             updates.push(RedoUpdate {
