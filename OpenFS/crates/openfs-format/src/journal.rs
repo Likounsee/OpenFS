@@ -302,7 +302,7 @@ fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(length)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     bytes.resize(length, 0);
     Ok(bytes)
 }
