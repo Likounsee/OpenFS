@@ -5942,6 +5942,16 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     // data. Keep ranges compressed through overlap detection and reconcile allocation
     // ownership with byte masks in a single bitmap pass.
     let mut owned_ranges = Vec::<(u64, u64)>::new();
+    let inventory_owner_count = descriptor
+        .metadata_blocks
+        .len()
+        .checked_add(descriptor.directory_blocks.len())
+        .and_then(|count| count.checked_add(1))
+        .and_then(|count| count.checked_add(roots.len()))
+        .ok_or(Error::ArithmeticOverflow)?;
+    owned_ranges
+        .try_reserve_exact(inventory_owner_count)
+        .map_err(|_| Error::InvalidInput("unable to allocate physical ownership ranges"))?;
     for block in descriptor
         .metadata_blocks
         .iter()
