@@ -586,10 +586,7 @@ mod tests {
         device.read_blocks(0, &mut actual).unwrap();
         assert_eq!(actual, first);
         device.write_blocks(1, &second).unwrap();
-        assert!(matches!(
-            device.write_blocks(0, &second),
-            Err(Error::Io(_))
-        ));
+        assert!(matches!(device.write_blocks(0, &second), Err(Error::Io(_))));
         // The injected failure is one-shot; the following write succeeds.
         device.write_blocks(0, &second).unwrap();
         device.read_blocks(0, &mut actual).unwrap();
