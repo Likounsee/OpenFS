@@ -1300,32 +1300,34 @@ mod tests {
 
     #[test]
     fn check_image_uses_valid_checkpoint_when_other_is_corrupt_without_modifying_image() {
-        let path = unique_path("check-one-corrupt-checkpoint");
-        {
-            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
-            let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
-            drop(volume);
+        for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
+            let path = unique_path(&format!("check-one-corrupt-checkpoint-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
+                drop(volume);
 
-            // A single damaged checkpoint copy is recoverable from its valid peer.
-            let corrupt_checkpoint = vec![0xA5; BLOCK_SIZE as usize];
-            device
-                .write_blocks(checkpoint_a, &corrupt_checkpoint)
-                .unwrap();
-            device.flush().unwrap();
+                // A single damaged checkpoint copy is recoverable from its valid peer.
+                let corrupt_checkpoint = vec![0xA5; block_size as usize];
+                device
+                    .write_blocks(checkpoint_a, &corrupt_checkpoint)
+                    .unwrap();
+                device.flush().unwrap();
+            }
+
+            let before = fs::read(&path).unwrap();
+            assert!(
+                super::check_image(&path, block_size).is_ok(),
+                "check-image should accept one valid checkpoint copy at block size {block_size}"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                before,
+                "read-only checking must not repair the damaged checkpoint at block size {block_size}"
+            );
+            fs::remove_file(path).unwrap();
         }
-
-        let before = fs::read(&path).unwrap();
-        assert!(
-            super::check_image(&path, BLOCK_SIZE).is_ok(),
-            "check-image should accept one valid checkpoint copy"
-        );
-        assert_eq!(
-            fs::read(&path).unwrap(),
-            before,
-            "read-only checking must not repair the damaged checkpoint"
-        );
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -1366,33 +1368,35 @@ mod tests {
 
     #[test]
     fn audit_does_not_rewrite_a_damaged_checkpoint_when_peer_is_valid() {
-        let path = unique_path("audit-one-corrupt-checkpoint");
-        {
-            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
-            let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
-            drop(volume);
+        for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
+            let path = unique_path(&format!("audit-one-corrupt-checkpoint-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
+                drop(volume);
 
-            // Audit must remain read-only even if opening the journal could choose
-            // the other valid checkpoint copy.
-            let corrupt_checkpoint = vec![0xA5; BLOCK_SIZE as usize];
-            device
-                .write_blocks(checkpoint_a, &corrupt_checkpoint)
-                .unwrap();
-            device.flush().unwrap();
+                // Audit must remain read-only even if opening the journal could choose
+                // the other valid checkpoint copy.
+                let corrupt_checkpoint = vec![0xA5; block_size as usize];
+                device
+                    .write_blocks(checkpoint_a, &corrupt_checkpoint)
+                    .unwrap();
+                device.flush().unwrap();
+            }
+
+            let before = fs::read(&path).unwrap();
+            assert!(
+                audit_image(&path, block_size).is_err(),
+                "audit should report the absent inventory at block size {block_size}"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                before,
+                "audit must not rewrite a damaged checkpoint at block size {block_size}"
+            );
+            fs::remove_file(path).unwrap();
         }
-
-        let before = fs::read(&path).unwrap();
-        assert!(
-            audit_image(&path, BLOCK_SIZE).is_err(),
-            "audit should still report the absent persistent inventory"
-        );
-        assert_eq!(
-            fs::read(&path).unwrap(),
-            before,
-            "audit must not rewrite a damaged checkpoint while inspecting the image"
-        );
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
