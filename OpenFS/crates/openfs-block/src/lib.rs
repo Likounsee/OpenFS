@@ -54,7 +54,9 @@ enum FaultAction {
         operation: IoOperation,
         remaining: usize,
     },
-    TornWrite { prefix_bytes: usize },
+    TornWrite {
+        prefix_bytes: usize,
+    },
 }
 
 #[cfg(any(test, feature = "test-support"))]
