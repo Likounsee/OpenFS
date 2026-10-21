@@ -122,7 +122,7 @@ impl JournalRecord {
         let mut payload = Vec::new();
         payload
             .try_reserve_exact(payload_len)
-            .map_err(|_| Error::InvalidInput("unable to allocate decoded journal payload"))?;
+            .map_err(|_| Error::AllocationFailed("unable to allocate decoded journal payload"))?;
         payload.extend_from_slice(&bytes[JOURNAL_HEADER_SIZE..]);
         let record = Self {
             kind: JournalRecordKind::try_from(get_u16(bytes, 12))?,
