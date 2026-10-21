@@ -5816,7 +5816,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                             "persistent inventory descriptor has invalid block ownership",
                         ));
                     }
-                    let bitmap_index = *inventory_block / bits_per_bitmap_block;
+                    let bitmap_index = inventory_block / bits_per_bitmap_block;
                     if !reference_bitmaps.contains_key(&bitmap_index) {
                         if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
                             reference_bitmaps.pop_first();
@@ -5832,7 +5832,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                         device.read_blocks(bitmap_block, &mut bitmap)?;
                         reference_bitmaps.insert(bitmap_index, bitmap);
                     }
-                    let local_bit = *inventory_block % bits_per_bitmap_block;
+                    let local_bit = inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
                     if reference_bitmaps[&bitmap_index][byte_index] & (1_u8 << (local_bit % 8)) == 0
