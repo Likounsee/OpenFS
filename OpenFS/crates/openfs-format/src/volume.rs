@@ -4838,7 +4838,21 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?;
             let block_size_usize =
                 usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+            let max_data_blocks = data
+                .len()
+                .checked_add(block_size_usize - 1)
+                .ok_or(Error::ArithmeticOverflow)?
+                / block_size_usize;
+            let tracking_capacity = max_data_blocks
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
             let mut allocated = Vec::new();
+            // Reserve enough ownership-tracking space before the first disk mutation.
+            // Otherwise a later Vec growth could abort while newly allocated blocks
+            // have already been committed in the bitmap and cannot be rolled back.
+            allocated.try_reserve_exact(tracking_capacity).map_err(|_| {
+                Error::InvalidInput("allocation failed while tracking appended data blocks")
+            })?;
             // Appending across blocks may modify the old final block before the new
             // extent map is published. Remember even an errored journal commit as a
             // possible durable tail write so every pre-publication failure can restore
