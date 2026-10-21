@@ -4850,9 +4850,11 @@ impl OpenedVolume {
             // Reserve enough ownership-tracking space before the first disk mutation.
             // Otherwise a later Vec growth could abort while newly allocated blocks
             // have already been committed in the bitmap and cannot be rolled back.
-            allocated.try_reserve_exact(tracking_capacity).map_err(|_| {
-                Error::InvalidInput("allocation failed while tracking appended data blocks")
-            })?;
+            allocated
+                .try_reserve_exact(tracking_capacity)
+                .map_err(|_| {
+                    Error::InvalidInput("allocation failed while tracking appended data blocks")
+                })?;
             // Appending across blocks may modify the old final block before the new
             // extent map is published. Remember even an errored journal commit as a
             // possible durable tail write so every pre-publication failure can restore
