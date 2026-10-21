@@ -993,7 +993,9 @@ impl OpenedVolume {
         expected_releasable
             .try_reserve_exact(old_inventory_blocks.len())
             .map_err(|_| {
-                Error::AllocationFailed("allocation failed while checking releasable inventory blocks")
+                Error::AllocationFailed(
+                    "allocation failed while checking releasable inventory blocks",
+                )
             })?;
         expected_releasable.extend(
             old_inventory_blocks
@@ -1019,7 +1021,9 @@ impl OpenedVolume {
         released_blocks
             .try_reserve_exact(report.allocation.orphaned_allocations.len())
             .map_err(|_| {
-                Error::AllocationFailed("allocation failed while preparing released inventory blocks")
+                Error::AllocationFailed(
+                    "allocation failed while preparing released inventory blocks",
+                )
             })?;
         released_blocks.extend(
             report
@@ -1223,7 +1227,9 @@ impl OpenedVolume {
         pending_blocks
             .try_reserve_exact(INVENTORY_DISCOVERY_BATCH_BLOCKS)
             .map_err(|_| {
-                Error::AllocationFailed("allocation failed while preparing inventory discovery batch")
+                Error::AllocationFailed(
+                    "allocation failed while preparing inventory discovery batch",
+                )
             })?;
         // Descriptor references often share bitmap pages. Keep only the pages actually
         // needed to validate a candidate descriptor's inventory references.
@@ -2377,7 +2383,9 @@ impl OpenedVolume {
                 reclaim_blocks
                     .try_reserve_exact(reclaim_capacity)
                     .map_err(|_| {
-                        Error::AllocationFailed("allocation failed while staging reclaimed file blocks")
+                        Error::AllocationFailed(
+                            "allocation failed while staging reclaimed file blocks",
+                        )
                     })?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
@@ -2592,7 +2600,9 @@ impl OpenedVolume {
         records
             .try_reserve_exact(remaining_record_count)
             .map_err(|_| {
-                Error::AllocationFailed("allocation failed while staging remaining namespace objects")
+                Error::AllocationFailed(
+                    "allocation failed while staging remaining namespace objects",
+                )
             })?;
         records.extend(
             namespace
@@ -2608,7 +2618,9 @@ impl OpenedVolume {
         entries
             .try_reserve_exact(remaining_entry_count)
             .map_err(|_| {
-                Error::AllocationFailed("allocation failed while staging remaining namespace entries")
+                Error::AllocationFailed(
+                    "allocation failed while staging remaining namespace entries",
+                )
             })?;
         entries.extend(
             namespace
@@ -4365,7 +4377,9 @@ impl OpenedVolume {
             let mut valid_lengths = Vec::new();
             valid_lengths
                 .try_reserve_exact(staging_blocks)
-                .map_err(|_| Error::AllocationFailed("unable to reserve reader import length table"))?;
+                .map_err(|_| {
+                    Error::AllocationFailed("unable to reserve reader import length table")
+                })?;
             loop {
                 valid_lengths.clear();
                 for slot in 0..staging_blocks {
@@ -4443,9 +4457,9 @@ impl OpenedVolume {
                     allocated.extend(blocks.iter().copied());
                 }
                 let mut batch_extents = Vec::new();
-                batch_extents
-                    .try_reserve_exact(blocks.len())
-                    .map_err(|_| Error::AllocationFailed("unable to reserve staged file extents"))?;
+                batch_extents.try_reserve_exact(blocks.len()).map_err(|_| {
+                    Error::AllocationFailed("unable to reserve staged file extents")
+                })?;
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
                     let start = slot
                         .checked_mul(block_size)
