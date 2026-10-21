@@ -4353,7 +4353,7 @@ impl OpenedVolume {
             Namespace::from_records(
                 namespace.root_id(),
                 records,
-                try_clone_namespace_entries(namespace)?,
+                try_clone_namespace_entries(&namespace)?,
             )
         })();
         let updated_namespace = match updated_namespace {
