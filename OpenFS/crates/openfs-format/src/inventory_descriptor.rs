@@ -609,5 +609,4 @@ mod tests {
             Err(Error::Corrupt("inventory descriptor root ID is zero"))
         ));
     }
-
 }

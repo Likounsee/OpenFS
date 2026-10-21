@@ -365,5 +365,4 @@ mod tests {
             Err(Error::Corrupt("invalid journal checkpoint state"))
         ));
     }
-
 }
