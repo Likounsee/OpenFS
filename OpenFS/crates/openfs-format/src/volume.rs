@@ -3925,8 +3925,7 @@ impl OpenedVolume {
             // The cap also stays below the bitmap segment's supported batch-allocation limit.
             const STAGING_BATCH_BYTES: usize = 1024 * 1024;
             const MAX_STAGING_BLOCKS: usize = 64;
-            let staging_blocks =
-                (STAGING_BATCH_BYTES / block_size).clamp(1, MAX_STAGING_BLOCKS);
+            let staging_blocks = (STAGING_BATCH_BYTES / block_size).clamp(1, MAX_STAGING_BLOCKS);
             // Each block retains its exact valid-byte count so the final partial block
             // contributes only its logical payload to the file length.
             let mut contents = vec![
