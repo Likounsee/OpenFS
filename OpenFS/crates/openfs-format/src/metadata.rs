@@ -343,4 +343,21 @@ mod tests {
             Err(Error::Corrupt("metadata CRC32C mismatch"))
         ));
     }
+    #[test]
+    fn packed_metadata_inventory_rejects_partial_trailing_record() {
+        let mut packed = file().encode().unwrap().to_vec();
+        packed.push(0);
+
+        assert!(matches!(
+            super::decode_metadata_records(&packed),
+            Err(Error::InvalidInput(
+                "metadata inventory is not record-aligned"
+            ))
+        ));
+    }
+
+    #[test]
+    fn packed_metadata_inventory_accepts_empty_inventory() {
+        assert_eq!(super::decode_metadata_records(&[]).unwrap(), Vec::new());
+    }
 }

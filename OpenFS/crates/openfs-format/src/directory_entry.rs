@@ -357,4 +357,21 @@ mod tests {
             entry
         );
     }
+    #[test]
+    fn packed_directory_inventory_rejects_partial_trailing_record() {
+        let mut packed = sample().encode().unwrap().to_vec();
+        packed.push(0);
+
+        assert!(matches!(
+            super::decode_directory_entries(&packed),
+            Err(Error::InvalidInput(
+                "directory inventory is not record-aligned"
+            ))
+        ));
+    }
+
+    #[test]
+    fn packed_directory_inventory_accepts_empty_inventory() {
+        assert_eq!(super::decode_directory_entries(&[]).unwrap(), Vec::new());
+    }
 }
