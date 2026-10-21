@@ -14308,7 +14308,7 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-    
+
     #[test]
     fn empty_persistent_range_write_preserves_every_image_byte() {
         use crate::ObjectId;
