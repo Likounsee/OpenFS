@@ -13501,13 +13501,13 @@ mod tests {
                     "rejected publication must preserve the orphan allocation at block size {block_size}"
                 );
                 drop(volume);
-                drop(device);
 
                 let bytes_after = snapshot_image_bytes(&mut device);
                 assert_eq!(
                     bytes_after, bytes_before,
                     "rejected publication must not change any persisted image byte at block size {block_size}"
                 );
+                drop(device);
             }
             fs::remove_file(path).unwrap();
         }
