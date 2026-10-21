@@ -1,6 +1,6 @@
 //! Bounded block-device abstractions and a file-backed development image.
 
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -367,10 +367,10 @@ impl BlockDevice for RawDevice {
 fn lock_exclusive(file: &File) -> Result<()> {
     match file.try_lock() {
         Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Err(Error::InvalidInput(
+        Err(TryLockError::WouldBlock) => Err(Error::InvalidInput(
             "volume is already open by another writer",
         )),
-        Err(error) => Err(Error::Io(error)),
+        Err(TryLockError::Error(error)) => Err(Error::Io(error)),
     }
 }
 
