@@ -14608,11 +14608,7 @@ mod tests {
                 // leave the old, truncated file readable before a retry.
                 device.fail_next(IoOperation::Write);
                 assert!(volume
-                    .extend_persistent_file_sparse(
-                        &mut device,
-                        "/payload.bin",
-                        sparse_len as u64,
-                    )
+                    .extend_persistent_file_sparse(&mut device, "/payload.bin", sparse_len as u64,)
                     .is_err());
                 drop(volume);
                 let mut volume = open_volume(&mut device).unwrap();
