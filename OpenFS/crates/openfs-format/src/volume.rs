@@ -14384,23 +14384,14 @@ mod tests {
 
                 let truncated_len = block_len + 13;
                 volume
-                    .truncate_persistent_file(
-                        &mut device,
-                        "/payload.bin",
-                        truncated_len as u64,
-                    )
+                    .truncate_persistent_file(&mut device, "/payload.bin", truncated_len as u64)
                     .unwrap();
                 drop(volume);
                 let mut volume = open_volume(&mut device).unwrap();
                 let mut expected = payload[..truncated_len].to_vec();
                 assert_eq!(
                     volume
-                        .read_persistent_path_range(
-                            &mut device,
-                            "/payload.bin",
-                            0,
-                            truncated_len,
-                        )
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, truncated_len,)
                         .unwrap(),
                     expected,
                     "truncated prefix must survive reopen at block size {block_size}"
@@ -14408,11 +14399,7 @@ mod tests {
 
                 let sparse_len = truncated_len + block_len * 2 + 9;
                 volume
-                    .extend_persistent_file_sparse(
-                        &mut device,
-                        "/payload.bin",
-                        sparse_len as u64,
-                    )
+                    .extend_persistent_file_sparse(&mut device, "/payload.bin", sparse_len as u64)
                     .unwrap();
                 drop(volume);
                 let mut volume = open_volume(&mut device).unwrap();
