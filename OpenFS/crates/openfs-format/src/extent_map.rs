@@ -916,6 +916,91 @@ mod tests {
     }
 
     #[test]
+    fn batch_extent_append_coalesces_runs_like_individual_appends() {
+        let initial = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 100,
+            block_count: 2,
+        }])
+        .unwrap();
+        let incoming = vec![
+            Extent {
+                logical_start: 2,
+                physical_start: 102,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 7,
+                physical_start: 300,
+                block_count: 1,
+            },
+            Extent {
+                logical_start: 8,
+                physical_start: 301,
+                block_count: 2,
+            },
+        ];
+
+        let mut batch = initial.clone();
+        batch.push_coalescing_batch(incoming.clone()).unwrap();
+
+        let mut individual = initial;
+        for extent in incoming {
+            individual.push_coalescing(extent).unwrap();
+        }
+
+        assert_eq!(batch, individual);
+        assert_eq!(
+            batch.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 4,
+                },
+                Extent {
+                    logical_start: 7,
+                    physical_start: 300,
+                    block_count: 3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn batch_extent_append_rejects_logical_overlaps_atomically() {
+        let mut map = sample();
+        let before = map.clone();
+
+        assert!(matches!(
+            map.push_coalescing_batch(vec![Extent {
+                logical_start: 6,
+                physical_start: 300,
+                block_count: 2,
+            }]),
+            Err(Error::InvalidInput("extent overlaps prior logical blocks"))
+        ));
+        assert_eq!(map, before);
+
+        assert!(matches!(
+            map.push_coalescing_batch(vec![
+                Extent {
+                    logical_start: 8,
+                    physical_start: 300,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 10,
+                    physical_start: 400,
+                    block_count: 1,
+                },
+            ]),
+            Err(Error::InvalidInput("batch extents overlap logical blocks"))
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
     fn batch_extent_append_rejects_physical_aliases_without_mutating_map() {
         let mut map = ExtentMap::new(vec![Extent {
             logical_start: 0,
