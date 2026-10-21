@@ -1,8 +1,7 @@
 <p align="center">
-  <img src="OpenFS/docs/assets/openfs-logo.png" alt="OpenFS logo" width="220">
+  <img src="OpenFS/docs/assets/openfs-logo.png" alt="OpenFS logo" width="600">
 </p>
 
-<h1 align="center">OpenFS</h1>
 
 <p align="center">
   <strong>A filesystem built in Rust, from its on-disk format to persistent file operations.</strong>
