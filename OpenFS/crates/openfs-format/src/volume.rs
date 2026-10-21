@@ -1535,7 +1535,7 @@ impl OpenedVolume {
         let parent_id = namespace.resolve_path(parent_path)?;
         let mut expanded = Vec::new();
         expanded.try_reserve_exact(objects.len()).map_err(|_| {
-            Error::InvalidInput("allocation failed while expanding persistent object batch")
+            Error::AllocationFailed("allocation failed while expanding persistent object batch")
         })?;
         for (object_id, kind, name) in objects {
             expanded.push((
@@ -1563,7 +1563,7 @@ impl OpenedVolume {
         })?;
         let mut seen_ids = Vec::new();
         seen_ids.try_reserve_exact(objects.len()).map_err(|_| {
-            Error::InvalidInput("allocation failed while validating persistent object IDs")
+            Error::AllocationFailed("allocation failed while validating persistent object IDs")
         })?;
         seen_ids.extend(objects.iter().map(|(_, object_id, _, _)| *object_id));
         seen_ids.sort_unstable();
@@ -1938,7 +1938,7 @@ impl OpenedVolume {
         let mut reclaim_blocks = Vec::new();
         reclaim_blocks
             .try_reserve_exact(reclaim_capacity)
-            .map_err(|_| Error::InvalidInput("unable to reserve old file block inventory"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve old file block inventory"))?;
         for record in &records {
             if let Some(root) = record.extent_root_block {
                 let maps = extent_maps
@@ -2501,7 +2501,7 @@ impl OpenedVolume {
                     .map_err(|_| Error::Corrupt("subtree object has an invalid parent"))?;
                 let children = children_by_parent.entry(parent).or_default();
                 children.try_reserve(1).map_err(|_| {
-                    Error::InvalidInput("allocation failed while indexing namespace children")
+                    Error::AllocationFailed("allocation failed while indexing namespace children")
                 })?;
                 children.push(record.id);
             }
@@ -2509,7 +2509,7 @@ impl OpenedVolume {
         let mut removed_ids = std::collections::BTreeSet::new();
         let mut pending = Vec::new();
         pending.try_reserve_exact(1).map_err(|_| {
-            Error::InvalidInput("allocation failed while staging namespace subtree traversal")
+            Error::AllocationFailed("allocation failed while staging namespace subtree traversal")
         })?;
         pending.push(object_id);
         while let Some(current) = pending.pop() {
@@ -2518,7 +2518,7 @@ impl OpenedVolume {
             }
             if let Some(children) = children_by_parent.get(&current) {
                 pending.try_reserve(children.len()).map_err(|_| {
-                    Error::InvalidInput("allocation failed while expanding namespace subtree")
+                    Error::AllocationFailed("allocation failed while expanding namespace subtree")
                 })?;
                 pending.extend(children.iter().copied());
             }
@@ -3602,7 +3602,7 @@ impl OpenedVolume {
         let mut updates = Vec::new();
         updates
             .try_reserve_exact(touched_blocks)
-            .map_err(|_| Error::InvalidInput("unable to reserve file write redo updates"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve file write redo updates"))?;
         let mut block_buffer =
             try_zeroed_block(block_len, "unable to allocate file write block buffer")?;
         let mut source_offset = 0_usize;
@@ -4316,7 +4316,7 @@ impl OpenedVolume {
         let mut reclaim_blocks = Vec::new();
         reclaim_blocks
             .try_reserve_exact(reclaim_capacity)
-            .map_err(|_| Error::InvalidInput("unable to reserve old file block inventory"))?;
+            .map_err(|_| Error::AllocationFailed("unable to reserve old file block inventory"))?;
         if let Some(old_root) = existing.extent_root_block {
             let maps = &current_maps;
             let old_map = maps
@@ -4365,7 +4365,7 @@ impl OpenedVolume {
             let mut valid_lengths = Vec::new();
             valid_lengths
                 .try_reserve_exact(staging_blocks)
-                .map_err(|_| Error::InvalidInput("unable to reserve reader import length table"))?;
+                .map_err(|_| Error::AllocationFailed("unable to reserve reader import length table"))?;
             loop {
                 valid_lengths.clear();
                 for slot in 0..staging_blocks {
@@ -4414,7 +4414,7 @@ impl OpenedVolume {
                 // have been allocated, leaving no recoverable inventory if reservation
                 // itself fails under memory pressure.
                 allocated.try_reserve(valid_lengths.len()).map_err(|_| {
-                    Error::InvalidInput("unable to reserve allocation rollback inventory")
+                    Error::AllocationFailed("unable to reserve allocation rollback inventory")
                 })?;
                 let (blocks, already_tracked) = match self.allocate_blocks(device, count) {
                     Ok(blocks) => (blocks, false),
@@ -4426,7 +4426,7 @@ impl OpenedVolume {
                     )) => {
                         let mut blocks = Vec::new();
                         blocks.try_reserve_exact(valid_lengths.len()).map_err(|_| {
-                            Error::InvalidInput("unable to reserve fallback allocation batch")
+                            Error::AllocationFailed("unable to reserve fallback allocation batch")
                         })?;
                         for _ in 0..valid_lengths.len() {
                             let block = self.allocate_block(device)?;
@@ -4445,7 +4445,7 @@ impl OpenedVolume {
                 let mut batch_extents = Vec::new();
                 batch_extents
                     .try_reserve_exact(blocks.len())
-                    .map_err(|_| Error::InvalidInput("unable to reserve staged file extents"))?;
+                    .map_err(|_| Error::AllocationFailed("unable to reserve staged file extents"))?;
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
                     let start = slot
                         .checked_mul(block_size)
@@ -4482,7 +4482,7 @@ impl OpenedVolume {
             // As with data batches, make rollback bookkeeping infallible before
             // allocating the extent-map root on disk.
             allocated.try_reserve(1).map_err(|_| {
-                Error::InvalidInput("unable to reserve allocation rollback inventory")
+                Error::AllocationFailed("unable to reserve allocation rollback inventory")
             })?;
             let root = self.allocate_block(device)?;
             allocated.push(root);
@@ -5047,7 +5047,7 @@ impl OpenedVolume {
             allocated
                 .try_reserve_exact(tracking_capacity)
                 .map_err(|_| {
-                    Error::InvalidInput("allocation failed while tracking appended data blocks")
+                    Error::AllocationFailed("allocation failed while tracking appended data blocks")
                 })?;
             // Appending across blocks may modify the old final block before the new
             // extent map is published. Remember even an errored journal commit as a
@@ -5055,7 +5055,7 @@ impl OpenedVolume {
             // the old EOF invariant.
             let mut modified_old_tail = false;
             let staged = (|| -> Result<u64> {
-                let mut updated_map = map.clone();
+                let mut updated_map = map.try_clone()?;
                 let mut consumed = 0_usize;
                 let mut next_logical = offset / block_size;
 
@@ -5361,7 +5361,7 @@ impl OpenedVolume {
             // failure is reported instead of panicking during Vec growth.
             owned_ranges
                 .try_reserve(map.extents().len())
-                .map_err(|_| Error::InvalidInput("unable to grow file ownership ranges"))?;
+                .map_err(|_| Error::AllocationFailed("unable to grow file ownership ranges"))?;
             for (start, end) in map.validated_physical_ranges(
                 logical_blocks,
                 self.volume.layout.data_start,
@@ -6081,7 +6081,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         map.validate_physical_bounds(layout.data_start, layout.backup_superblock)?;
         owned_ranges
             .try_reserve(map.extents().len())
-            .map_err(|_| Error::InvalidInput("unable to grow physical ownership ranges"))?;
+            .map_err(|_| Error::AllocationFailed("unable to grow physical ownership ranges"))?;
         for extent in map.extents() {
             let end = extent
                 .physical_start
