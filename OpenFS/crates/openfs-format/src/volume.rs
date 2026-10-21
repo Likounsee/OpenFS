@@ -4592,6 +4592,21 @@ impl OpenedVolume {
             let old_map = extent_maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
+            let reclaim_capacity = usize::try_from(
+                old_map
+                    .allocated_blocks()?
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            // Reserve the entire old ownership list before staging new disk blocks.
+            // The extent map is read from disk, so its size must not trigger an
+            // infallible Vec growth while we collect blocks for post-publication cleanup.
+            reclaim_blocks
+                .try_reserve_exact(reclaim_capacity)
+                .map_err(|_| {
+                    Error::InvalidInput("allocation failed while tracking replaced file blocks")
+                })?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
                     reclaim_blocks.push(
@@ -4614,11 +4629,20 @@ impl OpenedVolume {
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
+        let allocation_tracking_capacity = block_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut allocated = Vec::new();
         allocated
-            .try_reserve_exact(block_count.saturating_add(1))
+            .try_reserve_exact(allocation_tracking_capacity)
             .map_err(|_| {
                 Error::InvalidInput("allocation failed while staging persistent namespace data")
+            })?;
+        let mut staged_extents = Vec::new();
+        staged_extents
+            .try_reserve_exact(block_count)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging file extent map")
             })?;
         let staged = (|| -> Result<Option<u64>> {
             if data.is_empty() {
@@ -4664,12 +4688,16 @@ impl OpenedVolume {
                     .get(index)
                     .ok_or(Error::Corrupt("staged file allocation list is incomplete"))?;
                 device.write_blocks(block, &bytes)?;
-                extent_map.push_coalescing(crate::Extent {
+                staged_extents.push(crate::Extent {
                     logical_start: u64::try_from(index).map_err(|_| Error::ArithmeticOverflow)?,
                     physical_start: block,
                     block_count: 1,
-                })?;
+                });
             }
+            // Validate and coalesce the whole staged map in one pass. Repeatedly
+            // inserting one block at a time rescans every prior extent on fragmented
+            // volumes and can become quadratic for large file replacements.
+            extent_map.push_coalescing_batch(staged_extents)?;
 
             let extent_bytes = extent_map.encode_block(block_size)?;
             let extent_root = self.allocate_block(device)?;
