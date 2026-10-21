@@ -2652,7 +2652,9 @@ mod allocation_bitmap_report_tests {
             let before_mixed = volume.allocation_stats(&mut device).unwrap();
             assert!(matches!(
                 volume.free_blocks(&mut device, &[start, start + 1, start + 3]),
-                Err(Error::InvalidInput("batch free contains an already-free block"))
+                Err(Error::InvalidInput(
+                    "batch free contains an already-free block"
+                ))
             ));
             assert_eq!(
                 volume.allocation_stats(&mut device).unwrap(),
@@ -2660,9 +2662,15 @@ mod allocation_bitmap_report_tests {
                 "a mixed allocated/free batch must be rejected atomically"
             );
             assert!(volume.is_data_block_allocated(&mut device, start).unwrap());
-            assert!(volume.is_data_block_allocated(&mut device, start + 1).unwrap());
-            assert!(volume.is_data_block_allocated(&mut device, start + 2).unwrap());
-            assert!(!volume.is_data_block_allocated(&mut device, start + 3).unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, start + 1)
+                .unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, start + 2)
+                .unwrap());
+            assert!(!volume
+                .is_data_block_allocated(&mut device, start + 3)
+                .unwrap());
         }
         fs::remove_file(path).unwrap();
     }
