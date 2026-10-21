@@ -2275,11 +2275,11 @@ mod tests {
         );
         assert!(matches!(
             map.validate(6, 10, 19),
-            Err(Error::Corrupt("extent points outside the data region"))
+            Err(Error::Corrupt("extent lies outside the data region"))
         ));
         assert!(matches!(
             map.validate(6, 11, 20),
-            Err(Error::Corrupt("extent points outside the data region"))
+            Err(Error::Corrupt("extent lies outside the data region"))
         ));
     }
 
