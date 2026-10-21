@@ -35,6 +35,29 @@ fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result
     Ok(block)
 }
 
+fn try_copy_block_numbers(
+    blocks: &[u64],
+    allocation_error: &'static str,
+) -> Result<Vec<u64>> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(blocks.len())
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    copy.extend_from_slice(blocks);
+    Ok(copy)
+}
+
+fn try_single_block_list(
+    block: u64,
+    allocation_error: &'static str,
+) -> Result<Vec<u64>> {
+    let mut blocks = Vec::new();
+    blocks
+        .try_reserve_exact(1)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    blocks.push(block);
+    Ok(blocks)
+}
+
 fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(bytes.len())
@@ -1876,7 +1899,10 @@ impl OpenedVolume {
 
         let descriptor = PersistentInventoryDescriptor {
             root_id,
-            metadata_blocks: vec![root_block],
+            metadata_blocks: try_single_block_list(
+                root_block,
+                "allocation failed while staging persistent root inventory",
+            )?,
             metadata_record_count: 1,
             directory_blocks: Vec::new(),
             directory_entry_count: 0,
@@ -2000,7 +2026,10 @@ impl OpenedVolume {
         device: &mut D,
         blocks: &[u64],
     ) -> Result<()> {
-        let mut sorted = blocks.to_vec();
+        let mut sorted = try_copy_block_numbers(
+            blocks,
+            "allocation failed while staging persistent block reclamation",
+        )?;
         self.reclaim_persistent_blocks_in_place(device, &mut sorted)
     }
 
