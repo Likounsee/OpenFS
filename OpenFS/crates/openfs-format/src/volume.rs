@@ -2220,14 +2220,21 @@ impl OpenedVolume {
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
-                        reclaim_blocks.push(
-                            extent
-                                .physical_start
-                                .checked_add(delta)
-                                .ok_or(Error::ArithmeticOverflow)?,
-                        );
+                        let block = extent
+                            .physical_start
+                            .checked_add(delta)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        reclaim_blocks.try_reserve(1).map_err(|_| {
+                            Error::InvalidInput(
+                                "allocation failed while staging reclaimed file blocks",
+                            )
+                        })?;
+                        reclaim_blocks.push(block);
                     }
                 }
+                reclaim_blocks.try_reserve(1).map_err(|_| {
+                    Error::InvalidInput("allocation failed while staging reclaimed extent roots")
+                })?;
                 reclaim_blocks.push(root);
             } else if record.size != 0 {
                 return Err(Error::Corrupt(
