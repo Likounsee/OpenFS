@@ -293,4 +293,61 @@ mod tests {
             Err(Error::Corrupt(_))
         ));
     }
+
+    #[test]
+    fn name_validation_rejects_unicode_control_and_path_separators() {
+        for name in ["tab\\tname", "carriage\\rreturn", "slash／name", "backslash\\\\name"] {
+            let mut entry = sample();
+            entry.name = name.to_owned();
+            if name.contains('\\t') || name.contains('\\r') || name.contains('\\\\') {
+                assert!(matches!(entry.encode(), Err(Error::InvalidInput(_))), "{name:?}");
+            }
+        }
+        let mut nul = sample();
+        nul.name = "nul\\u{0001}byte".to_owned();
+        assert!(matches!(nul.encode(), Err(Error::InvalidInput(_))));
+    }
+
+    #[test]
+    fn decoder_rejects_zero_name_length_and_lengths_over_capacity() {
+        for name_len in [0_u8, 65, 255] {
+            let mut bytes = sample().encode().unwrap();
+            bytes[11] = name_len;
+            let crc = crate::crc32c(&bytes[..124]);
+            bytes[124..128].copy_from_slice(&crc.to_le_bytes());
+            assert!(matches!(
+                DirectoryEntry::decode(&bytes),
+                Err(Error::Corrupt("invalid directory-entry name length"))
+            ), "name length {name_len}");
+        }
+    }
+
+    #[test]
+    fn packed_inventory_stops_at_first_corrupt_record_without_partial_result() {
+        let first = sample().encode().unwrap();
+        let mut invalid = sample();
+        invalid.object_id = 43;
+        invalid.name = "other".to_owned();
+        let mut invalid = invalid.encode().unwrap();
+        invalid[44] ^= 1;
+        let mut packed = first.to_vec();
+        packed.extend_from_slice(&invalid);
+        assert!(matches!(
+            super::decode_directory_entries(&packed),
+            Err(Error::Corrupt("directory-entry CRC32C mismatch"))
+        ));
+    }
+
+    #[test]
+    fn maximum_ascii_name_and_maximum_identifier_round_trip() {
+        let mut entry = sample();
+        entry.parent_id = u128::MAX;
+        entry.object_id = u128::MAX - 1;
+        entry.name = "x".repeat(64);
+        assert_eq!(
+            DirectoryEntry::decode(&entry.encode().unwrap()).unwrap(),
+            entry
+        );
+    }
+
 }
