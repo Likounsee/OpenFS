@@ -248,6 +248,9 @@ impl AllocationOwnershipReport {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         if self.orphaned_allocations.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
+            self.orphaned_allocations
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed("unable to reserve orphan diagnostic sample"))?;
             self.orphaned_allocations.push(block);
         } else {
             self.orphaned_allocations_truncated = true;
@@ -261,6 +264,9 @@ impl AllocationOwnershipReport {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         if self.dangling_references.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
+            self.dangling_references
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed("unable to reserve dangling-reference diagnostic sample"))?;
             self.dangling_references.push(block);
         } else {
             self.dangling_references_truncated = true;
@@ -926,6 +932,8 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                free.try_reserve(free_bits.count_ones() as usize)
+                    .map_err(|_| Error::AllocationFailed("unable to grow free-block inventory"))?;
                 while free_bits != 0 {
                     let bit = u64::from(free_bits.trailing_zeros());
                     free.push(
@@ -1023,7 +1031,13 @@ impl OpenedVolume {
                             current = Some(extent);
                         }
                         Some(extent) => {
-                            extents.push(extent);
+                            extents.try_reserve(1).map_err(|_| {
+                                Error::AllocationFailed("unable to grow free-extent inventory")
+                            })?;
+                            extents.try_reserve(1).map_err(|_| {
+                    Error::AllocationFailed("unable to grow free-extent inventory")
+                })?;
+                extents.push(extent);
                             current = Some(FreeExtent {
                                 start_block: block,
                                 block_count: u64::from(run_width),
@@ -1041,6 +1055,9 @@ impl OpenedVolume {
                 }
             }
             if let Some(extent) = current {
+                extents.try_reserve(1).map_err(|_| {
+                    Error::AllocationFailed("unable to grow free-extent inventory")
+                })?;
                 extents.push(extent);
             }
         }
@@ -1451,6 +1468,8 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut bits = *bitmap_byte & lower_mask & upper_mask;
+                allocated.try_reserve(bits.count_ones() as usize)
+                    .map_err(|_| Error::AllocationFailed("unable to grow allocated-block inventory"))?;
                 while bits != 0 {
                     let bit = u64::from(bits.trailing_zeros());
                     allocated.push(
@@ -2059,6 +2078,29 @@ mod allocation_bitmap_report_tests {
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn bitmap_range_helpers_preserve_neighboring_bits_and_validate_bounds() {
+        let mut bitmap = [0b1010_0101_u8, 0b1100_0011_u8];
+
+        set_bitmap_range(&mut bitmap, 3, 11, true).unwrap();
+        assert_eq!(bitmap, [0b1111_1101, 0b1100_0111]);
+        set_bitmap_range(&mut bitmap, 5, 9, false).unwrap();
+        assert_eq!(bitmap, [0b0001_1101, 0b1100_0110]);
+
+        assert!(bitmap_range_matches(&bitmap, 3, 5, true).unwrap());
+        assert!(bitmap_range_matches(&bitmap, 5, 9, false).unwrap());
+        assert!(bitmap_range_matches(&bitmap, 16, 16, true).unwrap());
+        assert!(set_bitmap_range(&mut bitmap, 16, 16, false).is_ok());
+        assert!(matches!(
+            bitmap_range_matches(&bitmap, 9, 8, false),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            set_bitmap_range(&mut bitmap, 0, 17, true),
+            Err(Error::InvalidInput(_))
+        ));
+    }
 
     fn image_path(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
