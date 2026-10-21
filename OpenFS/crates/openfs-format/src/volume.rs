@@ -39,7 +39,7 @@ fn collect_file_owned_blocks(
     extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
 ) -> Result<Vec<u64>> {
     let block_count = namespace.objects().try_fold(0_u64, |count, record| {
-        let Some(root) = record.extent_root_block else {
+        let Some(_) = record.extent_root_block else {
             if record.kind == crate::ObjectKind::File && record.size != 0 {
                 return Err(Error::Corrupt(
                     "non-empty file is missing its extent-map root",
