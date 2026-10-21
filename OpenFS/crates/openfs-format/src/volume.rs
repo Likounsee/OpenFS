@@ -7463,7 +7463,7 @@ mod tests {
         CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET, MAGIC, VERSION,
     };
     use crate::{Extent, ExtentMap, JournalCheckpoint};
-    use openfs_block::{BlockDevice, ImageDevice, RawDevice};
+    use openfs_block::{BlockDevice, FaultInjectingDevice, ImageDevice, IoOperation, RawDevice};
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -14532,7 +14532,8 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             let path = image_path(&format!("persistent-stream-truncate-sparse-{block_size}"));
             {
-                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let image = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut device = FaultInjectingDevice::new(image);
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
@@ -14601,6 +14602,41 @@ mod tests {
                 device.flush().unwrap();
 
                 let sparse_len = truncated_len + block_len * 2 + 9;
+
+                // Fail the first journal write used to scrub the retained tail.
+                // The larger size must not become visible, and reopening must
+                // leave the old, truncated file readable before a retry.
+                device.fail_next(IoOperation::Write);
+                assert!(volume
+                    .extend_persistent_file_sparse(
+                        &mut device,
+                        "/payload.bin",
+                        sparse_len as u64,
+                    )
+                    .is_err());
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .stat_persistent_path(&mut device, "/payload.bin")
+                        .unwrap()
+                        .size,
+                    truncated_len as u64,
+                    "failed tail scrub must not publish a larger file size at block size {block_size}"
+                );
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/payload.bin",
+                            0,
+                            truncated_len,
+                        )
+                        .unwrap(),
+                    expected,
+                    "failed sparse extension must preserve the old prefix at block size {block_size}"
+                );
+
                 volume
                     .extend_persistent_file_sparse(&mut device, "/payload.bin", sparse_len as u64)
                     .unwrap();
