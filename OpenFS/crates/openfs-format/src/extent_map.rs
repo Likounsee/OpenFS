@@ -1887,4 +1887,46 @@ mod tests {
             Err(Error::UnsupportedVersion(u16::MAX))
         ));
     }
+
+    #[test]
+    fn decode_rejects_invalid_magic_and_header_size() {
+        let original = sample().encode_block(4096).unwrap();
+
+        let mut bad_magic = original.clone();
+        bad_magic[0] ^= 1;
+        assert!(matches!(
+            ExtentMap::decode_block(&bad_magic),
+            Err(Error::Corrupt("bad extent-map magic"))
+        ));
+
+        let mut bad_header_size = original;
+        bad_header_size[10..12].copy_from_slice(&0_u16.to_le_bytes());
+        assert!(matches!(
+            ExtentMap::decode_block(&bad_header_size),
+            Err(Error::Corrupt("unexpected extent-map header size"))
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_zero_length_extent_with_valid_checksum() {
+        let mut bytes = sample().encode_block(4096).unwrap();
+        bytes[16 + 16..16 + 24].copy_from_slice(&0_u64.to_le_bytes());
+        let checksum_offset = bytes.len() - 4;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt("extent block count must be nonzero"))
+        ));
+    }
+
+    #[test]
+    fn empty_extent_map_round_trips_in_minimum_sized_block() {
+        let map = ExtentMap::default();
+        let bytes = map.encode_block(20).unwrap();
+
+        assert_eq!(ExtentMap::decode_block(&bytes).unwrap(), map);
+    }
+
 }
