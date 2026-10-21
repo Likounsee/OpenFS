@@ -1264,6 +1264,29 @@ mod tests {
     }
 
     #[test]
+    fn audit_of_clean_volume_without_inventory_does_not_modify_image() {
+        let path = unique_path("audit-no-inventory");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            device.flush().unwrap();
+        }
+
+        let before = fs::read(&path).unwrap();
+        let result = audit_image(&path, BLOCK_SIZE);
+        assert!(
+            result.is_err(),
+            "audit should report that the persistent inventory is absent"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "an unsuccessful audit must not mutate a clean image"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn creates_and_reopens_a_valid_development_image() {
         let path = unique_path("roundtrip");
         let result = create_image(&path, 1);

@@ -2,10 +2,10 @@
 
 Last source audit: 2026-10-22  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: a71b20b81b5b1a882b55df16c0010492800ed9f0  
-Current code HEAD before this roadmap revision: 905acdf2a9711573b640749eaa0006d44be6bc60  
+Code baseline audited: f9dd94366b507e1bd155d9498c92c189ae3a88dd  
+Current code HEAD before this roadmap revision: f9dd94366b507e1bd155d9498c92c189ae3a88dd  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
-Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
+Scope: re-audit of the filesystem source tree and inventory; follow-up integration tests for the explicit journal-recovery gate. Earlier descriptor-range and superblock-fixture work is historical; current CI is tracked per exact commit below.
 
 ### Mise à jour du 2026-10-22
 
@@ -13,6 +13,8 @@ Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a
 - Test de régression ajouté pour les trois états du garde (enregistrements en attente, transactions récupérables, journal propre).
 - CI exacte-SHA [run 39685194736](https://github.com/Likounsee/OpenFS/actions/runs/39685194736) : **Linux et Windows réussis**, formatage, tests du workspace et Clippy.
 - Les estimations restent inchangées : ce garde réduit le risque de modification inattendue pendant l'audit, mais ne prouve pas à lui seul que toutes les voies d'audit sont strictement sans écriture, ni la durabilité physique après coupure.
+- `f9dd943` — ajoute un test d'intégration avec injection d'une panne après le commit du journal; Linux a validé formatage, tests workspace et Clippy dans [run 39685969008](https://github.com/Likounsee/OpenFS/actions/runs/39685969008). Windows était encore en cours lors du dernier contrôle.
+- Test supplémentaire en cours d'intégration : un audit sur volume propre mais sans inventaire persistant doit échouer sans modifier l'image. Il verrouille le comportement non destructif du chemin d'erreur; il ne remplace pas un test de réussite d'audit sur un inventaire valide.
 
 ## Suivi d'avancement — phases P0 à P3 (mise à jour du 2026-10-15)
 
