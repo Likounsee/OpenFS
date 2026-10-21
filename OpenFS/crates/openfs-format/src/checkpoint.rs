@@ -354,4 +354,16 @@ mod tests {
             ))
         ));
     }
+    #[test]
+    fn checkpoint_decoder_rejects_transaction_counter_beyond_history_with_valid_checksum() {
+        let mut bytes = sample().encode().unwrap();
+        // The checkpoint sequence is eight, so next_transaction_id may be at most nine.
+        bytes[40..48].copy_from_slice(&10_u64.to_le_bytes());
+        refresh_checksum(&mut bytes);
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt("invalid journal checkpoint state"))
+        ));
+    }
+
 }

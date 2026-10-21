@@ -212,22 +212,24 @@ impl PersistentInventoryDescriptor {
             metadata_record_count,
             crate::METADATA_RECORD_SIZE,
             bytes.len(),
-        )?;
+        )
+        .map_err(|_| Error::Corrupt("inventory descriptor metadata count overflows"))?;
         let directory_blocks_len = bytes_needed(
             directory_entry_count,
             crate::DIRECTORY_ENTRY_SIZE,
             bytes.len(),
-        )?;
+        )
+        .map_err(|_| Error::Corrupt("inventory descriptor directory count overflows"))?;
         let required_blocks = metadata_blocks_len
             .checked_add(directory_blocks_len)
-            .ok_or(Error::ArithmeticOverflow)?;
+            .ok_or(Error::Corrupt("inventory descriptor block count overflows"))?;
         let used_end = HEADER_SIZE
             .checked_add(
                 required_blocks
                     .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?,
+                    .ok_or(Error::Corrupt("inventory descriptor block list overflows"))?,
             )
-            .ok_or(Error::ArithmeticOverflow)?;
+            .ok_or(Error::Corrupt("inventory descriptor block list overflows"))?;
         if used_end > bytes.len() {
             return Err(Error::Corrupt(
                 "inventory descriptor block list exceeds descriptor size",
@@ -580,4 +582,32 @@ mod tests {
             descriptor
         );
     }
+    #[test]
+    fn descriptor_decoder_rejects_duplicate_blocks_and_zero_root_with_valid_checksum() {
+        fn refresh_checksum(bytes: &mut [u8]) {
+            bytes[40..44].fill(0);
+            let checksum = crate::crc32c(bytes);
+            bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
+        }
+
+        let valid = sample().encode(4096).unwrap();
+
+        // The first directory block starts after the one metadata block.
+        let mut duplicate = valid.clone();
+        duplicate[56..64].copy_from_slice(&20_u64.to_le_bytes());
+        refresh_checksum(&mut duplicate);
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&duplicate),
+            Err(Error::Corrupt("invalid inventory descriptor shape"))
+        ));
+
+        let mut zero_root = valid;
+        zero_root[12..28].fill(0);
+        refresh_checksum(&mut zero_root);
+        assert!(matches!(
+            PersistentInventoryDescriptor::decode(&zero_root),
+            Err(Error::Corrupt("inventory descriptor root ID is zero"))
+        ));
+    }
+
 }

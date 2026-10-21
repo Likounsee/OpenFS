@@ -711,4 +711,28 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
     }
+    #[test]
+    fn recovery_plan_rejects_reused_transaction_ids_after_abort() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 1, 7, b""),
+            record(JournalRecordKind::Abort, 2, 7, b""),
+            record(JournalRecordKind::Begin, 3, 7, b""),
+            record(JournalRecordKind::Update, 4, 7, b"redo"),
+            record(JournalRecordKind::Commit, 5, 7, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&records, 0),
+            Err(Error::Corrupt("invalid or interleaved journal transaction"))
+        ));
+    }
+
+    #[test]
+    fn recovery_plan_rejects_checkpoint_sequence_overflow_before_replay() {
+        let records = vec![record(JournalRecordKind::Begin, 1, 1, b"")];
+        assert!(matches!(
+            plan_recovery(&records, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
 }
