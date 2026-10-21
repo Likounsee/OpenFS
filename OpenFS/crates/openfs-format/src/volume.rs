@@ -5724,7 +5724,14 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             .min(batch_start.saturating_add(SCAN_BATCH_BLOCKS));
         let first_bitmap_index = batch_start / bits_per_bitmap_block;
         let last_bitmap_index = (batch_end - 1) / bits_per_bitmap_block;
-        let mut allocated = std::collections::BTreeSet::new();
+        // Bitmap scanning visits blocks in ascending order, so a bounded vector
+        // preserves the run-coalescing order without tree-node allocations.
+        let mut allocated = Vec::new();
+        allocated
+            .try_reserve_exact(
+                usize::try_from(batch_end - batch_start).map_err(|_| Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| Error::InvalidInput("allocation failed while scanning inventory blocks"))?;
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
             let bitmap_block = layout
                 .bitmap_start
@@ -5771,7 +5778,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                     let block = byte_base
                         .checked_add(bit)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    allocated.insert(block);
+                    allocated.push(block);
                     bits &= bits - 1;
                 }
             }
