@@ -179,11 +179,14 @@ impl ImageDevice {
         let mut options = OpenOptions::new();
         options.read(true).write(true);
         if truncate {
-            options.create(true).truncate(true);
+            // Never truncate before acquiring the exclusive lock: another OpenFS
+            // instance may currently be using this image.
+            options.create(true);
         } else {
             options.create_new(true);
         }
         let file = options.open(path)?;
+        lock_exclusive(&file)?;
         file.set_len(length)?;
         file.sync_all()?;
         Ok(Self {
@@ -197,6 +200,7 @@ impl ImageDevice {
     pub fn open(path: impl AsRef<Path>, block_size: u32) -> Result<Self> {
         validate_block_size(block_size)?;
         let file = OpenOptions::new().read(true).write(true).open(path)?;
+        lock_exclusive(&file)?;
         let length = file.metadata()?.len();
         if length == 0 || length % u64::from(block_size) != 0 {
             return Err(Error::InvalidInput(
@@ -291,6 +295,7 @@ impl RawDevice {
             .checked_mul(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
         let file = OpenOptions::new().read(true).write(true).open(path)?;
+        lock_exclusive(&file)?;
         let metadata = file.metadata()?;
         if metadata.is_file() && metadata.len() != expected_length {
             return Err(Error::InvalidInput(
@@ -351,6 +356,21 @@ impl BlockDevice for RawDevice {
     fn flush(&mut self) -> Result<()> {
         self.file.sync_all()?;
         Ok(())
+    }
+}
+
+/// Acquire an advisory exclusive lock before inspecting or mutating a volume.
+///
+/// Every OpenFS image/raw-device opener uses this gate so cooperating processes cannot
+/// hold stale allocation or journal state at the same time. The lock is released by the
+/// operating system when the file handle is dropped or the process exits.
+fn lock_exclusive(file: &File) -> Result<()> {
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Err(Error::InvalidInput(
+            "volume is already open by another writer",
+        )),
+        Err(error) => Err(Error::Io(error)),
     }
 }
 
@@ -431,6 +451,43 @@ mod tests {
         let mut data = vec![0xFF; 4096];
         truncated.read_blocks(0, &mut data).unwrap();
         assert_eq!(data, vec![0; 4096]);
+    }
+
+    #[test]
+    fn image_device_excludes_a_second_writer_until_the_first_handle_drops() {
+        let image = TempImage::new();
+        let first = ImageDevice::create(&image.0, 4096, 2).unwrap();
+
+        assert!(matches!(
+            ImageDevice::open(&image.0, 4096),
+            Err(Error::InvalidInput("volume is already open by another writer"))
+        ));
+        assert!(matches!(
+            RawDevice::open(&image.0, 4096, 2),
+            Err(Error::InvalidInput("volume is already open by another writer"))
+        ));
+
+        drop(first);
+        let reopened = ImageDevice::open(&image.0, 4096).unwrap();
+        drop(reopened);
+    }
+
+    #[test]
+    fn create_truncate_never_truncates_an_image_locked_by_another_writer() {
+        let image = TempImage::new();
+        let mut first = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        first.write_blocks(0, &vec![0xA7; 4096]).unwrap();
+        first.flush().unwrap();
+        let original_len = fs::metadata(&image.0).unwrap().len();
+
+        assert!(matches!(
+            ImageDevice::create_truncate(&image.0, 4096, 1),
+            Err(Error::InvalidInput("volume is already open by another writer"))
+        ));
+        assert_eq!(fs::metadata(&image.0).unwrap().len(), original_len);
+        let mut actual = vec![0; 4096];
+        first.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(actual, vec![0xA7; 4096]);
     }
 
     #[test]
