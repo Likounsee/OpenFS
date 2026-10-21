@@ -187,6 +187,10 @@ impl ImageDevice {
         }
         let file = options.open(path)?;
         lock_exclusive(&file)?;
+        if truncate {
+            // Preserve create_truncate semantics, but only after exclusive ownership.
+            file.set_len(0)?;
+        }
         file.set_len(length)?;
         file.sync_all()?;
         Ok(Self {
@@ -269,8 +273,9 @@ impl BlockDevice for ImageDevice {
 ///
 /// The caller must supply the logical block size and count from a trusted source.
 /// This does not discover hardware geometry or coordinate with mounted filesystems, and
-/// make formatting safe by itself. OpenFS handles acquire an exclusive OS file lock, but
-/// external software may ignore advisory locks. Never point it at a device containing data you need:
+/// does not make formatting safe by itself. OpenFS handles acquire an exclusive OS file lock,
+/// but external software may ignore advisory locks. Writes are raw and can destroy partition
+/// tables or existing filesystems; never point it at a device containing data you need.
 /// Regular files are accepted only when their length exactly matches the declared geometry.
 pub struct RawDevice {
     file: File,
