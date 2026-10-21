@@ -985,7 +985,10 @@ mod tests {
                     if (logical_start..logical_end).contains(&logical) {
                         assert_eq!(map.physical_block(logical), None);
                     } else {
-                        assert_eq!(map.physical_block(logical), original.physical_block(logical));
+                        assert_eq!(
+                            map.physical_block(logical),
+                            original.physical_block(logical)
+                        );
                     }
                 }
             }
