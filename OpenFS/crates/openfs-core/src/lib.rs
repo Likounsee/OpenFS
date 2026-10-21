@@ -7,6 +7,8 @@ use std::fmt;
 pub enum Error {
     /// A caller supplied an invalid parameter or buffer.
     InvalidInput(&'static str),
+    /// A fallible allocation could not reserve the requested memory.
+    AllocationFailed(&'static str),
     /// A requested block range lies outside the device.
     OutOfBounds {
         first_block: u64,
@@ -30,6 +32,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(reason) => write!(f, "invalid input: {reason}"),
+            Self::AllocationFailed(reason) => write!(f, "memory allocation failed: {reason}"),
             Self::OutOfBounds {
                 first_block,
                 block_count,
