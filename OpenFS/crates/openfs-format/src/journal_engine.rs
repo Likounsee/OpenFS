@@ -1937,6 +1937,25 @@ mod tests {
     }
 
     #[test]
+    fn reported_torn_terminal_write_can_still_commit_when_record_is_complete() {
+        // The final byte of this COMMIT record can already match the intended byte
+        // in the old block. A 63-byte prefix then leaves a fully valid record despite
+        // the injected I/O error: reopening must treat the operation as committed.
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let mut failing = TearWriteAt::new(device.clone(), 3, 63);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        let reopened = open_journal(&mut recovered, REGION)
+            .expect("a complete durable COMMIT record must be recoverable");
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+    }
+
+    #[test]
     fn torn_home_write_is_repaired_from_durable_redo_record() {
         // Exercise tears at the first byte, within the header-sized prefix, halfway
         // through the block, and at the final byte before the write would be complete.
