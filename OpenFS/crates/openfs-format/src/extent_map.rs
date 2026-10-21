@@ -483,8 +483,10 @@ impl ExtentMap {
         block_count: u64,
         logical_block_count: u64,
     ) -> Result<bool> {
-        Ok(self.allocated_blocks_in_range(logical_start, block_count, logical_block_count)?
-            == block_count)
+        Ok(
+            self.allocated_blocks_in_range(logical_start, block_count, logical_block_count)?
+                == block_count,
+        )
     }
 
     /// Return validated physical ranges as sorted, coalesced (start, end-exclusive) pairs.
