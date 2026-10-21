@@ -1034,10 +1034,7 @@ impl OpenedVolume {
                             extents.try_reserve(1).map_err(|_| {
                                 Error::AllocationFailed("unable to grow free-extent inventory")
                             })?;
-                            extents.try_reserve(1).map_err(|_| {
-                    Error::AllocationFailed("unable to grow free-extent inventory")
-                })?;
-                extents.push(extent);
+                            extents.push(extent);
                             current = Some(FreeExtent {
                                 start_block: block,
                                 block_count: u64::from(run_width),
