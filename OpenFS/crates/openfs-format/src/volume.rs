@@ -7194,8 +7194,44 @@ fn write_superblock<D: BlockDevice>(
 }
 
 fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Result<()> {
-    let block_size = layout.block_size as usize;
-    let bits_per_block = u64::from(layout.block_size) * 8;
+    let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let bits_per_block = u64::from(layout.block_size)
+        .checked_mul(8)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let bitmap_end = layout
+        .bitmap_start
+        .checked_add(layout.bitmap_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let checkpoint_a_end = layout
+        .journal
+        .checkpoint_a
+        .checked_add(1)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let checkpoint_b_end = layout
+        .journal
+        .checkpoint_b
+        .checked_add(1)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let journal_ring_end = layout
+        .journal
+        .ring_start
+        .checked_add(layout.journal.ring_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let backup_end = layout
+        .backup_superblock
+        .checked_add(1)
+        .ok_or(Error::ArithmeticOverflow)?;
+    // Validate only the actual reserved regions and final padding. The previous
+    // per-bit scan examined every data bit on every bitmap page, even though those
+    // bits are intentionally allowed to be either allocated or free.
+    let reserved_ranges = [
+        (0, 1),
+        (layout.bitmap_start, bitmap_end),
+        (layout.journal.checkpoint_a, checkpoint_a_end),
+        (layout.journal.checkpoint_b, checkpoint_b_end),
+        (layout.journal.ring_start, journal_ring_end),
+        (layout.backup_superblock, backup_end),
+    ];
     let mut bitmap = try_zeroed_block(
         block_size,
         "allocation failed while preparing persistent I/O buffer",
@@ -7212,14 +7248,24 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
             .checked_add(index)
             .ok_or(Error::ArithmeticOverflow)?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
-        for block in first..end {
-            if layout.is_reserved(block) || block >= layout.total_blocks {
+        for (reserved_start, reserved_end) in reserved_ranges {
+            let start = first.max(reserved_start);
+            let stop = end.min(reserved_end);
+            for block in start..stop {
                 let local = block - first;
                 if bitmap[(local / 8) as usize] & (1 << (local % 8)) == 0 {
                     return Err(Error::Corrupt(
                         "allocation bitmap marks a reserved or padding block free",
                     ));
                 }
+            }
+        }
+        for block in layout.total_blocks.max(first)..end {
+            let local = block - first;
+            if bitmap[(local / 8) as usize] & (1 << (local % 8)) == 0 {
+                return Err(Error::Corrupt(
+                    "allocation bitmap marks a reserved or padding block free",
+                ));
             }
         }
     }
