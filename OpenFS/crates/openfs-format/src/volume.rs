@@ -620,7 +620,7 @@ impl OpenedVolume {
                 .filter_map(|record| record.extent_root_block),
         );
         extent_roots.sort_unstable();
-        let extent_maps = self.read_namespace_extent_maps(device, namespace)?;
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         let range_count = extent_maps.values().try_fold(0_usize, |count, map| {
             count
                 .checked_add(map.extents().len())
@@ -4164,7 +4164,7 @@ impl OpenedVolume {
             updated.size = new_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
-            let entries = try_clone_namespace_entries(namespace)?;
+            let entries = try_clone_namespace_entries(&namespace)?;
             Namespace::from_records(namespace.root_id(), records, entries)
         })();
         let updated_namespace = match updated_namespace {
@@ -4353,7 +4353,7 @@ impl OpenedVolume {
             Namespace::from_records(
                 namespace.root_id(),
                 records,
-                try_clone_namespace_entries(&namespace)?,
+                try_clone_namespace_entries(namespace)?,
             )
         })();
         let updated_namespace = match updated_namespace {
@@ -5280,7 +5280,7 @@ impl OpenedVolume {
                 if (first..=last).any(|logical| map.physical_block(logical).is_none()) {
                     return self.write_persistent_sparse_range_from_namespace(
                         device,
-                        namespace,
+                        &namespace,
                         SparseRangeWrite {
                             object_id,
                             record: record.clone(),
