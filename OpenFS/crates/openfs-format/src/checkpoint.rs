@@ -365,4 +365,35 @@ mod tests {
             Err(Error::Corrupt("invalid journal checkpoint state"))
         ));
     }
+
+    #[test]
+    fn checkpoint_decoder_rejects_truncated_and_oversized_records() {
+        let bytes = sample().encode().unwrap();
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes[..JOURNAL_CHECKPOINT_SIZE - 1]),
+            Err(Error::InvalidInput(
+                "journal checkpoint must be exactly 72 bytes"
+            ))
+        ));
+
+        let mut oversized = bytes.to_vec();
+        oversized.push(0);
+        assert!(matches!(
+            JournalCheckpoint::decode(&oversized),
+            Err(Error::InvalidInput(
+                "journal checkpoint must be exactly 72 bytes"
+            ))
+        ));
+    }
+
+    #[test]
+    fn checkpoint_round_trip_preserves_ring_positions() {
+        let mut checkpoint = sample();
+        checkpoint.head_block = 17;
+        checkpoint.tail_block = 9;
+        assert_eq!(
+            JournalCheckpoint::decode(&checkpoint.encode().unwrap()).unwrap(),
+            checkpoint
+        );
+    }
 }
