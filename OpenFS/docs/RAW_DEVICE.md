@@ -2,7 +2,7 @@
 
 **Status: low-level backend only. This is not yet a complete USB-storage workflow or a mounted filesystem.**
 
-`openfs_block::RawDevice` opens an existing path read/write without create or truncate flags. It implements the same bounded block-device interface as the image backend. The caller must provide the logical block size and block count. For regular files, the length must exactly match the declared geometry; for device nodes, geometry is not discovered automatically.
+`openfs_block::RawDevice` opens an existing path read/write without create or truncate flags. It implements the same bounded block-device interface as the image backend. The caller must provide the logical block size and block count. For regular files, the length must exactly match the declared geometry; for device nodes, geometry is not discovered automatically. On Unix, only regular files and block devices are accepted: character devices, FIFOs, sockets, and other special files are rejected rather than being treated as disks.
 
 The experimental V2 format now reserves its journal, validates its bitmap, and replays committed journal updates on open. V2 allocation/free and recovery tests exercise a file-backed image. A new test also exercises V2 format, allocation, reopen, free, and block reuse through `RawDevice` using a disposable regular file. This tests the shared backend contract, **not a physical USB device**.
 

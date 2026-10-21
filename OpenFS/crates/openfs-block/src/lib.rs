@@ -344,6 +344,18 @@ impl RawDevice {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         lock_exclusive(&file)?;
         let metadata = file.metadata()?;
+        // On Unix, a writable path is not necessarily a block device: character
+        // devices such as /dev/null and FIFOs can otherwise pass the caller-supplied
+        // geometry check and silently discard writes or block indefinitely.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            if !metadata.is_file() && !metadata.file_type().is_block_device() {
+                return Err(Error::InvalidInput(
+                    "raw device path must identify a regular file or block device",
+                ));
+            }
+        }
         if metadata.is_file() && metadata.len() != expected_length {
             return Err(Error::InvalidInput(
                 "regular-file length does not match declared raw-device geometry",
@@ -643,6 +655,19 @@ mod tests {
         reopened.read_blocks(1, &mut second).unwrap();
         assert_eq!(first, vec![0x37; 4096]);
         assert_eq!(second, vec![0xA9; 4096]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn raw_device_rejects_character_devices_instead_of_treating_them_as_disks() {
+        // /dev/null accepts writes but does not store bytes. It must never be
+        // accepted as a block device just because the caller supplies geometry.
+        assert!(matches!(
+            RawDevice::open("/dev/null", 4096, 1),
+            Err(Error::InvalidInput(
+                "raw device path must identify a regular file or block device"
+            ))
+        ));
     }
 
     #[test]
