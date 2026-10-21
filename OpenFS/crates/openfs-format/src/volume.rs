@@ -339,7 +339,7 @@ impl OpenedVolume {
             .checked_add(bitmap_index)
             .ok_or(Error::ArithmeticOverflow)?;
         let local = block - bitmap_base;
-        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         crate::allocator_extents::validate_bitmap_reserved_bits(
             &bitmap,
@@ -373,7 +373,7 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_block;
         let mut free = 0_u64;
         // Reuse the bitmap buffer across pages to keep allocator memory churn bounded.
-        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -445,7 +445,7 @@ impl OpenedVolume {
             .checked_add(bitmap_index)
             .ok_or(Error::ArithmeticOverflow)?;
         let local = block - bitmap_base;
-        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         device.read_blocks(bitmap_block, &mut bitmap)?;
         crate::allocator_extents::validate_bitmap_reserved_bits(
             &bitmap,
@@ -695,7 +695,7 @@ impl OpenedVolume {
                     .bitmap_start
                     .checked_add(bitmap_index)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut bitmap = vec![0_u8; block_size];
+                let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
                 device.read_blocks(bitmap_block, &mut bitmap)?;
                 let segment_start = self.volume.layout.data_start.max(base);
                 let segment_end = self.volume.layout.backup_superblock.min(
@@ -755,7 +755,7 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_bitmap_block;
         let mut selected = None;
         // Reuse one page buffer across the bitmap scan; every read fills a full block.
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = layout
                 .bitmap_start
@@ -921,7 +921,7 @@ impl OpenedVolume {
         let mut new_block = None;
         let mut candidate_bitmap = None;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let mut bitmap = vec![0_u8; block_size];
+            let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -990,7 +990,7 @@ impl OpenedVolume {
             }
             let bitmap_index = block / bits_per_bitmap_block;
             if let std::collections::btree_map::Entry::Vacant(entry) = bitmaps.entry(bitmap_index) {
-                let mut bitmap = vec![0_u8; block_size];
+                let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
                 let bitmap_block = layout
                     .bitmap_start
                     .checked_add(bitmap_index)
@@ -1020,7 +1020,10 @@ impl OpenedVolume {
                 bitmap[byte] &= !mask;
             }
         }
-        let mut updates = Vec::with_capacity(bitmaps.len());
+        let mut updates = Vec::new();
+    updates
+        .try_reserve_exact(bitmaps.len())
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         for (bitmap_index, contents) in bitmaps {
             let target_block = layout
                 .bitmap_start
@@ -1098,7 +1101,7 @@ impl OpenedVolume {
                 .len()
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut batch = vec![0_u8; byte_count];
+            let mut batch = try_zeroed_block(byte_count, "allocation failed while preparing persistent I/O buffer")?;
             device.read_blocks(first_block, &mut batch)?;
 
             for (offset, block) in blocks.iter().copied().enumerate() {
@@ -1153,7 +1156,7 @@ impl OpenedVolume {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         allocation_bitmaps.entry(bitmap_index)
                     {
-                        let mut bitmap = vec![0_u8; block_size];
+                        let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
                         let bitmap_block = layout
                             .bitmap_start
                             .checked_add(bitmap_index)
@@ -1205,7 +1208,7 @@ impl OpenedVolume {
         // descriptor-reference page per touched bitmap, and 64 candidate block numbers
         // are retained; the number of allocated blocks no longer controls peak memory.
         // Keep the page buffer outside the loop to avoid one allocation per bitmap page.
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_bitmap_block)
@@ -1396,7 +1399,10 @@ impl OpenedVolume {
         mut namespace: Namespace,
         objects: &[(ObjectId, ObjectId, crate::ObjectKind, String)],
     ) -> Result<Vec<ObjectId>> {
-        let mut created = Vec::with_capacity(objects.len());
+        let mut created = Vec::new();
+    created
+        .try_reserve_exact(objects.len())
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         let mut seen_ids = std::collections::BTreeSet::new();
         for (_, object_id, _, _) in objects {
             if !seen_ids.insert(*object_id) {
@@ -1569,7 +1575,10 @@ impl OpenedVolume {
             .map(|entry| (entry.object_id, (entry.parent_id, entry.name.clone())))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut seen = std::collections::BTreeSet::new();
-        let mut original_locations = Vec::with_capacity(changes.len());
+        let mut original_locations = Vec::new();
+    original_locations
+        .try_reserve_exact(changes.len())
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         for (object_id, _, _) in changes {
             if !seen.insert(*object_id) {
                 return Err(Error::InvalidInput(
@@ -1641,8 +1650,14 @@ impl OpenedVolume {
 
         // Collect and validate every target against the same original namespace before
         // mutating the in-memory view. This also lets us load extent maps only once.
-        let mut records = Vec::with_capacity(object_ids.len());
-        let mut removal_order = Vec::with_capacity(object_ids.len());
+        let mut records = Vec::new();
+    records
+        .try_reserve_exact(object_ids.len())
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
+        let mut removal_order = Vec::new();
+    removal_order
+        .try_reserve_exact(object_ids.len())
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         let mut seen = std::collections::BTreeSet::new();
         let mut needs_extent_maps = false;
         for object_id in object_ids {
@@ -1988,7 +2003,7 @@ impl OpenedVolume {
         // Preflight allocation state once per bitmap segment, not once per block.
         // Reclamation can contain thousands of blocks; a per-block bitmap read would
         // turn this safety check into thousands of avoidable device reads.
-        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         let mut checked_start = 0;
         while checked_start < sorted.len() {
             let bitmap_index = sorted[checked_start] / bits_per_block;
@@ -2765,7 +2780,7 @@ impl OpenedVolume {
         // consecutive roots as ranges instead of doing a division/modulo and bit
         // lookup for every file whose extent map shares that page.
         let bits_per_bitmap_block = u64::from(self.volume.block_size) * 8;
-        let mut bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         let mut index = 0;
         while index < roots.len() {
             let bitmap_index = roots[index] / bits_per_bitmap_block;
@@ -2867,7 +2882,7 @@ impl OpenedVolume {
         file_size: u64,
         validate_allocations: bool,
     ) -> Result<ExtentMap> {
-        let mut bytes = vec![0_u8; self.volume.block_size as usize];
+        let mut bytes = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         device.read_blocks(root_block, &mut bytes)?;
         let map = ExtentMap::decode_block(&bytes)?;
         let logical_blocks = file_size / u64::from(self.volume.block_size)
@@ -3843,7 +3858,7 @@ impl OpenedVolume {
         let tail_cleanup = (|| -> Result<()> {
             if remainder != 0 {
                 if let Some(physical) = updated_map.physical_block(new_size / block_size) {
-                    let mut contents = vec![0_u8; block_size_usize];
+                    let mut contents = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                     device.read_blocks(physical, &mut contents)?;
                     contents[remainder..].fill(0);
                     self.journal.commit(
@@ -4289,7 +4304,10 @@ impl OpenedVolume {
             .checked_add(block_size - 1)
             .ok_or(Error::ArithmeticOverflow)?
             / block_size;
-        let mut allocated = Vec::with_capacity(block_count.saturating_add(1));
+        let mut allocated = Vec::new();
+    allocated
+        .try_reserve_exact(block_count.saturating_add(1))
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         let staged = (|| -> Result<Option<u64>> {
             if data.is_empty() {
                 return Ok(None);
@@ -4318,7 +4336,7 @@ impl OpenedVolume {
             // Keep memory usage independent of file length: one block buffer is
             // reused for every staged block, with the tail cleared so the final
             // partial block cannot expose bytes from the preceding chunk.
-            let mut bytes = vec![0_u8; block_size];
+            let mut bytes = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
             for (index, chunk) in data.chunks(block_size).enumerate() {
                 bytes[..chunk.len()].copy_from_slice(chunk);
                 if chunk.len() < block_size {
@@ -4523,7 +4541,7 @@ impl OpenedVolume {
                 let updated_namespace =
                     Namespace::from_records(namespace.root_id(), records, entries)?;
 
-                let mut block = vec![0_u8; self.volume.block_size as usize];
+                let mut block = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
                 device.read_blocks(physical_block, &mut block)?;
                 let finish = in_block
                     .checked_add(data.len())
@@ -4543,7 +4561,7 @@ impl OpenedVolume {
                 );
                 if let Err(error) = commit_result {
                     let cleanup = (|| -> Result<()> {
-                        let mut current = vec![0_u8; self.volume.block_size as usize];
+                        let mut current = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
                         device.read_blocks(physical_block, &mut current)?;
                         current[in_block..].fill(0);
                         self.journal.commit(
@@ -4589,7 +4607,7 @@ impl OpenedVolume {
                             // tail update is not visible yet. Restore the zero-after-EOF
                             // invariant before allowing another append attempt.
                             let cleanup = (|| -> Result<()> {
-                                let mut current = vec![0_u8; self.volume.block_size as usize];
+                                let mut current = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
                                 device.read_blocks(physical_block, &mut current)?;
                                 current[in_block..].fill(0);
                                 self.journal.commit(
@@ -4643,7 +4661,7 @@ impl OpenedVolume {
                         .map_err(|_| Error::ArithmeticOverflow)?;
                     let tail_offset_usize =
                         usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?;
-                    let mut block = vec![0_u8; block_size_usize];
+                    let mut block = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                     device.read_blocks(physical, &mut block)?;
                     let finish = tail_offset_usize
                         .checked_add(tail_bytes)
@@ -4667,7 +4685,7 @@ impl OpenedVolume {
                 // without making temporary memory proportional to the entire append.
                 // Every successful fallback allocation is tracked immediately for rollback.
                 const APPEND_BATCH_BLOCKS: usize = 8;
-                let mut contents = vec![0_u8; block_size_usize];
+                let mut contents = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                 let batch_bytes = block_size_usize
                     .checked_mul(APPEND_BATCH_BLOCKS)
                     .ok_or(Error::ArithmeticOverflow)?;
@@ -4685,7 +4703,10 @@ impl OpenedVolume {
                         Err(Error::InvalidInput(
                             "no bitmap segment has enough free data blocks for this batch",
                         )) => {
-                            let mut blocks = Vec::with_capacity(chunk_count);
+                            let mut blocks = Vec::new();
+    blocks
+        .try_reserve_exact(chunk_count)
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
                             for _ in 0..chunk_count {
                                 let block = self.allocate_block(device)?;
                                 allocated.push(block);
@@ -4729,7 +4750,7 @@ impl OpenedVolume {
                             let physical = map
                                 .physical_block(offset / block_size)
                                 .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
-                            let mut current = vec![0_u8; block_size_usize];
+                            let mut current = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                             device.read_blocks(physical, &mut current)?;
                             let tail_start = usize::try_from(tail_offset)
                                 .map_err(|_| Error::ArithmeticOverflow)?;
@@ -4782,7 +4803,7 @@ impl OpenedVolume {
                                     .ok_or(Error::Corrupt(
                                         "append tail disappeared during metadata rollback",
                                     ))?;
-                            let mut current = vec![0_u8; block_size_usize];
+                            let mut current = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                             device.read_blocks(physical, &mut current)?;
                             let tail_start = usize::try_from(tail_offset)
                                 .map_err(|_| Error::ArithmeticOverflow)?;
@@ -4845,7 +4866,7 @@ impl OpenedVolume {
                                     let physical = map.physical_block(offset / block_size).ok_or(
                                         Error::Corrupt("append tail disappeared during rollback"),
                                     )?;
-                                    let mut current = vec![0_u8; block_size_usize];
+                                    let mut current = try_zeroed_block(block_size_usize, "allocation failed while preparing persistent I/O buffer")?;
                                     device.read_blocks(physical, &mut current)?;
                                     let tail_start = usize::try_from(tail_offset)
                                         .map_err(|_| Error::ArithmeticOverflow)?;
@@ -4987,7 +5008,7 @@ impl OpenedVolume {
         // caching is sufficient and avoids repeated BTreeMap lookups and cache eviction
         // for highly fragmented files.
         let mut cached_bitmap_index = None;
-        let mut cached_bitmap = vec![0_u8; self.volume.block_size as usize];
+        let mut cached_bitmap = try_zeroed_block(self.volume.block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
         for &(start, end) in ranges {
             let mut cursor = start;
             while cursor < end {
@@ -5116,7 +5137,7 @@ impl OpenedVolume {
                     .bitmap_start
                     .checked_add(bitmap_index)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut bitmap = vec![0_u8; block_size];
+                let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
                 device.read_blocks(bitmap_block, &mut bitmap)?;
                 let segment_start = self.volume.layout.data_start.max(base);
                 let segment_end = self.volume.layout.backup_superblock.min(
@@ -5149,7 +5170,10 @@ impl OpenedVolume {
         let packed_capacity = required_blocks
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut packed = Vec::with_capacity(packed_capacity);
+        let mut packed = Vec::new();
+    packed
+        .try_reserve_exact(packed_capacity)
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
         let mut cursor = 0;
         while cursor < blocks.len() {
             let mut end = cursor + 1;
@@ -5163,7 +5187,7 @@ impl OpenedVolume {
             let run_bytes = run_blocks
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut batch = vec![0_u8; run_bytes];
+            let mut batch = try_zeroed_block(run_bytes, "allocation failed while preparing persistent I/O buffer")?;
             device.read_blocks(blocks[cursor], &mut batch)?;
             packed.extend_from_slice(&batch);
             cursor = end;
@@ -5266,7 +5290,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     let last_data_block = layout.backup_superblock - 1;
     let last_bitmap = last_data_block / bits_per_bitmap_block;
     let mut free_data_blocks = 0_u64;
-    let mut bitmap = vec![0_u8; block_size as usize];
+    let mut bitmap = try_zeroed_block(block_size as usize, "allocation failed while preparing persistent I/O buffer")?;
     for bitmap_index in first_bitmap..=last_bitmap {
         let bitmap_block = layout
             .bitmap_start
@@ -5349,7 +5373,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let mut batch_start = layout.data_start;
     // Reuse the bitmap page while scanning batches; only descriptor-reference pages
     // are copied into the bounded cache below.
-    let mut scan_bitmap = vec![0_u8; block_size];
+    let mut scan_bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
 
     while batch_start < layout.backup_superblock {
         let batch_end = layout
@@ -5424,7 +5448,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             let run_bytes = run_count
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut contents = vec![0_u8; run_bytes];
+            let mut contents = try_zeroed_block(run_bytes, "allocation failed while preparing persistent I/O buffer")?;
             device.read_blocks(run_start, &mut contents)?;
             for (run_offset, block_contents) in contents.chunks_exact(block_size).enumerate() {
                 if !block_contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
@@ -5459,7 +5483,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                         if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
                             reference_bitmaps.pop_first();
                         }
-                        let mut bitmap = vec![0_u8; block_size];
+                        let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
                         let bitmap_block = layout
                             .bitmap_start
                             .checked_add(bitmap_index)
@@ -5525,7 +5549,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             if reference_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES {
                 reference_bitmaps.pop_first();
             }
-            let mut bitmap = vec![0_u8; block_size];
+            let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -5556,7 +5580,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         let end = block.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         owned_ranges.push((*block, end));
     }
-    let mut extent_map_bytes = vec![0_u8; block_size];
+    let mut extent_map_bytes = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     for record in namespace.objects() {
         let Some(root) = record.extent_root_block else {
             continue;
@@ -5586,7 +5610,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let mut owner_index = 0_usize;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
     let last_bitmap = (layout.backup_superblock - 1) / bits_per_bitmap_block;
-    let mut bitmap = vec![0_u8; block_size];
+    let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     for bitmap_index in first_bitmap..=last_bitmap {
         let bitmap_block = layout
             .bitmap_start
@@ -5703,11 +5727,14 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
             ));
         }
     }
-    let mut bytes = Vec::with_capacity(
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(
         required_blocks
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?,
-    );
+    )
+        .map_err(|_| Error::InvalidInput("allocation failed while staging persistent namespace data"))?;
     let mut cursor = 0;
     while cursor < blocks.len() {
         let mut end = cursor + 1;
@@ -5720,7 +5747,7 @@ fn read_inventory_stream_read_only<D: BlockDevice>(
         let run_bytes = (end - cursor)
             .checked_mul(block_size)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut batch = vec![0_u8; run_bytes];
+        let mut batch = try_zeroed_block(run_bytes, "allocation failed while preparing persistent I/O buffer")?;
         device.read_blocks(blocks[cursor], &mut batch)?;
         bytes.extend_from_slice(&batch);
         cursor = end;
@@ -5750,7 +5777,7 @@ fn check_journal_read_only<D: BlockDevice>(
                 "device block is too small for journal checkpoints",
             ));
         }
-        let mut block = vec![0_u8; block_size];
+        let mut block = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
         device.read_blocks(block_number, &mut block)?;
         if block[JOURNAL_CHECKPOINT_SIZE..]
             .iter()
@@ -5876,7 +5903,7 @@ fn check_journal_read_only<D: BlockDevice>(
     // Recovery diagnostics need only the earliest malformed slot, not a vector of
     // every bad slot. Reuse one block buffer and keep scan memory bounded.
     let mut first_malformed_slot = None;
-    let mut block = vec![0_u8; block_size];
+    let mut block = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     for slot in 0..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -5954,7 +5981,7 @@ pub fn format_volume<D: BlockDevice>(
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
-    let mut bitmap = vec![0_u8; block_size];
+    let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     for index in 0..layout.bitmap_blocks {
         // Each bitmap page is independent; clear the reused buffer before rebuilding it.
         bitmap.fill(0);
@@ -6187,7 +6214,7 @@ fn read_superblock<D: BlockDevice>(device: &mut D, block: u64) -> Result<[u8; SU
             "device block is smaller than the superblock",
         ));
     }
-    let mut buffer = vec![0; block_size];
+    let mut buffer = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     device.read_blocks(block, &mut buffer)?;
     let mut record = [0; SUPERBLOCK_SIZE];
     record.copy_from_slice(&buffer[..SUPERBLOCK_SIZE]);
@@ -6205,7 +6232,7 @@ fn write_superblock<D: BlockDevice>(
             "device block is smaller than the superblock",
         ));
     }
-    let mut buffer = vec![0; block_size];
+    let mut buffer = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
     device.write_blocks(block, &buffer)
 }
@@ -6213,7 +6240,7 @@ fn write_superblock<D: BlockDevice>(
 fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Result<()> {
     let block_size = layout.block_size as usize;
     let bits_per_block = u64::from(layout.block_size) * 8;
-    let mut bitmap = vec![0_u8; block_size];
+    let mut bitmap = try_zeroed_block(block_size, "allocation failed while preparing persistent I/O buffer")?;
     for index in 0..layout.bitmap_blocks {
         let first = index
             .checked_mul(bits_per_block)
