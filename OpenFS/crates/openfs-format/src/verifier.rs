@@ -531,7 +531,7 @@ mod tests {
             assert!(matches!(
                 volume.verify_discovered_persistent_inventory(&mut device),
                 Err(openfs_core::Error::Corrupt(
-                    "inventory descriptor checksum mismatch"
+                    "inventory descriptor CRC32C mismatch"
                 ))
             ));
         }
