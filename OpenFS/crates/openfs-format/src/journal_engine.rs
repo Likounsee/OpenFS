@@ -1,7 +1,8 @@
 //! Persistent single-writer write-ahead journal over an explicitly reserved block region.
 //!
-//! The caller must reserve this region in the volume layout. This engine is not yet
-//! wired into the legacy formatter or allocator; open_journal must run before mutations.
+//! The canonical volume layout reserves this region, and writable volume open validates
+//! and recovers it before returning. The engine journals allocator bitmap updates; this
+//! does not make every multi-step file/namespace mutation a single journal transaction.
 
 use crate::{
     plan_recovery, JournalCheckpoint, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,

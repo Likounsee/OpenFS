@@ -1729,10 +1729,35 @@ impl OpenedVolume {
 
         // A single object may appear only once: otherwise the requested final state
         // is ambiguous and "all changes committed" cannot be established after an I/O error.
-        let original_entries = namespace
-            .entries()
-            .map(|entry| (entry.object_id, (entry.parent_id, entry.name.clone())))
-            .collect::<std::collections::BTreeMap<_, _>>();
+        // Build a sorted, fallibly allocated snapshot instead of collecting into a
+        // BTreeMap. Namespace size comes from disk, and this path runs before the
+        // publication attempt, so allocation failure must be returned rather than
+        // turning into an infallible collection allocation.
+        let mut original_entries = Vec::new();
+        original_entries
+            .try_reserve_exact(namespace.entry_count())
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging persistent namespace data")
+            })?;
+        for entry in namespace.entries() {
+            original_entries.push((
+                entry.object_id,
+                entry.parent_id,
+                try_clone_string(
+                    &entry.name,
+                    "allocation failed while staging persistent namespace data",
+                )?,
+            ));
+        }
+        original_entries.sort_unstable_by_key(|entry| entry.0);
+        if original_entries
+            .windows(2)
+            .any(|pair| pair[0].0 == pair[1].0)
+        {
+            return Err(Error::Corrupt(
+                "persistent namespace has multiple directory entries for one object",
+            ));
+        }
         let mut seen = Vec::new();
         seen.try_reserve_exact(changes.len()).map_err(|_| {
             Error::InvalidInput("allocation failed while staging persistent namespace data")
@@ -1756,15 +1781,23 @@ impl OpenedVolume {
             let record = namespace
                 .object(*object_id)
                 .ok_or(Error::InvalidInput("object does not exist"))?;
-            let (parent_id, name) = original_entries
-                .get(&object_id.0)
-                .ok_or(Error::Corrupt("renamed object has no directory entry"))?;
+            let index = original_entries
+                .binary_search_by_key(&object_id.0, |entry| entry.0)
+                .map_err(|_| Error::Corrupt("renamed object has no directory entry"))?;
+            let (_, parent_id, name) = &original_entries[index];
             if *parent_id != record.parent_id {
                 return Err(Error::Corrupt(
                     "renamed object's entry disagrees with its metadata",
                 ));
             }
-            original_locations.push((*object_id, record.parent_id, name.clone()));
+            original_locations.push((
+                *object_id,
+                record.parent_id,
+                try_clone_string(
+                    name,
+                    "allocation failed while staging persistent namespace data",
+                )?,
+            ));
         }
 
         for (object_id, parent_id, name) in changes {
