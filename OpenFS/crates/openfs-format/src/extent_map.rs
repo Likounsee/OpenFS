@@ -382,6 +382,55 @@ impl ExtentMap {
         self.allocated_blocks()
     }
 
+    /// Return logical sparse holes inside a file's logical block range.
+    ///
+    /// The returned pairs are (start, block_count), ordered by logical offset. Extents
+    /// outside the requested file length are rejected rather than silently clipped, so
+    /// callers can use the result when validating persisted metadata before mutating data.
+    /// The output is proportional to the number of holes, not the file's logical size.
+    pub fn logical_hole_ranges(&self, logical_block_count: u64) -> Result<Vec<(u64, u64)>> {
+        self.validate_ordering()?;
+        let mut holes = Vec::new();
+        holes
+            .try_reserve_exact(self.extents.len().saturating_add(1))
+            .map_err(|_| Error::AllocationFailed("unable to reserve sparse-hole ranges"))?;
+
+        let mut cursor = 0_u64;
+        for extent in &self.extents {
+            let end = extent.logical_end()?;
+            if end > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file block count"));
+            }
+            if extent.logical_start > cursor {
+                holes.push((cursor, extent.logical_start - cursor));
+            }
+            cursor = end;
+        }
+        if cursor < logical_block_count {
+            holes.push((cursor, logical_block_count - cursor));
+        }
+        Ok(holes)
+    }
+
+    /// Return whether every logical block in the requested file range is backed by data.
+    ///
+    /// Empty files are fully allocated by definition. Invalid extents beyond the requested
+    /// logical length are reported as corruption instead of being mistaken for a dense map.
+    pub fn is_fully_allocated(&self, logical_block_count: u64) -> Result<bool> {
+        self.validate_ordering()?;
+        let mut cursor = 0_u64;
+        for extent in &self.extents {
+            if extent.logical_start != cursor {
+                return Ok(false);
+            }
+            cursor = extent.logical_end()?;
+            if cursor > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file block count"));
+            }
+        }
+        Ok(cursor == logical_block_count)
+    }
+
     /// Return validated physical ranges as sorted, coalesced (start, end-exclusive) pairs.
     ///
     /// Adjacent physical extents are merged, while gaps remain distinct. This preserves an
