@@ -14341,4 +14341,96 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+    
+    #[test]
+    fn streaming_write_truncate_and_sparse_extension_survive_reopen() {
+        use crate::ObjectId;
+        use std::io::Cursor;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-stream-truncate-sparse-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "payload.bin")
+                    .unwrap();
+
+                let block_len = block_size as usize;
+                let payload: Vec<u8> = (0..block_len * 2 + 73)
+                    .map(|index| (index % 239) as u8)
+                    .collect();
+                let written = volume
+                    .write_persistent_file_from_reader(
+                        &mut device,
+                        "/payload.bin",
+                        &mut Cursor::new(&payload),
+                    )
+                    .unwrap();
+                assert_eq!(written, payload.len() as u64);
+
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, payload.len())
+                        .unwrap(),
+                    payload,
+                    "streamed multi-block contents must survive reopen at block size {block_size}"
+                );
+
+                let truncated_len = block_len + 13;
+                volume
+                    .truncate_persistent_file(
+                        &mut device,
+                        "/payload.bin",
+                        truncated_len as u64,
+                    )
+                    .unwrap();
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                let mut expected = payload[..truncated_len].to_vec();
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/payload.bin",
+                            0,
+                            truncated_len,
+                        )
+                        .unwrap(),
+                    expected,
+                    "truncated prefix must survive reopen at block size {block_size}"
+                );
+
+                let sparse_len = truncated_len + block_len * 2 + 9;
+                volume
+                    .extend_persistent_file_sparse(
+                        &mut device,
+                        "/payload.bin",
+                        sparse_len as u64,
+                    )
+                    .unwrap();
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                expected.resize(sparse_len, 0);
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, sparse_len)
+                        .unwrap(),
+                    expected,
+                    "sparse extension must preserve the prefix and zero-fill the new range at block size {block_size}"
+                );
+                assert!(volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent());
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
