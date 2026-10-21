@@ -2378,9 +2378,11 @@ impl OpenedVolume {
                         .ok_or(Error::ArithmeticOverflow)?,
                 )
                 .map_err(|_| Error::ArithmeticOverflow)?;
-                reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
-                    Error::InvalidInput("allocation failed while staging reclaimed file blocks")
-                })?;
+                reclaim_blocks
+                    .try_reserve_exact(reclaim_capacity)
+                    .map_err(|_| {
+                        Error::InvalidInput("allocation failed while staging reclaimed file blocks")
+                    })?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
                         reclaim_blocks.push(
@@ -2535,7 +2537,7 @@ impl OpenedVolume {
             if record.kind != crate::ObjectKind::File {
                 continue;
             }
-            if let Some(_) = record.extent_root_block {
+            if record.extent_root_block.is_some() {
                 let map = extent_maps
                     .get(id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
@@ -2552,9 +2554,11 @@ impl OpenedVolume {
         let reclaim_capacity =
             usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
         let mut reclaim_blocks = Vec::new();
-        reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
-            Error::InvalidInput("allocation failed while staging reclaimed subtree blocks")
-        })?;
+        reclaim_blocks
+            .try_reserve_exact(reclaim_capacity)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging reclaimed subtree blocks")
+            })?;
         for id in &removed_ids {
             let record = namespace
                 .object(*id)
@@ -4094,9 +4098,11 @@ impl OpenedVolume {
         let reclaim_capacity =
             usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
         let mut reclaim_blocks = Vec::new();
-        reclaim_blocks.try_reserve_exact(reclaim_capacity).map_err(|_| {
-            Error::InvalidInput("allocation failed while staging truncated file blocks")
-        })?;
+        reclaim_blocks
+            .try_reserve_exact(reclaim_capacity)
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while staging truncated file blocks")
+            })?;
         for extent in removed_extents {
             for delta in 0..extent.block_count {
                 reclaim_blocks.push(
@@ -4680,9 +4686,7 @@ impl OpenedVolume {
         let mut staged_extents = Vec::new();
         staged_extents
             .try_reserve_exact(block_count)
-            .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging file extent map")
-            })?;
+            .map_err(|_| Error::InvalidInput("allocation failed while staging file extent map"))?;
         let staged = (|| -> Result<Option<u64>> {
             if data.is_empty() {
                 return Ok(None);
