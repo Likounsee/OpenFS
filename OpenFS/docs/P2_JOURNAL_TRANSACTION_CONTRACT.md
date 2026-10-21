@@ -31,6 +31,7 @@ A capacity rejection must occur before persistent bytes change. Ring capacity is
 Persistent create, rename, remove, file-content write, range write and truncate APIs exist. Their presence does not mean every multi-step operation is represented by a single redo transaction. Descriptor replacement has a specific journal-backed bitmap ownership transition, while file data, extent-map and inventory transitions may cross multiple persistence stages.
 
 When extending these paths, preserve the following invariants:
+- For replacement, truncation, and removal, derive the retired file-block allowlist from validated old ownership and prove those blocks are absent from the proposed namespace. During descriptor publication, allow only these known retired blocks and obsolete inventory pages to appear as orphans; unknown orphans and dangling references must still fail closed. Do not free retired file blocks in the descriptor transaction itself: reclaim them only after publication is confirmed, so an uncertain outcome cannot free storage still referenced by the active inventory.
 - Do not publish a reference to data or metadata before the referenced contents are written and flushed as required by that operation's contract.
 - Do not free old storage while the currently discoverable namespace may still reference it.
 - Preflight bounded journal capacity before staging a transition that depends on one journal commit point.

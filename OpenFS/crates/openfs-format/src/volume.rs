@@ -14573,6 +14573,20 @@ mod tests {
                     .unwrap()
                     .unwrap()
                     .is_consistent());
+
+                volume
+                    .remove_persistent_path(&mut device, "/payload.bin")
+                    .unwrap();
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                assert!(volume
+                    .read_persistent_path_range(&mut device, "/payload.bin", 0, 1)
+                    .is_err());
+                assert!(volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent());
             }
             fs::remove_file(path).unwrap();
         }
