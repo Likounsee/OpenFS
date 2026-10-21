@@ -242,12 +242,12 @@ pub fn plan_recovery(
                     return Err(Error::Corrupt("journal UPDATE transaction ID mismatch"));
                 }
                 transaction.updates.try_reserve(1).map_err(|_| {
-                    Error::InvalidInput("unable to reserve journal recovery updates")
+                    Error::AllocationFailed("unable to reserve journal recovery updates")
                 })?;
                 let mut payload = Vec::new();
                 payload
                     .try_reserve_exact(record.payload.len())
-                    .map_err(|_| Error::InvalidInput("unable to copy journal recovery payload"))?;
+                    .map_err(|_| Error::AllocationFailed("unable to copy journal recovery payload"))?;
                 payload.extend_from_slice(&record.payload);
                 transaction.updates.push(payload);
             }
@@ -265,7 +265,7 @@ pub fn plan_recovery(
                 }
                 completed
                     .try_reserve(1)
-                    .map_err(|_| Error::InvalidInput("unable to reserve recovered transactions"))?;
+                    .map_err(|_| Error::AllocationFailed("unable to reserve recovered transactions"))?;
                 completed.push(transaction);
             }
             JournalRecordKind::Abort => {
