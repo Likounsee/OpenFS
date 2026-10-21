@@ -2481,7 +2481,7 @@ impl OpenedVolume {
     fn remove_persistent_tree_from_namespace<D: BlockDevice>(
         &mut self,
         device: &mut D,
-        namespace: Namespace,
+        namespace: &Namespace,
         object_id: ObjectId,
     ) -> Result<()> {
         self.validate_device(device)?;
@@ -5269,7 +5269,7 @@ impl OpenedVolume {
                 if (first..=last).any(|logical| map.physical_block(logical).is_none()) {
                     return self.write_persistent_sparse_range_from_namespace(
                         device,
-                        namespace,
+                        &namespace,
                         object_id,
                         record.clone(),
                         map,
