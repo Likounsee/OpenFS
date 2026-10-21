@@ -2160,5 +2160,56 @@ mod tests {
         ));
         assert!(map.encode_block(44).is_ok());
     }
+    #[test]
+    fn validated_inventory_count_matches_inventory_length() {
+        let map = sample();
+        assert_eq!(
+            map.validated_physical_block_count(7, 10, 300).unwrap(),
+            map.validated_physical_block_inventory(7, 10, 300)
+                .unwrap()
+                .len() as u64
+        );
+        assert!(matches!(
+            map.validated_physical_block_count(6, 10, 300),
+            Err(Error::Corrupt("extent exceeds logical file length"))
+        ));
+    }
+
+    #[test]
+    fn empty_map_has_no_holes_or_allocated_blocks() {
+        let map = ExtentMap::default();
+        assert_eq!(map.logical_hole_ranges(0).unwrap(), Vec::<(u64, u64)>::new());
+        assert_eq!(map.logical_hole_ranges(4).unwrap(), vec![(0, 4)]);
+        assert_eq!(map.allocated_blocks().unwrap(), 0);
+        assert_eq!(map.allocated_byte_count(4096).unwrap(), 0);
+        assert_eq!(map.logical_byte_capacity(4096).unwrap(), 0);
+        assert!(map.is_fully_allocated(0).unwrap());
+        assert!(!map.is_fully_allocated(4).unwrap());
+    }
+
+    #[test]
+    fn failed_middle_insertion_preserves_existing_extents() {
+        let mut map = sample();
+        let before = map.clone();
+        assert!(matches!(
+            map.insert_coalescing(Extent {
+                logical_start: 1,
+                physical_start: 300,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput("extent overlaps existing logical blocks"))
+        ));
+        assert_eq!(map, before);
+
+        assert!(matches!(
+            map.insert_coalescing(Extent {
+                logical_start: 8,
+                physical_start: 101,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput("physical extents overlap"))
+        ));
+        assert_eq!(map, before);
+    }
 
 }
