@@ -4253,6 +4253,151 @@ impl OpenedVolume {
         Ok(())
     }
 
+    /// Extend a persistent file by creating a sparse region without allocating data blocks.
+    ///
+    /// Existing bytes and extents are preserved. Reads from the newly exposed range return
+    /// zeroes through the normal sparse-file path. An empty file receives an empty extent-map
+    /// root so the persistent metadata remains explicit and can be reopened consistently.
+    pub fn extend_persistent_file_sparse<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        new_size: u64,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let (_, namespace) = self
+            .reconstruct_discovered_namespace(device)?
+            .ok_or(Error::InvalidInput(
+                "persistent file extension requires a published inventory",
+            ))?;
+        let object_id = namespace.resolve_path(path)?;
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        if new_size < record.size {
+            return Err(Error::InvalidInput(
+                "sparse extension cannot shrink a file; use truncation",
+            ));
+        }
+        if new_size == record.size {
+            return Ok(());
+        }
+        let next_generation = record
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let block_size = usize::try_from(self.volume.block_size)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+
+        let maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let map = match record.extent_root_block {
+            Some(_) => maps
+                .get(&object_id)
+                .ok_or(Error::Corrupt("file extent map is missing"))?,
+            None if record.size == 0 => {
+                // The empty map is encoded below and published with the new metadata.
+                static EMPTY_MAP: std::sync::OnceLock<ExtentMap> = std::sync::OnceLock::new();
+                EMPTY_MAP.get_or_init(ExtentMap::default)
+            }
+            None => {
+                return Err(Error::Corrupt(
+                    "non-empty file is missing its extent-map root",
+                ));
+            }
+        };
+        map.validate_file_size(record.size, self.volume.block_size)?;
+        map.validate_file_size(new_size, self.volume.block_size)?;
+
+        let staged_root = if record.extent_root_block.is_none() {
+            let encoded = map.encode_block(block_size)?;
+            let root = self.allocate_block(device)?;
+            if let Err(error) = device
+                .write_blocks(root, &encoded)
+                .and_then(|()| device.flush())
+            {
+                if self.reclaim_persistent_blocks(device, &[root]).is_err() {
+                    return Err(Error::Corrupt(
+                        "failed to reclaim sparse extent-map root after staging failed",
+                    ));
+                }
+                return Err(error);
+            }
+            Some(root)
+        } else {
+            None
+        };
+        let new_root = staged_root.or(record.extent_root_block);
+
+        let updated_namespace = (|| -> Result<Namespace> {
+            let mut records = try_clone_namespace_records(&namespace)?;
+            let updated = records
+                .iter_mut()
+                .find(|item| item.id == object_id)
+                .ok_or(Error::Corrupt("file metadata disappeared during sparse extension"))?;
+            updated.size = new_size;
+            updated.extent_root_block = new_root;
+            updated.generation = next_generation;
+            Namespace::from_records(
+                namespace.root_id(),
+                records,
+                try_clone_namespace_entries(&namespace)?,
+            )
+        })();
+        let updated_namespace = match updated_namespace {
+            Ok(updated) => updated,
+            Err(error) => {
+                if let Some(root) = staged_root {
+                    if self.reclaim_persistent_blocks(device, &[root]).is_err() {
+                        return Err(Error::Corrupt(
+                            "failed to reclaim sparse extent-map root after metadata staging failed",
+                        ));
+                    }
+                }
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.size == new_size
+                            && item.extent_root_block == new_root
+                            && item.generation == next_generation
+                    }) =>
+                {
+                    return Ok(());
+                }
+                Ok(Some((_, active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.size == record.size
+                            && item.extent_root_block == record.extent_root_block
+                            && item.generation == record.generation
+                    }) =>
+                {
+                    if let Some(root) = staged_root {
+                        if self.reclaim_persistent_blocks(device, &[root]).is_err() {
+                            return Err(Error::Corrupt(
+                                "sparse extension failed and staged extent-map root could not be reclaimed",
+                            ));
+                        }
+                    }
+                    return Err(error);
+                }
+                _ => {
+                    return Err(Error::Corrupt(
+                        "sparse extension publication outcome is uncertain; staged storage was retained",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Truncate a regular file identified by its persistent path.
     ///
     /// Path resolution is kept at the volume boundary so callers do not need to rebuild
