@@ -1865,7 +1865,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_extent_count_beyond_block_capacity() {
-        let mut bytes = sample().encode_block(64).unwrap();
+        let mut bytes = sample().encode_block(80).unwrap();
         bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
         let checksum_offset = bytes.len() - 4;
         let checksum = crc32c(&bytes[..checksum_offset]);
