@@ -1299,6 +1299,36 @@ mod tests {
     }
 
     #[test]
+    fn check_image_uses_valid_checkpoint_when_other_is_corrupt_without_modifying_image() {
+        let path = unique_path("check-one-corrupt-checkpoint");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
+            drop(volume);
+
+            // A single damaged checkpoint copy is recoverable from its valid peer.
+            let corrupt_checkpoint = vec![0xA5; BLOCK_SIZE as usize];
+            device
+                .write_blocks(checkpoint_a, &corrupt_checkpoint)
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        let before = fs::read(&path).unwrap();
+        assert!(
+            super::check_image(&path, BLOCK_SIZE).is_ok(),
+            "check-image should accept one valid checkpoint copy"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "read-only checking must not repair the damaged checkpoint"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn check_image_reports_pending_redo_without_modifying_the_image() {
         let path = unique_path("check-pending-redo");
         let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
