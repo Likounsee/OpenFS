@@ -269,6 +269,7 @@ mod tests {
         record.kind = ObjectKind::Directory;
         assert!(matches!(record.encode(), Err(Error::InvalidInput(_))));
     }
+
     #[test]
     fn metadata_round_trips_root_sentinel_and_numeric_boundaries() {
         let mut record = file();
@@ -323,5 +324,4 @@ mod tests {
             Err(Error::Corrupt("directory record owns file extents"))
         ));
     }
-
 }

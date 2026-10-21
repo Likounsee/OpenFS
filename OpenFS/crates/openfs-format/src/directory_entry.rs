@@ -296,7 +296,14 @@ mod tests {
 
     #[test]
     fn name_validation_rejects_unicode_control_and_path_separators() {
-        for name in ["tab\tname", "carriage\rreturn", "slash/name", "backslash\\name", "nul\0byte", "control\u{0001}byte"] {
+        for name in [
+            "tab\tname",
+            "carriage\rreturn",
+            "slash/name",
+            "backslash\\name",
+            "nul\0byte",
+            "control\u{0001}byte",
+        ] {
             let mut entry = sample();
             entry.name = name.to_owned();
             assert!(
@@ -313,10 +320,13 @@ mod tests {
             bytes[11] = name_len;
             let crc = crate::crc32c(&bytes[..124]);
             bytes[124..128].copy_from_slice(&crc.to_le_bytes());
-            assert!(matches!(
-                DirectoryEntry::decode(&bytes),
-                Err(Error::Corrupt("invalid directory-entry name length"))
-            ), "name length {name_len}");
+            assert!(
+                matches!(
+                    DirectoryEntry::decode(&bytes),
+                    Err(Error::Corrupt("invalid directory-entry name length"))
+                ),
+                "name length {name_len}"
+            );
         }
     }
 
@@ -347,5 +357,4 @@ mod tests {
             entry
         );
     }
-
 }
