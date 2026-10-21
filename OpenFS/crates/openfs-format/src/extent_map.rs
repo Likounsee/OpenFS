@@ -436,8 +436,13 @@ impl ExtentMap {
             .len()
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut kept = Vec::with_capacity(capacity);
+        let mut kept = Vec::new();
+        kept.try_reserve_exact(capacity)
+            .map_err(|_| Error::AllocationFailed("unable to reserve retained extent ranges"))?;
         let mut removed = Vec::new();
+        removed
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve removed extent ranges"))?;
         // Logical extents are sorted and non-overlapping. Begin at the only extent
         // that might cross the start boundary instead of scanning the untouched prefix.
         let insertion = self
@@ -538,7 +543,11 @@ impl ExtentMap {
         {
             return Err(Error::InvalidInput("extent map does not fit in one block"));
         }
-        let mut bytes = vec![0_u8; block_size];
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(block_size)
+            .map_err(|_| Error::AllocationFailed("unable to allocate encoded extent-map block"))?;
+        bytes.resize(block_size, 0);
         bytes[0..8].copy_from_slice(MAGIC);
         bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
         bytes[10..12].copy_from_slice(&(HEADER_SIZE as u16).to_le_bytes());
