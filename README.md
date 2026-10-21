@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="OpenFS/docs/assets/openfs-logo.svg" alt="OpenFS logo" width="220">
+  <img src="OpenFS/docs/assets/openfs-logo.png" alt="OpenFS logo" width="220">
 </p>
 
 <h1 align="center">OpenFS</h1>
