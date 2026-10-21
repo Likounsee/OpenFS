@@ -1,34 +1,58 @@
-# OpenFS — rapport de couverture de l'inventaire
+# OpenFS — rapport de couverture de l'inventaire reanalysé
 
-Date du relevé : 2026-10-21. Branche ciblée : `OpenFS`. Commit source examiné : `73c50c9f7977c8b34146729bb5e4e3a5777c9fc1`.
+Date du relevé : 2026-10-21.
+Branche : `OpenFS`.
+Commit de code analysé : `1dc834990da67b7d742138a01805db6b14cf716d`.
+Les commits de ce relevé actualisent les fichiers de documentation/inventaire seulement; ils ne changent pas le code Rust audité.
 
-## État réel
+## Résultats vérifiés
 
-- Fichiers suivis (blobs) : 43.
-- Fichiers Rust : 16.
-- Fichiers Rust dont les déclarations ont été indexées : 16/16 (100.0 %).
-- Déclarations de fonctions/méthodes détectées par extraction ligne à ligne : 683.
-- Déclarations de struct/enum/trait/type détectées : 56.
-- Fichiers dont le contenu a été analysé fonctionnellement de bout en bout dans ce lot : 0/43. L'indexation des déclarations ne vaut pas validation comportementale.
-- Inventaire fonctionnel CSV enrichi : 1 183 entrées conservées, 24 colonnes (8 colonnes historiques + 16 champs de traçabilité). Les identifiants `OFS-00001` à `OFS-01183` ont été attribués dans l'ordre des lignes conservées.
+- Arbre Git au commit de code analysé : 46 fichiers suivis.
+- Sources Rust récupérées et parcourues : 16/16.
+- Déclarations indexées par extraction ligne à ligne : 989.
+- Répartition : 779 fonctions/méthodes, 74 constantes, 51 blocs `impl`, 48 structures, 27 modules, 5 enums, 3 types, 1 trait et 1 static.
+- Inventaire fonctionnel complémentaire : 39 capacités et lacunes, avec chemin source, statut, preuve, prochaine étape et confiance.
+- L'indexation est syntaxique et ligne par ligne; elle peut manquer des déclarations multi-lignes ou générées par macro. Elle n'est pas un parseur Rust complet et ne valide pas automatiquement le comportement.
 
-## Classification du CSV enrichi
+## Fichiers actualisés
 
-- Complete : 310
-- Partial : 846
-- Not implemented : 27
+- `INVENTAIRE_SYMBOLES.csv` : index de 989 déclarations détectées au commit de code indiqué.
+- `INVENTAIRE_FICHIERS.csv` : métadonnées des 46 fichiers suivis au commit de code indiqué (taille et SHA Git).
+- `INVENTAIRE_FONCTIONNEL_REANALYSE.csv` : 39 lignes d'analyse fonctionnelle et de lacunes.
+- `RAPPORT_COUVERTURE_INVENTAIRE.md` : ce rapport.
 
-Ces compteurs sont issus d'une normalisation automatique des statuts historiques, pas d'une validation complète du comportement de chaque fonctionnalité. Les entrées `FONCTION` avec « corps détecté » restent `Partial` tant que le comportement de bout en bout n'est pas vérifié. Les entrées roadmap et méta-inventaire doivent être considérées comme pistes de couverture, pas comme preuve de fonctionnalités runtime.
+## Limite importante du CSV historique
 
-## Principaux domaines à auditer ensuite
+Le fichier `INVENTAIRE_EXHAUSTIF.csv` historique est conservé sans écrasement. Le connecteur GitHub n'a pas renvoyé son contenu, car il est trop volumineux pour une récupération complète dans cette session. Je ne pouvais donc pas fusionner les nouvelles données sans risquer de supprimer des entrées ou des colonnes. Le nouveau `INVENTAIRE_FONCTIONNEL_REANALYSE.csv` est un relevé complémentaire actualisé, pas une affirmation que toutes les lignes historiques ont été réévaluées.
 
-1. Allocation bitmap/extents, propriété et libération des blocs — `allocator_extents.rs`, puis appels dans `volume.rs`.
-2. Journal, commit durable, checkpoints, rejeu et récupération après échec d'E/S — `journal.rs`, `journal_engine.rs`, `checkpoint.rs`.
-3. Format persistant, métadonnées, namespace et alias de blocs — `metadata.rs`, `directory_entry.rs`, `namespace.rs`, `extent_map.rs`.
-4. Parcours de volume, opérations fichier, publication d'inventaire et vérification — `volume.rs`, `verifier.rs`, `inventory_descriptor.rs`.
-5. CLI et interface utilisateur — `openfs-tool/src/main.rs`.
-6. Contrats d'intégration OS / montage natif : vérifier s'ils sont implémentés dans ce dépôt ou explicitement hors périmètre.
+## Résumé fonctionnel
 
-## Limites de cette passe
+### Capacités présentes, mais garanties à valider
 
-Les déclarations de symboles ont été extraites des 16 fichiers Rust. Les corps complets, les appels croisés et les chemins d'erreur n'ont pas tous été audités individuellement. Les fichiers non Rust sont seulement inventoriés, sauf le workflow CI et le CSV principal. Aucun test local n'a été exécuté via ce connecteur. Ne pas annoncer l'audit comme exhaustif.
+- Abstraction de blocs bornée, image fichier et injection d'erreurs d'E/S.
+- Format canonique, superblocs, bitmap, extents, métadonnées et namespace.
+- Codec et moteur de journal redo persistant, checkpoints et récupération.
+- Publication/remplacement du descripteur d'inventaire avec transition de propriété journalisée.
+- API persistantes de création/renommage/suppression, écriture de contenu, écriture par plage et troncature.
+- Vérification et audit de propriété des blocs.
+- CLI orientée images disque.
+
+### Lacunes majeures
+
+1. La transaction du journal ne garantit pas à elle seule l'atomicité de chaque opération fichier multi-étapes.
+2. La durabilité physique sur matériel réel n'est pas prouvée par les tests d'images fichier.
+3. Le vérificateur est en lecture seule; aucune réparation générale de type fsck n'est établie.
+4. Aucun montage natif Windows/Linux n'est établi dans le workspace actuel.
+5. La compatibilité binaire NTFS/ReFS, les ACL complètes, la compression, le chiffrement et les snapshots ne sont pas établis par le code audité.
+6. Le CSV historique doit être fusionné localement avec ce relevé si l'on veut conserver et réévaluer chaque ancienne entrée.
+
+## Interprétation des statuts
+
+- `Complete` : uniquement après preuve du comportement et tests associés.
+- `Partial` : une partie de la capacité est présente, mais garanties, cas limites ou intégration restent à démontrer.
+- `Not implemented` : aucune implémentation n'a été établie dans le périmètre examiné.
+- L'absence de preuve dans cette passe n'est pas une preuve universelle d'absence; les statuts sont des résultats d'audit, pas une mesure de pourcentage globale.
+
+## CI
+
+Au moment du premier relevé, l'exécution `39666862823` était en cours après la correction de formatage. La CI ne doit être déclarée verte qu'après une conclusion positive des étapes formatage, tests workspace et Clippy sur Linux et Windows.
