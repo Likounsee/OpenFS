@@ -546,7 +546,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         .try_reserve_exact(
             usize::try_from(region.ring_blocks).map_err(|_| Error::ArithmeticOverflow)?,
         )
-        .map_err(|_| Error::InvalidInput("unable to reserve journal scan records"))?;
+        .map_err(|_| Error::AllocationFailed("unable to reserve journal scan records"))?;
     // Only the earliest malformed slot matters: it must not precede a later
     // valid record. Tracking one index avoids a second allocation for bad slots.
     let mut first_malformed_slot = None;
