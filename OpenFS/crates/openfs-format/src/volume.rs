@@ -35,10 +35,7 @@ fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result
     Ok(block)
 }
 
-fn try_copy_block_numbers(
-    blocks: &[u64],
-    allocation_error: &'static str,
-) -> Result<Vec<u64>> {
+fn try_copy_block_numbers(blocks: &[u64], allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(blocks.len())
         .map_err(|_| Error::InvalidInput(allocation_error))?;
@@ -46,10 +43,7 @@ fn try_copy_block_numbers(
     Ok(copy)
 }
 
-fn try_single_block_list(
-    block: u64,
-    allocation_error: &'static str,
-) -> Result<Vec<u64>> {
+fn try_single_block_list(block: u64, allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut blocks = Vec::new();
     blocks
         .try_reserve_exact(1)
