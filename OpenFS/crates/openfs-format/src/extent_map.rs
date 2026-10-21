@@ -341,8 +341,8 @@ impl ExtentMap {
         data_end: u64,
     ) -> Result<Vec<u64>> {
         self.validate(logical_block_count, data_start, data_end)?;
-        let block_count = usize::try_from(self.allocated_blocks()?)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_count =
+            usize::try_from(self.allocated_blocks()?).map_err(|_| Error::ArithmeticOverflow)?;
         let mut blocks: Vec<u64> = Vec::new();
         blocks
             .try_reserve_exact(block_count)
