@@ -1009,6 +1009,97 @@ mod tests {
     }
 
     #[test]
+    fn middle_insert_coalesces_both_neighbors_and_rejects_overlap_atomically() {
+        let mut map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 104,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+
+        map.insert_coalescing(Extent {
+            logical_start: 2,
+            physical_start: 102,
+            block_count: 2,
+        })
+        .unwrap();
+        assert_eq!(
+            map.extents(),
+            &[Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 6,
+            }]
+        );
+
+        let before = map.clone();
+        assert!(matches!(
+            map.insert_coalescing(Extent {
+                logical_start: 6,
+                physical_start: 103,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput("physical extents overlap"))
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn truncation_preserves_sparse_prefix_and_releases_only_allocated_suffix() {
+        let mut map = sample();
+        let removed = map.truncate(6).unwrap();
+        assert_eq!(
+            removed,
+            vec![Extent {
+                logical_start: 6,
+                physical_start: 201,
+                block_count: 1,
+            }]
+        );
+        assert_eq!(
+            map.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 5,
+                    physical_start: 200,
+                    block_count: 1,
+                },
+            ]
+        );
+
+        let before = map.clone();
+        assert!(map.truncate(6).unwrap().is_empty());
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn allocated_range_queries_handle_empty_ranges_and_reject_overflow() {
+        let map = sample();
+        assert_eq!(map.allocated_blocks_in_range(3, 0, 7).unwrap(), 0);
+        assert!(map.logical_range_is_allocated(3, 0, 7).unwrap());
+        assert!(matches!(
+            map.allocated_blocks_in_range(u64::MAX, 1, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(matches!(
+            map.allocated_blocks_in_range(7, 1, 7),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
     fn validated_physical_ranges_coalesce_adjacent_runs_without_losing_gaps() {
         let map = ExtentMap::new(vec![
             Extent {
