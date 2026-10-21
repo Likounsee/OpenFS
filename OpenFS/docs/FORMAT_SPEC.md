@@ -1,52 +1,41 @@
-# OpenFS disk format
+# OpenFS on-disk format
 
-**Status: experimental development format.** The workspace has one canonical volume layout and one implementation. The format identifier in the superblock is validated explicitly; unknown identifiers are rejected. This is not a production compatibility promise.
+**Status: experimental development format.** The active Rust implementation uses canonical format version 4. This is not a production compatibility promise. Do not use OpenFS for important data or format physical devices.
 
-OpenFS defines its own filesystem. It is not an NTFS implementation and does not mount historical OpenFS C images. Do not use it for important data or format physical devices.
+OpenFS is its own filesystem; it is not NTFS and does not implicitly read historical OpenFS C images. Unknown or unsupported format versions must fail closed.
 
 ## Superblock
 
-The primary superblock is in block 0 and the matching backup is in the final block. Each occupies the first 4096 bytes of its filesystem block; any remainder must be zero. Fields are encoded explicitly in little-endian order.
+The primary superblock is in block 0 and the backup is in the final block. The record is encoded field-by-field in little-endian order, with a CRC32C and reserved-byte validation. The format identifier is at offset 8; the header size is 48 bytes. The persistent inventory locator hint begins at offset 48 in formats that support it. The remaining reserved bytes and the reserved tail must follow the rules for the decoded version.
 
-| Offset | Size | Field |
-| ---: | ---: | --- |
-| 0 | 8 | Magic: `OPENFS\0\0` |
-| 8 | 2 | Format identifier; currently accepts value 2 |
-| 10 | 2 | Header size (48) |
-| 12 | 4 | Filesystem block size |
-| 16 | 8 | Total blocks |
-| 24 | 8 | Feature flags |
-| 32 | 16 | Volume UUID |
-| 48–4087 | 4040 | Reserved; must be zero |
-| 4088 | 4 | CRC32C over bytes 0–4087 |
-| 4092–4095 | 4 | Reserved tail; must be zero |
+Supported filesystem block sizes are powers of two from 4096 through 65536 bytes. Geometry arithmetic is checked for overflow. Primary and backup superblocks must decode consistently and match the device geometry.
 
-Supported filesystem block sizes are powers of two from 4096 through 65536 bytes. Geometry arithmetic is checked for overflow. Primary and backup superblocks must decode identically and match the actual device.
-
-## Canonical volume layout
+## Canonical layout — version 4
 
 For block size `B` and volume length `N` blocks:
 
 - Block 0: primary superblock.
-- Bitmap starts at block 1 and covers all volume blocks.
-- Immediately after the bitmap: checkpoint A, checkpoint B, then a four-block redo journal ring.
-- The data region begins after the two checkpoints and four journal blocks.
+- Bitmap begins at block 1 and covers the volume.
+- Immediately after the bitmap: checkpoint A, checkpoint B, then a 16-block redo journal ring.
+- The data region begins after the bitmap and all 18 journal/checkpoint blocks.
 - Block `N - 1`: backup superblock.
 
-Let `bits_per_bitmap_block = B * 8`, `bitmap_blocks = ceil(N / bits_per_bitmap_block)`, `checkpoint_a = 1 + bitmap_blocks`, `checkpoint_b = checkpoint_a + 1`, `ring_start = checkpoint_b + 1`, `data_start = ring_start + 4`, and `backup_superblock = N - 1`. The volume must have at least 12 blocks and at least one data block after all reserved regions.
+Let `bits_per_bitmap_block = B * 8`, `bitmap_blocks = ceil(N / bits_per_bitmap_block)`, `checkpoint_a = 1 + bitmap_blocks`, `checkpoint_b = checkpoint_a + 1`, `ring_start = checkpoint_b + 1`, `data_start = ring_start + 16`, and `backup_superblock = N - 1`. The volume must have a usable data region after all reserved blocks.
 
-Bitmap bits are least-significant-bit first within each byte; set means allocated. The superblocks, bitmap blocks, checkpoints, journal ring, and padding bits beyond the end of the volume must be marked allocated. Only blocks in the data interval may be allocated or freed by the volume allocator.
+The implementation retains version-specific layout handling for earlier Rust format versions, including their four-block journal rings. Do not reinterpret an old image using version 4 geometry, and do not change an on-disk layout without an explicit version/compatibility decision.
+
+Bitmap bits are least-significant-bit first within each byte; set means allocated. Superblocks, bitmap blocks, checkpoints, journal blocks and out-of-volume padding bits are reserved/allocated. Only blocks in the data interval may be allocated or freed by the volume allocator.
 
 ## Journal and recovery
 
-The journal is a bounded single-writer redo log. It validates record framing, sequence and checkpoint state, rejects writes to protected volume-control blocks, and replays committed records during writable open. A read-only check does not replay records or mutate the image.
+The bounded redo journal validates record framing, sequence/checkpoint state, target ranges and protected volume-control blocks. Writable volume open runs journal recovery before returning a writable handle. Read-only checking validates journal state without replaying or modifying the image.
 
-The four-block ring limits transaction size. The journal currently protects bitmap allocator changes; it is not yet a general transaction manager for namespace records, directory entries, extent maps, and descriptor publication. Descriptor allocation and descriptor writing are not one atomic transaction, so interruption can leave an orphan allocation which the checker can report.
+The journal is a single-writer mechanism, not a general multi-object transaction manager. It journals allocator bitmap updates and provides a recovery-visible commit point for descriptor ownership transitions. Persistent file and namespace APIs exist, but operations that span file data, extent maps, inventory publication and reclamation must not be assumed to be one atomic transaction unless their specific contract guarantees it. After an uncertain I/O result, reopen and recover before any further mutation.
 
 ## Records, ownership and verification
 
-Metadata records, directory entries, extent-map pages, checkpoints, journal records, and the persistent inventory descriptor use explicit codecs and checksums where defined. Decoders reject malformed lengths, invalid fields, duplicate ownership, out-of-range pointers, and references to free blocks. Structural corruption is fatal; bounded orphan/dangling diagnostics are reported separately where recovery can safely continue.
+Metadata records, directory entries, extent maps, checkpoints, journal records and inventory descriptors use explicit codecs; checksums are used where specified. Validation rejects malformed lengths, invalid fields, duplicate ownership, out-of-range pointers and references to free blocks. The checker reports cross-layer consistency issues but is not a transactional repair tool.
 
-## Validation gates
+## Remaining production gates
 
-Before production use, OpenFS still needs journal-aware persistent namespace mutations, stronger crash-cut and flush-order evidence, safe physical-device discovery/exclusion, and OS integration. Passing image-backed tests does not establish physical-media durability.
+OpenFS still needs robust exclusive-writer enforcement, comprehensive end-to-end mutation ordering, scalable discovery/verification for large images, safe physical-device discovery and exclusion, and OS integration. Image-backed CI does not establish physical-media durability.
