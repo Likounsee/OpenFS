@@ -1904,9 +1904,10 @@ mod tests {
 
     #[test]
     fn torn_terminal_commit_record_is_ignored_and_home_data_is_preserved() {
-        // Probe multiple torn-write boundaries in the terminal COMMIT record. A 64-byte
-        // prefix would include the complete empty COMMIT record and is not a tear.
-        for prefix_bytes in [1, 20, 32, 63] {
+        // Probe prefixes that leave part of the terminal COMMIT record unwritten.
+        // Do not use 63 bytes: if the untouched final byte already matches the
+        // intended checksum byte, a reported tear can still leave a valid record.
+        for prefix_bytes in [1, 20, 32] {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
             // One block redo is encoded as multiple chunks; the commit record follows them.
@@ -1925,12 +1926,12 @@ mod tests {
             assert_eq!(
                 reopened.checkpoint().checkpoint_sequence,
                 3,
-                "torn terminal commit must not advance checkpoint sequence"
+                "torn terminal commit must not advance checkpoint sequence after {prefix_bytes}-byte tear"
             );
             assert_eq!(
                 read_home(&mut recovered),
                 vec![0x11; BS as usize],
-                "torn terminal commit must preserve old home data"
+                "torn terminal commit must preserve old home data after {prefix_bytes}-byte tear"
             );
         }
     }
