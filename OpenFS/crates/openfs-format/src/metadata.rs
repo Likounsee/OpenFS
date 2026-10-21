@@ -324,4 +324,24 @@ mod tests {
             Err(Error::Corrupt("directory record owns file extents"))
         ));
     }
+    #[test]
+    fn packed_metadata_inventory_rejects_corrupt_middle_record_atomically() {
+        let first = file();
+        let mut second = file();
+        second.id = ObjectId(43);
+        let mut third = file();
+        third.id = ObjectId(44);
+
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&second.encode().unwrap());
+        packed.extend_from_slice(&third.encode().unwrap());
+        let second_offset = METADATA_RECORD_SIZE;
+        packed[second_offset + 76] ^= 0x80;
+
+        assert!(matches!(
+            super::decode_metadata_records(&packed),
+            Err(Error::Corrupt("metadata CRC32C mismatch"))
+        ));
+    }
+
 }

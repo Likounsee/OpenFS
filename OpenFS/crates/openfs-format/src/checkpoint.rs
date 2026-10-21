@@ -324,4 +324,33 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
     }
+    #[test]
+    fn checkpoint_encoding_rejects_generation_and_transaction_counter_boundaries() {
+        let mut checkpoint = sample();
+        checkpoint.generation = 0;
+        assert!(matches!(checkpoint.encode(), Err(Error::InvalidInput(_))));
+
+        let mut checkpoint = sample();
+        checkpoint.next_transaction_id = checkpoint.checkpoint_sequence + 2;
+        assert!(matches!(checkpoint.encode(), Err(Error::InvalidInput(_))));
+
+        let mut checkpoint = sample();
+        checkpoint.checkpoint_sequence = u64::MAX;
+        checkpoint.next_sequence = 0;
+        assert!(matches!(checkpoint.encode(), Err(Error::InvalidInput(_))));
+    }
+
+    #[test]
+    fn checkpoint_decoder_rejects_counter_overflow_with_valid_checksum() {
+        let mut bytes = sample().encode().unwrap();
+        bytes[24..32].copy_from_slice(&u64::MAX.to_le_bytes());
+        bytes[32..40].copy_from_slice(&0_u64.to_le_bytes());
+        refresh_checksum(&mut bytes);
+
+        assert!(matches!(
+            JournalCheckpoint::decode(&bytes),
+            Err(Error::Corrupt("journal checkpoint sequence counters disagree"))
+        ));
+    }
+
 }

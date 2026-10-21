@@ -2325,4 +2325,69 @@ mod tests {
         ));
         assert_eq!(map, before);
     }
+    #[test]
+    fn decoded_extent_map_rejects_checksum_valid_zero_length_and_overlapping_physical_runs() {
+        let mut zero_length = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 10,
+            block_count: 1,
+        }])
+        .unwrap()
+        .encode_block(64)
+        .unwrap();
+        zero_length[16 + 16..16 + 24].copy_from_slice(&0_u64.to_le_bytes());
+        let checksum_offset = zero_length.len() - 4;
+        let checksum = crate::crc32c(&zero_length[..checksum_offset]);
+        zero_length[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            ExtentMap::decode_block(&zero_length),
+            Err(Error::InvalidInput("extent block count must be nonzero"))
+        ));
+
+        let mut overlapping = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 10,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 30,
+                block_count: 2,
+            },
+        ])
+        .unwrap()
+        .encode_block(128)
+        .unwrap();
+        overlapping[16 + 24 + 8..16 + 24 + 16]
+            .copy_from_slice(&11_u64.to_le_bytes());
+        let checksum_offset = overlapping.len() - 4;
+        let checksum = crate::crc32c(&overlapping[..checksum_offset]);
+        overlapping[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            ExtentMap::decode_block(&overlapping),
+            Err(Error::InvalidInput("physical extents overlap"))
+        ));
+    }
+
+    #[test]
+    fn sparse_hole_queries_reject_extents_past_requested_eof() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 4,
+            physical_start: 40,
+            block_count: 2,
+        }])
+        .unwrap();
+
+        assert!(matches!(
+            map.logical_hole_ranges(5),
+            Err(Error::Corrupt("extent exceeds logical file block count"))
+        ));
+        assert!(matches!(
+            map.is_fully_allocated(5),
+            Err(Error::Corrupt("extent exceeds logical file block count"))
+        ));
+        assert_eq!(map.logical_hole_ranges(6).unwrap(), vec![(0, 4)]);
+    }
+
 }
