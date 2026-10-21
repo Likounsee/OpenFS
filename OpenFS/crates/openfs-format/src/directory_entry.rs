@@ -214,7 +214,10 @@ mod tests {
         let mut entry = sample();
         entry.name = "é".repeat(32);
         assert_eq!(entry.name.len(), 64);
-        assert_eq!(DirectoryEntry::decode(&entry.encode().unwrap()).unwrap(), entry);
+        assert_eq!(
+            DirectoryEntry::decode(&entry.encode().unwrap()).unwrap(),
+            entry
+        );
 
         let mut too_long = sample();
         too_long.name = "é".repeat(33);
