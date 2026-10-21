@@ -316,7 +316,7 @@ impl RawDevice {
 
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<()> {
         let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if length == 0 || length % block_size != 0 {
+        if length == 0 || !length.is_multiple_of(block_size) {
             return Err(Error::InvalidInput(
                 "buffer length must be a non-zero multiple of block size",
             ));
