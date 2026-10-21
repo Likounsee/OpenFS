@@ -220,7 +220,10 @@ impl ExtentMap {
             .len()
             .checked_add(incoming.len())
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut physical_ranges = Vec::with_capacity(range_count);
+        let mut physical_ranges = Vec::new();
+        physical_ranges
+            .try_reserve_exact(range_count)
+            .map_err(|_| Error::InvalidInput("unable to reserve physical extent validation"))?;
         for extent in self.extents.iter().chain(incoming.iter()) {
             physical_ranges.push((extent.physical_start, extent.physical_end()?));
         }
@@ -278,7 +281,10 @@ impl ExtentMap {
             .len()
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut merged: Vec<Extent> = Vec::with_capacity(capacity);
+        let mut merged: Vec<Extent> = Vec::new();
+        merged
+            .try_reserve_exact(capacity)
+            .map_err(|_| Error::InvalidInput("unable to reserve extent insertion"))?;
         for current in self
             .extents
             .iter()
@@ -335,7 +341,13 @@ impl ExtentMap {
         data_end: u64,
     ) -> Result<Vec<u64>> {
         self.validate(logical_block_count, data_start, data_end)?;
-        let mut blocks: Vec<u64> = self.physical_blocks().collect();
+        let block_count = usize::try_from(self.allocated_blocks()?)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let mut blocks: Vec<u64> = Vec::new();
+        blocks
+            .try_reserve_exact(block_count)
+            .map_err(|_| Error::InvalidInput("unable to reserve physical block inventory"))?;
+        blocks.extend(self.physical_blocks());
         blocks.sort_unstable();
         Ok(blocks)
     }
@@ -366,14 +378,19 @@ impl ExtentMap {
         data_end: u64,
     ) -> Result<Vec<(u64, u64)>> {
         self.validate(logical_block_count, data_start, data_end)?;
-        let mut ranges: Vec<(u64, u64)> = self
-            .extents
-            .iter()
-            .map(|extent| Ok((extent.physical_start, extent.physical_end()?)))
-            .collect::<Result<_>>()?;
+        let mut ranges: Vec<(u64, u64)> = Vec::new();
+        ranges
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::InvalidInput("unable to reserve physical extent ranges"))?;
+        for extent in &self.extents {
+            ranges.push((extent.physical_start, extent.physical_end()?));
+        }
         ranges.sort_unstable();
 
-        let mut coalesced: Vec<(u64, u64)> = Vec::with_capacity(ranges.len());
+        let mut coalesced: Vec<(u64, u64)> = Vec::new();
+        coalesced
+            .try_reserve_exact(ranges.len())
+            .map_err(|_| Error::InvalidInput("unable to reserve coalesced extent ranges"))?;
         for (start, end) in ranges {
             if let Some(last) = coalesced.last_mut() {
                 if last.1 == start {
