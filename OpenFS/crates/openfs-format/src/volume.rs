@@ -4265,11 +4265,11 @@ impl OpenedVolume {
         new_size: u64,
     ) -> Result<()> {
         self.validate_device(device)?;
-        let (_, namespace) = self
-            .reconstruct_discovered_namespace(device)?
-            .ok_or(Error::InvalidInput(
-                "persistent file extension requires a published inventory",
-            ))?;
+        let (_, namespace) =
+            self.reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "persistent file extension requires a published inventory",
+                ))?;
         let object_id = namespace.resolve_path(path)?;
         let record = namespace
             .object(object_id)
@@ -4289,8 +4289,8 @@ impl OpenedVolume {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        let block_size = usize::try_from(self.volume.block_size)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let block_size =
+            usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
 
         let maps = self.read_namespace_extent_maps(device, &namespace)?;
         // Keep an owned empty map available for the empty-file case; it is only
@@ -4332,10 +4332,13 @@ impl OpenedVolume {
 
         let updated_namespace = (|| -> Result<Namespace> {
             let mut records = try_clone_namespace_records(&namespace)?;
-            let updated = records
-                .iter_mut()
-                .find(|item| item.id == object_id)
-                .ok_or(Error::Corrupt("file metadata disappeared during sparse extension"))?;
+            let updated =
+                records
+                    .iter_mut()
+                    .find(|item| item.id == object_id)
+                    .ok_or(Error::Corrupt(
+                        "file metadata disappeared during sparse extension",
+                    ))?;
             updated.size = new_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
