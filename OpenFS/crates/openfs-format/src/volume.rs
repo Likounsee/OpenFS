@@ -7286,6 +7286,19 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn snapshot_image_bytes(device: &mut ImageDevice) -> Vec<u8> {
+        let length = usize::try_from(
+            device
+                .block_count()
+                .checked_mul(u64::from(device.block_size()))
+                .unwrap(),
+        )
+        .unwrap();
+        let mut bytes = vec![0; length];
+        device.read_blocks(0, &mut bytes).unwrap();
+        bytes
+    }
+
     fn image_path(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -10442,13 +10455,13 @@ mod tests {
             device.write_blocks(backup_block, &backup).unwrap();
             device.flush().unwrap();
 
-            let bytes_before = fs::read(&path).unwrap();
+            let bytes_before = snapshot_image_bytes(&mut device);
             assert!(matches!(
                 super::persist_inventory_hint(&mut device, 42),
                 Err(Error::Corrupt("superblock CRC32C mismatch"))
             ));
             assert_eq!(
-                fs::read(&path).unwrap(),
+                snapshot_image_bytes(&mut device),
                 bytes_before,
                 "a locator update must not normalize a damaged superblock checksum"
             );
@@ -10482,7 +10495,7 @@ mod tests {
                 device.write_blocks(0, &primary).unwrap();
                 device.flush().unwrap();
 
-                let bytes_before = fs::read(&path).unwrap();
+                let bytes_before = snapshot_image_bytes(&mut device);
                 assert!(
                     matches!(
                         super::persist_inventory_hint(&mut device, 42),
@@ -10491,7 +10504,7 @@ mod tests {
                     "locator update must reject {damage}"
                 );
                 assert_eq!(
-                    fs::read(&path).unwrap(),
+                    snapshot_image_bytes(&mut device),
                     bytes_before,
                     "locator update must not write either superblock after detecting {damage}"
                 );
@@ -12735,10 +12748,10 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             device.flush().unwrap();
-            let bytes_before_check = fs::read(&path).unwrap();
+            let bytes_before_check = snapshot_image_bytes(&mut device);
             let initial = check_volume(&mut device).unwrap();
             assert_eq!(
-                fs::read(&path).unwrap(),
+                snapshot_image_bytes(&mut device),
                 bytes_before_check,
                 "read-only checker must not modify the image"
             );
@@ -12797,14 +12810,14 @@ mod tests {
                     .unwrap();
                 device.flush().unwrap();
 
-                let before_check = fs::read(&path).unwrap();
+                let before_check = snapshot_image_bytes(&mut device);
                 let report = check_volume(&mut device).unwrap();
                 assert_eq!(report.journal_generation, 1);
                 assert_eq!(report.journal_checkpoint_sequence, 0);
                 assert_eq!(report.pending_journal_records, 0);
                 assert_eq!(report.recoverable_transactions, 0);
                 assert_eq!(
-                    fs::read(&path).unwrap(),
+                    snapshot_image_bytes(&mut device),
                     before_check,
                     "journal checking must remain read-only for block size {block_size}"
                 );
@@ -13473,7 +13486,7 @@ mod tests {
                 };
 
                 device.flush().unwrap();
-                let bytes_before = std::fs::read(&path).unwrap();
+                let bytes_before = std::snapshot_image_bytes(&mut device);
                 assert!(
                     matches!(
                         volume.publish_persistent_inventory(&mut device, &descriptor),
@@ -13490,7 +13503,7 @@ mod tests {
                 drop(volume);
                 drop(device);
 
-                let bytes_after = std::fs::read(&path).unwrap();
+                let bytes_after = std::snapshot_image_bytes(&mut device);
                 assert_eq!(
                     bytes_after, bytes_before,
                     "rejected publication must not change any persisted image byte at block size {block_size}"
@@ -13894,7 +13907,7 @@ mod tests {
                     .publish_persistent_inventory(&mut device, &descriptor)
                     .unwrap();
                 device.flush().unwrap();
-                let bytes_before = std::fs::read(&path).unwrap();
+                let bytes_before = std::snapshot_image_bytes(&mut device);
 
                 assert_eq!(
                     volume.publish_persistent_inventory(&mut device, &descriptor).unwrap(),
@@ -13928,7 +13941,7 @@ mod tests {
                 drop(volume);
                 drop(device);
 
-                let bytes_after = std::fs::read(&path).unwrap();
+                let bytes_after = std::snapshot_image_bytes(&mut device);
                 assert_eq!(
                     bytes_after, bytes_before,
                     "rejected replacement must preserve every image byte at block size {block_size}"
