@@ -5731,7 +5731,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
             .try_reserve_exact(
                 usize::try_from(batch_end - batch_start).map_err(|_| Error::ArithmeticOverflow)?,
             )
-            .map_err(|_| Error::InvalidInput("allocation failed while scanning inventory blocks"))?;
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while scanning inventory blocks")
+            })?;
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
             let bitmap_block = layout
                 .bitmap_start
