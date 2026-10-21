@@ -1796,7 +1796,10 @@ impl OpenedVolume {
         let encoded = root.encode()?;
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        let mut contents = vec![0_u8; block_size];
+        let mut contents = try_zeroed_block(
+            block_size,
+            "unable to allocate persistent root metadata buffer",
+        )?;
         contents[..encoded.len()].copy_from_slice(&encoded);
 
         // Allocate and flush the root record before making it discoverable. Until the
@@ -3058,7 +3061,10 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         )
         .map_err(|_| Error::ArithmeticOverflow)?;
-        let mut block_buffer = vec![0_u8; batch_bytes];
+        let mut block_buffer = try_zeroed_block(
+            batch_bytes,
+            "unable to allocate file range read scratch buffer",
+        )?;
         let mut logical = first_logical;
         while logical <= last_logical {
             let Some(physical_start) = map.and_then(|value| value.physical_block(logical)) else {
@@ -3419,8 +3425,12 @@ impl OpenedVolume {
         let batch_capacity = block_len
             .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut block_buffer = vec![0_u8; block_len];
-        let mut batch_buffer = vec![0_u8; batch_capacity];
+        let mut block_buffer =
+            try_zeroed_block(block_len, "unable to allocate persistent path read buffer")?;
+        let mut batch_buffer = try_zeroed_block(
+            batch_capacity,
+            "unable to allocate persistent path read batch",
+        )?;
         let mut written = 0_u64;
         let mut logical = first_logical;
         while logical <= last_logical {
@@ -3566,7 +3576,10 @@ impl OpenedVolume {
         let batch_capacity = block_len
             .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut batch_buffer = vec![0_u8; batch_capacity];
+        let mut batch_buffer = try_zeroed_block(
+            batch_capacity,
+            "unable to allocate persistent stream read batch",
+        )?;
         let mut logical = 0_u64;
         let mut remaining = record.size;
         while remaining > 0 {
