@@ -500,12 +500,10 @@ mod tests {
             let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
             let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
 
-            assert!(
-                volume
-                    .verify_discovered_persistent_inventory(&mut device)
-                    .unwrap()
-                    .is_none()
-            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .is_none());
         }
         fs::remove_file(path).unwrap();
     }
@@ -537,5 +535,4 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
-
 }
