@@ -13939,7 +13939,6 @@ mod tests {
                     "replacement must reject an inventory that cannot reconstruct a valid namespace at block size {block_size}"
                 );
                 drop(volume);
-                drop(device);
 
                 let bytes_after = snapshot_image_bytes(&mut device);
                 assert_eq!(
@@ -13947,6 +13946,7 @@ mod tests {
                     "rejected replacement must preserve every image byte at block size {block_size}"
                 );
 
+                drop(device);
                 let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
                 let reopened_volume = open_volume(&mut reopened_device).unwrap();
                 let discovered = reopened_volume
