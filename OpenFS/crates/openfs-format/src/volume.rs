@@ -10457,7 +10457,7 @@ mod tests {
     #[test]
     fn canonical_allocation_keeps_bitmap_unchanged_when_commit_fails_before_durable_record() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in 0..4 {
+            for fail_at in 0..5 {
                 let path = image_path(&format!("allocation-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
@@ -10490,7 +10490,7 @@ mod tests {
     #[test]
     fn canonical_allocation_recovers_after_durable_commit_and_home_write_failure() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in [4, 5] {
+            for fail_at in [5, 6] {
                 let path = image_path(&format!("allocation-recovery-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
