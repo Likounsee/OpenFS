@@ -538,6 +538,22 @@ impl ExtentMap {
         let logical_end = logical_start
             .checked_add(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
+
+        // A disjoint range cannot release any physical blocks. Detect it with
+        // the sorted logical index before allocating rebuilt/removed extent lists.
+        let insertion = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_start);
+        let overlaps_previous = insertion > 0
+            && self.extents[insertion - 1].logical_end()? > logical_start;
+        let overlaps_next = self
+            .extents
+            .get(insertion)
+            .is_some_and(|extent| extent.logical_start < logical_end);
+        if !overlaps_previous && !overlaps_next {
+            return Ok(Vec::new());
+        }
+
         let capacity = self
             .extents
             .len()
@@ -552,9 +568,6 @@ impl ExtentMap {
             .map_err(|_| Error::AllocationFailed("unable to reserve removed extent ranges"))?;
         // Logical extents are sorted and non-overlapping. Begin at the only extent
         // that might cross the start boundary instead of scanning the untouched prefix.
-        let insertion = self
-            .extents
-            .partition_point(|extent| extent.logical_start < logical_start);
         let first_candidate = insertion.saturating_sub(1);
         kept.extend_from_slice(&self.extents[..first_candidate]);
 
@@ -933,6 +946,19 @@ mod tests {
             map.remove_range(3, 0),
             Err(Error::InvalidInput("removed logical range must be nonzero"))
         ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn removing_disjoint_sparse_ranges_is_a_noop() {
+        let mut map = sample();
+        let before = map.clone();
+
+        assert!(map.remove_range(3, 2).unwrap().is_empty());
+        assert_eq!(map, before);
+        assert!(map.remove_range(8, 2).unwrap().is_empty());
+        assert_eq!(map, before);
+        assert!(map.remove_range(u64::MAX - 1, 1).unwrap().is_empty());
         assert_eq!(map, before);
     }
 
