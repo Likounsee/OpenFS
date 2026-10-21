@@ -13486,7 +13486,7 @@ mod tests {
                 };
 
                 device.flush().unwrap();
-                let bytes_before = std::snapshot_image_bytes(&mut device);
+                let bytes_before = snapshot_image_bytes(&mut device);
                 assert!(
                     matches!(
                         volume.publish_persistent_inventory(&mut device, &descriptor),
@@ -13503,7 +13503,7 @@ mod tests {
                 drop(volume);
                 drop(device);
 
-                let bytes_after = std::snapshot_image_bytes(&mut device);
+                let bytes_after = snapshot_image_bytes(&mut device);
                 assert_eq!(
                     bytes_after, bytes_before,
                     "rejected publication must not change any persisted image byte at block size {block_size}"
@@ -13907,7 +13907,7 @@ mod tests {
                     .publish_persistent_inventory(&mut device, &descriptor)
                     .unwrap();
                 device.flush().unwrap();
-                let bytes_before = std::snapshot_image_bytes(&mut device);
+                let bytes_before = snapshot_image_bytes(&mut device);
 
                 assert_eq!(
                     volume.publish_persistent_inventory(&mut device, &descriptor).unwrap(),
@@ -13941,7 +13941,7 @@ mod tests {
                 drop(volume);
                 drop(device);
 
-                let bytes_after = std::snapshot_image_bytes(&mut device);
+                let bytes_after = snapshot_image_bytes(&mut device);
                 assert_eq!(
                     bytes_after, bytes_before,
                     "rejected replacement must preserve every image byte at block size {block_size}"
