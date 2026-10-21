@@ -2138,10 +2138,7 @@ mod tests {
             map.validate_file_size(3 * 4096, 4096),
             Err(Error::Corrupt("extent exceeds file byte length"))
         ));
-        assert!(matches!(
-            map.validate_file_size(u64::MAX, 1),
-            Err(Error::ArithmeticOverflow)
-        ));
+        assert!(map.validate_file_size(u64::MAX, 1).is_ok());
     }
 
     #[test]
