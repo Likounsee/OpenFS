@@ -510,20 +510,20 @@ impl ExtentMap {
         }
         ranges.sort_unstable();
 
-        let mut coalesced: Vec<(u64, u64)> = Vec::new();
-        coalesced
-            .try_reserve_exact(ranges.len())
-            .map_err(|_| Error::AllocationFailed("unable to reserve coalesced extent ranges"))?;
-        for (start, end) in ranges {
-            if let Some(last) = coalesced.last_mut() {
-                if last.1 == start {
-                    last.1 = end;
-                    continue;
-                }
+        // Compact the sorted ranges in place. Keeping the output in the same buffer
+        // avoids a second allocation on every ownership/fragmentation inspection.
+        let mut write = 0_usize;
+        for read in 0..ranges.len() {
+            let (start, end) = ranges[read];
+            if write > 0 && ranges[write - 1].1 == start {
+                ranges[write - 1].1 = end;
+            } else {
+                ranges[write] = (start, end);
+                write += 1;
             }
-            coalesced.push((start, end));
         }
-        Ok(coalesced)
+        ranges.truncate(write);
+        Ok(ranges)
     }
 
     /// Remove a logical block range and return the physical runs that became unreferenced.
@@ -732,6 +732,15 @@ impl ExtentMap {
 
     fn validate_ordering(&self) -> Result<()> {
         let mut previous_end = 0_u64;
+        // Zero or one extent cannot physically overlap itself. Avoid a temporary
+        // allocation for the common empty/small-file case.
+        if self.extents.len() <= 1 {
+            if let Some(extent) = self.extents.first().copied() {
+                validate_extent(extent)?;
+            }
+            return Ok(());
+        }
+
         let mut physical = Vec::new();
         physical
             .try_reserve_exact(self.extents.len())
@@ -925,6 +934,25 @@ mod tests {
             Err(Error::InvalidInput("removed logical range must be nonzero"))
         ));
         assert_eq!(map, before);
+    }
+
+    #[test]
+    fn validated_physical_ranges_coalesce_adjacent_runs_without_losing_gaps() {
+        let map = ExtentMap::new(vec![
+            Extent { logical_start: 0, physical_start: 200, block_count: 2 },
+            Extent { logical_start: 2, physical_start: 202, block_count: 3 },
+            Extent { logical_start: 8, physical_start: 100, block_count: 1 },
+            Extent { logical_start: 9, physical_start: 110, block_count: 1 },
+        ]).unwrap();
+
+        assert_eq!(
+            map.validated_physical_ranges(10, 80, 300).unwrap(),
+            vec![(100, 101), (110, 111), (200, 205)]
+        );
+        assert_eq!(
+            ExtentMap::default().validated_physical_ranges(0, 80, 300).unwrap(),
+            Vec::<(u64, u64)>::new()
+        );
     }
 
     #[test]
