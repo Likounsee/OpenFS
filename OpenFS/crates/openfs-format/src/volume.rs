@@ -205,15 +205,6 @@ impl VolumeLayout {
         self.backup_superblock - self.data_start
     }
 
-    fn is_reserved(&self, block: u64) -> bool {
-        block == 0
-            || (block >= self.bitmap_start && block - self.bitmap_start < self.bitmap_blocks)
-            || block == self.journal.checkpoint_a
-            || block == self.journal.checkpoint_b
-            || (block >= self.journal.ring_start
-                && block - self.journal.ring_start < self.journal.ring_blocks)
-            || block == self.backup_superblock
-    }
 }
 
 /// Validated volume geometry and superblock fields.
