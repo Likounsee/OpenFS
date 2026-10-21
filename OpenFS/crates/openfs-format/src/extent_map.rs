@@ -1965,4 +1965,104 @@ mod tests {
             Err(Error::ArithmeticOverflow)
         ));
     }
+
+    #[test]
+    fn logical_holes_and_allocation_queries_cover_sparse_boundaries() {
+        let map = sample();
+
+        assert_eq!(map.logical_hole_ranges(7).unwrap(), vec![(3, 2)]);
+        assert_eq!(map.logical_hole_ranges(9).unwrap(), vec![(3, 2), (7, 2)]);
+        assert!(!map.is_fully_allocated(7).unwrap());
+        assert!(map.is_fully_allocated(3).is_err());
+        assert!(map.logical_range_is_allocated(1, 2, 7).unwrap());
+        assert!(!map.logical_range_is_allocated(3, 2, 7).unwrap());
+        assert_eq!(map.allocated_blocks_in_range(1, 5, 7).unwrap(), 4);
+        assert!(map.logical_hole_ranges(6).is_err());
+    }
+
+    #[test]
+    fn validated_physical_inventory_and_ranges_are_sorted_and_coalesced() {
+        let map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 200,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 2,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 102,
+                block_count: 1,
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(
+            map.validated_physical_block_inventory(5, 10, 300).unwrap(),
+            vec![100, 101, 102, 200, 201]
+        );
+        assert_eq!(
+            map.validated_physical_ranges(5, 10, 300).unwrap(),
+            vec![(100, 103), (200, 202)]
+        );
+        assert!(map.validated_physical_ranges(4, 10, 300).is_err());
+        assert!(map.validated_physical_block_inventory(5, 100, 300).is_err());
+    }
+
+    #[test]
+    fn byte_capacity_helpers_report_overflow_instead_of_wrapping() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 0,
+            block_count: u64::MAX,
+        }])
+        .unwrap();
+
+        assert!(matches!(
+            map.allocated_byte_count(4096),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(matches!(
+            map.logical_byte_capacity(4096),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert!(matches!(
+            map.allocated_byte_count(0),
+            Err(Error::InvalidInput("block size must be nonzero"))
+        ));
+    }
+
+    #[test]
+    fn failed_coalescing_append_keeps_existing_map_unchanged() {
+        let mut map = sample();
+        let before = map.clone();
+
+        assert!(matches!(
+            map.push_coalescing(Extent {
+                logical_start: 7,
+                physical_start: 102,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput("physical extents overlap"))
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn logical_to_physical_lookup_handles_sparse_holes_and_eof() {
+        let map = sample();
+
+        assert_eq!(map.physical_block(0), Some(100));
+        assert_eq!(map.physical_block(2), Some(102));
+        assert_eq!(map.physical_block(3), None);
+        assert_eq!(map.physical_block(4), None);
+        assert_eq!(map.physical_block(5), Some(200));
+        assert_eq!(map.physical_block(6), Some(201));
+        assert_eq!(map.physical_block(7), None);
+        assert_eq!(map.physical_block(u64::MAX), None);
+    }
 }
