@@ -155,7 +155,11 @@ impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
                     "torn-write prefix must be shorter than a non-empty block-aligned buffer",
                 ));
             }
-            let mut mixed = vec![0; input.len()];
+            let mut mixed = Vec::new();
+            mixed.try_reserve_exact(input.len()).map_err(|_| {
+                Error::AllocationFailed("unable to allocate torn-write fault-injection buffer")
+            })?;
+            mixed.resize(input.len(), 0);
             self.inner.read_blocks(first_block, &mut mixed)?;
             mixed[..prefix_bytes].copy_from_slice(&input[..prefix_bytes]);
             self.inner.write_blocks(first_block, &mixed)?;
@@ -557,6 +561,59 @@ mod tests {
         device.read_blocks(0, &mut actual).unwrap();
         assert_eq!(&actual[..257], &new[..257]);
         assert_eq!(&actual[257..], &old[257..]);
+
+        device.fail_next(IoOperation::Read);
+        assert!(matches!(
+            device.read_blocks(0, &mut actual),
+            Err(Error::Io(_))
+        ));
+    }
+
+    #[test]
+    fn fail_after_counts_only_matching_operations_and_fails_once() {
+        use super::{FaultInjectingDevice, IoOperation};
+
+        let image = TempImage::new();
+        let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        let mut device = FaultInjectingDevice::new(device);
+        let first = vec![0x31; 4096];
+        let second = vec![0x42; 4096];
+        let mut actual = vec![0; 4096];
+
+        device.fail_after(IoOperation::Write, 2);
+        device.write_blocks(0, &first).unwrap();
+        // Reads do not consume a write-specific failure budget.
+        device.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(actual, first);
+        device.write_blocks(1, &second).unwrap();
+        assert!(matches!(
+            device.write_blocks(0, &second),
+            Err(Error::Io(_))
+        ));
+        // The injected failure is one-shot; the following write succeeds.
+        device.write_blocks(0, &second).unwrap();
+        device.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(actual, second);
+    }
+
+    #[test]
+    fn torn_write_rejects_invalid_prefix_before_touching_the_device() {
+        use super::{FaultInjectingDevice, IoOperation};
+
+        let image = TempImage::new();
+        let device = ImageDevice::create(&image.0, 4096, 2).unwrap();
+        let mut device = FaultInjectingDevice::new(device);
+        let original = vec![0x71; 4096];
+        device.write_blocks(0, &original).unwrap();
+
+        device.tear_next_write_after(4096);
+        assert!(matches!(
+            device.write_blocks(0, &[0xA2; 4096]),
+            Err(Error::InvalidInput(_))
+        ));
+        let mut actual = vec![0; 4096];
+        device.read_blocks(0, &mut actual).unwrap();
+        assert_eq!(actual, original);
 
         device.fail_next(IoOperation::Read);
         assert!(matches!(
