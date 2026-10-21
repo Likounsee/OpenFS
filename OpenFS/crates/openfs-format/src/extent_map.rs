@@ -1100,6 +1100,66 @@ mod tests {
     }
 
     #[test]
+    fn truncate_to_zero_releases_all_allocated_runs_but_not_sparse_holes() {
+        let mut map = sample();
+        assert_eq!(
+            map.truncate(0).unwrap(),
+            vec![
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 5,
+                    physical_start: 200,
+                    block_count: 2,
+                },
+            ]
+        );
+        assert!(map.is_empty());
+        assert_eq!(map.logical_block_count().unwrap(), 0);
+        assert!(map.truncate(0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_middle_insert_preserves_map_for_logical_and_arithmetic_errors() {
+        let mut map = sample();
+        let before = map.clone();
+
+        assert!(matches!(
+            map.insert_coalescing(Extent {
+                logical_start: 1,
+                physical_start: 300,
+                block_count: 1,
+            }),
+            Err(Error::InvalidInput("extent overlaps existing logical blocks"))
+        ));
+        assert_eq!(map, before);
+
+        assert!(matches!(
+            map.insert_coalescing(Extent {
+                logical_start: u64::MAX,
+                physical_start: 400,
+                block_count: 1,
+            }),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn range_removal_overflow_is_rejected_without_mutation() {
+        let mut map = sample();
+        let before = map.clone();
+        assert!(matches!(
+            map.remove_range(u64::MAX - 1, 4),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(map, before);
+    }
+
+    #[test]
     fn validated_physical_ranges_coalesce_adjacent_runs_without_losing_gaps() {
         let map = ExtentMap::new(vec![
             Extent {
