@@ -995,6 +995,68 @@ mod tests {
     }
 
     #[test]
+    fn sparse_hole_ranges_cover_prefix_middle_suffix_and_empty_files() {
+        let map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 2,
+                physical_start: 20,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 7,
+                physical_start: 40,
+                block_count: 1,
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(
+            map.logical_hole_ranges(8).unwrap(),
+            vec![(0, 2), (4, 3)]
+        );
+        assert_eq!(ExtentMap::default().logical_hole_ranges(0).unwrap(), Vec::<(u64, u64)>::new());
+        assert_eq!(
+            ExtentMap::default().logical_hole_ranges(4).unwrap(),
+            vec![(0, 4)]
+        );
+        assert!(matches!(
+            map.logical_hole_ranges(7),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn logical_range_allocation_checks_holes_bounds_and_overflow() {
+        let map = sample();
+        assert!(map.logical_range_is_allocated(0, 3, 7).unwrap());
+        assert!(!map.logical_range_is_allocated(2, 4, 7).unwrap());
+        assert!(map.logical_range_is_allocated(5, 2, 7).unwrap());
+        assert!(map.logical_range_is_allocated(7, 0, 7).unwrap());
+        assert!(matches!(
+            map.logical_range_is_allocated(6, 2, 7),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            map.logical_range_is_allocated(u64::MAX, 1, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
+    fn logical_range_allocation_does_not_hide_corruption_after_an_earlier_hole() {
+        let mut map = sample();
+        map.extents.push(Extent {
+            logical_start: 10,
+            physical_start: 300,
+            block_count: 1,
+        });
+        assert!(matches!(
+            map.logical_range_is_allocated(3, 1, 7),
+            Err(Error::Corrupt(_))
+        ));
+    }
+
+    #[test]
     fn validated_physical_ranges_coalesce_adjacent_runs_and_keep_gaps() {
         let map = ExtentMap::new(vec![
             Extent {
