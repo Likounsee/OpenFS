@@ -2473,7 +2473,7 @@ impl OpenedVolume {
                 "persistent tree removal requires a published inventory",
             ));
         };
-        self.remove_persistent_tree_from_namespace(device, namespace, object_id)
+        self.remove_persistent_tree_from_namespace(device, &namespace, object_id)
     }
 
     /// Remove a subtree from an already reconstructed namespace. The full ownership
