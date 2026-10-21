@@ -4483,13 +4483,41 @@ impl OpenedVolume {
                 )?;
                 device.read_blocks(physical, &mut contents)?;
                 contents[tail_remainder..].fill(0);
-                self.journal.commit(
+                if let Err(error) = self.journal.commit(
                     device,
                     &[RedoUpdate {
                         target_block: physical,
                         contents,
                     }],
-                )?;
+                ) {
+                    // The commit can fail after its COMMIT record reached storage.
+                    // Reopen before another mutation so redo recovery completes and
+                    // the journal engine is not reused in an uncertain state.
+                    let recovered = match open_volume(device) {
+                        Ok(volume) => volume,
+                        Err(_) => {
+                            return Err(Error::Corrupt(
+                                "sparse extension tail scrub failed and journal recovery failed; preserve the image",
+                            ));
+                        }
+                    };
+                    *self = recovered;
+                    let old_generation_is_active = matches!(
+                        self.reconstruct_discovered_namespace(device),
+                        Ok(Some((_, ref active)))
+                            if active.object(object_id).is_some_and(|item| {
+                                item.size == record.size
+                                    && item.generation == record.generation
+                                    && item.extent_root_block == record.extent_root_block
+                            })
+                    );
+                    if !old_generation_is_active {
+                        return Err(Error::Corrupt(
+                            "sparse extension tail scrub failed and the active file generation is uncertain",
+                        ));
+                    }
+                    return Err(error);
+                }
             }
         }
 
@@ -14659,15 +14687,13 @@ mod tests {
 
                 let sparse_len = truncated_len + block_len * 2 + 9;
 
-                // Fail the first journal write used to scrub the retained tail.
-                // The larger size must not become visible, and reopening must
-                // leave the old, truncated file readable before a retry.
-                device.fail_next(IoOperation::Write);
+                // Let BEGIN, UPDATE and COMMIT reach the journal, then fail the
+                // first home-block write. This exercises an uncertain committed
+                // transaction and verifies recovery on the same volume handle.
+                device.fail_after(IoOperation::Write, 3);
                 assert!(volume
                     .extend_persistent_file_sparse(&mut device, "/payload.bin", sparse_len as u64,)
                     .is_err());
-                drop(volume);
-                let mut volume = open_volume(&mut device).unwrap();
                 assert_eq!(
                     volume
                         .stat_persistent_path(&mut device, "/payload.bin")

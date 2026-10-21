@@ -50,6 +50,10 @@ pub struct FaultInjectingDevice<D> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FaultAction {
     Fail(IoOperation),
+    FailAfter {
+        operation: IoOperation,
+        remaining: usize,
+    },
     TornWrite { prefix_bytes: usize },
 }
 
@@ -66,6 +70,18 @@ impl<D> FaultInjectingDevice<D> {
         self.next_failure = Some(FaultAction::Fail(operation));
     }
 
+    /// Fail after this many successful occurrences of the selected operation.
+    ///
+    /// For example, `fail_after(IoOperation::Write, 3)` lets three writes pass
+    /// and fails the fourth. This allows recovery tests to target failures after
+    /// a journal COMMIT has been written, rather than only failing the first write.
+    pub fn fail_after(&mut self, operation: IoOperation, successful_matches: usize) {
+        self.next_failure = Some(FaultAction::FailAfter {
+            operation,
+            remaining: successful_matches,
+        });
+    }
+
     /// Make the next write persist only this prefix of the new bytes, then fail.
     ///
     /// The prefix must be shorter than the supplied write buffer. The unmodified
@@ -79,13 +95,32 @@ impl<D> FaultInjectingDevice<D> {
     }
 
     fn check_failure(&mut self, operation: IoOperation) -> Result<()> {
-        if self.next_failure == Some(FaultAction::Fail(operation)) {
-            self.next_failure = None;
-            return Err(Error::Io(std::io::Error::other(
-                "injected OpenFS block-device failure",
-            )));
+        match self.next_failure {
+            Some(FaultAction::Fail(expected)) if expected == operation => {
+                self.next_failure = None;
+                Err(Error::Io(std::io::Error::other(
+                    "injected OpenFS block-device failure",
+                )))
+            }
+            Some(FaultAction::FailAfter {
+                operation: expected,
+                remaining,
+            }) if expected == operation => {
+                if remaining == 0 {
+                    self.next_failure = None;
+                    Err(Error::Io(std::io::Error::other(
+                        "injected OpenFS block-device failure",
+                    )))
+                } else {
+                    self.next_failure = Some(FaultAction::FailAfter {
+                        operation: expected,
+                        remaining: remaining - 1,
+                    });
+                    Ok(())
+                }
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
