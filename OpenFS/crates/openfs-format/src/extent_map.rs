@@ -1758,4 +1758,76 @@ mod tests {
             Err(Error::InvalidInput(_))
         ));
     }
+
+    #[test]
+    fn batch_append_empty_input_is_a_noop() {
+        let mut map = sample();
+        let before = map.clone();
+
+        map.push_coalescing_batch(Vec::new()).unwrap();
+
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn batch_append_rejects_invalid_extents_atomically() {
+        let invalid_batches = [
+            vec![Extent {
+                logical_start: 9,
+                physical_start: 500,
+                block_count: 0,
+            }],
+            vec![Extent {
+                logical_start: u64::MAX,
+                physical_start: 500,
+                block_count: 1,
+            }],
+            vec![Extent {
+                logical_start: 9,
+                physical_start: u64::MAX,
+                block_count: 1,
+            }],
+        ];
+
+        for incoming in invalid_batches {
+            let mut map = sample();
+            let before = map.clone();
+
+            assert!(map.push_coalescing_batch(incoming).is_err());
+            assert_eq!(map, before);
+        }
+    }
+
+    #[test]
+    fn batch_append_keeps_logically_adjacent_runs_separate_when_physical_runs_are_not() {
+        let mut map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 100,
+            block_count: 2,
+        }])
+        .unwrap();
+
+        map.push_coalescing_batch(vec![Extent {
+            logical_start: 2,
+            physical_start: 500,
+            block_count: 3,
+        }])
+        .unwrap();
+
+        assert_eq!(
+            map.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 2,
+                    physical_start: 500,
+                    block_count: 3,
+                },
+            ]
+        );
+    }
 }
