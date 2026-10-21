@@ -1160,12 +1160,51 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_image, inspect_image, BLOCK_SIZE};
+    use super::{audit_image, create_image, inspect_image, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice};
-    use openfs_format::{format_volume, open_volume};
+    use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct FailWriteAt<D> {
+        inner: D,
+        writes: usize,
+        fail_at: usize,
+    }
+
+    impl<D: BlockDevice> BlockDevice for FailWriteAt<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_block::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_block::Result<()> {
+            let operation = self.writes;
+            self.writes += 1;
+            if operation == self.fail_at {
+                return Err(std::io::Error::other("injected home-write failure").into());
+            }
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_block::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl<D> FailWriteAt<D> {
+        fn into_inner(self) -> D {
+            self.inner
+        }
+    }
 
     fn unique_path(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -1183,6 +1222,45 @@ mod tests {
         assert!(super::ensure_audit_journal_clean(1, 0).is_err());
         assert!(super::ensure_audit_journal_clean(0, 1).is_err());
         assert!(super::ensure_audit_journal_clean(0, 0).is_ok());
+    }
+
+    #[test]
+    fn audit_refuses_pending_redo_without_modifying_the_image() {
+        let path = unique_path("audit-pending-redo");
+        let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+        let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        let region = volume.volume.layout.journal;
+        let target = volume.volume.layout.data_start;
+        drop(volume);
+
+        let mut journal = open_journal(&mut device, region).unwrap();
+        let redo = RedoUpdate {
+            target_block: target,
+            contents: vec![0xA5; BLOCK_SIZE as usize],
+        };
+        // BEGIN + two UPDATE chunks + COMMIT are writes 0..=3. Fail the
+        // following home-block write so the committed redo remains pending.
+        let mut failing = FailWriteAt {
+            inner: device,
+            writes: 0,
+            fail_at: 4,
+        };
+        assert!(journal.commit(&mut failing, &[redo]).is_err());
+        drop(journal);
+        let device = failing.into_inner();
+        drop(device);
+
+        let before = fs::read(&path).unwrap();
+        assert!(
+            audit_image(&path, BLOCK_SIZE).is_err(),
+            "audit must reject a committed transaction that still needs replay"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "refused audit must not replay redo or write a checkpoint"
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
