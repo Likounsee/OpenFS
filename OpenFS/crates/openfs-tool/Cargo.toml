@@ -13,5 +13,8 @@ path = "src/main.rs"
 openfs-block = { path = "../openfs-block" }
 openfs-format = { path = "../openfs-format" }
 
+[dev-dependencies]
+openfs-core = { path = "../openfs-core" }
+
 [lints]
 workspace = true

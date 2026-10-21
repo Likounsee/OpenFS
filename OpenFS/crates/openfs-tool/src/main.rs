@@ -1182,11 +1182,11 @@ mod tests {
             self.inner.block_count()
         }
 
-        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_block::Result<()> {
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
             self.inner.read_blocks(first_block, output)
         }
 
-        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_block::Result<()> {
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
             let operation = self.writes;
             self.writes += 1;
             if operation == self.fail_at {
@@ -1195,7 +1195,7 @@ mod tests {
             self.inner.write_blocks(first_block, input)
         }
 
-        fn flush(&mut self) -> openfs_block::Result<()> {
+        fn flush(&mut self) -> openfs_core::Result<()> {
             self.inner.flush()
         }
     }
