@@ -1193,6 +1193,69 @@ mod tests {
     }
 
     #[test]
+    fn range_removal_crosses_sparse_holes_and_preserves_unaffected_extents() {
+        let mut map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 5,
+                physical_start: 200,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 10,
+                physical_start: 300,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+
+        let removed = map.remove_range(2, 9).unwrap();
+        assert_eq!(
+            removed,
+            vec![
+                Extent {
+                    logical_start: 2,
+                    physical_start: 102,
+                    block_count: 1,
+                },
+                Extent {
+                    logical_start: 5,
+                    physical_start: 200,
+                    block_count: 3,
+                },
+                Extent {
+                    logical_start: 10,
+                    physical_start: 300,
+                    block_count: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            map.extents(),
+            &[
+                Extent {
+                    logical_start: 0,
+                    physical_start: 100,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 11,
+                    physical_start: 301,
+                    block_count: 1,
+                },
+            ]
+        );
+
+        let before = map.clone();
+        assert!(map.remove_range(20, 1).unwrap().is_empty());
+        assert_eq!(map, before);
+    }
+
+    #[test]
     fn truncate_preserves_prefix_and_returns_tail_extents() {
         let mut map = ExtentMap::new(vec![
             Extent {
