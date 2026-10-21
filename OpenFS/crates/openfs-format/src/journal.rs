@@ -205,6 +205,9 @@ pub fn plan_recovery(
     records: &[JournalRecord],
     checkpoint_sequence: u64,
 ) -> Result<Vec<CommittedTransaction>> {
+    if records.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut expected_sequence = checkpoint_sequence
         .checked_add(1)
         .ok_or(Error::ArithmeticOverflow)?;
@@ -219,9 +222,11 @@ pub fn plan_recovery(
                 "journal sequence is not contiguous after checkpoint",
             ));
         }
-        expected_sequence = expected_sequence
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        if index + 1 < records.len() {
+            expected_sequence = expected_sequence
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
 
         match record.kind {
             JournalRecordKind::Begin => {
@@ -594,6 +599,27 @@ mod tests {
             transaction_id,
             payload: payload.to_vec(),
         }
+    }
+
+    #[test]
+    fn recovery_plan_accepts_empty_journal_at_maximum_checkpoint() {
+        assert!(plan_recovery(&[], u64::MAX).unwrap().is_empty());
+    }
+
+    #[test]
+    fn recovery_plan_accepts_terminal_record_at_maximum_sequence() {
+        let records = vec![
+            record(JournalRecordKind::Begin, u64::MAX - 2, 9, b""),
+            record(JournalRecordKind::Update, u64::MAX - 1, 9, b"redo"),
+            record(JournalRecordKind::Commit, u64::MAX, 9, b""),
+        ];
+        assert_eq!(
+            plan_recovery(&records, u64::MAX - 3).unwrap(),
+            vec![CommittedTransaction {
+                transaction_id: 9,
+                updates: vec![b"redo".to_vec()],
+            }]
+        );
     }
 
     #[test]
