@@ -460,11 +460,15 @@ mod tests {
 
         assert!(matches!(
             ImageDevice::open(&image.0, 4096),
-            Err(Error::InvalidInput("volume is already open by another writer"))
+            Err(Error::InvalidInput(
+                "volume is already open by another writer"
+            ))
         ));
         assert!(matches!(
             RawDevice::open(&image.0, 4096, 2),
-            Err(Error::InvalidInput("volume is already open by another writer"))
+            Err(Error::InvalidInput(
+                "volume is already open by another writer"
+            ))
         ));
 
         drop(first);
@@ -482,7 +486,9 @@ mod tests {
 
         assert!(matches!(
             ImageDevice::create_truncate(&image.0, 4096, 1),
-            Err(Error::InvalidInput("volume is already open by another writer"))
+            Err(Error::InvalidInput(
+                "volume is already open by another writer"
+            ))
         ));
         assert_eq!(fs::metadata(&image.0).unwrap().len(), original_len);
         let mut actual = vec![0; 4096];
