@@ -60,6 +60,14 @@ fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8
     Ok(copy)
 }
 
+fn try_clone_string(value: &str, allocation_error: &'static str) -> Result<String> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(value.len())
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    copy.push_str(value);
+    Ok(copy)
+}
+
 fn try_clone_namespace_records(namespace: &Namespace) -> Result<Vec<MetadataRecord>> {
     let count = namespace.objects().count();
     let mut records = Vec::new();
@@ -1481,10 +1489,18 @@ impl OpenedVolume {
             ));
         };
         let parent_id = namespace.resolve_path(parent_path)?;
-        let expanded = objects
-            .iter()
-            .map(|(object_id, kind, name)| (parent_id, *object_id, *kind, name.clone()))
-            .collect::<Vec<_>>();
+        let mut expanded = Vec::new();
+        expanded.try_reserve_exact(objects.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while expanding persistent object batch")
+        })?;
+        for (object_id, kind, name) in objects {
+            expanded.push((
+                parent_id,
+                *object_id,
+                *kind,
+                try_clone_string(name, "allocation failed while copying persistent object name")?,
+            ));
+        }
         self.create_persistent_objects_in_namespace(device, namespace, &expanded)
     }
 
@@ -1498,13 +1514,16 @@ impl OpenedVolume {
         created.try_reserve_exact(objects.len()).map_err(|_| {
             Error::InvalidInput("allocation failed while staging persistent namespace data")
         })?;
-        let mut seen_ids = std::collections::BTreeSet::new();
-        for (_, object_id, _, _) in objects {
-            if !seen_ids.insert(*object_id) {
-                return Err(Error::InvalidInput(
-                    "an object ID may be created only once per batch",
-                ));
-            }
+        let mut seen_ids = Vec::new();
+        seen_ids.try_reserve_exact(objects.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while validating persistent object IDs")
+        })?;
+        seen_ids.extend(objects.iter().map(|(_, object_id, _, _)| *object_id));
+        seen_ids.sort_unstable();
+        if seen_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "an object ID may be created only once per batch",
+            ));
         }
         for (parent_id, object_id, kind, name) in objects {
             if !matches!(kind, crate::ObjectKind::File | crate::ObjectKind::Directory) {
@@ -5745,13 +5764,22 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let namespace = Namespace::from_records(descriptor.root_id, records, entries)?;
     let roots =
         namespace.validated_extent_root_inventory(layout.data_start, layout.backup_superblock)?;
-    let claimed: std::collections::BTreeSet<u64> = descriptor
+    let claimed_count = descriptor
         .metadata_blocks
+        .len()
+        .checked_add(descriptor.directory_blocks.len())
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut claimed = Vec::new();
+    claimed
+        .try_reserve_exact(claimed_count)
+        .map_err(|_| Error::InvalidInput("unable to allocate inventory ownership index"))?;
+    claimed.extend(descriptor.metadata_blocks.iter().copied());
+    claimed.extend(descriptor.directory_blocks.iter().copied());
+    claimed.sort_unstable();
+    if roots
         .iter()
-        .chain(descriptor.directory_blocks.iter())
-        .copied()
-        .collect();
-    if roots.iter().any(|root| claimed.contains(root)) {
+        .any(|root| claimed.binary_search(root).is_ok())
+    {
         return Err(Error::Corrupt(
             "extent-map root aliases a metadata or directory inventory block",
         ));
@@ -6192,7 +6220,11 @@ fn check_journal_read_only<D: BlockDevice>(
             ));
         }
     }
-    let records: Vec<JournalRecord> = newer.into_iter().map(|(_, record)| record).collect();
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(newer.len())
+        .map_err(|_| Error::InvalidInput("unable to allocate journal recovery records"))?;
+    records.extend(newer.into_iter().map(|(_, record)| record));
     let committed = plan_recovery(&records, checkpoint.checkpoint_sequence)?;
     Ok((
         checkpoint.generation,
