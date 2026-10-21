@@ -86,17 +86,40 @@ impl Volume {
         let mut bitmap =
             try_zeroed_block(block_size, "unable to allocate legacy allocation bitmap")?;
 
-        for block in self.layout.data_start..self.layout.backup_superblock {
-            let bitmap_index = block / bits_per_bitmap_block;
-            let local = block % bits_per_bitmap_block;
-            device.read_blocks(self.layout.bitmap_start + bitmap_index, &mut bitmap)?;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let mask = 1_u8 << (local % 8);
-            if bitmap[byte] & mask == 0 {
-                bitmap[byte] |= mask;
-                device.write_blocks(self.layout.bitmap_start + bitmap_index, &bitmap)?;
-                device.flush()?;
-                return Ok(block);
+        let first_bitmap = self.layout.data_start / bits_per_bitmap_block;
+        let last_data_block = self
+            .layout
+            .backup_superblock
+            .checked_sub(1)
+            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
+        let last_bitmap = last_data_block / bits_per_bitmap_block;
+        for bitmap_index in first_bitmap..=last_bitmap {
+            let base = bitmap_index
+                .checked_mul(bits_per_bitmap_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let start = self.layout.data_start.max(base);
+            let end = self.layout.backup_superblock.min(
+                base.checked_add(bits_per_bitmap_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            let bitmap_block = self
+                .layout
+                .bitmap_start
+                .checked_add(bitmap_index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            // Read each bitmap page once, rather than issuing one device read for every
+            // candidate data block in that page.
+            device.read_blocks(bitmap_block, &mut bitmap)?;
+            for block in start..end {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let mask = 1_u8 << (local % 8);
+                if bitmap[byte] & mask == 0 {
+                    bitmap[byte] |= mask;
+                    device.write_blocks(bitmap_block, &bitmap)?;
+                    device.flush()?;
+                    return Ok(block);
+                }
             }
         }
         Err(Error::InvalidInput("volume has no free data blocks"))
