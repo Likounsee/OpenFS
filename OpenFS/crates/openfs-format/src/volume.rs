@@ -43,6 +43,24 @@ fn try_copy_block_numbers(blocks: &[u64], allocation_error: &'static str) -> Res
     Ok(copy)
 }
 
+fn try_join_block_numbers(
+    first: &[u64],
+    second: &[u64],
+    allocation_error: &'static str,
+) -> Result<Vec<u64>> {
+    let count = first
+        .len()
+        .checked_add(second.len())
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut blocks = Vec::new();
+    blocks
+        .try_reserve_exact(count)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    blocks.extend_from_slice(first);
+    blocks.extend_from_slice(second);
+    Ok(blocks)
+}
+
 fn try_single_block_list(block: u64, allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut blocks = Vec::new();
     blocks
@@ -949,45 +967,63 @@ impl OpenedVolume {
         // Under the proposed inventory, only the old descriptor and old inventory blocks
         // omitted from the replacement may become orphaned. Reject unrelated orphans,
         // dangling references, and truncated diagnostics rather than guessing ownership.
-        let old_inventory_blocks = old_descriptor
-            .metadata_blocks
-            .iter()
-            .chain(old_descriptor.directory_blocks.iter())
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
-        let new_inventory_blocks = descriptor
-            .metadata_blocks
-            .iter()
-            .chain(descriptor.directory_blocks.iter())
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
-        let expected_releasable = old_inventory_blocks
-            .difference(&new_inventory_blocks)
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
+        let mut old_inventory_blocks = try_join_block_numbers(
+            &old_descriptor.metadata_blocks,
+            &old_descriptor.directory_blocks,
+            "allocation failed while checking previous inventory ownership",
+        )?;
+        old_inventory_blocks.sort_unstable();
+        old_inventory_blocks.dedup();
+        let mut new_inventory_blocks = try_join_block_numbers(
+            &descriptor.metadata_blocks,
+            &descriptor.directory_blocks,
+            "allocation failed while checking replacement inventory ownership",
+        )?;
+        new_inventory_blocks.sort_unstable();
+        new_inventory_blocks.dedup();
+
+        let mut expected_releasable = Vec::new();
+        expected_releasable
+            .try_reserve_exact(old_inventory_blocks.len())
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while checking releasable inventory blocks")
+            })?;
+        expected_releasable.extend(
+            old_inventory_blocks
+                .iter()
+                .copied()
+                .filter(|block| new_inventory_blocks.binary_search(block).is_err()),
+        );
+
         if report.dangling_reference_count() != 0
             || report.allocation.orphaned_allocations_truncated
             || report.allocation.orphaned_allocation_count
                 != report.allocation.orphaned_allocations.len() as u64
             || !report.allocation.orphaned_allocations.contains(&old_block)
-            || report
-                .allocation
-                .orphaned_allocations
-                .iter()
-                .any(|block| *block != old_block && !expected_releasable.contains(block))
+            || report.allocation.orphaned_allocations.iter().any(|block| {
+                *block != old_block && expected_releasable.binary_search(block).is_err()
+            })
         {
             return Err(Error::InvalidInput(
                 "replacement inventory has unresolved allocation ownership anomalies",
             ));
         }
-        let released_blocks = report
-            .allocation
-            .orphaned_allocations
-            .iter()
-            .copied()
-            .filter(|block| *block != old_block)
-            .collect::<std::collections::BTreeSet<_>>();
-
+        let mut released_blocks = Vec::new();
+        released_blocks
+            .try_reserve_exact(report.allocation.orphaned_allocations.len())
+            .map_err(|_| {
+                Error::InvalidInput("allocation failed while preparing released inventory blocks")
+            })?;
+        released_blocks.extend(
+            report
+                .allocation
+                .orphaned_allocations
+                .iter()
+                .copied()
+                .filter(|block| *block != old_block),
+        );
+        released_blocks.sort_unstable();
+        released_blocks.dedup();
         let layout = self.volume.layout;
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
