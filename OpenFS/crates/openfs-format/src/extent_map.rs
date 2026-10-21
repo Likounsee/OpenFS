@@ -1928,5 +1928,4 @@ mod tests {
 
         assert_eq!(ExtentMap::decode_block(&bytes).unwrap(), map);
     }
-
 }
