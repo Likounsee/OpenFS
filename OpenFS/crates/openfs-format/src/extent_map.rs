@@ -178,7 +178,7 @@ impl ExtentMap {
         for existing in &self.extents {
             let existing_end = existing.physical_end()?;
             if extent.physical_start < existing_end && existing.physical_start < physical_end {
-                return Err(Error::Corrupt("physical extents overlap"));
+                return Err(Error::InvalidInput("physical extents overlap"));
             }
         }
 
@@ -778,7 +778,7 @@ impl ExtentMap {
 
 fn validate_extent(extent: Extent) -> Result<()> {
     if extent.block_count == 0 {
-        return Err(Error::Corrupt("extent block count must be nonzero"));
+        return Err(Error::InvalidInput("extent block count must be nonzero"));
     }
     extent.logical_end()?;
     extent.physical_end()?;
@@ -2341,7 +2341,7 @@ mod tests {
         zero_length[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(
             ExtentMap::decode_block(&zero_length),
-            Err(Error::InvalidInput("extent block count must be nonzero"))
+            Err(Error::Corrupt("extent block count must be nonzero"))
         ));
 
         let mut overlapping = ExtentMap::new(vec![
@@ -2365,7 +2365,7 @@ mod tests {
         overlapping[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(
             ExtentMap::decode_block(&overlapping),
-            Err(Error::InvalidInput("physical extents overlap"))
+            Err(Error::Corrupt("physical extents overlap"))
         ));
     }
 
