@@ -492,4 +492,50 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn discovered_verification_returns_none_when_no_descriptor_exists() {
+        let path = image_path("no-descriptor");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+
+            assert!(
+                volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn discovered_verification_rejects_allocated_descriptor_with_bad_checksum() {
+        let path = image_path("bad-descriptor-checksum");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let descriptor_block = volume.allocate_block(&mut device).unwrap();
+            let descriptor = crate::PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let mut bytes = descriptor.encode(4096).unwrap();
+            bytes[40] ^= 1;
+            device.write_blocks(descriptor_block, &bytes).unwrap();
+
+            assert!(matches!(
+                volume.verify_discovered_persistent_inventory(&mut device),
+                Err(openfs_core::Error::Corrupt(
+                    "inventory descriptor checksum mismatch"
+                ))
+            ));
+        }
+        fs::remove_file(path).unwrap();
+    }
+
 }
