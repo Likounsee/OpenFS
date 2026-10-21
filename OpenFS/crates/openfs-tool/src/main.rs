@@ -1264,6 +1264,33 @@ mod tests {
     }
 
     #[test]
+    fn check_image_rejects_corrupt_journal_without_modifying_the_image() {
+        let path = unique_path("check-corrupt-journal");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            let ring_start = volume.volume.layout.journal.ring_start;
+            drop(volume);
+
+            let corrupt_record = vec![0xA5; BLOCK_SIZE as usize];
+            device.write_blocks(ring_start, &corrupt_record).unwrap();
+            device.flush().unwrap();
+        }
+
+        let before = fs::read(&path).unwrap();
+        assert!(
+            super::check_image(&path, BLOCK_SIZE).is_err(),
+            "check-image must reject malformed journal records"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "a failed read-only check must not alter a corrupt image"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn check_image_reports_pending_redo_without_modifying_the_image() {
         let path = unique_path("check-pending-redo");
         let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
