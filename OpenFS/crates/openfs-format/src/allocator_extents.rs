@@ -11,7 +11,7 @@ fn try_zeroed_buffer(len: usize, allocation_error: &'static str) -> Result<Vec<u
     let mut buffer = Vec::new();
     buffer
         .try_reserve_exact(len)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     buffer.resize(len, 0);
     Ok(buffer)
 }
@@ -19,7 +19,7 @@ fn try_zeroed_buffer(len: usize, allocation_error: &'static str) -> Result<Vec<u
 fn try_copy_blocks(blocks: &[u64], allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(blocks.len())
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     copy.extend_from_slice(blocks);
     Ok(copy)
 }
@@ -97,7 +97,7 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
     let mut contents = Vec::new();
     contents
         .try_reserve_exact(max_batch_bytes)
-        .map_err(|_| Error::InvalidInput("allocation failed while scrubbing descriptor blocks"))?;
+        .map_err(|_| Error::AllocationFailed("allocation failed while scrubbing descriptor blocks"))?;
     contents.resize(max_batch_bytes, 0);
     let mut cursor = 0_usize;
     while cursor < blocks.len() {
@@ -147,7 +147,7 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
     let mut contents = Vec::new();
     contents
         .try_reserve_exact(max_batch_bytes)
-        .map_err(|_| Error::InvalidInput("allocation failed while scrubbing descriptor blocks"))?;
+        .map_err(|_| Error::AllocationFailed("allocation failed while scrubbing descriptor blocks"))?;
     contents.resize(max_batch_bytes, 0);
     while next_block < end_block {
         let count = (end_block - next_block).min(BATCH_BLOCKS);
@@ -329,7 +329,7 @@ impl OpenedVolume {
         let mut selected = Vec::new();
         selected
             .try_reserve_exact(requested_count)
-            .map_err(|_| Error::InvalidInput("allocation failed while selecting free extents"))?;
+            .map_err(|_| Error::AllocationFailed("allocation failed while selecting free extents"))?;
         for index in first_bitmap..=last_bitmap {
             selected.clear();
             let base = index
@@ -1502,7 +1502,7 @@ impl OpenedVolume {
         let mut coalesced_ranges: Vec<(u64, u64)> = Vec::new();
         coalesced_ranges
             .try_reserve_exact(owned_ranges.len())
-            .map_err(|_| Error::InvalidInput("allocation failed while coalescing owned ranges"))?;
+            .map_err(|_| Error::AllocationFailed("allocation failed while coalescing owned ranges"))?;
         for (start, end) in owned_ranges {
             if let Some(last) = coalesced_ranges.last_mut() {
                 if last.1 == start {
