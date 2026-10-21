@@ -95,9 +95,9 @@ fn clear_stale_descriptor_magic<D: BlockDevice>(
         .checked_mul(block_bytes)
         .ok_or(Error::ArithmeticOverflow)?;
     let mut contents = Vec::new();
-    contents
-        .try_reserve_exact(max_batch_bytes)
-        .map_err(|_| Error::AllocationFailed("allocation failed while scrubbing descriptor blocks"))?;
+    contents.try_reserve_exact(max_batch_bytes).map_err(|_| {
+        Error::AllocationFailed("allocation failed while scrubbing descriptor blocks")
+    })?;
     contents.resize(max_batch_bytes, 0);
     let mut cursor = 0_usize;
     while cursor < blocks.len() {
@@ -145,9 +145,9 @@ fn clear_stale_descriptor_magic_range<D: BlockDevice>(
         .checked_mul(block_bytes)
         .ok_or(Error::ArithmeticOverflow)?;
     let mut contents = Vec::new();
-    contents
-        .try_reserve_exact(max_batch_bytes)
-        .map_err(|_| Error::AllocationFailed("allocation failed while scrubbing descriptor blocks"))?;
+    contents.try_reserve_exact(max_batch_bytes).map_err(|_| {
+        Error::AllocationFailed("allocation failed while scrubbing descriptor blocks")
+    })?;
     contents.resize(max_batch_bytes, 0);
     while next_block < end_block {
         let count = (end_block - next_block).min(BATCH_BLOCKS);
@@ -327,9 +327,9 @@ impl OpenedVolume {
             "allocation failed while preparing allocator bitmap",
         )?;
         let mut selected = Vec::new();
-        selected
-            .try_reserve_exact(requested_count)
-            .map_err(|_| Error::AllocationFailed("allocation failed while selecting free extents"))?;
+        selected.try_reserve_exact(requested_count).map_err(|_| {
+            Error::AllocationFailed("allocation failed while selecting free extents")
+        })?;
         for index in first_bitmap..=last_bitmap {
             selected.clear();
             let base = index
@@ -1502,7 +1502,9 @@ impl OpenedVolume {
         let mut coalesced_ranges: Vec<(u64, u64)> = Vec::new();
         coalesced_ranges
             .try_reserve_exact(owned_ranges.len())
-            .map_err(|_| Error::AllocationFailed("allocation failed while coalescing owned ranges"))?;
+            .map_err(|_| {
+                Error::AllocationFailed("allocation failed while coalescing owned ranges")
+            })?;
         for (start, end) in owned_ranges {
             if let Some(last) = coalesced_ranges.last_mut() {
                 if last.1 == start {
