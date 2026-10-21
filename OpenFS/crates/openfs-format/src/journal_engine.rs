@@ -388,9 +388,9 @@ impl PersistentJournal {
         // transaction is still prepared before the first persistent write, so a
         // validation/encoding error cannot leave a partial transaction on disk.
         let mut encoded = Vec::new();
-        encoded
-            .try_reserve_exact(required_records)
-            .map_err(|_| Error::AllocationFailed("unable to reserve encoded journal transaction"))?;
+        encoded.try_reserve_exact(required_records).map_err(|_| {
+            Error::AllocationFailed("unable to reserve encoded journal transaction")
+        })?;
         encoded.push(
             JournalRecord {
                 kind: JournalRecordKind::Begin,
@@ -938,9 +938,9 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
                 std::mem::take(&mut current)
             } else {
                 let mut replacement = Vec::new();
-                replacement
-                    .try_reserve_exact(block_size)
-                    .map_err(|_| Error::AllocationFailed("unable to reserve next redo image buffer"))?;
+                replacement.try_reserve_exact(block_size).map_err(|_| {
+                    Error::AllocationFailed("unable to reserve next redo image buffer")
+                })?;
                 std::mem::replace(&mut current, replacement)
             };
             updates.push(RedoUpdate {
