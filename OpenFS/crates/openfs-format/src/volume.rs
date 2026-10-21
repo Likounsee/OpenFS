@@ -1795,14 +1795,19 @@ impl OpenedVolume {
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
-                        reclaim_blocks.push(
-                            extent
-                                .physical_start
-                                .checked_add(delta)
-                                .ok_or(Error::ArithmeticOverflow)?,
-                        );
+                        let block = extent
+                            .physical_start
+                            .checked_add(delta)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        reclaim_blocks.try_reserve(1).map_err(|_| {
+                            Error::InvalidInput("allocation failed while staging reclaimed file blocks")
+                        })?;
+                        reclaim_blocks.push(block);
                     }
                 }
+                reclaim_blocks.try_reserve(1).map_err(|_| {
+                    Error::InvalidInput("allocation failed while staging reclaimed extent roots")
+                })?;
                 reclaim_blocks.push(root);
             }
         }
@@ -2333,19 +2338,27 @@ impl OpenedVolume {
             if record.id != namespace.root_id() {
                 let parent = ObjectId::new(record.parent_id)
                     .map_err(|_| Error::Corrupt("subtree object has an invalid parent"))?;
-                children_by_parent
-                    .entry(parent)
-                    .or_default()
-                    .push(record.id);
+                let children = children_by_parent.entry(parent).or_default();
+                children.try_reserve(1).map_err(|_| {
+                    Error::InvalidInput("allocation failed while indexing namespace children")
+                })?;
+                children.push(record.id);
             }
         }
         let mut removed_ids = std::collections::BTreeSet::new();
-        let mut pending = vec![object_id];
+        let mut pending = Vec::new();
+        pending
+            .try_reserve_exact(1)
+            .map_err(|_| Error::InvalidInput("allocation failed while staging namespace subtree traversal"))?;
+        pending.push(object_id);
         while let Some(current) = pending.pop() {
             if !removed_ids.insert(current) {
                 continue;
             }
             if let Some(children) = children_by_parent.get(&current) {
+                pending.try_reserve(children.len()).map_err(|_| {
+                    Error::InvalidInput("allocation failed while expanding namespace subtree")
+                })?;
                 pending.extend(children.iter().copied());
             }
         }
@@ -2381,16 +2394,34 @@ impl OpenedVolume {
             }
         }
 
-        let records = namespace
+        let mut records = Vec::new();
+        let remaining_record_count = namespace
             .objects()
             .filter(|record| !removed_ids.contains(&record.id))
-            .cloned()
-            .collect::<Vec<_>>();
-        let entries = namespace
+            .count();
+        records.try_reserve_exact(remaining_record_count).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging remaining namespace objects")
+        })?;
+        records.extend(
+            namespace
+                .objects()
+                .filter(|record| !removed_ids.contains(&record.id))
+                .cloned(),
+        );
+        let mut entries = Vec::new();
+        let remaining_entry_count = namespace
             .entries()
             .filter(|entry| !removed_ids.contains(&ObjectId(entry.object_id)))
-            .cloned()
-            .collect::<Vec<_>>();
+            .count();
+        entries.try_reserve_exact(remaining_entry_count).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging remaining namespace entries")
+        })?;
+        entries.extend(
+            namespace
+                .entries()
+                .filter(|entry| !removed_ids.contains(&ObjectId(entry.object_id)))
+                .cloned(),
+        );
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
         let publication = self.replace_persistent_namespace_inventory(device, &updated_namespace);
         if let Err(error) = publication {
