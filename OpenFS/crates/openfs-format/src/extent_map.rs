@@ -1965,5 +1965,4 @@ mod tests {
             Err(Error::ArithmeticOverflow)
         ));
     }
-
 }
