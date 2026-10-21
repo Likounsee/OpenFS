@@ -266,14 +266,18 @@ impl Namespace {
             Some(cursor) => Excluded((parent_id, cursor.to_owned())),
             None => Included((parent_id, String::new())),
         };
-        Ok(self
+        let mut page = Vec::new();
+        page.try_reserve_exact(limit.min(self.names.len()))
+            .map_err(|_| Error::InvalidInput("allocation failed while listing directory entries"))?;
+        for (_, entry) in self
             .names
             .range((lower_name, Unbounded))
             .take_while(|((candidate_parent, _), _)| *candidate_parent == parent_id)
-            .map(|(_, entry)| entry)
             .take(limit)
-            .cloned()
-            .collect())
+        {
+            page.push(entry.clone());
+        }
+        Ok(page)
     }
 
     /// Add a new object and its parent/name edge after validating both records.
@@ -921,7 +925,12 @@ impl Namespace {
                 "extent-root ownership index is inconsistent",
             ));
         }
-        Ok(self.extent_roots.keys().copied().collect())
+        let mut roots = Vec::new();
+        roots.try_reserve_exact(self.extent_roots.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while collecting extent-root inventory")
+        })?;
+        roots.extend(self.extent_roots.keys().copied());
+        Ok(roots)
     }
 
     /// Count objects that own an extent-map root after validating metadata and its reverse index.
