@@ -993,7 +993,7 @@ impl OpenedVolume {
         expected_releasable
             .try_reserve_exact(old_inventory_blocks.len())
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while checking releasable inventory blocks")
+                Error::AllocationFailed("allocation failed while checking releasable inventory blocks")
             })?;
         expected_releasable.extend(
             old_inventory_blocks
@@ -1019,7 +1019,7 @@ impl OpenedVolume {
         released_blocks
             .try_reserve_exact(report.allocation.orphaned_allocations.len())
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while preparing released inventory blocks")
+                Error::AllocationFailed("allocation failed while preparing released inventory blocks")
             })?;
         released_blocks.extend(
             report
@@ -1223,7 +1223,7 @@ impl OpenedVolume {
         pending_blocks
             .try_reserve_exact(INVENTORY_DISCOVERY_BATCH_BLOCKS)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while preparing inventory discovery batch")
+                Error::AllocationFailed("allocation failed while preparing inventory discovery batch")
             })?;
         // Descriptor references often share bitmap pages. Keep only the pages actually
         // needed to validate a candidate descriptor's inventory references.
@@ -2377,7 +2377,7 @@ impl OpenedVolume {
                 reclaim_blocks
                     .try_reserve_exact(reclaim_capacity)
                     .map_err(|_| {
-                        Error::InvalidInput("allocation failed while staging reclaimed file blocks")
+                        Error::AllocationFailed("allocation failed while staging reclaimed file blocks")
                     })?;
                 for extent in map.extents() {
                     for delta in 0..extent.block_count {
@@ -2553,7 +2553,7 @@ impl OpenedVolume {
         reclaim_blocks
             .try_reserve_exact(reclaim_capacity)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging reclaimed subtree blocks")
+                Error::AllocationFailed("allocation failed while staging reclaimed subtree blocks")
             })?;
         for id in &removed_ids {
             let record = namespace
@@ -2592,7 +2592,7 @@ impl OpenedVolume {
         records
             .try_reserve_exact(remaining_record_count)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging remaining namespace objects")
+                Error::AllocationFailed("allocation failed while staging remaining namespace objects")
             })?;
         records.extend(
             namespace
@@ -2608,7 +2608,7 @@ impl OpenedVolume {
         entries
             .try_reserve_exact(remaining_entry_count)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging remaining namespace entries")
+                Error::AllocationFailed("allocation failed while staging remaining namespace entries")
             })?;
         entries.extend(
             namespace
@@ -2832,7 +2832,7 @@ impl OpenedVolume {
         metadata_bytes
             .try_reserve_exact(metadata_bytes_needed)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while serializing namespace metadata")
+                Error::AllocationFailed("allocation failed while serializing namespace metadata")
             })?;
         for record in namespace.objects() {
             metadata_bytes.extend_from_slice(&record.encode()?);
@@ -2841,7 +2841,7 @@ impl OpenedVolume {
         directory_bytes
             .try_reserve_exact(directory_bytes_needed)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while serializing namespace entries")
+                Error::AllocationFailed("allocation failed while serializing namespace entries")
             })?;
         for entry in namespace.entries() {
             directory_bytes.extend_from_slice(&entry.encode()?);
@@ -2867,7 +2867,7 @@ impl OpenedVolume {
         staged_blocks
             .try_reserve_exact(descriptor_capacity)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while tracking staged inventory blocks")
+                Error::AllocationFailed("allocation failed while tracking staged inventory blocks")
             })?;
 
         let metadata_blocks = self.stage_packed_inventory(device, &metadata_bytes)?;
@@ -4097,7 +4097,7 @@ impl OpenedVolume {
         reclaim_blocks
             .try_reserve_exact(reclaim_capacity)
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging truncated file blocks")
+                Error::AllocationFailed("allocation failed while staging truncated file blocks")
             })?;
         for extent in removed_extents {
             for delta in 0..extent.block_count {
@@ -4646,7 +4646,7 @@ impl OpenedVolume {
             reclaim_blocks
                 .try_reserve_exact(reclaim_capacity)
                 .map_err(|_| {
-                    Error::InvalidInput("allocation failed while tracking replaced file blocks")
+                    Error::AllocationFailed("allocation failed while tracking replaced file blocks")
                 })?;
             for extent in old_map.extents() {
                 for delta in 0..extent.block_count {
@@ -5837,7 +5837,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 usize::try_from(batch_end - batch_start).map_err(|_| Error::ArithmeticOverflow)?,
             )
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while scanning inventory blocks")
+                Error::AllocationFailed("allocation failed while scanning inventory blocks")
             })?;
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
             let bitmap_block = layout
