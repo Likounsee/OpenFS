@@ -248,9 +248,9 @@ impl AllocationOwnershipReport {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         if self.orphaned_allocations.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
-            self.orphaned_allocations
-                .try_reserve(1)
-                .map_err(|_| Error::AllocationFailed("unable to reserve orphan diagnostic sample"))?;
+            self.orphaned_allocations.try_reserve(1).map_err(|_| {
+                Error::AllocationFailed("unable to reserve orphan diagnostic sample")
+            })?;
             self.orphaned_allocations.push(block);
         } else {
             self.orphaned_allocations_truncated = true;
@@ -264,9 +264,9 @@ impl AllocationOwnershipReport {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         if self.dangling_references.len() < OWNERSHIP_DIAGNOSTIC_SAMPLE_LIMIT {
-            self.dangling_references
-                .try_reserve(1)
-                .map_err(|_| Error::AllocationFailed("unable to reserve dangling-reference diagnostic sample"))?;
+            self.dangling_references.try_reserve(1).map_err(|_| {
+                Error::AllocationFailed("unable to reserve dangling-reference diagnostic sample")
+            })?;
             self.dangling_references.push(block);
         } else {
             self.dangling_references_truncated = true;
@@ -1052,9 +1052,9 @@ impl OpenedVolume {
                 }
             }
             if let Some(extent) = current {
-                extents.try_reserve(1).map_err(|_| {
-                    Error::AllocationFailed("unable to grow free-extent inventory")
-                })?;
+                extents
+                    .try_reserve(1)
+                    .map_err(|_| Error::AllocationFailed("unable to grow free-extent inventory"))?;
                 extents.push(extent);
             }
         }
@@ -1465,8 +1465,11 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut bits = *bitmap_byte & lower_mask & upper_mask;
-                allocated.try_reserve(bits.count_ones() as usize)
-                    .map_err(|_| Error::AllocationFailed("unable to grow allocated-block inventory"))?;
+                allocated
+                    .try_reserve(bits.count_ones() as usize)
+                    .map_err(|_| {
+                        Error::AllocationFailed("unable to grow allocated-block inventory")
+                    })?;
                 while bits != 0 {
                     let bit = u64::from(bits.trailing_zeros());
                     allocated.push(
