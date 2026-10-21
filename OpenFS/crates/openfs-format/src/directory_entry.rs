@@ -374,4 +374,32 @@ mod tests {
     fn packed_directory_inventory_accepts_empty_inventory() {
         assert_eq!(super::decode_directory_entries(&[]).unwrap(), Vec::new());
     }
+
+    #[test]
+    fn directory_entry_decoder_rejects_nonzero_name_padding_with_valid_checksum() {
+        let mut bytes = sample().encode().unwrap();
+        let name_len = bytes[11] as usize;
+        assert!(name_len < 64);
+        bytes[64 + name_len] = 0x41;
+        let crc = crate::crc32c(&bytes[..124]);
+        bytes[124..128].copy_from_slice(&crc.to_le_bytes());
+
+        assert!(matches!(
+            DirectoryEntry::decode(&bytes),
+            Err(Error::Corrupt("directory-entry name padding must be zero"))
+        ));
+    }
+
+    #[test]
+    fn directory_entry_decoder_rejects_nonzero_reserved_bytes_with_valid_checksum() {
+        let mut bytes = sample().encode().unwrap();
+        bytes[12] = 1;
+        let crc = crate::crc32c(&bytes[..124]);
+        bytes[124..128].copy_from_slice(&crc.to_le_bytes());
+
+        assert!(matches!(
+            DirectoryEntry::decode(&bytes),
+            Err(Error::Corrupt("directory-entry reserved bytes must be zero"))
+        ));
+    }
 }

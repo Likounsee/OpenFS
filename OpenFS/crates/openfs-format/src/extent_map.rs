@@ -2388,4 +2388,43 @@ mod tests {
         ));
         assert_eq!(map.logical_hole_ranges(6).unwrap(), vec![(0, 4)]);
     }
+
+    #[test]
+    fn decoded_extent_map_rejects_nonzero_unused_padding_with_valid_checksum() {
+        let mut bytes = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 10,
+            block_count: 1,
+        }])
+        .unwrap()
+        .encode_block(64)
+        .unwrap();
+        let used_end = HEADER_SIZE + EXTENT_SIZE;
+        let checksum_offset = bytes.len() - CHECKSUM_SIZE;
+        bytes[used_end] = 1;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt("extent-map padding must be zero"))
+        ));
+    }
+
+    #[test]
+    fn decoded_extent_map_rejects_extent_count_over_capacity_with_valid_checksum() {
+        let mut bytes = ExtentMap::new(Vec::new())
+            .unwrap()
+            .encode_block(40)
+            .unwrap();
+        bytes[12..16].copy_from_slice(&1_u32.to_le_bytes());
+        let checksum_offset = bytes.len() - CHECKSUM_SIZE;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt("extent count exceeds block capacity"))
+        ));
+    }
 }
