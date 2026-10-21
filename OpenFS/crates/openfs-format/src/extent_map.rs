@@ -2065,4 +2065,103 @@ mod tests {
         assert_eq!(map.physical_block(7), None);
         assert_eq!(map.physical_block(u64::MAX), None);
     }
+    #[test]
+    fn middle_insertion_coalesces_both_adjacent_runs() {
+        let mut map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 104,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+
+        map.insert_coalescing(Extent {
+            logical_start: 2,
+            physical_start: 102,
+            block_count: 2,
+        })
+        .unwrap();
+
+        assert_eq!(
+            map.extents(),
+            &[Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 6,
+            }]
+        );
+    }
+
+    #[test]
+    fn physical_bounds_include_data_start_and_exclude_volume_end() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 10,
+            block_count: 2,
+        }])
+        .unwrap();
+
+        assert!(map.validate_physical_bounds(10, 12).is_ok());
+        assert!(map.validate_physical_bounds(9, 12).is_ok());
+        assert!(matches!(
+            map.validate_physical_bounds(11, 12),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(10, 11),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+        assert!(matches!(
+            map.validate_physical_bounds(12, 12),
+            Err(Error::InvalidInput("data region bounds are invalid"))
+        ));
+    }
+
+    #[test]
+    fn file_size_validation_rounds_up_partial_final_blocks() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 3,
+            physical_start: 30,
+            block_count: 1,
+        }])
+        .unwrap();
+
+        assert!(map.validate_file_size(4 * 4096, 4096).is_ok());
+        assert!(map.validate_file_size(4 * 4096 - 1, 4096).is_ok());
+        assert!(matches!(
+            map.validate_file_size(3 * 4096, 4096),
+            Err(Error::Corrupt("extent exceeds file byte length"))
+        ));
+        assert!(matches!(
+            map.validate_file_size(u64::MAX, 1),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
+    fn encoded_extent_map_rejects_blocks_that_cannot_fit_the_header_and_extent() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 10,
+            block_count: 1,
+        }])
+        .unwrap();
+
+        assert!(matches!(
+            map.encode_block(19),
+            Err(Error::InvalidInput("extent map does not fit in one block"))
+        ));
+        assert!(matches!(
+            map.encode_block(43),
+            Err(Error::InvalidInput("extent map does not fit in one block"))
+        ));
+        assert!(map.encode_block(44).is_ok());
+    }
+
 }
