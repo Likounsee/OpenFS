@@ -5,7 +5,44 @@
 
 use crate::{crc32c, ObjectId};
 use openfs_block::BlockDevice;
-use openfs_core::{Error, Result};
+use openfs_core::{check_block_range, Error, Result};
+
+fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
+    bytes.resize(length, 0);
+    Ok(bytes)
+}
+
+fn try_copy_bytes(input: &[u8], allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(input.len())
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
+    bytes.extend_from_slice(input);
+    Ok(bytes)
+}
+
+fn validate_descriptor_io<D: BlockDevice>(
+    device: &D,
+    start_block: u64,
+    end_block: u64,
+    block_size: u32,
+) -> Result<usize> {
+    if !(4096..=65_536).contains(&block_size) || !block_size.is_power_of_two() {
+        return Err(Error::InvalidInput("unsupported inventory descriptor block size"));
+    }
+    if device.block_size() != block_size {
+        return Err(Error::InvalidInput("descriptor block size disagrees with device"));
+    }
+    if start_block >= end_block {
+        return Err(Error::InvalidInput("descriptor guard range must be non-empty"));
+    }
+    check_block_range(start_block, end_block - start_block, device.block_count())?;
+    usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)
+}
 
 /// Refuse to release the block that currently stores the persistent inventory locator.
 ///
@@ -16,7 +53,13 @@ pub(crate) fn reject_freeing_inventory_descriptor<D: BlockDevice>(
     block: u64,
     block_size: u32,
 ) -> Result<()> {
-    let mut contents = vec![0_u8; block_size as usize];
+    let block_size_usize = validate_descriptor_io(
+        device,
+        block,
+        block.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+        block_size,
+    )?;
+    let mut contents = try_zeroed_vec(block_size_usize, "unable to allocate descriptor guard buffer")?;
     device.read_blocks(block, &mut contents)?;
     if contents.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
         return Err(Error::InvalidInput(
@@ -37,7 +80,7 @@ pub(crate) fn reject_freeing_inventory_descriptor_range<D: BlockDevice>(
     block_size: u32,
 ) -> Result<()> {
     const BATCH_BLOCKS: u64 = 64;
-    let block_size_usize = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    let block_size_usize = validate_descriptor_io(device, start_block, end_block, block_size)?;
     let mut next_block = start_block;
     while next_block < end_block {
         let count = (end_block - next_block).min(BATCH_BLOCKS);
@@ -45,7 +88,7 @@ pub(crate) fn reject_freeing_inventory_descriptor_range<D: BlockDevice>(
             .map_err(|_| Error::ArithmeticOverflow)?
             .checked_mul(block_size_usize)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut contents = vec![0_u8; byte_count];
+        let mut contents = try_zeroed_vec(byte_count, "unable to allocate descriptor range buffer")?;
         device.read_blocks(next_block, &mut contents)?;
         for chunk in contents.chunks_exact(block_size_usize) {
             if chunk.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
@@ -81,7 +124,7 @@ impl PersistentInventoryDescriptor {
     pub fn encode(&self, block_size: usize) -> Result<Vec<u8>> {
         validate_shape(self, block_size)?;
         ObjectId::new(self.root_id.0)?;
-        let mut bytes = vec![0_u8; block_size];
+        let mut bytes = try_zeroed_vec(block_size, "unable to allocate encoded inventory descriptor")?;
         bytes[..8].copy_from_slice(INVENTORY_DESCRIPTOR_MAGIC);
         bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
         bytes[10..12].copy_from_slice(&(HEADER_SIZE as u16).to_le_bytes());
@@ -142,7 +185,7 @@ impl PersistentInventoryDescriptor {
                 .try_into()
                 .unwrap(),
         );
-        let mut checksum_input = bytes.to_vec();
+        let mut checksum_input = try_copy_bytes(bytes, "unable to allocate descriptor checksum buffer")?;
         checksum_input[CHECKSUM_OFFSET..CHECKSUM_OFFSET + 4].fill(0);
         if stored != crc32c(&checksum_input) {
             return Err(Error::Corrupt("inventory descriptor CRC32C mismatch"));
@@ -180,14 +223,20 @@ impl PersistentInventoryDescriptor {
             return Err(Error::Corrupt("inventory descriptor padding must be zero"));
         }
         let mut cursor = HEADER_SIZE;
-        let mut metadata_blocks = Vec::with_capacity(metadata_blocks_len);
+        let mut metadata_blocks = Vec::new();
+        metadata_blocks
+            .try_reserve_exact(metadata_blocks_len)
+            .map_err(|_| Error::AllocationFailed("unable to allocate descriptor metadata block list"))?;
         for _ in 0..metadata_blocks_len {
             metadata_blocks.push(u64::from_le_bytes(
                 bytes[cursor..cursor + 8].try_into().unwrap(),
             ));
             cursor += 8;
         }
-        let mut directory_blocks = Vec::with_capacity(directory_blocks_len);
+        let mut directory_blocks = Vec::new();
+        directory_blocks
+            .try_reserve_exact(directory_blocks_len)
+            .map_err(|_| Error::AllocationFailed("unable to allocate descriptor directory block list"))?;
         for _ in 0..directory_blocks_len {
             directory_blocks.push(u64::from_le_bytes(
                 bytes[cursor..cursor + 8].try_into().unwrap(),
