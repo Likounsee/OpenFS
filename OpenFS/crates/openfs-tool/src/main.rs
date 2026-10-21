@@ -1264,6 +1264,42 @@ mod tests {
     }
 
     #[test]
+    fn check_image_reports_pending_redo_without_modifying_the_image() {
+        let path = unique_path("check-pending-redo");
+        let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+        let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        let region = volume.volume.layout.journal;
+        let target = volume.volume.layout.data_start;
+        drop(volume);
+
+        let mut journal = open_journal(&mut device, region).unwrap();
+        let redo = RedoUpdate {
+            target_block: target,
+            contents: vec![0x5A; BLOCK_SIZE as usize],
+        };
+        let mut failing = FailWriteAt {
+            inner: device,
+            writes: 0,
+            fail_at: 4,
+        };
+        assert!(journal.commit(&mut failing, &[redo]).is_err());
+        drop(journal);
+        drop(failing.into_inner());
+
+        let before = fs::read(&path).unwrap();
+        assert!(
+            super::check_image(&path, BLOCK_SIZE).is_ok(),
+            "read-only check should report a pending transaction without recovering it"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "check-image must not replay redo or publish a checkpoint"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn audit_of_clean_volume_without_inventory_does_not_modify_image() {
         let path = unique_path("audit-no-inventory");
         {

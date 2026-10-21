@@ -2,8 +2,8 @@
 
 Last source audit: 2026-10-22  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: f9dd94366b507e1bd155d9498c92c189ae3a88dd  
-Current code HEAD before this roadmap revision: f9dd94366b507e1bd155d9498c92c189ae3a88dd  
+Code baseline audited: f7d7bdaf5d06095fd8cd448cf255ecc6eca6b0fc  
+Current code HEAD before this roadmap revision: f7d7bdaf5d06095fd8cd448cf255ecc6eca6b0fc  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: re-audit of the filesystem source tree and inventory; follow-up integration tests for the explicit journal-recovery gate. Earlier descriptor-range and superblock-fixture work is historical; current CI is tracked per exact commit below.
 
