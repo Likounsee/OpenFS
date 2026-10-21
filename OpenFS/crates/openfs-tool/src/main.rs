@@ -310,12 +310,35 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+/// Reject audits that would need to open a volume with pending journal records.
+///
+/// `open_volume` is a recovery-capable writable path. Keep the audit from silently
+/// replaying a pending transaction: users must invoke `recover-image` explicitly.
+fn ensure_audit_journal_clean(
+    pending_journal_records: u64,
+    recoverable_transactions: u64,
+) -> Result<(), Box<dyn StdError>> {
+    if pending_journal_records > 0 || recoverable_transactions > 0 {
+        return Err(
+            "audit-image refuses to open a volume with pending journal records; back up the image and run recover-image explicitly"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 /// Verify persistent namespace structure and reconcile bitmap allocation ownership.
 ///
-/// This command opens the normal volume path, so pending committed journal transactions
-/// may be replayed before the audit. Use check-image for a strictly read-only check.
+/// A read-only journal preflight runs before the recovery-capable volume open. If the
+/// journal is not clean, this command refuses to continue; use check-image for read-only
+/// inspection and recover-image when journal replay is explicitly intended.
 fn audit_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
+    let preflight = check_volume(&mut device)?;
+    ensure_audit_journal_clean(
+        preflight.pending_journal_records,
+        preflight.recoverable_transactions,
+    )?;
     let volume = open_volume(&mut device)?;
     let Some(report) = volume.verify_discovered_persistent_inventory(&mut device)? else {
         return Err("no discoverable persistent namespace inventory".into());
@@ -1153,6 +1176,13 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn audit_refuses_pending_journal_state_before_recovery_capable_open() {
+        assert!(super::ensure_audit_journal_clean(1, 0).is_err());
+        assert!(super::ensure_audit_journal_clean(0, 1).is_err());
+        assert!(super::ensure_audit_journal_clean(0, 0).is_ok());
     }
 
     #[test]
