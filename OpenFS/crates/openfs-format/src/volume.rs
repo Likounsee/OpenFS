@@ -204,7 +204,6 @@ impl VolumeLayout {
     pub fn data_blocks(&self) -> u64 {
         self.backup_superblock - self.data_start
     }
-
 }
 
 /// Validated volume geometry and superblock fields.
