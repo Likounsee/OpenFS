@@ -30,7 +30,7 @@ fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result
     let mut block = Vec::new();
     block
         .try_reserve_exact(block_size)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     block.resize(block_size, 0);
     Ok(block)
 }
@@ -38,7 +38,7 @@ fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result
 fn try_copy_block_numbers(blocks: &[u64], allocation_error: &'static str) -> Result<Vec<u64>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(blocks.len())
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     copy.extend_from_slice(blocks);
     Ok(copy)
 }
@@ -55,7 +55,7 @@ fn try_join_block_numbers(
     let mut blocks = Vec::new();
     blocks
         .try_reserve_exact(count)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     blocks.extend_from_slice(first);
     blocks.extend_from_slice(second);
     Ok(blocks)
@@ -65,7 +65,7 @@ fn try_single_block_list(block: u64, allocation_error: &'static str) -> Result<V
     let mut blocks = Vec::new();
     blocks
         .try_reserve_exact(1)
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     blocks.push(block);
     Ok(blocks)
 }
@@ -73,7 +73,7 @@ fn try_single_block_list(block: u64, allocation_error: &'static str) -> Result<V
 fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(bytes.len())
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     copy.extend_from_slice(bytes);
     Ok(copy)
 }
@@ -81,7 +81,7 @@ fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8
 fn try_clone_string(value: &str, allocation_error: &'static str) -> Result<String> {
     let mut copy = String::new();
     copy.try_reserve_exact(value.len())
-        .map_err(|_| Error::InvalidInput(allocation_error))?;
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
     copy.push_str(value);
     Ok(copy)
 }
@@ -91,7 +91,7 @@ fn try_clone_namespace_records(namespace: &Namespace) -> Result<Vec<MetadataReco
     let mut records = Vec::new();
     records
         .try_reserve_exact(count)
-        .map_err(|_| Error::InvalidInput("unable to allocate namespace metadata staging"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate namespace metadata staging"))?;
     records.extend(namespace.objects().cloned());
     Ok(records)
 }
@@ -101,7 +101,7 @@ fn try_clone_namespace_entries(namespace: &Namespace) -> Result<Vec<DirectoryEnt
     let mut entries = Vec::new();
     entries
         .try_reserve_exact(count)
-        .map_err(|_| Error::InvalidInput("unable to allocate namespace directory staging"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate namespace directory staging"))?;
     entries.extend(namespace.entries().cloned());
     Ok(entries)
 }
@@ -579,7 +579,7 @@ impl OpenedVolume {
         let mut descriptor_blocks = Vec::new();
         descriptor_blocks
             .try_reserve_exact(descriptor_block_count)
-            .map_err(|_| Error::InvalidInput("unable to allocate inventory ownership index"))?;
+            .map_err(|_| Error::AllocationFailed("unable to allocate inventory ownership index"))?;
         descriptor_blocks.extend(descriptor.metadata_blocks.iter().copied());
         descriptor_blocks.extend(descriptor.directory_blocks.iter().copied());
         descriptor_blocks.sort_unstable();
@@ -603,7 +603,7 @@ impl OpenedVolume {
         let mut extent_roots = Vec::new();
         extent_roots
             .try_reserve_exact(namespace.object_count())
-            .map_err(|_| Error::InvalidInput("unable to allocate extent-root ownership index"))?;
+            .map_err(|_| Error::AllocationFailed("unable to allocate extent-root ownership index"))?;
         extent_roots.extend(
             namespace
                 .objects()
@@ -619,7 +619,7 @@ impl OpenedVolume {
         let mut owned_ranges = Vec::new();
         owned_ranges
             .try_reserve_exact(range_count)
-            .map_err(|_| Error::InvalidInput("unable to allocate file ownership ranges"))?;
+            .map_err(|_| Error::AllocationFailed("unable to allocate file ownership ranges"))?;
         for map in extent_maps.values() {
             for extent in map.extents() {
                 let end = extent
@@ -2983,7 +2983,7 @@ impl OpenedVolume {
         let mut blocks = Vec::new();
         blocks
             .try_reserve_exact(block_count)
-            .map_err(|_| Error::InvalidInput("allocation failed while staging inventory blocks"))?;
+            .map_err(|_| Error::AllocationFailed("allocation failed while staging inventory blocks"))?;
         // Inventory streams may span many blocks. Reuse one zero-padded block buffer
         // instead of allocating a fresh Vec for every chunk; clear it before each copy
         // so a short final chunk cannot expose bytes left by the preceding chunk.
@@ -4680,7 +4680,7 @@ impl OpenedVolume {
         let mut staged_extents = Vec::new();
         staged_extents
             .try_reserve_exact(block_count)
-            .map_err(|_| Error::InvalidInput("allocation failed while staging file extent map"))?;
+            .map_err(|_| Error::AllocationFailed("allocation failed while staging file extent map"))?;
         let staged = (|| -> Result<Option<u64>> {
             if data.is_empty() {
                 return Ok(None);
@@ -5395,7 +5395,7 @@ impl OpenedVolume {
         let mut physical_ranges = Vec::new();
         physical_ranges
             .try_reserve_exact(owned_ranges.len())
-            .map_err(|_| Error::InvalidInput("unable to allocate physical ownership ranges"))?;
+            .map_err(|_| Error::AllocationFailed("unable to allocate physical ownership ranges"))?;
         physical_ranges.extend(owned_ranges.iter().map(|(start, end, _)| (*start, *end)));
         self.validate_physical_ranges_allocated(device, &physical_ranges)?;
         // Keep this explicit: every root must map to exactly one object, even if a future
@@ -6006,7 +6006,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
     let mut claimed = Vec::new();
     claimed
         .try_reserve_exact(claimed_count)
-        .map_err(|_| Error::InvalidInput("unable to allocate inventory ownership index"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate inventory ownership index"))?;
     claimed.extend(descriptor.metadata_blocks.iter().copied());
     claimed.extend(descriptor.directory_blocks.iter().copied());
     claimed.sort_unstable();
@@ -6054,7 +6054,7 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         .ok_or(Error::ArithmeticOverflow)?;
     owned_ranges
         .try_reserve_exact(inventory_owner_count)
-        .map_err(|_| Error::InvalidInput("unable to allocate physical ownership ranges"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate physical ownership ranges"))?;
     for block in descriptor
         .metadata_blocks
         .iter()
@@ -6475,7 +6475,7 @@ fn check_journal_read_only<D: BlockDevice>(
     let mut records = Vec::new();
     records
         .try_reserve_exact(newer.len())
-        .map_err(|_| Error::InvalidInput("unable to allocate journal recovery records"))?;
+        .map_err(|_| Error::AllocationFailed("unable to allocate journal recovery records"))?;
     records.extend(newer.into_iter().map(|(_, record)| record));
     let committed = plan_recovery(&records, checkpoint.checkpoint_sequence)?;
     Ok((
