@@ -26,6 +26,15 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
+fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut block = Vec::new();
+    block
+        .try_reserve_exact(block_size)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    block.resize(block_size, 0);
+    Ok(block)
+}
+
 /// On-disk regions for the canonical format. Journal capacity depends on the format version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VolumeLayout {
@@ -199,11 +208,11 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_block;
         // Bitmap pages are read sequentially; reuse one page buffer rather than
         // allocating a fresh block-sized Vec for every page in a large volume.
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "unable to allocate allocator bitmap buffer")?;
         // Reuse the candidate-block buffer as well as the bitmap page. On a nearly
         // full volume, allocation may inspect many candidates; allocating a fresh
         // block-sized Vec for each candidate creates avoidable allocator pressure.
-        let mut existing = vec![0_u8; block_size];
+        let mut existing = try_zeroed_block(block_size, "unable to allocate candidate block buffer")?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self
                 .volume

@@ -360,9 +360,9 @@ impl PersistentJournal {
         // A contiguous vector avoids one tree-node allocation per target. Sort
         // only after all targets pass validation, then detect duplicates in-place.
         let mut targets = Vec::new();
-    targets
-        .try_reserve_exact(updates.len())
-        .map_err(|_| Error::InvalidInput("unable to reserve journal redo targets"))?;
+        targets
+            .try_reserve_exact(updates.len())
+            .map_err(|_| Error::InvalidInput("unable to reserve journal redo targets"))?;
         for update in updates {
             if update.contents.len() != block_size {
                 return Err(Error::InvalidInput(
@@ -765,7 +765,7 @@ fn read_checkpoint_block<D: BlockDevice>(
             "device block is too small for journal checkpoints",
         ));
     }
-    let mut block = vec![0_u8; block_size];
+    let mut block = try_zeroed_vec(block_size, "unable to allocate checkpoint read buffer")?;
     device.read_blocks(block_number, &mut block)?;
     if block[crate::JOURNAL_CHECKPOINT_SIZE..]
         .iter()
@@ -788,7 +788,7 @@ fn write_checkpoint_block<D: BlockDevice>(
             "device block is too small for journal checkpoints",
         ));
     }
-    let mut block = vec![0_u8; block_size];
+    let mut block = try_zeroed_vec(block_size, "unable to allocate checkpoint write buffer")?;
     block[..encoded.len()].copy_from_slice(&encoded);
     device.write_blocks(block_number, &block)
 }
