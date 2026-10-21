@@ -1010,19 +1010,16 @@ mod tests {
         ])
         .unwrap();
 
+        assert_eq!(map.logical_hole_ranges(8).unwrap(), vec![(0, 2), (4, 3)]);
         assert_eq!(
-            map.logical_hole_ranges(8).unwrap(),
-            vec![(0, 2), (4, 3)]
+            ExtentMap::default().logical_hole_ranges(0).unwrap(),
+            Vec::<(u64, u64)>::new()
         );
-        assert_eq!(ExtentMap::default().logical_hole_ranges(0).unwrap(), Vec::<(u64, u64)>::new());
         assert_eq!(
             ExtentMap::default().logical_hole_ranges(4).unwrap(),
             vec![(0, 4)]
         );
-        assert!(matches!(
-            map.logical_hole_ranges(7),
-            Err(Error::Corrupt(_))
-        ));
+        assert!(matches!(map.logical_hole_ranges(7), Err(Error::Corrupt(_))));
     }
 
     #[test]
