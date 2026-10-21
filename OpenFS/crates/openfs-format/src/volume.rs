@@ -208,11 +208,13 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_block;
         // Bitmap pages are read sequentially; reuse one page buffer rather than
         // allocating a fresh block-sized Vec for every page in a large volume.
-        let mut bitmap = try_zeroed_block(block_size, "unable to allocate allocator bitmap buffer")?;
+        let mut bitmap =
+            try_zeroed_block(block_size, "unable to allocate allocator bitmap buffer")?;
         // Reuse the candidate-block buffer as well as the bitmap page. On a nearly
         // full volume, allocation may inspect many candidates; allocating a fresh
         // block-sized Vec for each candidate creates avoidable allocator pressure.
-        let mut existing = try_zeroed_block(block_size, "unable to allocate candidate block buffer")?;
+        let mut existing =
+            try_zeroed_block(block_size, "unable to allocate candidate block buffer")?;
         for bitmap_index in first_bitmap..=last_bitmap {
             let bitmap_block = self
                 .volume
