@@ -438,12 +438,17 @@ impl ExtentMap {
     /// The requested range must fit inside the file logical block count. Sparse holes
     /// return false; malformed extents are reported as corruption even if a hole was
     /// encountered earlier in the map.
-    pub fn logical_range_is_allocated(
+    /// Count physically allocated logical blocks intersecting a file range.
+    ///
+    /// Sparse holes are excluded from the count. The requested half-open range must fit
+    /// inside the file's logical length, and every extent is validated so corruption beyond
+    /// the requested range cannot be hidden by an early result.
+    pub fn allocated_blocks_in_range(
         &self,
         logical_start: u64,
         block_count: u64,
         logical_block_count: u64,
-    ) -> Result<bool> {
+    ) -> Result<u64> {
         let logical_end = logical_start
             .checked_add(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -454,22 +459,32 @@ impl ExtentMap {
         }
         self.validate_ordering()?;
 
-        let mut cursor = logical_start;
-        let mut fully_allocated = true;
+        let mut allocated = 0_u64;
         for extent in &self.extents {
             let extent_end = extent.logical_end()?;
             if extent_end > logical_block_count {
                 return Err(Error::Corrupt("extent exceeds logical file block count"));
             }
-            if extent_end <= logical_start || extent.logical_start >= logical_end {
-                continue;
+            let overlap_start = logical_start.max(extent.logical_start);
+            let overlap_end = logical_end.min(extent_end);
+            if overlap_start < overlap_end {
+                allocated = allocated
+                    .checked_add(overlap_end - overlap_start)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
-            if extent.logical_start > cursor {
-                fully_allocated = false;
-            }
-            cursor = extent_end.min(logical_end);
         }
-        Ok(block_count == 0 || (fully_allocated && cursor == logical_end))
+        Ok(allocated)
+    }
+
+    /// Check whether every logical block in a requested range is backed by an extent.
+    pub fn logical_range_is_allocated(
+        &self,
+        logical_start: u64,
+        block_count: u64,
+        logical_block_count: u64,
+    ) -> Result<bool> {
+        Ok(self.allocated_blocks_in_range(logical_start, block_count, logical_block_count)?
+            == block_count)
     }
 
     /// Return validated physical ranges as sorted, coalesced (start, end-exclusive) pairs.
@@ -1036,6 +1051,38 @@ mod tests {
         assert!(matches!(
             map.logical_range_is_allocated(u64::MAX, 1, u64::MAX),
             Err(Error::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
+    fn allocated_block_count_in_range_handles_sparse_boundaries() {
+        let map = sample();
+        assert_eq!(map.allocated_blocks_in_range(0, 7, 7).unwrap(), 5);
+        assert_eq!(map.allocated_blocks_in_range(1, 2, 7).unwrap(), 2);
+        assert_eq!(map.allocated_blocks_in_range(2, 4, 7).unwrap(), 1);
+        assert_eq!(map.allocated_blocks_in_range(3, 2, 7).unwrap(), 0);
+        assert_eq!(map.allocated_blocks_in_range(7, 0, 7).unwrap(), 0);
+        assert!(matches!(
+            map.allocated_blocks_in_range(6, 2, 7),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            map.allocated_blocks_in_range(u64::MAX, 1, u64::MAX),
+            Err(Error::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
+    fn allocated_block_count_in_range_does_not_hide_later_corruption() {
+        let mut map = sample();
+        map.extents.push(Extent {
+            logical_start: 10,
+            physical_start: 300,
+            block_count: 1,
+        });
+        assert!(matches!(
+            map.allocated_blocks_in_range(0, 1, 7),
+            Err(Error::Corrupt(_))
         ));
     }
 
