@@ -268,9 +268,9 @@ impl BlockDevice for ImageDevice {
 /// An explicitly opened existing device or volume, without create/truncate semantics.
 ///
 /// The caller must supply the logical block size and count from a trusted source.
-/// This does not discover hardware geometry, lock a volume against other writers, or
-/// make formatting safe by itself. Never point it at a device containing data you
-/// need: writes are raw and can destroy partition tables or existing filesystems.
+/// This does not discover hardware geometry or coordinate with mounted filesystems, and
+/// make formatting safe by itself. OpenFS handles acquire an exclusive OS file lock, but
+/// external software may ignore advisory locks. Never point it at a device containing data you need:
 /// Regular files are accepted only when their length exactly matches the declared geometry.
 pub struct RawDevice {
     file: File,

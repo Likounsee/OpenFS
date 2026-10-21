@@ -47,12 +47,12 @@ There is one active volume implementation in `crates/openfs-format/src/volume.rs
 
 ## Current limits
 
-The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, stale-writer exclusion, large-volume scaling and OS integration remain incomplete.
+The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and OS integration remain incomplete.
 
 ## Development order
 
 1. Keep formatting, workspace checks and Clippy green on Linux and Windows.
 2. Fix correctness and allocation hazards in production paths before adding low-value tests.
 3. Close persistence ordering and recovery gaps for each file/namespace mutation.
-4. Enforce exclusive writer access and improve checker/discovery scaling.
+4. Extend exclusive-writer protection beyond cooperating OpenFS handles and improve checker/discovery scaling.
 5. Only then develop verified raw-device workflows and OS integration.

@@ -16,7 +16,7 @@ The Rust implementation defines its own format, independent of historical OpenFS
 6. On reopen, validate journal sequence and transaction framing, assemble each transaction before applying it, and replay committed redo idempotently. A committed but malformed/incomplete transaction must fail closed.
 7. If the writer receives an I/O error after persistence may have begun, treat the result as uncertain. Reopen through the normal recovery path before any further write.
 
-The journal engine is single-writer in its intended usage. A non-clonable in-memory journal handle does not prevent another process or independently opened handle from writing the same volume. Exclusive-writer enforcement remains a separate requirement.
+The journal engine remains single-writer. ImageDevice and RawDevice acquire an exclusive OS file lock, so cooperating OpenFS processes cannot independently open the same volume for writes simultaneously. The lock is advisory on some platforms and cannot prevent external software that ignores it from modifying the image.
 
 ## Persistent namespace and file mutations
 
@@ -35,7 +35,7 @@ Host flush calls and file-backed fault injection test software-level ordering an
 ## Remaining prerequisites
 
 - Complete the operation-specific persistence and recovery ordering for file-data, extent-map and namespace mutations.
-- Enforce exclusive writers at the appropriate device/volume layer.
+- Validate exclusive-lock behavior across supported operating systems and document that external processes may ignore advisory locks.
 - Keep layout/version documentation aligned with the actual constants and version-specific decoding.
 - Improve large-volume discovery/checker scaling and avoid infallible allocations sized from disk-derived collections.
 - Only then advance toward verified raw-device discovery and OS mounting.

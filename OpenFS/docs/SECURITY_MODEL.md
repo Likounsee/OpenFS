@@ -18,8 +18,8 @@ Image contents, superblock bytes, caller-supplied offsets and lengths, directory
 
 ## Current limitations
 
-The image backend does not sandbox hostile concurrent modification by another process. It does not provide cross-process exclusive volume ownership, and independently opened writers may otherwise have stale in-memory allocation state. Persistent file/namespace operations can span multiple persistence stages; their presence does not imply universal atomicity. Some disk-sized collections still need review for fallible allocation and large-volume scaling.
+ImageDevice and RawDevice acquire an exclusive OS file lock, preventing cooperating OpenFS processes from simultaneously holding stale volume state. This is advisory on some platforms and does not sandbox hostile external modification by software that ignores the lock. Persistent file/namespace operations can span multiple persistence stages; their presence does not imply universal atomicity. Some disk-sized collections still need review for fallible allocation and large-volume scaling.
 
 The raw-device backend does not identify physical-device type, discover trusted geometry, coordinate with mounted filesystems or prove power-loss durability. There is no production OS mount adapter or automatic repair path. Never silently repair ambiguous ownership or overwrite evidence after recovery failure.
 
-Future changes should prioritize prevention of stale concurrent writes, checked arithmetic, fallible allocations derived from disk input, strict distinction between corruption and I/O errors, and conservative behavior when a persistent result is uncertain.
+Future changes should prioritize testing lock behavior across supported operating systems, protecting against external writers where feasible, checked arithmetic, fallible allocations derived from disk input, strict distinction between corruption and I/O errors, and conservative behavior when a persistent result is uncertain.

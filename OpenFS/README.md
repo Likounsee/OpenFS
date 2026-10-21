@@ -72,4 +72,4 @@ cargo run -p openfs-tool -- write-stdin ./openfs.img 4096 /docs/readme.txt < ./p
 
 The journal currently protects allocator bitmap changes, but does not yet provide a general transaction layer for persistent namespace and extent-map mutations. Persistent inventory publication can leave a detectable orphan if interrupted between descriptor allocation and descriptor write. File reads support sparse zero-fill, ranges and EOF, but durable file/directory mutation and mounting are not complete.
 
-Image-backed tests do not establish physical-device durability. Do not use important data or physical USB devices.
+OpenFS image and raw-device handles acquire an exclusive OS file lock, preventing cooperating OpenFS processes from holding stale journal/allocator state simultaneously. This is advisory on some platforms and does not stop external software that ignores the lock. Image-backed tests do not establish physical-device durability. Do not use important data or physical USB devices.

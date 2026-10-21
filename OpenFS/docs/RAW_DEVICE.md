@@ -10,7 +10,7 @@ The experimental V2 format now reserves its journal, validates its bitmap, and r
 
 - Opening the device does not write to it. Subsequent `write_blocks` calls write directly to the selected path and may overwrite partition tables, filesystem metadata, or user data.
 - Do not use this backend on a disk containing data you need. Use a disposable image or dedicated test device.
-- The API does not identify whether a path is a USB device, query trusted hardware geometry, acquire an exclusive OS-level lock, coordinate with mounted filesystems, or protect against another process writing concurrently.
+- The API does not identify whether a path is a USB device, query trusted hardware geometry, or coordinate with mounted filesystems. RawDevice acquires an exclusive OS file lock against cooperating OpenFS handles; external software may ignore advisory locks.
 - `flush` requests host-side synchronization through `File::sync_all`; it is not a proof that every USB bridge, controller, or device firmware has honored power-loss guarantees.
 - There is no safe end-user raw-device formatter, persistent file/directory namespace, or OS mount adapter yet. A volume that has been formatted as OpenFS is not automatically browsable as a normal USB drive in Windows or Linux.
 
