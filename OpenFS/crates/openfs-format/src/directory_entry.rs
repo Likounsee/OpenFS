@@ -210,6 +210,54 @@ mod tests {
     }
 
     #[test]
+    fn utf8_name_limit_is_measured_in_bytes_and_round_trips_at_boundary() {
+        let mut entry = sample();
+        entry.name = "é".repeat(32);
+        assert_eq!(entry.name.len(), 64);
+        assert_eq!(DirectoryEntry::decode(&entry.encode().unwrap()).unwrap(), entry);
+
+        let mut too_long = sample();
+        too_long.name = "é".repeat(33);
+        assert!(matches!(
+            too_long.encode(),
+            Err(Error::InvalidInput("directory name must contain 1 to 64 UTF-8 bytes"))
+        ));
+    }
+
+    #[test]
+    fn decoder_rejects_invalid_ids_and_unknown_kind_after_checksum_validation() {
+        let original = sample().encode().unwrap();
+
+        let mut self_parent = original;
+        self_parent[12..28].copy_from_slice(&42_u128.to_le_bytes());
+        let crc = crate::crc32c(&self_parent[..124]);
+        self_parent[124..128].copy_from_slice(&crc.to_le_bytes());
+        assert!(matches!(
+            DirectoryEntry::decode(&self_parent),
+            Err(Error::Corrupt("invalid directory-entry object IDs"))
+        ));
+
+        let mut unknown_kind = sample().encode().unwrap();
+        unknown_kind[10] = 99;
+        let crc = crate::crc32c(&unknown_kind[..124]);
+        unknown_kind[124..128].copy_from_slice(&crc.to_le_bytes());
+        assert!(matches!(
+            DirectoryEntry::decode(&unknown_kind),
+            Err(Error::Corrupt("unknown metadata object kind"))
+        ));
+    }
+
+    #[test]
+    fn empty_packed_inventory_is_valid_and_partial_record_is_not() {
+        assert!(super::decode_directory_entries(&[]).unwrap().is_empty());
+        let entry = sample().encode().unwrap();
+        assert!(matches!(
+            super::decode_directory_entries(&entry[..DIRECTORY_ENTRY_SIZE - 1]),
+            Err(Error::InvalidInput("directory inventory is not record-aligned"))
+        ));
+    }
+
+    #[test]
     fn detects_checksum_padding_and_utf8_corruption() {
         let mut bytes = sample().encode().unwrap();
         bytes[10] = 99;

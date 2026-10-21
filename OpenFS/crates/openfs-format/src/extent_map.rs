@@ -2286,7 +2286,10 @@ mod tests {
     #[test]
     fn decoder_accepts_minimum_block_and_rejects_every_shorter_length() {
         let empty = ExtentMap::default().encode_block(20).unwrap();
-        assert_eq!(ExtentMap::decode_block(&empty).unwrap(), ExtentMap::default());
+        assert_eq!(
+            ExtentMap::decode_block(&empty).unwrap(),
+            ExtentMap::default()
+        );
 
         for length in 0..20 {
             assert!(matches!(
