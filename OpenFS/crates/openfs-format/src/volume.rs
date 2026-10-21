@@ -5257,6 +5257,11 @@ impl OpenedVolume {
                 self.read_extent_map_after_root_validation(device, root, record.size, false)?;
             let logical_blocks = record.size / u64::from(self.volume.block_size)
                 + u64::from(record.size % u64::from(self.volume.block_size) != 0);
+            // Reserve before collecting this map's validated ranges so allocation
+            // failure is reported instead of panicking during Vec growth.
+            owned_ranges
+                .try_reserve(map.extents().len())
+                .map_err(|_| Error::InvalidInput("unable to grow file ownership ranges"))?;
             for (start, end) in map.validated_physical_ranges(
                 logical_blocks,
                 self.volume.layout.data_start,
@@ -5974,6 +5979,9 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         let map = ExtentMap::decode_block(&extent_map_bytes)?;
         map.validate_file_size(record.size, layout.block_size)?;
         map.validate_physical_bounds(layout.data_start, layout.backup_superblock)?;
+        owned_ranges
+            .try_reserve(map.extents().len())
+            .map_err(|_| Error::InvalidInput("unable to grow physical ownership ranges"))?;
         for extent in map.extents() {
             let end = extent
                 .physical_start
