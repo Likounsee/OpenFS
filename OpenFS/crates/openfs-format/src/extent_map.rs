@@ -2178,7 +2178,10 @@ mod tests {
     #[test]
     fn empty_map_has_no_holes_or_allocated_blocks() {
         let map = ExtentMap::default();
-        assert_eq!(map.logical_hole_ranges(0).unwrap(), Vec::<(u64, u64)>::new());
+        assert_eq!(
+            map.logical_hole_ranges(0).unwrap(),
+            Vec::<(u64, u64)>::new()
+        );
         assert_eq!(map.logical_hole_ranges(4).unwrap(), vec![(0, 4)]);
         assert_eq!(map.allocated_blocks().unwrap(), 0);
         assert_eq!(map.allocated_byte_count(4096).unwrap(), 0);
@@ -2197,7 +2200,9 @@ mod tests {
                 physical_start: 300,
                 block_count: 1,
             }),
-            Err(Error::InvalidInput("extent overlaps existing logical blocks"))
+            Err(Error::InvalidInput(
+                "extent overlaps existing logical blocks"
+            ))
         ));
         assert_eq!(map, before);
 
@@ -2211,5 +2216,4 @@ mod tests {
         ));
         assert_eq!(map, before);
     }
-
 }
