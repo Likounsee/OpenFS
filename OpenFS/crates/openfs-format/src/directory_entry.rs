@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn directory_entry_decoder_rejects_nonzero_reserved_bytes_with_valid_checksum() {
         let mut bytes = sample().encode().unwrap();
-        bytes[12] = 1;
+        bytes[110] = 1;
         let crc = crate::crc32c(&bytes[..124]);
         bytes[124..128].copy_from_slice(&crc.to_le_bytes());
 
