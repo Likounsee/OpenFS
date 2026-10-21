@@ -241,10 +241,9 @@ pub fn plan_recovery(
                 if transaction.transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal UPDATE transaction ID mismatch"));
                 }
-                transaction
-                    .updates
-                    .try_reserve(1)
-                    .map_err(|_| Error::InvalidInput("unable to reserve journal recovery updates"))?;
+                transaction.updates.try_reserve(1).map_err(|_| {
+                    Error::InvalidInput("unable to reserve journal recovery updates")
+                })?;
                 let mut payload = Vec::new();
                 payload
                     .try_reserve_exact(record.payload.len())

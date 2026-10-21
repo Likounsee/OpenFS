@@ -98,7 +98,7 @@ pub struct PersistentJournal {
 pub fn format_journal<D: BlockDevice>(device: &mut D, region: JournalRegion) -> Result<()> {
     region.validate(device)?;
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    let zero = vec![0_u8; block_size];
+    let zero = try_zeroed_vec(block_size, "unable to allocate journal format buffer")?;
     for slot in 0..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -159,7 +159,12 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
     // Target protection is checked for every redo image during both recovery and
     // normal commits. Normalize once at open so those checks do not repeatedly
     // scan an unsorted list of volume-control blocks.
-    let mut protected_blocks = protected_blocks.to_vec();
+    let mut protected = Vec::new();
+    protected
+        .try_reserve_exact(protected_blocks.len())
+        .map_err(|_| Error::InvalidInput("unable to allocate protected journal targets"))?;
+    protected.extend_from_slice(protected_blocks);
+    let mut protected_blocks = protected;
     protected_blocks.sort_unstable();
     protected_blocks.dedup();
 
@@ -354,7 +359,10 @@ impl PersistentJournal {
 
         // A contiguous vector avoids one tree-node allocation per target. Sort
         // only after all targets pass validation, then detect duplicates in-place.
-        let mut targets = Vec::with_capacity(updates.len());
+        let mut targets = Vec::new();
+    targets
+        .try_reserve_exact(updates.len())
+        .map_err(|_| Error::InvalidInput("unable to reserve journal redo targets"))?;
         for update in updates {
             if update.contents.len() != block_size {
                 return Err(Error::InvalidInput(
@@ -378,7 +386,10 @@ impl PersistentJournal {
         // of every UPDATE payload in a JournalRecord vector. The complete encoded
         // transaction is still prepared before the first persistent write, so a
         // validation/encoding error cannot leave a partial transaction on disk.
-        let mut encoded = Vec::with_capacity(required_records);
+        let mut encoded = Vec::new();
+        encoded
+            .try_reserve_exact(required_records)
+            .map_err(|_| Error::InvalidInput("unable to reserve encoded journal transaction"))?;
         encoded.push(
             JournalRecord {
                 kind: JournalRecordKind::Begin,
@@ -408,7 +419,10 @@ impl PersistentJournal {
                         .checked_add(chunk_size)
                         .ok_or(Error::ArithmeticOverflow)?,
                 );
-                let mut payload = vec![0; UPDATE_CHUNK_HEADER_SIZE + end - start];
+                let mut payload = try_zeroed_vec(
+                    UPDATE_CHUNK_HEADER_SIZE + end - start,
+                    "unable to allocate journal redo chunk",
+                )?;
                 payload[..8].copy_from_slice(&update.target_block.to_le_bytes());
                 payload[8..10].copy_from_slice(
                     &u16::try_from(index)
@@ -506,6 +520,15 @@ impl PersistentJournal {
     }
 }
 
+fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    bytes.resize(length, 0);
+    Ok(bytes)
+}
+
 struct ScannedRecords {
     records: Vec<JournalRecord>,
 }
@@ -518,12 +541,17 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
 ) -> Result<ScannedRecords> {
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
     let mut newer = Vec::<(u64, JournalRecord)>::new();
+    newer
+        .try_reserve_exact(
+            usize::try_from(region.ring_blocks).map_err(|_| Error::ArithmeticOverflow)?,
+        )
+        .map_err(|_| Error::InvalidInput("unable to reserve journal scan records"))?;
     // Only the earliest malformed slot matters: it must not precede a later
     // valid record. Tracking one index avoids a second allocation for bad slots.
     let mut first_malformed_slot = None;
     // Reuse one scratch block for the bounded ring scan. Decoding owns its payload,
     // so the next read can safely overwrite this buffer without cloning the block.
-    let mut block = vec![0_u8; block_size];
+    let mut block = try_zeroed_vec(block_size, "unable to allocate journal scratch block")?;
     for slot in 0..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -583,9 +611,12 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
             ));
         }
     }
-    Ok(ScannedRecords {
-        records: newer.into_iter().map(|(_, record)| record).collect(),
-    })
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(newer.len())
+        .map_err(|_| Error::InvalidInput("unable to reserve decoded journal records"))?;
+    records.extend(newer.into_iter().map(|(_, record)| record));
+    Ok(ScannedRecords { records })
 }
 
 fn read_checkpoint_pair<D: BlockDevice>(
@@ -817,11 +848,17 @@ fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<
         / chunk_size;
     let count_u16 =
         u16::try_from(count).map_err(|_| Error::InvalidInput("too many redo chunks"))?;
-    let mut chunks = Vec::with_capacity(count);
+    let mut chunks = Vec::new();
+    chunks
+        .try_reserve_exact(count)
+        .map_err(|_| Error::InvalidInput("unable to reserve redo chunks"))?;
     for index in 0..count {
         let start = index * chunk_size;
         let end = update.contents.len().min(start + chunk_size);
-        let mut payload = vec![0; UPDATE_CHUNK_HEADER_SIZE + end - start];
+        let mut payload = try_zeroed_vec(
+            UPDATE_CHUNK_HEADER_SIZE + end - start,
+            "unable to allocate redo chunk",
+        )?;
         payload[..8].copy_from_slice(&update.target_block.to_le_bytes());
         payload[8..10].copy_from_slice(&(index as u16).to_le_bytes());
         payload[10..12].copy_from_slice(&count_u16.to_le_bytes());
@@ -844,10 +881,16 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
     // because a committed transaction may not target the same home block twice.
     // Each complete image consumes exactly expected_count chunks. Reserving
     // the maximum possible image count avoids repeated growth during recovery.
-    let mut updates = Vec::with_capacity(payloads.len() / expected_count);
+    let mut updates = Vec::new();
+    updates
+        .try_reserve_exact(payloads.len() / expected_count)
+        .map_err(|_| Error::InvalidInput("unable to reserve decoded redo images"))?;
     let mut target_active = None;
     let mut active_count = 0_u16;
-    let mut current = Vec::with_capacity(block_size);
+    let mut current = Vec::new();
+    current
+        .try_reserve_exact(block_size)
+        .map_err(|_| Error::InvalidInput("unable to reserve redo image buffer"))?;
     for (payload_index, payload) in payloads.iter().enumerate() {
         if payload.len() < UPDATE_CHUNK_HEADER_SIZE {
             return Err(Error::Corrupt("redo chunk header is truncated"));
@@ -893,7 +936,11 @@ fn decode_redo_updates(payloads: &[Vec<u8>], block_size: usize) -> Result<Vec<Re
             let contents = if payload_index + 1 == payloads.len() {
                 std::mem::take(&mut current)
             } else {
-                std::mem::replace(&mut current, Vec::with_capacity(block_size))
+                let mut replacement = Vec::new();
+                replacement
+                    .try_reserve_exact(block_size)
+                    .map_err(|_| Error::InvalidInput("unable to reserve next redo image buffer"))?;
+                std::mem::replace(&mut current, replacement)
             };
             updates.push(RedoUpdate {
                 target_block: target,
