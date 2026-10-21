@@ -373,11 +373,9 @@ impl BlockDevice for RawDevice {
 fn lock_exclusive(file: &File) -> Result<()> {
     match file.try_lock_exclusive() {
         Ok(()) => Ok(()),
-        Err(error) if error.kind() == fs2::lock_contended_error().kind() => {
-            Err(Error::InvalidInput(
-                "volume is already open by another writer",
-            ))
-        }
+        Err(error) if error.kind() == fs2::lock_contended_error().kind() => Err(
+            Error::InvalidInput("volume is already open by another writer"),
+        ),
         Err(error) => Err(Error::Io(error)),
     }
 }
