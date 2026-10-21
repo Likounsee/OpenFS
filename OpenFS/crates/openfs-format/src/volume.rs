@@ -4293,15 +4293,14 @@ impl OpenedVolume {
             .map_err(|_| Error::ArithmeticOverflow)?;
 
         let maps = self.read_namespace_extent_maps(device, &namespace)?;
+        // Keep an owned empty map available for the empty-file case; it is only
+        // serialized if a new extent-map root must be staged.
+        let empty_map = ExtentMap::default();
         let map = match record.extent_root_block {
             Some(_) => maps
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?,
-            None if record.size == 0 => {
-                // The empty map is encoded below and published with the new metadata.
-                static EMPTY_MAP: std::sync::OnceLock<ExtentMap> = std::sync::OnceLock::new();
-                EMPTY_MAP.get_or_init(ExtentMap::default)
-            }
+            None if record.size == 0 => &empty_map,
             None => {
                 return Err(Error::Corrupt(
                     "non-empty file is missing its extent-map root",
