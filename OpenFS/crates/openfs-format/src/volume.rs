@@ -2643,9 +2643,7 @@ impl OpenedVolume {
         let mut blocks = Vec::new();
         blocks
             .try_reserve_exact(block_count)
-            .map_err(|_| {
-                Error::InvalidInput("allocation failed while staging inventory blocks")
-            })?;
+            .map_err(|_| Error::InvalidInput("allocation failed while staging inventory blocks"))?;
         // Inventory streams may span many blocks. Reuse one zero-padded block buffer
         // instead of allocating a fresh Vec for every chunk; clear it before each copy
         // so a short final chunk cannot expose bytes left by the preceding chunk.
