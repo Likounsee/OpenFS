@@ -118,7 +118,7 @@ impl Volume {
         let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
         let bitmap_index = block / bits_per_bitmap_block;
         let local = block % bits_per_bitmap_block;
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy bitmap buffer")?;
         device.read_blocks(self.layout.bitmap_start + bitmap_index, &mut bitmap)?;
         let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let mask = 1_u8 << (local % 8);
@@ -254,7 +254,7 @@ fn read_superblock_block<D: BlockDevice>(device: &mut D, block: u64) -> Result<S
             "device block is smaller than superblock",
         ));
     }
-    let mut buffer = vec![0_u8; block_size];
+    let mut buffer = try_zeroed_block(block_size, "unable to allocate legacy superblock buffer")?;
     device.read_blocks(block, &mut buffer)?;
     if buffer[SUPERBLOCK_SIZE..].iter().any(|byte| *byte != 0) {
         return Err(Error::Corrupt(
@@ -291,7 +291,7 @@ fn validate_reserved_bitmap_bits<D: BlockDevice>(
         let end_bit = first_bit
             .checked_add(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy bitmap buffer")?;
         device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
         for reserved in core::iter::once(0)
             .chain(layout.bitmap_start..bitmap_end)
