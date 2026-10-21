@@ -92,6 +92,11 @@ impl MetadataRecord {
                 "empty objects cannot have an extent root",
             ));
         }
+        if self.extent_root_block == Some(NO_EXTENT_ROOT) {
+            return Err(Error::InvalidInput(
+                "extent root uses the reserved no-extent sentinel",
+            ));
+        }
         let mut bytes = [0_u8; METADATA_RECORD_SIZE];
         bytes[0..8].copy_from_slice(MAGIC);
         bytes[8..10].copy_from_slice(&VERSION.to_le_bytes());
@@ -264,4 +269,59 @@ mod tests {
         record.kind = ObjectKind::Directory;
         assert!(matches!(record.encode(), Err(Error::InvalidInput(_))));
     }
+    #[test]
+    fn metadata_round_trips_root_sentinel_and_numeric_boundaries() {
+        let mut record = file();
+        record.id = ObjectId(u128::MAX);
+        record.parent_id = 0;
+        record.flags = u8::MAX;
+        record.generation = u32::MAX;
+        record.extent_root_block = Some(u64::MAX - 1);
+        assert_eq!(
+            MetadataRecord::decode(&record.encode().unwrap()).unwrap(),
+            record
+        );
+
+        let mut empty = file();
+        empty.size = 0;
+        empty.extent_root_block = None;
+        assert_eq!(
+            MetadataRecord::decode(&empty.encode().unwrap()).unwrap(),
+            empty
+        );
+    }
+
+    #[test]
+    fn rejects_reserved_extent_root_sentinel() {
+        let mut record = file();
+        record.extent_root_block = Some(u64::MAX);
+        assert!(matches!(
+            record.encode(),
+            Err(Error::InvalidInput(
+                "extent root uses the reserved no-extent sentinel"
+            ))
+        ));
+    }
+
+    #[test]
+    fn decoder_rejects_semantically_invalid_records_with_valid_checksum() {
+        let mut bytes = file().encode().unwrap();
+        bytes[28..44].copy_from_slice(&42_u128.to_le_bytes());
+        let checksum = crate::crc32c(&bytes[..76]);
+        bytes[76..80].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            MetadataRecord::decode(&bytes),
+            Err(Error::Corrupt("metadata object is its own parent"))
+        ));
+
+        let mut bytes = file().encode().unwrap();
+        bytes[10] = ObjectKind::Directory as u8;
+        let checksum = crate::crc32c(&bytes[..76]);
+        bytes[76..80].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            MetadataRecord::decode(&bytes),
+            Err(Error::Corrupt("directory record owns file extents"))
+        ));
+    }
+
 }
