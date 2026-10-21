@@ -14341,7 +14341,7 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-    
+
     #[test]
     fn streaming_write_truncate_and_sparse_extension_survive_reopen() {
         use crate::ObjectId;
