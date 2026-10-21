@@ -194,11 +194,10 @@ Capabilities found in source:
 - Verifier: persistent inventory/ownership consistency report for caller-located or descriptor-discovered records, including orphan/dangling diagnostics.
 - CLI: image-focused development tooling; not a mount service or safe destructive raw-device workflow.
 
-Critical capabilities not found in the Rust workspace:
-- Persistent create/write/truncate/rename/unlink/mkdir/rmdir and durable directory growth.
-- Canonical, bounded, scalable metadata region/index; descriptor discovery currently scans the data region.
-- Atomic transaction spanning namespace records, extent maps, allocation bitmap and data publication.
-- Automatic safe recovery/repair of orphaned allocation after interrupted descriptor publication.
+Critical capabilities still incomplete in the Rust workspace:
+- A general atomic transaction spanning namespace records, extent maps, allocation bitmap and file-data publication. Persistent create/write/truncate/rename/remove and directory mutation APIs exist, but their multi-stage crash behavior is not one universal transaction.
+- A canonical, bounded, scalable metadata region/index; descriptor discovery still includes a data-region scan.
+- Automatic safe recovery/repair of orphaned allocation after interrupted higher-level file/namespace operations.
 - Persistent inode generation/link-count lifecycle, symlinks/hard links, permissions/ACL/xattrs, timestamps and open-unlinked inode handling.
 - Mount/unmount, VFS integration, file handles, locking/concurrency control and OS adapters.
 - Full FSCK with repair, a standalone scrub command, fuzz targets and performance/load benchmarks.
@@ -213,8 +212,8 @@ The legacy source tree contains a C core with format, bitmap/allocator, inode al
 
 1. **Format contract and error boundaries** — compare the C v1.6 superblock/feature flags, primary+backup geometry, reserved regions, journal and metadata layout with the Rust draft. Rust intentionally defines a new incompatible format; reject legacy images clearly. Do not silently import the C v1.6 layout or call it compatible.
 2. **Transactional allocator/inode lifecycle** — reuse the legacy tests for allocation rollback, inode bitmap/generation reuse, exact ownership, overflow and disk-full cases as test-design references. Reimplement against Rust types and the new format.
-3. **File and extent semantics** — adapt tests and invariants for fragmented extents, sparse holes, EOF, partial blocks, truncate growth/shrink, zero-fill, overflow, freeing blocks only after references are removed, and failed I/O rollback. Rust currently has extent maps and read paths but no persistent writes/truncate.
-4. **Directory/path semantics** — adapt tests for nested paths, parent references, name limits, trailing slash, file-as-intermediate, rename collision, moving directories, non-empty directory removal and case sensitivity. Current Rust namespace APIs are in-memory and must not be treated as durable.
+3. **File and extent semantics** — adapt tests and invariants for fragmented extents, sparse holes, EOF, partial blocks, truncate growth/shrink, zero-fill, overflow, freeing blocks only after references are removed, and failed I/O rollback. Rust has persistent file writes, range writes, sparse extension, and truncation APIs; continue testing fragmented extents, sparse holes, EOF, partial blocks, overflow, disk-full behavior, and crash recovery.
+4. **Directory/path semantics** — adapt tests for nested paths, parent references, name limits, trailing slash, file-as-intermediate, rename collision, moving directories, non-empty directory removal and case sensitivity. The namespace layer is in-memory, but persistent path APIs publish copy-on-write inventories. Keep distinguishing that persistence from a single atomic transaction across all affected data and metadata.
 5. **Transaction/crash matrix** — use legacy transaction, replay-idempotence, crash-cut, double-failure and namespace-crash tests as scenarios, not as proof the Rust journal already supports the same semantics. Specify every on-disk mutation and commit point before porting.
 6. **Checker/repair/scrub** — first implement a non-mutating whole-volume checker; only then design explicit, previewable repairs. Adapt FSCK diagnostics, exact block ownership/refcount reconciliation, bitmap tails, root/parent/link invariants and scrub read-error coverage.
 7. **Lifecycle/concurrency** — later adapt open handles, open-but-unlinked objects, orphan recovery, runtime admission/drain, lock ordering, file-range locks and concurrent namespace/file operations. These depend on durable mutation and a defined mount lifecycle.

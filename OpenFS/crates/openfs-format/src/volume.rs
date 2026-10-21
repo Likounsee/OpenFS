@@ -14308,4 +14308,37 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+    
+    #[test]
+    fn empty_persistent_range_write_preserves_every_image_byte() {
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("empty-persistent-range-write-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "payload.bin")
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/payload.bin", b"preserve me")
+                    .unwrap();
+
+                let before = snapshot_image_bytes(&mut device);
+                volume
+                    .write_persistent_path_range(&mut device, "/payload.bin", 0, &[])
+                    .unwrap();
+                let after = snapshot_image_bytes(&mut device);
+                assert_eq!(
+                    after, before,
+                    "an empty range write must not rewrite metadata, journal, or data at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
