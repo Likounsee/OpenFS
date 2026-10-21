@@ -795,7 +795,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Extent, ExtentMap};
+    use super::{crc32c, Extent, ExtentMap};
     use openfs_core::Error;
 
     fn sample() -> ExtentMap {
@@ -1829,5 +1829,62 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn decode_rejects_truncated_and_checksum_corrupted_blocks() {
+        let bytes = sample().encode_block(4096).unwrap();
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes[..31]),
+            Err(Error::InvalidInput("extent-map block is too short"))
+        ));
+
+        let mut corrupted = bytes;
+        corrupted[20] ^= 0x80;
+        assert!(matches!(
+            ExtentMap::decode_block(&corrupted),
+            Err(Error::Corrupt("extent-map CRC32C mismatch"))
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_nonzero_padding_even_with_valid_checksum() {
+        let mut bytes = sample().encode_block(4096).unwrap();
+        let padding_offset = 16 + sample().extents().len() * 24;
+        bytes[padding_offset] = 1;
+        let checksum_offset = bytes.len() - 4;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt("extent-map padding must be zero"))
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_extent_count_beyond_block_capacity() {
+        let mut bytes = sample().encode_block(64).unwrap();
+        bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        let checksum_offset = bytes.len() - 4;
+        let checksum = crc32c(&bytes[..checksum_offset]);
+        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::Corrupt("extent count exceeds block capacity"))
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_unsupported_version_before_parsing_records() {
+        let mut bytes = sample().encode_block(4096).unwrap();
+        bytes[8..10].copy_from_slice(&u16::MAX.to_le_bytes());
+
+        assert!(matches!(
+            ExtentMap::decode_block(&bytes),
+            Err(Error::UnsupportedVersion(u16::MAX))
+        ));
     }
 }
