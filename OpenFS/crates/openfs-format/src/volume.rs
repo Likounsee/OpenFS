@@ -1265,19 +1265,20 @@ impl OpenedVolume {
                         "inventory descriptor aliases one of its inventory blocks",
                     ));
                 }
-                let mut unique_references = std::collections::BTreeSet::new();
-                for inventory_block in descriptor
-                    .metadata_blocks
-                    .iter()
-                    .chain(descriptor.directory_blocks.iter())
-                {
-                    if !unique_references.insert(*inventory_block) {
-                        return Err(Error::Corrupt(
-                            "inventory descriptor contains duplicate block ownership",
-                        ));
-                    }
-                    if *inventory_block < layout.data_start
-                        || *inventory_block >= layout.backup_superblock
+                let mut unique_references = try_join_block_numbers(
+                    &descriptor.metadata_blocks,
+                    &descriptor.directory_blocks,
+                    "allocation failed while validating discovered inventory references",
+                )?;
+                unique_references.sort_unstable();
+                if unique_references.windows(2).any(|pair| pair[0] == pair[1]) {
+                    return Err(Error::Corrupt(
+                        "inventory descriptor contains duplicate block ownership",
+                    ));
+                }
+                for inventory_block in unique_references {
+                    if inventory_block < layout.data_start
+                        || inventory_block >= layout.backup_superblock
                     {
                         return Err(Error::Corrupt(
                             "inventory descriptor references a block outside the data region",
@@ -1732,7 +1733,19 @@ impl OpenedVolume {
             .entries()
             .map(|entry| (entry.object_id, (entry.parent_id, entry.name.clone())))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = Vec::new();
+        seen.try_reserve_exact(changes.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
+        for (object_id, _, _) in changes {
+            seen.push(object_id.0);
+        }
+        seen.sort_unstable();
+        if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "an object may be renamed only once per batch",
+            ));
+        }
         let mut original_locations = Vec::new();
         original_locations
             .try_reserve_exact(changes.len())
@@ -1740,11 +1753,6 @@ impl OpenedVolume {
                 Error::InvalidInput("allocation failed while staging persistent namespace data")
             })?;
         for (object_id, _, _) in changes {
-            if !seen.insert(*object_id) {
-                return Err(Error::InvalidInput(
-                    "an object may be renamed only once per batch",
-                ));
-            }
             let record = namespace
                 .object(*object_id)
                 .ok_or(Error::InvalidInput("object does not exist"))?;
@@ -1820,14 +1828,19 @@ impl OpenedVolume {
             .map_err(|_| {
                 Error::InvalidInput("allocation failed while staging persistent namespace data")
             })?;
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = Vec::new();
+        seen.try_reserve_exact(object_ids.len()).map_err(|_| {
+            Error::InvalidInput("allocation failed while staging persistent namespace data")
+        })?;
+        seen.extend(object_ids.iter().map(|object_id| object_id.0));
+        seen.sort_unstable();
+        if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "an object may be removed only once per batch",
+            ));
+        }
         let mut needs_extent_maps = false;
         for object_id in object_ids {
-            if !seen.insert(*object_id) {
-                return Err(Error::InvalidInput(
-                    "an object may be removed only once per batch",
-                ));
-            }
             if *object_id == namespace.root_id() {
                 return Err(Error::InvalidInput("the namespace root cannot be removed"));
             }
