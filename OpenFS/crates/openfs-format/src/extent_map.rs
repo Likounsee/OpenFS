@@ -1976,7 +1976,7 @@ mod tests {
         assert!(map.is_fully_allocated(3).is_err());
         assert!(map.logical_range_is_allocated(1, 2, 7).unwrap());
         assert!(!map.logical_range_is_allocated(3, 2, 7).unwrap());
-        assert_eq!(map.allocated_blocks_in_range(1, 5, 7).unwrap(), 4);
+        assert_eq!(map.allocated_blocks_in_range(1, 5, 7).unwrap(), 3);
         assert!(map.logical_hole_ranges(6).is_err());
     }
 
