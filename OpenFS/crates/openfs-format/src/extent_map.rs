@@ -1133,7 +1133,9 @@ mod tests {
                 physical_start: 300,
                 block_count: 1,
             }),
-            Err(Error::InvalidInput("extent overlaps existing logical blocks"))
+            Err(Error::InvalidInput(
+                "extent overlaps existing logical blocks"
+            ))
         ));
         assert_eq!(map, before);
 
