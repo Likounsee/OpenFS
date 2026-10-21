@@ -5132,6 +5132,7 @@ impl OpenedVolume {
                 })?;
             }
 
+            updated_map.validate_file_size(new_size, block_size)?;
             let encoded = updated_map.encode_block(block_size_usize)?;
             let new_root = self.allocate_block(device)?;
             allocated.push(new_root);
