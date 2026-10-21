@@ -939,18 +939,37 @@ mod tests {
     #[test]
     fn validated_physical_ranges_coalesce_adjacent_runs_without_losing_gaps() {
         let map = ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 200, block_count: 2 },
-            Extent { logical_start: 2, physical_start: 202, block_count: 3 },
-            Extent { logical_start: 8, physical_start: 100, block_count: 1 },
-            Extent { logical_start: 9, physical_start: 110, block_count: 1 },
-        ]).unwrap();
+            Extent {
+                logical_start: 0,
+                physical_start: 200,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 2,
+                physical_start: 202,
+                block_count: 3,
+            },
+            Extent {
+                logical_start: 8,
+                physical_start: 100,
+                block_count: 1,
+            },
+            Extent {
+                logical_start: 9,
+                physical_start: 110,
+                block_count: 1,
+            },
+        ])
+        .unwrap();
 
         assert_eq!(
             map.validated_physical_ranges(10, 80, 300).unwrap(),
             vec![(100, 101), (110, 111), (200, 205)]
         );
         assert_eq!(
-            ExtentMap::default().validated_physical_ranges(0, 80, 300).unwrap(),
+            ExtentMap::default()
+                .validated_physical_ranges(0, 80, 300)
+                .unwrap(),
             Vec::<(u64, u64)>::new()
         );
     }
