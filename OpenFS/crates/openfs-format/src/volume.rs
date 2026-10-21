@@ -35,6 +35,14 @@ fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result
     Ok(block)
 }
 
+fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(bytes.len())
+        .map_err(|_| Error::InvalidInput(allocation_error))?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+
 /// On-disk regions for the canonical format. Journal capacity depends on the format version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VolumeLayout {
@@ -1702,7 +1710,10 @@ impl OpenedVolume {
         })?;
         let reclaim_capacity =
             usize::try_from(reclaim_capacity).map_err(|_| Error::ArithmeticOverflow)?;
-        let mut reclaim_blocks = Vec::with_capacity(reclaim_capacity);
+        let mut reclaim_blocks = Vec::new();
+        reclaim_blocks
+            .try_reserve_exact(reclaim_capacity)
+            .map_err(|_| Error::InvalidInput("unable to reserve old file block inventory"))?;
         for record in &records {
             if let Some(root) = record.extent_root_block {
                 let maps = extent_maps
@@ -2998,7 +3009,8 @@ impl OpenedVolume {
             }
         }
 
-        let mut output = vec![0_u8; read_len];
+        let mut output =
+            try_zeroed_block(read_len, "unable to allocate file range read buffer")?;
         // A request contained in one extent is physically contiguous by construction.
         // Inspect extent descriptors rather than probing every logical block, keeping
         // large sequential reads O(number of extents) instead of O(number of blocks).
@@ -3215,8 +3227,12 @@ impl OpenedVolume {
         // of the range cannot fit in the ring.
         self.journal.required_record_count(device, touched_blocks)?;
 
-        let mut updates = Vec::with_capacity(touched_blocks);
-        let mut block_buffer = vec![0_u8; block_len];
+        let mut updates = Vec::new();
+        updates
+            .try_reserve_exact(touched_blocks)
+            .map_err(|_| Error::InvalidInput("unable to reserve file write redo updates"))?;
+        let mut block_buffer =
+            try_zeroed_block(block_len, "unable to allocate file write block buffer")?;
         let mut source_offset = 0_usize;
         for logical in first_logical..=last_logical {
             let block_start = logical
@@ -3250,7 +3266,10 @@ impl OpenedVolume {
             }
             updates.push(RedoUpdate {
                 target_block: physical,
-                contents: block_buffer.clone(),
+                contents: try_copy_bytes(
+                    &block_buffer,
+                    "unable to allocate file write redo image",
+                )?,
             });
             source_offset = source_end;
         }
@@ -3900,7 +3919,10 @@ impl OpenedVolume {
         // Replacement reclamation is prepared before staging new data. Reserve the
         // exact old-data/root inventory up front so large overwrites do not repeatedly
         // reallocate this list while the new extents are being written.
-        let mut reclaim_blocks = Vec::with_capacity(reclaim_capacity);
+        let mut reclaim_blocks = Vec::new();
+        reclaim_blocks
+            .try_reserve_exact(reclaim_capacity)
+            .map_err(|_| Error::InvalidInput("unable to reserve old file block inventory"))?;
         if let Some(old_root) = existing.extent_root_block {
             let maps = &current_maps;
             let old_map = maps
@@ -3937,15 +3959,19 @@ impl OpenedVolume {
             let staging_blocks = (STAGING_BATCH_BYTES / block_size).clamp(1, MAX_STAGING_BLOCKS);
             // Each block retains its exact valid-byte count so the final partial block
             // contributes only its logical payload to the file length.
-            let mut contents = vec![
-                0_u8;
-                block_size
-                    .checked_mul(staging_blocks)
-                    .ok_or(Error::ArithmeticOverflow)?
-            ];
+            let staging_bytes = block_size
+                .checked_mul(staging_blocks)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut contents = try_zeroed_block(
+                staging_bytes,
+                "unable to allocate reader import staging buffer",
+            )?;
             // Reuse the small per-batch length table rather than allocating it for
             // every group in a large reader-driven import.
-            let mut valid_lengths = Vec::with_capacity(staging_blocks);
+            let mut valid_lengths = Vec::new();
+            valid_lengths
+                .try_reserve_exact(staging_blocks)
+                .map_err(|_| Error::InvalidInput("unable to reserve reader import length table"))?;
             loop {
                 valid_lengths.clear();
                 for slot in 0..staging_blocks {
@@ -4022,7 +4048,10 @@ impl OpenedVolume {
                 if !already_tracked {
                     allocated.extend(blocks.iter().copied());
                 }
-                let mut batch_extents = Vec::with_capacity(blocks.len());
+                let mut batch_extents = Vec::new();
+                batch_extents
+                    .try_reserve_exact(blocks.len())
+                    .map_err(|_| Error::InvalidInput("unable to reserve staged file extents"))?;
                 for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
                     let start = slot
                         .checked_mul(block_size)
