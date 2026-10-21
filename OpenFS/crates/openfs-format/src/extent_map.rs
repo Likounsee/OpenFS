@@ -2359,8 +2359,7 @@ mod tests {
         .unwrap()
         .encode_block(128)
         .unwrap();
-        overlapping[16 + 24 + 8..16 + 24 + 16]
-            .copy_from_slice(&11_u64.to_le_bytes());
+        overlapping[16 + 24 + 8..16 + 24 + 16].copy_from_slice(&11_u64.to_le_bytes());
         let checksum_offset = overlapping.len() - 4;
         let checksum = crate::crc32c(&overlapping[..checksum_offset]);
         overlapping[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
@@ -2389,5 +2388,4 @@ mod tests {
         ));
         assert_eq!(map.logical_hole_ranges(6).unwrap(), vec![(0, 4)]);
     }
-
 }

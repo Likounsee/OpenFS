@@ -349,8 +349,9 @@ mod tests {
 
         assert!(matches!(
             JournalCheckpoint::decode(&bytes),
-            Err(Error::Corrupt("journal checkpoint sequence counters disagree"))
+            Err(Error::Corrupt(
+                "journal checkpoint sequence counters disagree"
+            ))
         ));
     }
-
 }

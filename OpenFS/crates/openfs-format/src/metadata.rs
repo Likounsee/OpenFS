@@ -343,5 +343,4 @@ mod tests {
             Err(Error::Corrupt("metadata CRC32C mismatch"))
         ));
     }
-
 }
