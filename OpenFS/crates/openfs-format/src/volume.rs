@@ -5551,6 +5551,33 @@ impl OpenedVolume {
                     }],
                 );
                 if let Err(error) = commit_result {
+                    // A journal error can be returned after COMMIT reached storage. Do
+                    // not issue cleanup writes through this possibly stale journal engine:
+                    // reopen first so committed redo records are replayed before retrying.
+                    let recovered = match open_volume(device) {
+                        Ok(volume) => volume,
+                        Err(_) => {
+                            return Err(Error::Corrupt(
+                                "append data write failed and journal recovery failed; preserve the image",
+                            ));
+                        }
+                    };
+                    *self = recovered;
+                    let old_generation_is_active = matches!(
+                        self.reconstruct_discovered_namespace(device),
+                        Ok(Some((_, ref active)))
+                            if active.object(object_id).is_some_and(|item| {
+                                item.size == record.size
+                                    && item.generation == record.generation
+                                    && item.extent_root_block == record.extent_root_block
+                            })
+                    );
+                    if !old_generation_is_active {
+                        return Err(Error::Corrupt(
+                            "append data write failed and the active file generation is uncertain",
+                        ));
+                    }
+
                     let cleanup = (|| -> Result<()> {
                         let mut current = try_zeroed_block(
                             self.volume.block_size as usize,
@@ -5569,7 +5596,7 @@ impl OpenedVolume {
                     })();
                     if cleanup.is_err() {
                         return Err(Error::Corrupt(
-                            "append data write failed and bytes beyond EOF could not be cleared",
+                            "append data write failed and bytes beyond EOF could not be cleared after recovery",
                         ));
                     }
                     return Err(error);
@@ -14563,6 +14590,35 @@ mod tests {
                         .unwrap(),
                     payload,
                     "streamed multi-block contents must survive reopen at block size {block_size}"
+                );
+
+                // An append-data journal error is an uncertain commit result.
+                // Recovery must run before the stale tail is scrubbed for a retry.
+                device.fail_next(IoOperation::Write);
+                assert!(volume
+                    .write_persistent_path_range(
+                        &mut device,
+                        "/payload.bin",
+                        payload.len() as u64,
+                        &[0xEE, 0xDD],
+                    )
+                    .is_err());
+                drop(volume);
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .stat_persistent_path(&mut device, "/payload.bin")
+                        .unwrap()
+                        .size,
+                    payload.len() as u64,
+                    "failed append must not publish a larger size at block size {block_size}"
+                );
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, payload.len())
+                        .unwrap(),
+                    payload,
+                    "failed append must preserve the old file contents at block size {block_size}"
                 );
 
                 let truncated_len = block_len + 13;
