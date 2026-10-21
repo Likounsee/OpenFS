@@ -2540,7 +2540,7 @@ impl OpenedVolume {
             }
         }
 
-        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let extent_maps = self.read_namespace_extent_maps(device, namespace)?;
         let mut reclaim_capacity = 0_u64;
         for id in &removed_ids {
             let record = namespace
@@ -4153,7 +4153,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records = try_clone_namespace_records(namespace)?;
+            let mut records = try_clone_namespace_records(&namespace)?;
             let updated =
                 records
                     .iter_mut()
@@ -5149,7 +5149,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records = try_clone_namespace_records(&namespace)?;
+            let mut records = try_clone_namespace_records(namespace)?;
             let updated =
                 records
                     .iter_mut()
@@ -5162,7 +5162,7 @@ impl OpenedVolume {
             Namespace::from_records(
                 namespace.root_id(),
                 records,
-                try_clone_namespace_entries(&namespace)?,
+                try_clone_namespace_entries(namespace)?,
             )
         })();
         let updated_namespace = match updated_namespace {
