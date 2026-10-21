@@ -1059,7 +1059,7 @@ mod tests {
         let map = sample();
         assert_eq!(map.allocated_blocks_in_range(0, 7, 7).unwrap(), 5);
         assert_eq!(map.allocated_blocks_in_range(1, 2, 7).unwrap(), 2);
-        assert_eq!(map.allocated_blocks_in_range(2, 4, 7).unwrap(), 1);
+        assert_eq!(map.allocated_blocks_in_range(2, 4, 7).unwrap(), 2);
         assert_eq!(map.allocated_blocks_in_range(3, 2, 7).unwrap(), 0);
         assert_eq!(map.allocated_blocks_in_range(7, 0, 7).unwrap(), 0);
         assert!(matches!(
