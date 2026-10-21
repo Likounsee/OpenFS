@@ -420,13 +420,14 @@ impl ExtentMap {
         self.validate_ordering()?;
         let mut cursor = 0_u64;
         for extent in &self.extents {
+            let end = extent.logical_end()?;
+            if end > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file block count"));
+            }
             if extent.logical_start != cursor {
                 return Ok(false);
             }
-            cursor = extent.logical_end()?;
-            if cursor > logical_block_count {
-                return Err(Error::Corrupt("extent exceeds logical file block count"));
-            }
+            cursor = end;
         }
         Ok(cursor == logical_block_count)
     }
