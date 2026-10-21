@@ -5166,8 +5166,7 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) =
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
         {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
