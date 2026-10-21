@@ -132,7 +132,7 @@ cargo run -p openfs-tool -- space ./openfs.img 4096
 
 **Important:** `check-image` is the non-mutating first check and does not replay pending journal records. `audit-image` opens the writable volume path and may replay committed transactions before checking ownership. `recover-image` deliberately uses the writable recovery path. Back up an image before running commands that may mutate it, especially if its state is uncertain. An audit reports inconsistencies; it is not an automatic repair tool.
 
-For additional examples and exact CLI behavior, see the [Rust workspace README](OpenFS/README.md).
+For additional examples and exact CLI behavior, see the [development guide](OpenFS/docs/DEVELOPMENT.md).
 
 ## Safety and compatibility
 

@@ -4473,8 +4473,8 @@ impl OpenedVolume {
         // growing the file: zero it while it is still beyond EOF, before publishing
         // the larger size. A failure here cannot change bytes visible in the old file.
         let block_size_u64 = u64::from(self.volume.block_size);
-        let tail_remainder = usize::try_from(record.size % block_size_u64)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let tail_remainder =
+            usize::try_from(record.size % block_size_u64).map_err(|_| Error::ArithmeticOverflow)?;
         if tail_remainder != 0 {
             if let Some(physical) = map.physical_block(record.size / block_size_u64) {
                 let mut contents = try_zeroed_block(
