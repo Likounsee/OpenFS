@@ -60,6 +60,26 @@ fn try_copy_bytes(bytes: &[u8], allocation_error: &'static str) -> Result<Vec<u8
     Ok(copy)
 }
 
+fn try_clone_namespace_records(namespace: &Namespace) -> Result<Vec<MetadataRecord>> {
+    let count = namespace.objects().count();
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(count)
+        .map_err(|_| Error::InvalidInput("unable to allocate namespace metadata staging"))?;
+    records.extend(namespace.objects().cloned());
+    Ok(records)
+}
+
+fn try_clone_namespace_entries(namespace: &Namespace) -> Result<Vec<DirectoryEntry>> {
+    let count = namespace.entries().count();
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(count)
+        .map_err(|_| Error::InvalidInput("unable to allocate namespace directory staging"))?;
+    entries.extend(namespace.entries().cloned());
+    Ok(entries)
+}
+
 /// On-disk regions for the canonical format. Journal capacity depends on the format version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VolumeLayout {
@@ -3900,7 +3920,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let mut records = try_clone_namespace_records(&namespace)?;
             let updated =
                 records
                     .iter_mut()
@@ -3911,7 +3931,7 @@ impl OpenedVolume {
             updated.size = new_size;
             updated.extent_root_block = new_root;
             updated.generation = next_generation;
-            let entries = namespace.entries().cloned().collect::<Vec<_>>();
+            let entries = try_clone_namespace_entries(&namespace)?;
             Namespace::from_records(namespace.root_id(), records, entries)
         })();
         let updated_namespace = match updated_namespace {
@@ -4271,7 +4291,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let mut records = try_clone_namespace_records(&namespace)?;
             let updated = records
                 .iter_mut()
                 .find(|item| item.id == object_id)
@@ -4502,7 +4522,7 @@ impl OpenedVolume {
         };
 
         let updated_namespace = (|| -> Result<Namespace> {
-            let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+            let mut records = try_clone_namespace_records(&namespace)?;
             let updated = records
                 .iter_mut()
                 .find(|record| record.id == object_id)
@@ -4510,7 +4530,7 @@ impl OpenedVolume {
             updated.size = file_size;
             updated.extent_root_block = extent_root;
             updated.generation = next_generation;
-            let entries = namespace.entries().cloned().collect::<Vec<_>>();
+            let entries = try_clone_namespace_entries(&namespace)?;
             Namespace::from_records(namespace.root_id(), records, entries)
         })();
         let updated_namespace = match updated_namespace {
@@ -4653,14 +4673,14 @@ impl OpenedVolume {
                     .generation
                     .checked_add(1)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+                let mut records = try_clone_namespace_records(&namespace)?;
                 let updated = records
                     .iter_mut()
                     .find(|item| item.id == object_id)
                     .ok_or(Error::Corrupt("file metadata disappeared during append"))?;
                 updated.size = end;
                 updated.generation = next_generation;
-                let entries = namespace.entries().cloned().collect::<Vec<_>>();
+                let entries = try_clone_namespace_entries(&namespace)?;
                 let updated_namespace =
                     Namespace::from_records(namespace.root_id(), records, entries)?;
                 let mut block = try_zeroed_block(
@@ -4922,7 +4942,7 @@ impl OpenedVolume {
             };
 
             let updated_namespace = (|| -> Result<Namespace> {
-                let mut records: Vec<MetadataRecord> = namespace.objects().cloned().collect();
+                let mut records = try_clone_namespace_records(&namespace)?;
                 let updated = records
                     .iter_mut()
                     .find(|item| item.id == object_id)
@@ -4930,7 +4950,7 @@ impl OpenedVolume {
                 updated.size = end;
                 updated.extent_root_block = Some(new_root);
                 updated.generation = next_generation;
-                let entries = namespace.entries().cloned().collect::<Vec<_>>();
+                let entries = try_clone_namespace_entries(&namespace)?;
                 Namespace::from_records(namespace.root_id(), records, entries)
             })();
             let updated_namespace = match updated_namespace {
