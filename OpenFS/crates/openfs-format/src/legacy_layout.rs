@@ -83,7 +83,7 @@ impl Volume {
         let block_size =
             usize::try_from(self.layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let bits_per_bitmap_block = u64::from(self.layout.block_size) * 8;
-        let mut bitmap = vec![0_u8; block_size];
+        let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy allocation bitmap")?;
 
         for block in self.layout.data_start..self.layout.backup_superblock {
             let bitmap_index = block / bits_per_bitmap_block;
@@ -164,13 +164,16 @@ pub fn format_volume<D: BlockDevice>(
         usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
     let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
+    let mut bitmap =
+        try_zeroed_block(bytes_per_bitmap_block, "unable to allocate legacy format bitmap")?;
     // Write backup first; the primary is published only after the bitmap is persisted.
     write_superblock_block(device, layout.backup_superblock, &encoded)?;
     for bitmap_index in 0..layout.bitmap_blocks {
         let first_bit = bitmap_index
             .checked_mul(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = vec![0_u8; bytes_per_bitmap_block];
+        // Reuse one block-sized scratch buffer instead of allocating for every bitmap page.
+        bitmap.fill(0);
         set_bitmap_bit(&mut bitmap, first_bit, 0);
         for reserved in layout.bitmap_start..bitmap_end {
             set_bitmap_bit(&mut bitmap, first_bit, reserved);
@@ -219,6 +222,15 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<Volume> {
     })
 }
 
+fn try_zeroed_block(size: usize, message: &'static str) -> Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(size)
+        .map_err(|_| Error::AllocationFailed(message))?;
+    buffer.resize(size, 0);
+    Ok(buffer)
+}
+
 fn write_superblock_block<D: BlockDevice>(
     device: &mut D,
     block: u64,
@@ -230,7 +242,7 @@ fn write_superblock_block<D: BlockDevice>(
             "device block is smaller than superblock",
         ));
     }
-    let mut buffer = vec![0_u8; block_size];
+    let mut buffer = try_zeroed_block(block_size, "unable to allocate legacy superblock buffer")?;
     buffer[..SUPERBLOCK_SIZE].copy_from_slice(encoded);
     device.write_blocks(block, &buffer)
 }
