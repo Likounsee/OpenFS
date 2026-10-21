@@ -330,6 +330,7 @@ Absent/incomplete:
 Implemented:
 - check_volume validates superblocks, canonical layout, bitmap reserved/padding invariants, allocation totals and journal/checkpoint state without replay or modifying the image.
 - CLI `check-image` byte-preservation regressions: valid image, pending redo, one damaged checkpoint with a valid peer, and both checkpoint copies damaged. A single damaged copy is tolerated without an on-disk repair; two invalid copies are rejected.
+- CLI `audit-image` regression: when one checkpoint copy is damaged but its peer is valid, a failed audit caused by a missing inventory must preserve every image byte and must not rewrite the damaged checkpoint.
 - Persistent inventory verifier composes namespace reconstruction, extent maps and allocation ownership, with orphan/dangling reports when inventories are available.
 
 Incomplete:

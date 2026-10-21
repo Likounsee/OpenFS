@@ -1365,6 +1365,37 @@ mod tests {
     }
 
     #[test]
+    fn audit_does_not_rewrite_a_damaged_checkpoint_when_peer_is_valid() {
+        let path = unique_path("audit-one-corrupt-checkpoint");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
+            drop(volume);
+
+            // Audit must remain read-only even if opening the journal could choose
+            // the other valid checkpoint copy.
+            let corrupt_checkpoint = vec![0xA5; BLOCK_SIZE as usize];
+            device
+                .write_blocks(checkpoint_a, &corrupt_checkpoint)
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        let before = fs::read(&path).unwrap();
+        assert!(
+            audit_image(&path, BLOCK_SIZE).is_err(),
+            "audit should still report the absent persistent inventory"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "audit must not rewrite a damaged checkpoint while inspecting the image"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn audit_of_clean_volume_without_inventory_does_not_modify_image() {
         let path = unique_path("audit-no-inventory");
         {
