@@ -5224,6 +5224,30 @@ impl OpenedVolume {
         // Extent ownership is expensive to reconstruct, so defer it until the path and
         // operation are known to require actual data I/O.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        // Writes that stay inside EOF but touch sparse holes use copy-on-write block
+        // replacement. This fills holes without materializing the whole sparse file.
+        if offset < record.size {
+            let block_size = u64::from(self.volume.block_size);
+            let data_len = u64::try_from(data.len()).map_err(|_| Error::ArithmeticOverflow)?;
+            let write_end = offset.checked_add(data_len).ok_or(Error::ArithmeticOverflow)?;
+            if write_end <= record.size {
+                let map = extent_maps.get(&object_id)
+                    .ok_or(Error::Corrupt("file extent map is missing"))?;
+                let first = offset / block_size;
+                let last = (write_end - 1) / block_size;
+                if (first..=last).any(|logical| map.physical_block(logical).is_none()) {
+                    return self.write_persistent_sparse_range_from_namespace(
+                        device,
+                        namespace,
+                        object_id,
+                        record,
+                        map,
+                        offset,
+                        data,
+                    );
+                }
+            }
+        }
         // Appends that fit in the current final block need no extent-map replacement.
         // Larger appends stage new data and a new extent root before publishing the new size.
         if !data.is_empty() && offset == record.size {
