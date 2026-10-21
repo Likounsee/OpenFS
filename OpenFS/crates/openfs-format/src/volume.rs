@@ -34,6 +34,52 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
+
+fn collect_file_owned_blocks(
+    namespace: &Namespace,
+    extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
+) -> Result<Vec<u64>> {
+    let block_count = namespace.objects().try_fold(0_u64, |count, record| {
+        let Some(root) = record.extent_root_block else {
+            if record.kind == crate::ObjectKind::File && record.size != 0 {
+                return Err(Error::Corrupt(
+                    "non-empty file is missing its extent-map root",
+                ));
+            }
+            return Ok(count);
+        };
+        let map = extent_maps
+            .get(&record.id)
+            .ok_or(Error::Corrupt("file extent map is missing"))?;
+        count
+            .checked_add(map.allocated_blocks()?)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(Error::ArithmeticOverflow)
+    })?;
+    let capacity = usize::try_from(block_count).map_err(|_| Error::ArithmeticOverflow)?;
+    let mut blocks = Vec::new();
+    blocks.try_reserve_exact(capacity).map_err(|_| {
+        Error::AllocationFailed("unable to reserve file block ownership inventory")
+    })?;
+    for record in namespace.objects() {
+        let Some(root) = record.extent_root_block else {
+            continue;
+        };
+        let map = extent_maps
+            .get(&record.id)
+            .ok_or(Error::Corrupt("file extent map is missing"))?;
+        blocks.push(root);
+        blocks.extend(map.physical_blocks());
+    }
+    blocks.sort_unstable();
+    if blocks.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(Error::Corrupt(
+            "persistent files share a physical data or extent-map block",
+        ));
+    }
+    Ok(blocks)
+}
+
 fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
     let mut block = Vec::new();
     block
@@ -954,6 +1000,15 @@ impl OpenedVolume {
         device: &mut D,
         descriptor: &PersistentInventoryDescriptor,
     ) -> Result<u64> {
+        self.replace_persistent_inventory_descriptor_with_reclaim(device, descriptor, &[])
+    }
+
+    fn replace_persistent_inventory_descriptor_with_reclaim<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        descriptor: &PersistentInventoryDescriptor,
+        expected_file_reclaim_blocks: &[u64],
+    ) -> Result<u64> {
         self.validate_device(device)?;
         let (old_block, old_descriptor) =
             self.discover_persistent_inventory(device)?
@@ -1013,37 +1068,71 @@ impl OpenedVolume {
                 .filter(|block| new_inventory_blocks.binary_search(block).is_err()),
         );
 
-        if report.dangling_reference_count() != 0
-            || report.allocation.orphaned_allocations_truncated
-            || report.allocation.orphaned_allocation_count
-                != report.allocation.orphaned_allocations.len() as u64
-            || !report.allocation.orphaned_allocations.contains(&old_block)
-            || report.allocation.orphaned_allocations.iter().any(|block| {
-                *block != old_block && expected_releasable.binary_search(block).is_err()
+        let mut expected_file_reclaim = try_copy_block_numbers(
+            expected_file_reclaim_blocks,
+            "allocation failed while checking retired file-block ownership",
+        )?;
+        expected_file_reclaim.sort_unstable();
+        if expected_file_reclaim.windows(2).any(|pair| pair[0] == pair[1])
+            || expected_file_reclaim.iter().any(|block| {
+                *block == old_block
+                    || old_inventory_blocks.binary_search(block).is_ok()
+                    || new_inventory_blocks.binary_search(block).is_ok()
+                    || *block < self.volume.layout.data_start
+                    || *block >= self.volume.layout.backup_superblock
             })
+        {
+            return Err(Error::InvalidInput(
+                "retired file-block list contains duplicates or protected inventory blocks",
+            ));
+        }
+
+        let mut expected_orphans = Vec::new();
+        expected_orphans
+            .try_reserve_exact(
+                expected_releasable
+                    .len()
+                    .checked_add(expected_file_reclaim.len())
+                    .and_then(|count| count.checked_add(1))
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| {
+                Error::AllocationFailed("allocation failed while validating expected orphan blocks")
+            })?;
+        expected_orphans.extend_from_slice(&expected_releasable);
+        expected_orphans.extend_from_slice(&expected_file_reclaim);
+        expected_orphans.push(old_block);
+        expected_orphans.sort_unstable();
+        if expected_orphans.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "expected orphan list contains overlapping ownership categories",
+            ));
+        }
+
+        let sampled_orphans_match = report
+            .allocation
+            .orphaned_allocations
+            .iter()
+            .all(|block| expected_orphans.binary_search(block).is_ok());
+        let complete_orphan_sample_matches = report.allocation.orphaned_allocations_truncated
+            || report.allocation.orphaned_allocations == expected_orphans;
+        if report.dangling_reference_count() != 0
+            || report.allocation.orphaned_allocation_count
+                != u64::try_from(expected_orphans.len()).map_err(|_| Error::ArithmeticOverflow)?
+            || !sampled_orphans_match
+            || !complete_orphan_sample_matches
+            || (report.allocation.orphaned_allocations_truncated
+                && expected_file_reclaim.is_empty())
         {
             return Err(Error::InvalidInput(
                 "replacement inventory has unresolved allocation ownership anomalies",
             ));
         }
-        let mut released_blocks = Vec::new();
-        released_blocks
-            .try_reserve_exact(report.allocation.orphaned_allocations.len())
-            .map_err(|_| {
-                Error::AllocationFailed(
-                    "allocation failed while preparing released inventory blocks",
-                )
-            })?;
-        released_blocks.extend(
-            report
-                .allocation
-                .orphaned_allocations
-                .iter()
-                .copied()
-                .filter(|block| *block != old_block),
-        );
-        released_blocks.sort_unstable();
-        released_blocks.dedup();
+
+        // File blocks retired by a namespace operation remain allocated until the caller
+        // finishes publication and explicitly reclaims them. Only old inventory pages are
+        // released in the descriptor's journal transaction.
+        let released_blocks = expected_releasable;
         let layout = self.volume.layout;
         let block_size =
             usize::try_from(self.volume.block_size).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1980,7 +2069,7 @@ impl OpenedVolume {
         for (_, object_id) in &removal_order {
             namespace.remove(*object_id)?;
         }
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &namespace) {
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &namespace, &reclaim_blocks) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if object_ids.iter().all(|id| active.object(*id).is_none()) =>
@@ -2415,7 +2504,7 @@ impl OpenedVolume {
         }
 
         namespace.remove(object_id)?;
-        let publication = self.replace_persistent_namespace_inventory(device, &namespace);
+        let publication = self.replace_persistent_namespace_inventory_with_reclaim(device, &namespace, &reclaim_blocks);
         if let Err(error) = publication {
             // A reported I/O error can occur after the descriptor was committed. Only
             // reclaim blocks if rediscovery proves the removed object is no longer live.
@@ -2638,7 +2727,7 @@ impl OpenedVolume {
                 .cloned(),
         );
         let updated_namespace = Namespace::from_records(namespace.root_id(), records, entries)?;
-        let publication = self.replace_persistent_namespace_inventory(device, &updated_namespace);
+        let publication = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks);
         if let Err(error) = publication {
             // Publication can report an I/O error after the new descriptor committed.
             // Reclaim only if the active inventory proves every removed ID is absent.
@@ -2793,8 +2882,43 @@ impl OpenedVolume {
         device: &mut D,
         namespace: &Namespace,
     ) -> Result<u64> {
+        self.replace_persistent_namespace_inventory_with_reclaim(device, namespace, &[])
+    }
+
+    fn replace_persistent_namespace_inventory_with_reclaim<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: &Namespace,
+        expected_file_reclaim_blocks: &[u64],
+    ) -> Result<u64> {
         self.validate_device(device)?;
         namespace.validate()?;
+        if !expected_file_reclaim_blocks.is_empty() {
+            let (_, old_namespace) = self
+                .reconstruct_discovered_namespace(device)?
+                .ok_or(Error::InvalidInput(
+                    "no persistent inventory descriptor exists to replace",
+                ))?;
+            let old_maps = self.read_namespace_extent_maps(device, &old_namespace)?;
+            let new_maps = self.read_namespace_extent_maps(device, namespace)?;
+            let old_owned = collect_file_owned_blocks(&old_namespace, &old_maps)?;
+            let new_owned = collect_file_owned_blocks(namespace, &new_maps)?;
+            let mut expected = try_copy_block_numbers(
+                expected_file_reclaim_blocks,
+                "allocation failed while validating retired file blocks",
+            )?;
+            expected.sort_unstable();
+            if expected.windows(2).any(|pair| pair[0] == pair[1])
+                || expected.iter().any(|block| {
+                    old_owned.binary_search(block).is_err()
+                        || new_owned.binary_search(block).is_ok()
+                })
+            {
+                return Err(Error::InvalidInput(
+                    "retired file-block list does not match old and new namespace ownership",
+                ));
+            }
+        }
 
         // The on-disk descriptor has a fixed number of block references. Reject an
         // oversized namespace from its fixed-width record counts before serializing the
@@ -2966,7 +3090,11 @@ impl OpenedVolume {
             return Err(error);
         }
 
-        match self.replace_persistent_inventory_descriptor(device, &descriptor) {
+        match self.replace_persistent_inventory_descriptor_with_reclaim(
+            device,
+            &descriptor,
+            expected_file_reclaim_blocks,
+        ) {
             Ok(block) => Ok(block),
             Err(error) => {
                 // The journal can report an I/O error after the commit point. Rediscover
@@ -4187,8 +4315,14 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
-        {
+        if let Some(root) = old_root {
+            reclaim_blocks.push(root);
+        }
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &updated_namespace,
+            &reclaim_blocks,
+        ) {
             // Publication can fail after its commit point. Only reclaim the staged root
             // after disk inspection proves that the old version is still authoritative.
             match self.reconstruct_discovered_namespace(device) {
@@ -4252,9 +4386,6 @@ impl OpenedVolume {
 
         // The shorter size is already published. Reclaim old storage even if clearing
         // bytes past EOF fails; those bytes are no longer visible through the file API.
-        if let Some(root) = old_root {
-            reclaim_blocks.push(root);
-        }
         if self
             .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
@@ -4376,8 +4507,16 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
-        {
+        let publication = if let Some(old_root) = record.extent_root_block {
+            self.replace_persistent_namespace_inventory_with_reclaim(
+                device,
+                &updated_namespace,
+                &[old_root],
+            )
+        } else {
+            self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        };
+        if let Err(error) = publication {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -4386,6 +4525,13 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
+                    if let Some(root) = record.extent_root_block {
+                        self.reclaim_persistent_blocks(device, &[root]).map_err(|_| {
+                            Error::Corrupt(
+                                "sparse extension committed but old extent-map root could not be reclaimed",
+                            )
+                        })?;
+                    }
                     return Ok(());
                 }
                 Ok(Some((_, active)))
@@ -4410,6 +4556,13 @@ impl OpenedVolume {
                     ));
                 }
             }
+        }
+        if let Some(root) = record.extent_root_block {
+            self.reclaim_persistent_blocks(device, &[root]).map_err(|_| {
+                Error::Corrupt(
+                    "sparse extension succeeded but old extent-map root could not be reclaimed",
+                )
+            })?;
         }
         Ok(())
     }
@@ -4701,7 +4854,7 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks)
         {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
@@ -4962,7 +5115,7 @@ impl OpenedVolume {
 
         // A publication error may be reported after the journal commit point. Rediscover
         // the active file version before deciding whether staged data can be reclaimed.
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(device, &updated_namespace, &reclaim_blocks)
         {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
@@ -5189,8 +5342,12 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
-        {
+        reclaim_blocks.push(old_root);
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &updated_namespace,
+            &reclaim_blocks,
+        ) {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -5222,7 +5379,6 @@ impl OpenedVolume {
             }
         }
 
-        reclaim_blocks.push(old_root);
         if self
             .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
@@ -5682,7 +5838,11 @@ impl OpenedVolume {
                 }
             };
 
-            match self.replace_persistent_namespace_inventory(device, &updated_namespace) {
+            match self.replace_persistent_namespace_inventory_with_reclaim(
+                device,
+                &updated_namespace,
+                &[old_root],
+            ) {
                 Ok(_) => {
                     // Publication has removed the old root from the live namespace, so it
                     // is now safe to release. If freeing fails, the new file remains valid.
