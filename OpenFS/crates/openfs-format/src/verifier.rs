@@ -535,4 +535,38 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn discovered_verification_rejects_semantically_invalid_descriptor_with_valid_checksum() {
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("invalid-descriptor-root-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let mut bytes = descriptor.encode(block_size as usize).unwrap();
+                bytes[12..28].fill(0);
+                bytes[40..44].fill(0);
+                let checksum = crate::crc32c(&bytes);
+                bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
+                device.write_blocks(descriptor_block, &bytes).unwrap();
+
+                assert!(matches!(
+                    volume.verify_discovered_persistent_inventory(&mut device),
+                    Err(openfs_core::Error::Corrupt(
+                        "inventory descriptor root ID is zero"
+                    ))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
