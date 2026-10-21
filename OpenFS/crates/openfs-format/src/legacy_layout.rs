@@ -143,14 +143,19 @@ impl Volume {
         let bitmap_index = block / bits_per_bitmap_block;
         let local = block % bits_per_bitmap_block;
         let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy bitmap buffer")?;
-        device.read_blocks(self.layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        let bitmap_block = self
+            .layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
         let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
         let mask = 1_u8 << (local % 8);
         if bitmap[byte] & mask == 0 {
             return Err(Error::InvalidInput("data block is already free"));
         }
         bitmap[byte] &= !mask;
-        device.write_blocks(self.layout.bitmap_start + bitmap_index, &bitmap)?;
+        device.write_blocks(bitmap_block, &bitmap)?;
         device.flush()
     }
 
@@ -187,7 +192,10 @@ pub fn format_volume<D: BlockDevice>(
     let bytes_per_bitmap_block =
         usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
-    let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
+    let bitmap_end = layout
+        .bitmap_start
+        .checked_add(layout.bitmap_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
     let mut bitmap = try_zeroed_block(
         bytes_per_bitmap_block,
         "unable to allocate legacy format bitmap",
@@ -211,7 +219,11 @@ pub fn format_volume<D: BlockDevice>(
         for bit in layout.total_blocks.max(first_bit)..bitmap_capacity {
             set_bitmap_bit(&mut bitmap, first_bit, bit);
         }
-        device.write_blocks(layout.bitmap_start + bitmap_index, &bitmap)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(bitmap_block, &bitmap)?;
     }
     device.flush()?;
     write_superblock_block(device, 0, &encoded)?;
@@ -309,7 +321,11 @@ fn validate_reserved_bitmap_bits<D: BlockDevice>(
 ) -> Result<()> {
     let block_size = usize::try_from(layout.block_size).map_err(|_| Error::ArithmeticOverflow)?;
     let bits_per_bitmap_block = u64::from(layout.block_size) * 8;
-    let bitmap_end = layout.bitmap_start + layout.bitmap_blocks;
+    let bitmap_end = layout
+        .bitmap_start
+        .checked_add(layout.bitmap_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy bitmap buffer")?;
     for bitmap_index in 0..layout.bitmap_blocks {
         let first_bit = bitmap_index
             .checked_mul(bits_per_bitmap_block)
@@ -317,8 +333,11 @@ fn validate_reserved_bitmap_bits<D: BlockDevice>(
         let end_bit = first_bit
             .checked_add(bits_per_bitmap_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_block(block_size, "unable to allocate legacy bitmap buffer")?;
-        device.read_blocks(layout.bitmap_start + bitmap_index, &mut bitmap)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
         for reserved in core::iter::once(0)
             .chain(layout.bitmap_start..bitmap_end)
             .chain(core::iter::once(layout.backup_superblock))
