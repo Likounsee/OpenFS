@@ -1951,17 +1951,11 @@ impl OpenedVolume {
                             .physical_start
                             .checked_add(delta)
                             .ok_or(Error::ArithmeticOverflow)?;
-                        reclaim_blocks.try_reserve(1).map_err(|_| {
-                            Error::InvalidInput(
-                                "allocation failed while staging reclaimed file blocks",
-                            )
-                        })?;
+                        // Capacity was reserved exactly from the validated extent maps above.
                         reclaim_blocks.push(block);
                     }
                 }
-                reclaim_blocks.try_reserve(1).map_err(|_| {
-                    Error::InvalidInput("allocation failed while staging reclaimed extent roots")
-                })?;
+                // Capacity was reserved for every data block and root before collection.
                 reclaim_blocks.push(root);
             }
         }

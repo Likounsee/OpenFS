@@ -1,9 +1,9 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
-Last source audit: 2026-10-20  
+Last source audit: 2026-10-21  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
-Code baseline audited: a7797a99677197afd0d54adf4a6e84832b8fc7ce  
-Current code HEAD before this roadmap revision: d6cdc157c07a3f360c1ef16041c8d19667e5b5d3  
+Code baseline audited: a71b20b81b5b1a882b55df16c0010492800ed9f0  
+Current code HEAD before this roadmap revision: a71b20b81b5b1a882b55df16c0010492800ed9f0  
 Legacy comparison: Likounsee/OpenFS-old at fdb5dee16266d037c79438a5b20ebccceab3fa24  
 Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a golden superblock byte fixture. Linux validation passed for code SHA `8c64e2bcbe9e94f30b603f78d7872ac3a968beee` in run [38545854632](https://github.com/Likounsee/OpenFS/actions/runs/38545854632); Windows is still running. This roadmap revision does not change filesystem code.
 
@@ -14,10 +14,10 @@ Scope: record bounded descriptor-range reads, descriptor corruption sweep, and a
 | Phase | Poids global | Avancement estimé | Périmètre / état |
 | --- | ---: | ---: | --- |
 | **P0 — Socle d'ingénierie et sécurité** | 10 % | **100 %** | Socle validé; rouvrir en cas de défaut concret de sécurité ou d'intégrité. |
-| **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **64 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
-| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **28 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
-| **P3 — Périphériques sûrs, intégration OS et livraison** | 25 % | **3 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
-| **Global pondéré** | **100 %** | **42 %** | Estimation provisoire : 41,55 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
+| **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **79 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
+| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **69 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
+| **P3 — Périphériques sûrs, intégration OS et livraison** | 25 % | **5 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
+| **Global pondéré** | **100 %** | **60 %** | Estimation pondérée : 59,6 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
 
 Les anciens lots sont regroupés sans faire passer du travail non réalisé pour terminé :
 - **P0** garde le socle d'ingénierie.
@@ -536,3 +536,11 @@ The task-level ledger is the current source for the published **provisional** pe
 Before claiming a mechanically reproducible score, replace each non-zero partial task row with named acceptance criteria and fixed subweights. For every criterion record: stable ID; weight within the task; expected behavior; source/API path; regression test name; whether the test was added, executed and passed; exact CI run and tested SHA where applicable; earned credit; and a one-line justification. Subweights must sum exactly to the parent task weight, and earned criterion points must sum to the parent earned points. Each acceptance criterion may be credited once only. Keep absent or unverified behavior at zero; recalculate phase and global percentages from the criterion ledger and disclose any change from 40%.
 
 Until that work is done, retain the existing values only as provisional estimates and use the exit gates—not percentages alone—to decide whether a phase can advance. This revision fixes status/evidence inconsistencies but does not claim that the score has become mechanically reproducible.
+
+
+### Mise à jour du 2026-10-21 — durcissement des mutations persistantes
+
+- `4f18d6a`, `b882f08` et `a71b20b` renforcent la préparation des listes de blocs, la construction groupée des extents et les calculs de capacité avant remplacement, suppression et troncature.
+- La CI exacte-SHA de `a71b20b` a terminé avec succès sous Linux et Windows (formatage, tests du workspace et Clippy) : [run 39610130554](https://github.com/Likounsee/OpenFS/actions/runs/39610130554).
+- Le lot suivant retire les appels redondants à `try_reserve(1)` dans la collecte des blocs d'une suppression groupée : la capacité exacte est déjà réservée avant la boucle. Cela évite un contrôle d'allocation par bloc sans changer l'ordre de validation ni le moment de libération.
+- Les limites principales restent la propriété exclusive du volume entre plusieurs ouvreurs/processus, l'atomicité générale des mutations multi-étapes et l'intégration OS. Le journal protège des mises à jour de bitmap, pas chaque opération fichier comme transaction globale.
