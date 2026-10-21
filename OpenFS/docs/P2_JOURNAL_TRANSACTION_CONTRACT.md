@@ -32,6 +32,7 @@ Persistent create, rename, remove, file-content write, range write and truncate 
 
 When extending these paths, preserve the following invariants:
 - For replacement, truncation, and removal, derive the retired file-block allowlist from validated old ownership and prove those blocks are absent from the proposed namespace. During descriptor publication, allow only these known retired blocks and obsolete inventory pages to appear as orphans; unknown orphans and dangling references must still fail closed. Do not free retired file blocks in the descriptor transaction itself: reclaim them only after publication is confirmed, so an uncertain outcome cannot free storage still referenced by the active inventory.
+- Sparse growth must zero the retained physical block's bytes beyond the old EOF before publishing a larger size; a prior truncate can have committed its shorter length while a tail-scrub write failed. If the old EOF is in a hole, sparse reads already produce zeroes and no data block needs clearing.
 - Do not publish a reference to data or metadata before the referenced contents are written and flushed as required by that operation's contract.
 - Do not free old storage while the currently discoverable namespace may still reference it.
 - Preflight bounded journal capacity before staging a transition that depends on one journal commit point.

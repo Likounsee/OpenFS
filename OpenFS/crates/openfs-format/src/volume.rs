@@ -4468,6 +4468,31 @@ impl OpenedVolume {
         map.validate_file_size(record.size, self.volume.block_size)?;
         map.validate_file_size(new_size, self.volume.block_size)?;
 
+        // A previous truncate may have committed the shorter size but failed while
+        // scrubbing the retained last block. Never expose that stale tail again when
+        // growing the file: zero it while it is still beyond EOF, before publishing
+        // the larger size. A failure here cannot change bytes visible in the old file.
+        let block_size_u64 = u64::from(self.volume.block_size);
+        let tail_remainder = usize::try_from(record.size % block_size_u64)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        if tail_remainder != 0 {
+            if let Some(physical) = map.physical_block(record.size / block_size_u64) {
+                let mut contents = try_zeroed_block(
+                    block_size,
+                    "allocation failed while clearing sparse-extension tail",
+                )?;
+                device.read_blocks(physical, &mut contents)?;
+                contents[tail_remainder..].fill(0);
+                self.journal.commit(
+                    device,
+                    &[RedoUpdate {
+                        target_block: physical,
+                        contents,
+                    }],
+                )?;
+            }
+        }
+
         let staged_root = if record.extent_root_block.is_none() {
             let encoded = map.encode_block(block_size)?;
             let root = self.allocate_block(device)?;
@@ -14553,6 +14578,27 @@ mod tests {
                     expected,
                     "truncated prefix must survive reopen at block size {block_size}"
                 );
+
+                // Model a failed post-truncate tail scrub: bytes beyond EOF can
+                // remain stale on disk even though the shorter size is already durable.
+                // Sparse growth must clear them before making that range visible again.
+                let (_, namespace) = volume
+                    .reconstruct_discovered_namespace(&mut device)
+                    .unwrap()
+                    .unwrap();
+                let maps = volume
+                    .read_namespace_extent_maps(&mut device, &namespace)
+                    .unwrap();
+                let physical = maps
+                    .get(&ObjectId(2))
+                    .unwrap()
+                    .physical_block((truncated_len / block_len) as u64)
+                    .unwrap();
+                let mut tail_block = vec![0; block_len];
+                device.read_blocks(physical, &mut tail_block).unwrap();
+                tail_block[truncated_len % block_len..].fill(0xA5);
+                device.write_blocks(physical, &tail_block).unwrap();
+                device.flush().unwrap();
 
                 let sparse_len = truncated_len + block_len * 2 + 9;
                 volume
