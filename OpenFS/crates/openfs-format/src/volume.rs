@@ -5155,7 +5155,10 @@ impl OpenedVolume {
                     item.size == record.size
                         && item.extent_root_block == Some(new_root)
                         && item.generation == next_generation
-                }) => return Ok(()),
+                }) => {
+                    // The replacement is authoritative despite the reported error.
+                    // Continue below so the superseded blocks and old root are reclaimed.
+                }
                 Ok(Some((_, active))) if active.object(object_id).is_some_and(|item| {
                     item.size == record.size
                         && item.extent_root_block == record.extent_root_block
