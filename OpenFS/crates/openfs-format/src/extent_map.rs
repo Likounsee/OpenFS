@@ -2191,6 +2191,112 @@ mod tests {
     }
 
     #[test]
+    fn batch_append_matches_individual_appends_across_fragmented_runs() {
+        let initial = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 100,
+            block_count: 2,
+        }])
+        .unwrap();
+        let incoming = vec![
+            Extent {
+                logical_start: 2,
+                physical_start: 102,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 6,
+                physical_start: 400,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 8,
+                physical_start: 402,
+                block_count: 1,
+            },
+            Extent {
+                logical_start: 12,
+                physical_start: 900,
+                block_count: 3,
+            },
+        ];
+
+        let mut batched = initial.clone();
+        batched.push_coalescing_batch(incoming.clone()).unwrap();
+
+        let mut incremental = initial;
+        for extent in incoming {
+            incremental.push_coalescing(extent).unwrap();
+        }
+
+        assert_eq!(batched, incremental);
+        assert_eq!(batched.allocated_blocks().unwrap(), 10);
+        assert_eq!(batched.logical_block_count().unwrap(), 15);
+        assert_eq!(
+            batched.logical_hole_ranges(15).unwrap(),
+            vec![(5, 1), (9, 3)]
+        );
+    }
+
+    #[test]
+    fn extent_map_clone_preserves_sparse_mapping_and_independent_mutation() {
+        let original = sample();
+        let mut cloned = original.try_clone().unwrap();
+
+        assert_eq!(cloned, original);
+        cloned.remove_range(1, 1).unwrap();
+
+        assert_ne!(cloned, original);
+        assert_eq!(original.physical_block(1), Some(101));
+        assert_eq!(cloned.physical_block(1), None);
+        assert_eq!(cloned.physical_block(2), Some(102));
+    }
+
+    #[test]
+    fn physical_range_validation_accepts_exact_data_region_edges() {
+        let map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 10,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 18,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+
+        assert!(map.validate(6, 10, 20).is_ok());
+        assert_eq!(
+            map.validated_physical_ranges(6, 10, 20).unwrap(),
+            vec![(10, 12), (18, 20)]
+        );
+        assert!(matches!(
+            map.validate(6, 10, 19),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+        assert!(matches!(
+            map.validate(6, 11, 20),
+            Err(Error::Corrupt("extent points outside the data region"))
+        ));
+    }
+
+    #[test]
+    fn decoder_accepts_minimum_block_and_rejects_every_shorter_length() {
+        let empty = ExtentMap::default().encode_block(20).unwrap();
+        assert_eq!(ExtentMap::decode_block(&empty).unwrap(), ExtentMap::default());
+
+        for length in 0..20 {
+            assert!(matches!(
+                ExtentMap::decode_block(&empty[..length]),
+                Err(Error::InvalidInput("extent-map block is too short"))
+            ));
+        }
+    }
+
+    #[test]
     fn failed_middle_insertion_preserves_existing_extents() {
         let mut map = sample();
         let before = map.clone();
