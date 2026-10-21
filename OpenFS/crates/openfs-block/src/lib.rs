@@ -1,6 +1,7 @@
 //! Bounded block-device abstractions and a file-backed development image.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use fs2::FileExt;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -110,7 +111,7 @@ impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
                 usize::try_from(self.inner.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
             if block_size == 0
                 || input.is_empty()
-                || !input.len().is_multiple_of(block_size)
+                || input.len() % block_size != 0
                 || prefix_bytes >= input.len()
             {
                 return Err(Error::InvalidInput(
@@ -227,7 +228,7 @@ impl ImageDevice {
 
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<u64> {
         let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if length == 0 || !length.is_multiple_of(block_size) {
+        if length == 0 || length % block_size != 0 {
             return Err(Error::InvalidInput(
                 "buffer length must be a non-zero multiple of block size",
             ));
@@ -316,7 +317,7 @@ impl RawDevice {
 
     fn validate_buffer(&self, first_block: u64, length: usize) -> Result<()> {
         let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if length == 0 || !length.is_multiple_of(block_size) {
+        if length == 0 || length % block_size != 0 {
             return Err(Error::InvalidInput(
                 "buffer length must be a non-zero multiple of block size",
             ));
@@ -370,12 +371,14 @@ impl BlockDevice for RawDevice {
 /// hold stale allocation or journal state at the same time. The lock is released by the
 /// operating system when the file handle is dropped or the process exits.
 fn lock_exclusive(file: &File) -> Result<()> {
-    match file.try_lock() {
+    match file.try_lock_exclusive() {
         Ok(()) => Ok(()),
-        Err(TryLockError::WouldBlock) => Err(Error::InvalidInput(
-            "volume is already open by another writer",
-        )),
-        Err(TryLockError::Error(error)) => Err(Error::Io(error)),
+        Err(error) if error.kind() == fs2::lock_contended_error().kind() => {
+            Err(Error::InvalidInput(
+                "volume is already open by another writer",
+            ))
+        }
+        Err(error) => Err(Error::Io(error)),
     }
 }
 

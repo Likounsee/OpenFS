@@ -10,6 +10,7 @@ test-support = []
 
 [dependencies]
 openfs-core = { path = "../openfs-core" }
+fs2 = "0.4.3"
 
 [lints]
 workspace = true
