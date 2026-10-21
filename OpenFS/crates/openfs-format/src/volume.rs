@@ -4520,16 +4520,8 @@ impl OpenedVolume {
             }
         };
 
-        let publication = if let Some(old_root) = record.extent_root_block {
-            self.replace_persistent_namespace_inventory_with_reclaim(
-                device,
-                &updated_namespace,
-                &[old_root],
-            )
-        } else {
-            self.replace_persistent_namespace_inventory(device, &updated_namespace)
-        };
-        if let Err(error) = publication {
+        if let Err(error) = self.replace_persistent_namespace_inventory(device, &updated_namespace)
+        {
             match self.reconstruct_discovered_namespace(device) {
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -4538,13 +4530,6 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
-                    if let Some(root) = record.extent_root_block {
-                        self.reclaim_persistent_blocks(device, &[root]).map_err(|_| {
-                            Error::Corrupt(
-                                "sparse extension committed but old extent-map root could not be reclaimed",
-                            )
-                        })?;
-                    }
                     return Ok(());
                 }
                 Ok(Some((_, active)))
@@ -4569,14 +4554,6 @@ impl OpenedVolume {
                     ));
                 }
             }
-        }
-        if let Some(root) = record.extent_root_block {
-            self.reclaim_persistent_blocks(device, &[root])
-                .map_err(|_| {
-                    Error::Corrupt(
-                        "sparse extension succeeded but old extent-map root could not be reclaimed",
-                    )
-                })?;
         }
         Ok(())
     }
