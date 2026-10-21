@@ -7,7 +7,7 @@ Les commits de ce relevé actualisent les fichiers de documentation/inventaire s
 
 ## Résultats vérifiés
 
-- Arbre Git au commit de code analysé : 46 fichiers suivis.
+- Arbre Git au commit de code analysé : 46 fichiers suivis; le dépôt compte maintenant 47 fichiers suivis après l'ajout du nouvel inventaire fonctionnel.
 - Sources Rust récupérées et parcourues : 16/16.
 - Déclarations indexées par extraction ligne à ligne : 989.
 - Répartition : 779 fonctions/méthodes, 74 constantes, 51 blocs `impl`, 48 structures, 27 modules, 5 enums, 3 types, 1 trait et 1 static.
@@ -55,4 +55,4 @@ Le fichier `INVENTAIRE_EXHAUSTIF.csv` historique est conservé sans écrasement.
 
 ## CI
 
-Au moment du premier relevé, l'exécution `39666862823` était en cours après la correction de formatage. La CI ne doit être déclarée verte qu'après une conclusion positive des étapes formatage, tests workspace et Clippy sur Linux et Windows.
+Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled`. La CI ne doit être déclarée verte qu'après une conclusion positive des étapes formatage, tests workspace et Clippy sur Linux et Windows.
