@@ -1233,12 +1233,12 @@ impl OpenedVolume {
                 .ok_or(Error::ArithmeticOverflow)?,
         );
         validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        for block in extent.start_block..end {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                return Err(Error::Corrupt("best-fit extent changed during allocation"));
-            }
+        let local_start = extent.start_block - base;
+        let local_end = end - base;
+        // Revalidate the whole candidate using bitmap-byte masks, matching the
+        // regular contiguous allocator and avoiding per-block division/modulo.
+        if !bitmap_range_matches(&bitmap, local_start, local_end, false)? {
+            return Err(Error::Corrupt("best-fit extent changed during allocation"));
         }
         // Match every other allocation path: interrupted descriptor staging must not
         // become discoverable when a stale free block is allocated through best-fit.
@@ -1248,11 +1248,8 @@ impl OpenedVolume {
             extent.start_block,
             end,
         )?;
-        for block in extent.start_block..end {
-            let local = block - base;
-            let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            bitmap[byte] |= 1_u8 << (local % 8);
-        }
+        // Preserve adjacent allocation bits while marking the selected run in bulk.
+        set_bitmap_range(&mut bitmap, local_start, local_end, true)?;
         self.journal.commit(
             device,
             &[RedoUpdate {
