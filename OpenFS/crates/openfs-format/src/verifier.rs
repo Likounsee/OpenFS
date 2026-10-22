@@ -634,8 +634,14 @@ mod tests {
                     .unwrap();
 
                 assert!(report.is_consistent(), "block size {block_size}");
-                assert_eq!(audited.writes, 0, "verification wrote at block size {block_size}");
-                assert_eq!(audited.flushes, 0, "verification flushed at block size {block_size}");
+                assert_eq!(
+                    audited.writes, 0,
+                    "verification wrote at block size {block_size}"
+                );
+                assert_eq!(
+                    audited.flushes, 0,
+                    "verification flushed at block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
