@@ -15025,96 +15025,99 @@ mod tests {
         }
     }
 
-#[test]
-fn persistent_batch_removal_is_atomic_and_survives_reopen() {
-    use crate::ObjectId;
+    #[test]
+    fn persistent_batch_removal_is_atomic_and_survives_reopen() {
+        use crate::ObjectId;
 
-    for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-        let path = image_path(&format!("persistent-batch-removal-{block_size}"));
-        {
-            let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            volume
-                .initialize_persistent_namespace(&mut device, ObjectId(1))
-                .unwrap();
-            volume
-                .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "docs")
-                .unwrap();
-            volume
-                .create_persistent_directory_at_path(&mut device, "/", ObjectId(3), "empty")
-                .unwrap();
-            volume
-                .create_persistent_file_at_path(&mut device, "/", ObjectId(4), "alpha.bin")
-                .unwrap();
-            volume
-                .create_persistent_file_at_path(&mut device, "/", ObjectId(5), "beta.bin")
-                .unwrap();
-            volume
-                .create_persistent_file_at_path(&mut device, "/docs", ObjectId(6), "keep.txt")
-                .unwrap();
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-batch-removal-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "docs")
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(3), "empty")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(4), "alpha.bin")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(5), "beta.bin")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/docs", ObjectId(6), "keep.txt")
+                    .unwrap();
 
-            let alpha = b"alpha data to reclaim";
-            let beta = b"beta data to reclaim";
-            volume
-                .write_persistent_file_contents(&mut device, "/alpha.bin", alpha)
-                .unwrap();
-            volume
-                .write_persistent_file_contents(&mut device, "/beta.bin", beta)
-                .unwrap();
+                let alpha = b"alpha data to reclaim";
+                let beta = b"beta data to reclaim";
+                volume
+                    .write_persistent_file_contents(&mut device, "/alpha.bin", alpha)
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/beta.bin", beta)
+                    .unwrap();
 
-            // A non-empty directory cannot be removed, and rejection is byte-atomic.
-            let before_nonempty = snapshot_image_bytes(&mut device);
-            assert!(volume
-                .remove_persistent_objects(&mut device, &[ObjectId(2)])
-                .is_err());
-            assert_eq!(
-                snapshot_image_bytes(&mut device),
-                before_nonempty,
-                "rejecting a non-empty directory must preserve the image at block size {block_size}"
-            );
+                // A non-empty directory cannot be removed, and rejection is byte-atomic.
+                let before_nonempty = snapshot_image_bytes(&mut device);
+                assert!(volume
+                    .remove_persistent_objects(&mut device, &[ObjectId(2)])
+                    .is_err());
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before_nonempty,
+                    "rejecting a non-empty directory must preserve the image at block size {block_size}"
+                );
 
-            // Duplicate IDs are ambiguous and must be rejected before publication.
-            let before_duplicate = snapshot_image_bytes(&mut device);
-            assert!(volume
-                .remove_persistent_objects(&mut device, &[ObjectId(4), ObjectId(4)])
-                .is_err());
-            assert_eq!(
-                snapshot_image_bytes(&mut device),
-                before_duplicate,
-                "duplicate removal targets must preserve the image at block size {block_size}"
-            );
+                // Duplicate IDs are ambiguous and must be rejected before publication.
+                let before_duplicate = snapshot_image_bytes(&mut device);
+                assert!(volume
+                    .remove_persistent_objects(&mut device, &[ObjectId(4), ObjectId(4)])
+                    .is_err());
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before_duplicate,
+                    "duplicate removal targets must preserve the image at block size {block_size}"
+                );
 
-            // Remove two non-empty files and an empty directory in one publication.
-            volume
-                .remove_persistent_objects(&mut device, &[ObjectId(4), ObjectId(5), ObjectId(3)])
-                .unwrap();
-            drop(volume);
+                // Remove two non-empty files and an empty directory in one publication.
+                volume
+                    .remove_persistent_objects(
+                        &mut device,
+                        &[ObjectId(4), ObjectId(5), ObjectId(3)],
+                    )
+                    .unwrap();
+                drop(volume);
 
-            let reopened = open_volume(&mut device).unwrap();
-            assert!(reopened
-                .read_persistent_path_range(&mut device, "/alpha.bin", 0, alpha.len())
-                .is_err());
-            assert!(reopened
-                .read_persistent_path_range(&mut device, "/beta.bin", 0, beta.len())
-                .is_err());
-            assert!(reopened
-                .read_persistent_path_range(&mut device, "/empty", 0, 0)
-                .is_err());
-            assert_eq!(
-                reopened
-                    .read_persistent_path_range(&mut device, "/docs/keep.txt", 0, 0)
-                    .unwrap(),
-                b"",
-                "unrelated namespace entries must survive batch removal at block size {block_size}"
-            );
-            assert!(reopened
-                .verify_discovered_persistent_inventory(&mut device)
-                .unwrap()
-                .unwrap()
-                .is_consistent());
+                let reopened = open_volume(&mut device).unwrap();
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/alpha.bin", 0, alpha.len())
+                    .is_err());
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/beta.bin", 0, beta.len())
+                    .is_err());
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/empty", 0, 0)
+                    .is_err());
+                assert_eq!(
+                    reopened
+                        .read_persistent_path_range(&mut device, "/docs/keep.txt", 0, 0)
+                        .unwrap(),
+                    b"",
+                    "unrelated namespace entries must survive batch removal at block size {block_size}"
+                );
+                assert!(reopened
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent());
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
-}
 
 }
