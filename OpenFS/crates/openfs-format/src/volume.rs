@@ -14822,12 +14822,7 @@ mod tests {
 
                 // Moving a directory must preserve every descendant edge and file payload.
                 volume
-                    .create_persistent_directory_at_path(
-                        &mut device,
-                        "/docs",
-                        ObjectId(5),
-                        "sub",
-                    )
+                    .create_persistent_directory_at_path(&mut device, "/docs", ObjectId(5), "sub")
                     .unwrap();
                 volume
                     .create_persistent_file_at_path(
@@ -14862,16 +14857,9 @@ mod tests {
 
                 // A directory cannot be moved into its own descendant.
                 let before_cycle = snapshot_image_bytes(&mut device);
-                assert!(
-                    volume
-                        .rename_persistent_path(
-                            &mut device,
-                            "/archive",
-                            "/archive/sub",
-                            "cycle",
-                        )
-                        .is_err()
-                );
+                assert!(volume
+                    .rename_persistent_path(&mut device, "/archive", "/archive/sub", "cycle",)
+                    .is_err());
                 assert_eq!(
                     snapshot_image_bytes(&mut device),
                     before_cycle,
@@ -14907,16 +14895,14 @@ mod tests {
                     nested_payload,
                     "directory move must preserve descendant data after reopen at block size {block_size}"
                 );
-                assert!(
-                    reopened
-                        .read_persistent_path_range(
-                            &mut device,
-                            "/docs/sub/readme.txt",
-                            0,
-                            nested_payload.len(),
-                        )
-                        .is_err()
-                );
+                assert!(reopened
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/docs/sub/readme.txt",
+                        0,
+                        nested_payload.len(),
+                    )
+                    .is_err());
             }
             fs::remove_file(path).unwrap();
         }
