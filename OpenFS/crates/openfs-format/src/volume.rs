@@ -15306,6 +15306,13 @@ mod tests {
                     &mut RejectWrites,
                 )
                 .is_err());
+            assert!(volume
+                .stream_persistent_file_to_writer(
+                    &mut device,
+                    "/large.bin",
+                    &mut RejectWrites,
+                )
+                .is_err());
 
             // Empty ranges still flush the destination, and a flush error must
             // not be hidden just because no payload bytes were emitted.
