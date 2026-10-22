@@ -540,37 +540,44 @@ mod tests {
 
     #[test]
     fn discovered_verification_rejects_allocated_descriptor_with_bad_checksum() {
-        let path = image_path("bad-descriptor-checksum");
-        {
-            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-            let descriptor_block = volume.allocate_block(&mut device).unwrap();
-            let descriptor = crate::PersistentInventoryDescriptor {
-                root_id: ObjectId(1),
-                metadata_blocks: vec![],
-                metadata_record_count: 0,
-                directory_blocks: vec![],
-                directory_entry_count: 0,
-            };
-            let mut bytes = descriptor.encode(4096).unwrap();
-            bytes[40] ^= 1;
-            device.write_blocks(descriptor_block, &bytes).unwrap();
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("bad-descriptor-checksum-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let descriptor_block = volume.allocate_block(&mut device).unwrap();
+                let descriptor = crate::PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![],
+                    metadata_record_count: 0,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                let mut bytes = descriptor.encode(block_size as usize).unwrap();
+                bytes[40] ^= 1;
+                device.write_blocks(descriptor_block, &bytes).unwrap();
 
-            // Count I/O only after creating the intentionally corrupted fixture.
-            // Verification must report the checksum failure without attempting a repair.
-            let mut audited = ReadOnlyAuditDevice::new(device);
-            assert!(matches!(
-                volume.verify_discovered_persistent_inventory(&mut audited),
-                Err(openfs_core::Error::Corrupt(
-                    "inventory descriptor CRC32C mismatch"
-                ))
-            ));
-            assert_eq!(audited.writes, 0, "checksum verification must not write");
-            assert_eq!(audited.flushes, 0, "checksum verification must not flush");
+                // Count I/O only after creating the intentionally corrupted fixture.
+                // Verification must report the checksum failure without attempting a repair.
+                let mut audited = ReadOnlyAuditDevice::new(device);
+                assert!(matches!(
+                    volume.verify_discovered_persistent_inventory(&mut audited),
+                    Err(openfs_core::Error::Corrupt(
+                        "inventory descriptor CRC32C mismatch"
+                    ))
+                ));
+                assert_eq!(
+                    audited.writes, 0,
+                    "checksum verification wrote at block size {block_size}"
+                );
+                assert_eq!(
+                    audited.flushes, 0,
+                    "checksum verification flushed at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
         }
-        fs::remove_file(path).unwrap();
     }
-
     #[test]
     fn discovered_verification_rejects_semantically_invalid_descriptor_without_writes() {
         for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
