@@ -1,15 +1,14 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
-### Reprise de session — 2026-10-22 (base fb16aae, tests ajoutés)
+### Reprise de session — 2026-10-22 (tests de bornes de lecture)
 
-- HEAD initial de cette passe : `fb16aae945e3afe1f0c69775ca8a48922af6a197`. La branche de travail reste `OpenFS` uniquement; ne pas modifier `main` ni `OpenFS-old`.
-- Relecture ciblée de `DEVELOPMENT.md`, `FORMAT_SPEC.md`, `RECOVERY_DESIGN.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, du workflow CI, du générateur d'inventaire, du CSV des symboles, de `Cargo.toml`, et de sections de `crates/openfs-format/src/volume.rs`. Le module `volume.rs` (environ 681 Ko) n'a pas été intégralement audité; ceci n'est pas un audit exhaustif du dépôt.
-- Le contrat P2 confirme que les opérations de fichiers peuvent traverser plusieurs étapes persistantes et ne sont pas automatiquement atomiques. Les invariants prioritaires restent : ne pas publier de références avant la durabilité requise, ne pas libérer de blocs encore référencés, et rouvrir/récupérer après un résultat d'E/S incertain.
-- Test ajouté dans `volume.rs` : la lecture persistante avec une longueur `usize::MAX` renvoie uniquement le suffixe restant jusqu'à EOF; un offset `u64::MAX` renvoie un résultat vide. Cela protège le clamp de la longueur de lecture aux données réellement disponibles, sans allouer selon la taille demandée par l'appelant.
-- Commits de session : `c62ed7d` (note de suivi), `ec78889` (test de limites de lecture), `e30e591` (mise en forme du test).
-- Aucun test Rust ni génération d'inventaire n'a pu être exécuté dans l'environnement de cette session. Le statut combiné et la recherche d'exécutions Actions n'ont retourné aucun résultat exploitable pour le SHA `e30e591a37a5e4d14dd3ed9f52ed78e84f981980`. **CI exacte-SHA : non confirmée**, donc pas déclarée verte.
-- Les estimations restent inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %. Ne créditer aucun progrès de phase avant exécution du test, des vérifications du workspace et de la CI Linux/Windows.
-
+- Branche de travail : `OpenFS` uniquement. Ne pas modifier `main` ni `OpenFS-old`.
+- Relecture ciblée renouvelée : `ROADMAP.md`, `FORMAT_SPEC.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, workflow `.github/workflows/ci.yml`, générateur `scripts/generate_symbol_inventory.py`, CSV `INVENTAIRE_SYMBOLES.csv`, inventaire fonctionnel `INVENTAIRE_FONCTIONNEL_REANALYSE.csv`, et chemins de lecture persistante dans `crates/openfs-format/src/volume.rs`. Le gros module `volume.rs` (~682 Ko) a été inspecté par sections ciblées, pas ligne par ligne; ceci n'est pas un audit exhaustif de tous les fichiers du dépôt.
+- Les tests existants couvrent déjà les plages de lecture persistante, la réouverture, les remplacements courts/vides et certains scénarios d'échec. Ajout dans `volume.rs` : la lecture par plage classique avec longueur `usize::MAX) est testée aux frontières EOF; cette passe ajoute les mêmes cas pour `stream_persistent_path_range_to_writer`, en vérifiant que la longueur retournée et les octets produits sont limités au suffixe réel, et qu'un offset `u64::MAX` produit zéro octet.
+- Commit code de cette passe : `eca7ede23cf5d9cf28751b57c32010983e204970` (`test(format): cover streaming range boundaries at EOF`). Les tests n'ont pas été exécutés dans l'environnement disponible; le changement est un test ajouté, pas une preuve d'exécution réussie.
+- Les vérifications de statut combiné et de runs Actions pour le SHA `eca7ede23cf5d9cf28751b57c32010983e204970` ont retourné des listes vides. **CI exacte-SHA non confirmée**; ne pas la déclarer verte. La génération du CSV et les commandes Rust restent à exécuter dans un runner.
+- Les invariants P1/P2 prioritaires restent : ne pas publier de références avant la durabilité requise, ne pas libérer de blocs encore référencés, et rouvrir/récupérer après un résultat d'E/S incertain. Le contrat journalier ne garantit pas à lui seul l'atomicité de toutes les opérations de fichiers.
+- Estimations conservées faute de validation de ce nouveau test : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 %. Ne créditer aucun progrès de phase avant validation par tests et CI Linux/Windows.
 
 Last source audit: 2026-10-22  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
