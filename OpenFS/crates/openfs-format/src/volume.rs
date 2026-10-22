@@ -14804,14 +14804,16 @@ mod tests {
 
                 // A destination collision must fail before publishing any bytes.
                 let before = snapshot_image_bytes(&mut device);
-                assert!(volume
-                    .rename_persistent_path(
-                        &mut device,
-                        "/docs/moved.txt",
-                        "/docs",
-                        "existing.txt",
-                    )
-                    .is_err());
+                assert!(
+                    volume
+                        .rename_persistent_path(
+                            &mut device,
+                            "/docs/moved.txt",
+                            "/docs",
+                            "existing.txt",
+                        )
+                        .is_err()
+                );
                 assert_eq!(
                     snapshot_image_bytes(&mut device),
                     before,
