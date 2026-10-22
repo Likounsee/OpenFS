@@ -648,3 +648,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Cause du blocage précédent : l'index encodait un SHA obtenu via `git log`. Le checkout CI est superficiel, donc son historique disponible ne permet pas de reproduire la même révision source que le CSV suivi. Le générateur n'utilise plus l'historique Git pour construire les notes; les 1 003 déclarations des 16 fichiers Rust restent indexées.
 - Cette correction valide la reproductibilité de l'index et la CI du commit cité. Elle ne constitue pas une validation sémantique de chaque symbole ni une preuve de préparation à la production.
 - Les estimations P0/P1/P2/P3 et l'avancement global restent inchangés.
+
+
+### Mise à jour du 2026-10-22 — audit non réparateur avec checkpoint dégradé
+
+- Le test audit_image_accepts_valid_persistent_inventory_at_every_block_size vérifie maintenant, pour les blocs de 4, 8, 16, 32 et 64 Kio, qu'un inventaire valide est accepté sans modifier l'image.
+- Le même scénario corrompt ensuite un seul checkpoint alors que son pair reste valide, puis exige que audit-image réussisse et conserve octet pour octet l'image endommagée. L'audit ne doit pas se transformer en réparation implicite.
+- L'inventaire fonctionnel OFS-F-026 est synchronisé avec cette couverture. La vérification Linux/Windows du nouveau commit reste requise; aucune hausse de pourcentage n'est accordée avant validation.
+- Les estimations restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
