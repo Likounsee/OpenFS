@@ -269,7 +269,7 @@ impl Namespace {
         let mut page = Vec::new();
         page.try_reserve_exact(limit.min(self.names.len()))
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while listing directory entries")
+                Error::AllocationFailed("unable to allocate directory listing page")
             })?;
         for (_, entry) in self
             .names
@@ -931,7 +931,7 @@ impl Namespace {
         roots
             .try_reserve_exact(self.extent_roots.len())
             .map_err(|_| {
-                Error::InvalidInput("allocation failed while collecting extent-root inventory")
+                Error::AllocationFailed("unable to collect extent-root inventory")
             })?;
         roots.extend(self.extent_roots.keys().copied());
         Ok(roots)
