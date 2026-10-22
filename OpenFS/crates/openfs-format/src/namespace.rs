@@ -238,7 +238,23 @@ impl Namespace {
             current = parent_id;
         }
         components.reverse();
-        Ok(format!("/{}", components.join("/")))
+        let path_len = components.iter().try_fold(0_usize, |length, component| {
+            length
+                .checked_add(component.len())
+                .and_then(|length| length.checked_add(1))
+                .ok_or(Error::ArithmeticOverflow)
+        })?;
+        let mut path = String::new();
+        path.try_reserve_exact(path_len)
+            .map_err(|_| Error::AllocationFailed("unable to allocate namespace path"))?;
+        path.push('/');
+        for (index, component) in components.iter().enumerate() {
+            if index > 0 {
+                path.push('/');
+            }
+            path.push_str(component);
+        }
+        Ok(path)
     }
 
     /// Return one deterministic page of directory entries after an optional name cursor.
