@@ -15052,14 +15052,28 @@ mod tests {
                 volume
                     .create_persistent_file_at_path(&mut device, "/docs", ObjectId(6), "keep.txt")
                     .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(7), "preserved.txt")
+                    .unwrap();
 
                 let alpha = b"alpha data to reclaim";
                 let beta = b"beta data to reclaim";
+                let preserved = b"unrelated file must survive batch removal";
                 volume
                     .write_persistent_file_contents(&mut device, "/alpha.bin", alpha)
                     .unwrap();
                 volume
                     .write_persistent_file_contents(&mut device, "/beta.bin", beta)
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(
+                        &mut device,
+                        "/docs/keep.txt",
+                        b"child removed with parent",
+                    )
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/preserved.txt", preserved)
                     .unwrap();
 
                 // A non-empty directory cannot be removed, and rejection is byte-atomic.
@@ -15084,11 +15098,12 @@ mod tests {
                     "duplicate removal targets must preserve the image at block size {block_size}"
                 );
 
-                // Remove two non-empty files and an empty directory in one publication.
+                // Remove a parent and its child together: descendants must be processed first.
+                // Unrelated file contents must remain reachable after the same publication.
                 volume
                     .remove_persistent_objects(
                         &mut device,
-                        &[ObjectId(4), ObjectId(5), ObjectId(3)],
+                        &[ObjectId(4), ObjectId(5), ObjectId(3), ObjectId(2), ObjectId(6)],
                     )
                     .unwrap();
                 drop(volume);
@@ -15103,12 +15118,20 @@ mod tests {
                 assert!(reopened
                     .read_persistent_path_range(&mut device, "/empty", 0, 0)
                     .is_err());
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/docs/keep.txt", 0, 0)
+                    .is_err());
                 assert_eq!(
                     reopened
-                        .read_persistent_path_range(&mut device, "/docs/keep.txt", 0, 0)
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/preserved.txt",
+                            0,
+                            preserved.len(),
+                        )
                         .unwrap(),
-                    b"",
-                    "unrelated namespace entries must survive batch removal at block size {block_size}"
+                    preserved,
+                    "unrelated file contents must survive batch removal at block size {block_size}"
                 );
                 assert!(reopened
                     .verify_discovered_persistent_inventory(&mut device)
