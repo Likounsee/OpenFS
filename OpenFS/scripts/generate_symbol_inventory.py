@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import csv
 import re
-import subprocess
 from pathlib import Path
 
 FUNCTION_RE = re.compile(
@@ -28,12 +27,6 @@ FIELDS = [
 ]
 
 
-def git(root: Path, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(root), *args], text=True, encoding="utf-8"
-    ).strip()
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -43,7 +36,6 @@ def main() -> int:
     args = parser.parse_args()
     script_path = Path(__file__).resolve()
     root = args.root.resolve() if args.root else script_path.parents[2]
-    source_revision = git(root, "log", "-1", "--format=%H", "--", "OpenFS/crates")
     source_root = root / "OpenFS" / "crates"
     rust_files = sorted(source_root.rglob("*.rs"))
     output = root / "OpenFS" / "docs" / "INVENTAIRE_SYMBOLES.csv"
@@ -73,8 +65,8 @@ def main() -> int:
                 "declaration": line.strip(),
                 "status": "Indexed",
                 "analysis_note": (
-                    f"Lexical index for source snapshot {source_revision[:12]}; "
-                    "declaration and line detected, behavior not validated."
+                    "Lexical index; declaration and line detected, "
+                    "behavior not validated."
                 ),
             })
 
