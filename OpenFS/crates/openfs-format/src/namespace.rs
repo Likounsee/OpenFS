@@ -797,7 +797,10 @@ impl Namespace {
             ));
         }
 
-        let mut referenced = std::collections::BTreeSet::new();
+        let mut referenced = std::collections::HashSet::new();
+        referenced
+            .try_reserve(self.names.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve namespace reference validation"))?;
         for ((parent_id, key_name), entry) in &self.names {
             entry
                 .encode()
@@ -841,8 +844,15 @@ impl Namespace {
                 "namespace root must not have a directory entry",
             ));
         }
-        let mut visited = std::collections::BTreeSet::new();
-        let mut pending = vec![self.root_id];
+        let mut visited = std::collections::HashSet::new();
+        visited
+            .try_reserve(self.objects.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve namespace reachability validation"))?;
+        let mut pending = Vec::new();
+        pending
+            .try_reserve(1)
+            .map_err(|_| Error::AllocationFailed("unable to reserve namespace traversal stack"))?;
+        pending.push(self.root_id);
         visited.insert(self.root_id);
         while let Some(parent_id) = pending.pop() {
             for entry in self.children(parent_id) {
@@ -856,6 +866,9 @@ impl Namespace {
                 if self.objects.get(&child_id).map(|record| record.kind)
                     == Some(ObjectKind::Directory)
                 {
+                    pending.try_reserve(1).map_err(|_| {
+                        Error::AllocationFailed("unable to grow namespace traversal stack")
+                    })?;
                     pending.push(child_id);
                 }
             }
