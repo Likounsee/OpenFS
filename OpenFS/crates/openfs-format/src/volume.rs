@@ -15200,6 +15200,29 @@ mod tests {
                     .unwrap(),
                 expected
             );
+
+            // A caller may request more bytes than remain in the file. The
+            // range reader must clamp to EOF rather than allocate from the
+            // caller-supplied length, even when that length is maximal.
+            let suffix_start = expected.len() - 3;
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/large.bin",
+                        suffix_start as u64,
+                        usize::MAX,
+                    )
+                    .unwrap(),
+                expected[suffix_start..]
+            );
+            assert!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", u64::MAX, usize::MAX)
+                    .unwrap()
+                    .is_empty(),
+                "a range beginning beyond EOF must return no bytes"
+            );
         }
 
         {
