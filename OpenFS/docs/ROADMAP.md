@@ -583,5 +583,12 @@ Until that work is done, retain the existing values only as provisional estimate
 
 - CI exacte-SHA du commit `2b65a61e535c19a56edeb6f760508f606a4a7819` terminée avec succès sur Linux **et Windows** : formatage, tests du workspace et Clippy ([run 39704510031](https://github.com/Likounsee/OpenFS/actions/runs/39704510031)).
 - Le test de vérification en lecture seule est renforcé pour couvrir les deux points d'entrée : inventaire fourni par l'appelant et inventaire découvert via son descripteur persistant. La fixture est publiée avant le comptage; les deux vérifications doivent ensuite produire des rapports cohérents sans écriture ni flush, sur les cinq tailles de blocs.
-- Le nouveau test de cette révision attend sa propre CI exacte-SHA. Cette preuve logicielle ne constitue pas une garantie de durabilité matérielle ni une validation exhaustive de toutes les corruptions.
+- La CI exacte-SHA du commit `2c9d77fc56e020e955f8721b0e0e97bfcb227fcc` a échoué sur les deux OS uniquement à cause du formatage de l'assertion `caller_report`; les tests et Clippy ont été ignorés après cet échec. Le formatage est corrigé ici, et le test de descripteur invalide est renforcé pour compter les écritures/flushes sur cinq tailles de blocs. La CI de ce nouveau commit reste à obtenir. Cette preuve logicielle ne constitue pas une garantie de durabilité matérielle ni une validation exhaustive de toutes les corruptions.
 - Limite d'inventaire : `INVENTAIRE_SYMBOLES.csv` et `INVENTAIRE_FICHIERS.csv` sont des index historiques dont le HEAD source et/ou les tailles doivent être recalculés; ne pas les présenter comme des relevés synchronisés avec le HEAD courant. `INVENTAIRE_EXHAUSTIF.csv` (1,6 Mo) n'a pas été récupéré intégralement par le connecteur, donc aucune fusion n'est revendiquée.
+
+
+### Mise à jour — audit en lecture seule des descripteurs invalides
+
+- Le test `discovered_verification_rejects_semantically_invalid_descriptor_without_writes` fabrique un descripteur dont le CRC est valide mais dont l'identifiant racine est nul, puis vérifie le refus sans écriture ni flush.
+- Le scénario est exécuté sur les cinq tailles de blocs supportées. Les compteurs ne sont activés qu'après la création de l'image et l'écriture du descripteur invalide.
+- Le formatage ayant fait échouer la CI du commit précédent est corrigé; aucune réussite de CI n'est revendiquée pour ce nouveau commit avant la fin du run exact-SHA.

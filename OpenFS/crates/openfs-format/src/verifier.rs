@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn discovered_verification_rejects_semantically_invalid_descriptor_with_valid_checksum() {
+    fn discovered_verification_rejects_semantically_invalid_descriptor_without_writes() {
         for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
             let path = image_path(&format!("invalid-descriptor-root-{block_size}"));
             {
@@ -558,12 +558,24 @@ mod tests {
                 bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
                 device.write_blocks(descriptor_block, &bytes).unwrap();
 
+                // The descriptor is corrupt semantically but has a valid checksum. Once
+                // fixture construction is complete, verification must fail closed without
+                // attempting repairs or flushing any metadata.
+                let mut audited = ReadOnlyAuditDevice::new(device);
                 assert!(matches!(
-                    volume.verify_discovered_persistent_inventory(&mut device),
+                    volume.verify_discovered_persistent_inventory(&mut audited),
                     Err(openfs_core::Error::Corrupt(
                         "inventory descriptor root ID is zero"
                     ))
                 ));
+                assert_eq!(
+                    audited.writes, 0,
+                    "invalid descriptor verification wrote at block size {block_size}"
+                );
+                assert_eq!(
+                    audited.flushes, 0,
+                    "invalid descriptor verification flushed at block size {block_size}"
+                );
             }
             fs::remove_file(path).unwrap();
         }
@@ -649,7 +661,10 @@ mod tests {
                     .unwrap()
                     .expect("published inventory descriptor must be discovered");
 
-                assert!(caller_report.is_consistent(), "caller report at block size {block_size}");
+                assert!(
+                    caller_report.is_consistent(),
+                    "caller report at block size {block_size}"
+                );
                 assert!(
                     discovered_report.is_consistent(),
                     "discovered report at block size {block_size}"

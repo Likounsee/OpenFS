@@ -64,3 +64,9 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 - Les tests récents ajoutent une mesure explicite des écritures et flushes pendant la vérification d'inventaire; la couverture des deux API du vérificateur est en cours d'ajout et attend sa CI exacte-SHA.
 - L'index des symboles reste à l'ancien commit `1dc834990da67b7d742138a01805db6b14cf716d`; ses numéros de ligne et son statut comportemental ne sont donc pas à jour au HEAD courant.
 - Le fichier `INVENTAIRE_EXHAUSTIF.csv` fait environ 1,6 Mo. Son contenu intégral n'a pas été retourné par le connecteur dans cette session; il n'a été ni fusionné ni réécrit. L'inventaire fonctionnel complémentaire ne remplace pas ce fichier.
+
+
+## Mise à jour — CI et test négatif du vérificateur
+
+- Le run `39791177933` sur `2c9d77fc56e020e955f8721b0e0e97bfcb227fcc` a échoué sur Linux et Windows à l'étape `cargo fmt --check`; les tests workspace et Clippy ont donc été ignorés. La différence indiquée par les logs était uniquement la mise en forme d'un `assert!`.
+- Le formatage est corrigé. En complément, le test de descripteur sémantiquement invalide à CRC valide exige désormais zéro écriture et zéro flush sur cinq tailles de blocs. Cette révision doit encore passer sa propre CI.
