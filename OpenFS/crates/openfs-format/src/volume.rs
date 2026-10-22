@@ -15228,6 +15228,36 @@ mod tests {
                     .is_empty(),
                 "a range beginning beyond EOF must return no bytes"
             );
+
+            // The streaming API must enforce the same EOF clamp without
+            // buffering the full requested range, even for a maximal length.
+            let mut streamed_suffix = Vec::new();
+            let streamed_count = volume
+                .stream_persistent_path_range_to_writer(
+                    &mut device,
+                    "/large.bin",
+                    suffix_start as u64,
+                    u64::MAX,
+                    &mut streamed_suffix,
+                )
+                .unwrap();
+            assert_eq!(streamed_count, 3);
+            assert_eq!(streamed_suffix, expected[suffix_start..]);
+
+            let mut streamed_past_eof = Vec::new();
+            assert_eq!(
+                volume
+                    .stream_persistent_path_range_to_writer(
+                        &mut device,
+                        "/large.bin",
+                        u64::MAX,
+                        u64::MAX,
+                        &mut streamed_past_eof,
+                    )
+                    .unwrap(),
+                0
+            );
+            assert!(streamed_past_eof.is_empty());
         }
 
         {
