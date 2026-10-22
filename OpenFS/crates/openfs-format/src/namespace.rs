@@ -1041,6 +1041,25 @@ mod tests {
     }
 
     #[test]
+    fn path_of_preserves_nested_unicode_names_and_round_trips() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "données", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 3, "雪.txt", ObjectKind::File),
+            record(3, 2, ObjectKind::File),
+        )
+        .unwrap();
+
+        let path = ns.path_of(ObjectId(3)).unwrap();
+        assert_eq!(path, "/données/雪.txt");
+        assert_eq!(ns.resolve_path(&path).unwrap(), ObjectId(3));
+    }
+
+    #[test]
     fn extent_root_inventory_is_sorted_bounded_and_rejects_aliases() {
         let mut ns = Namespace::new(ObjectId(1)).unwrap();
         ns.insert(
