@@ -2730,9 +2730,24 @@ mod allocation_bitmap_report_tests {
                 let allocated = volume.allocate_blocks(&mut device, 9).unwrap();
                 volume.free_blocks(&mut device, &allocated[2..5]).unwrap();
 
+                // Inventory APIs must be strictly read-only, including on the
+                // supported block-size matrix. Snapshot the entire image after the
+                // intentional allocation/free mutations and compare after all scans.
+                let mut before_inventory = vec![0_u8; block_size as usize * 256];
+                device.read_blocks(0, &mut before_inventory).unwrap();
+
                 let allocated_inventory =
                     volume.allocated_data_block_inventory(&mut device).unwrap();
                 let free_inventory = volume.free_data_block_inventory(&mut device).unwrap();
+                let free_extents = volume.free_extent_inventory(&mut device).unwrap();
+
+                let mut after_inventory = vec![0_u8; block_size as usize * 256];
+                device.read_blocks(0, &mut after_inventory).unwrap();
+                assert_eq!(
+                    after_inventory, before_inventory,
+                    "read-only allocation inventories modified the image for block_size={block_size}"
+                );
+
                 assert_eq!(
                     allocated_inventory,
                     vec![
