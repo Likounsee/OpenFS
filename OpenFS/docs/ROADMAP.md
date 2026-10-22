@@ -562,3 +562,10 @@ Until that work is done, retain the existing values only as provisional estimate
 - Le run `39690006441` du commit `63aa735` a échoué sur Linux et Windows car le test initial supposait à tort que toute erreur d'écriture signifiait que le COMMIT était invalide. Le correctif sépare désormais les cas incomplets du cas où les octets persistants forment un enregistrement valide.
 - Le commit `72cc59b8144736dfa773d0b1ed938811f4593677` reste confirmé vert sur Linux et Windows pour rustfmt, les tests workspace et Clippy : [run 39688617770](https://github.com/Likounsee/OpenFS/actions/runs/39688617770). Les commits correctifs `450738c` et `525789b` attendent leur validation CI exacte-SHA.
 - Ces tests simulent des écritures déchirées à la frontière du backend logiciel; ils ne prouvent pas la durabilité sur matériel réel ni le comportement de contrôleurs qui réordonnent ou mettent en cache les écritures.
+
+
+### Mise à jour du 2026-10-22 — CI verte et couverture check-image multi-tailles
+
+- La CI exacte-SHA du commit `d3a706fdd460e8ae6faad15ea66e553eedc07aca` est verte sous Linux et Windows : formatage, tests du workspace et Clippy réussis ([run 39694672671](https://github.com/Likounsee/OpenFS/actions/runs/39694672671)). Cela valide notamment `allocation_bitmap_diagnostics_are_read_only_across_supported_block_sizes`.
+- Le test CLI `checks_current_image_without_modifying_it` est étendu aux cinq tailles de blocs prises en charge. Il compare l'image octet par octet avant/après `check-image` et vérifie le rejet d'une taille non prise en charge sans créer de fichier.
+- Le nouveau test doit être validé par une CI exacte-SHA avant que cette couverture supplémentaire soit comptabilisée comme validée.

@@ -1457,17 +1457,32 @@ mod tests {
 
     #[test]
     fn checks_current_image_without_modifying_it() {
-        let path = unique_path("current-check");
-        {
-            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
-            device.flush().unwrap();
+        for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
+            let path = unique_path(&format!("current-check-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                device.flush().unwrap();
+            }
+            let before = fs::read(&path).unwrap();
+            assert!(
+                super::check_image(&path, block_size).is_ok(),
+                "check-image should accept a valid image at block size {block_size}"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                before,
+                "check-image must not modify a valid image at block size {block_size}"
+            );
+            fs::remove_file(path).unwrap();
         }
-        let before = fs::read(&path).unwrap();
-        assert!(super::check_image(&path, BLOCK_SIZE).is_ok());
-        assert_eq!(fs::read(&path).unwrap(), before);
-        assert!(super::check_image(&path, 512).is_err());
-        fs::remove_file(path).unwrap();
+
+        let invalid_path = unique_path("current-check-invalid-block-size");
+        assert!(super::check_image(&invalid_path, 512).is_err());
+        assert!(
+            !invalid_path.exists(),
+            "rejecting an unsupported block size must not create an image"
+        );
     }
 
     #[test]
