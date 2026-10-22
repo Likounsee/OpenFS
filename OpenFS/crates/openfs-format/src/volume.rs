@@ -14752,7 +14752,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn persistent_path_rename_moves_file_and_rejects_collision_atomically() {
         use crate::ObjectId;
@@ -14766,20 +14765,10 @@ mod tests {
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
                 volume
-                    .create_persistent_directory_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(2),
-                        "docs",
-                    )
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "docs")
                     .unwrap();
                 volume
-                    .create_persistent_file_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(3),
-                        "note.txt",
-                    )
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(3), "note.txt")
                     .unwrap();
                 volume
                     .create_persistent_file_at_path(
@@ -14850,5 +14839,4 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
 }
