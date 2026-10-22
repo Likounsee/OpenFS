@@ -14766,18 +14766,12 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                     volume
                         .initialize_persistent_namespace(&mut device, ObjectId(1))
                         .unwrap();
                     volume
-                        .create_persistent_file_at_path(
-                            &mut device,
-                            "/",
-                            ObjectId(2),
-                            "note.txt",
-                        )
+                        .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "note.txt")
                         .unwrap();
                     let payload = b"rename recovery must retain one complete namespace";
                     volume
@@ -14793,12 +14787,8 @@ mod tests {
                         writes_until_failure: Some(fail_at),
                         flushes_until_failure: None,
                     };
-                    let result = volume.rename_persistent_path(
-                        &mut failing,
-                        "/note.txt",
-                        "/",
-                        "moved.txt",
-                    );
+                    let result =
+                        volume.rename_persistent_path(&mut failing, "/note.txt", "/", "moved.txt");
                     assert!(
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
                         "unexpected rename error at block size {block_size}, write {fail_at}: {result:?}"
