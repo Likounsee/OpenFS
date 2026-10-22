@@ -661,9 +661,17 @@ mod tests {
                     .unwrap()
                     .expect("published inventory descriptor must be discovered");
 
+                // This API deliberately uses only caller-supplied owners. The descriptor
+                // block is therefore an orphan from this report's point of view; the
+                // discovery API below includes that block in ownership accounting.
                 assert!(
-                    caller_report.is_consistent(),
-                    "caller report at block size {block_size}"
+                    !caller_report.is_consistent(),
+                    "caller-located report should flag the undisclosed descriptor at block size {block_size}"
+                );
+                assert_eq!(
+                    caller_report.orphaned_block_count(),
+                    1,
+                    "caller-located report should report one undisclosed descriptor block at block size {block_size}"
                 );
                 assert!(
                     discovered_report.is_consistent(),

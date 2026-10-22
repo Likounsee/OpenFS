@@ -78,3 +78,6 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 - L'entrée historique `DIFFERENCES_OPENFS_OLD.txt` a été retirée de cet index courant car elle n'existe pas dans l'arbre Git de ce snapshot.
 - L'index décrit les métadonnées du snapshot source `c8b8cacf02ff`; la ligne du fichier d'inventaire lui-même est explicitement marquée comme auto-référentielle, car un fichier ne peut pas contenir son propre SHA final.
 - Cette réconciliation ne remplace pas la relecture sémantique des sources, ne reconstruit pas `INVENTAIRE_SYMBOLES.csv` et ne modifie pas `INVENTAIRE_EXHAUSTIF.csv`.
+
+
+- Contrat corrigé dans le test : le rapport caller-located doit signaler un descripteur non déclaré comme allocation orpheline; le rapport découvert doit inclure ce bloc et être cohérent. Le compteur d'écritures/flushes reste à zéro pour les deux.
