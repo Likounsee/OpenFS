@@ -14820,8 +14820,66 @@ mod tests {
                     "failed rename must leave the complete image unchanged at block size {block_size}"
                 );
 
+                // Moving a directory must preserve every descendant edge and file payload.
+                volume
+                    .create_persistent_directory_at_path(
+                        &mut device,
+                        "/docs",
+                        ObjectId(5),
+                        "sub",
+                    )
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/docs/sub",
+                        ObjectId(6),
+                        "readme.txt",
+                    )
+                    .unwrap();
+                let nested_payload = b"nested directory survives move";
+                volume
+                    .write_persistent_file_contents(
+                        &mut device,
+                        "/docs/sub/readme.txt",
+                        nested_payload,
+                    )
+                    .unwrap();
+                volume
+                    .rename_persistent_path(&mut device, "/docs", "/", "archive")
+                    .unwrap();
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/archive/sub/readme.txt",
+                            0,
+                            nested_payload.len(),
+                        )
+                        .unwrap(),
+                    nested_payload
+                );
+
+                // A directory cannot be moved into its own descendant.
+                let before_cycle = snapshot_image_bytes(&mut device);
+                assert!(
+                    volume
+                        .rename_persistent_path(
+                            &mut device,
+                            "/archive",
+                            "/archive/sub",
+                            "cycle",
+                        )
+                        .is_err()
+                );
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before_cycle,
+                    "rejected directory cycle must leave the image unchanged at block size {block_size}"
+                );
+
                 drop(volume);
-                let reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_volume(&mut device).unwrap();
                 assert!(reopened
                     .read_persistent_path_range(&mut device, "/note.txt", 0, payload.len())
                     .is_err());
@@ -14836,6 +14894,28 @@ mod tests {
                         .unwrap(),
                     payload,
                     "renamed file must retain its contents after reopen at block size {block_size}"
+                );
+                assert_eq!(
+                    reopened
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/archive/sub/readme.txt",
+                            0,
+                            nested_payload.len(),
+                        )
+                        .unwrap(),
+                    nested_payload,
+                    "directory move must preserve descendant data after reopen at block size {block_size}"
+                );
+                assert!(
+                    reopened
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/docs/sub/readme.txt",
+                            0,
+                            nested_payload.len(),
+                        )
+                        .is_err()
                 );
             }
             fs::remove_file(path).unwrap();
