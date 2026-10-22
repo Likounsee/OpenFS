@@ -181,7 +181,10 @@ impl OpenedVolume {
         let mut owned_maps: Vec<(ExtentMap, u64)> = Vec::new();
         owned_maps
             .try_reserve_exact(
-                extent_maps.len().checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+                extent_maps
+                    .len()
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
             )
             .map_err(|_| Error::AllocationFailed("unable to reserve verifier extent maps"))?;
         owned_maps.push((index_map, logical_cursor));
