@@ -1519,9 +1519,15 @@ mod tests {
             }
 
             super::initialize_namespace_image(&path, block_size).unwrap();
+            let before_audit = fs::read(&path).unwrap();
             assert!(
                 super::audit_image(&path, block_size).is_ok(),
                 "audit-image should accept a valid persistent inventory at block size {block_size}"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                before_audit,
+                "successful audit must not modify a valid image at block size {block_size}"
             );
             fs::remove_file(path).unwrap();
         }
