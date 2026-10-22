@@ -577,3 +577,11 @@ Until that work is done, retain the existing values only as provisional estimate
 - Le test vérifie les cinq tailles de blocs prises en charge (4, 8, 16, 32 et 64 KiB), exige un rapport cohérent et zéro écriture/zéro flush pendant la vérification.
 - La fixture est créée avant l'activation des compteurs afin de mesurer uniquement l'API du vérificateur. Cela démontre le comportement logiciel du chemin testé, pas la durabilité matérielle ni l'exhaustivité de tous les chemins de corruption.
 - La validation CI exacte-SHA de ce nouveau test reste à obtenir après publication du commit.
+
+
+### Mise à jour du 2026-10-22 — validation exacte-SHA et couverture des deux API du vérificateur
+
+- CI exacte-SHA du commit `2b65a61e535c19a56edeb6f760508f606a4a7819` terminée avec succès sur Linux **et Windows** : formatage, tests du workspace et Clippy ([run 39704510031](https://github.com/Likounsee/OpenFS/actions/runs/39704510031)).
+- Le test de vérification en lecture seule est renforcé pour couvrir les deux points d'entrée : inventaire fourni par l'appelant et inventaire découvert via son descripteur persistant. La fixture est publiée avant le comptage; les deux vérifications doivent ensuite produire des rapports cohérents sans écriture ni flush, sur les cinq tailles de blocs.
+- Le nouveau test de cette révision attend sa propre CI exacte-SHA. Cette preuve logicielle ne constitue pas une garantie de durabilité matérielle ni une validation exhaustive de toutes les corruptions.
+- Limite d'inventaire : `INVENTAIRE_SYMBOLES.csv` et `INVENTAIRE_FICHIERS.csv` sont des index historiques dont le HEAD source et/ou les tailles doivent être recalculés; ne pas les présenter comme des relevés synchronisés avec le HEAD courant. `INVENTAIRE_EXHAUSTIF.csv` (1,6 Mo) n'a pas été récupéré intégralement par le connecteur, donc aucune fusion n'est revendiquée.

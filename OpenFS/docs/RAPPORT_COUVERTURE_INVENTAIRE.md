@@ -56,3 +56,11 @@ Le fichier `INVENTAIRE_EXHAUSTIF.csv` historique est conservé sans écrasement.
 ## CI
 
 Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled`. La CI ne doit être déclarée verte qu'après une conclusion positive des étapes formatage, tests workspace et Clippy sur Linux et Windows.
+
+
+## Mise à jour du 2026-10-22
+
+- CI exacte-SHA vérifiée sur le commit `2b65a61e535c19a56edeb6f760508f606a4a7819` : run `39704510031`, conclusion `success`; les jobs Linux et Windows ont terminé avec succès pour formatage, tests du workspace et Clippy.
+- Les tests récents ajoutent une mesure explicite des écritures et flushes pendant la vérification d'inventaire; la couverture des deux API du vérificateur est en cours d'ajout et attend sa CI exacte-SHA.
+- L'index des symboles reste à l'ancien commit `1dc834990da67b7d742138a01805db6b14cf716d`; ses numéros de ligne et son statut comportemental ne sont donc pas à jour au HEAD courant.
+- Le fichier `INVENTAIRE_EXHAUSTIF.csv` fait environ 1,6 Mo. Son contenu intégral n'a pas été retourné par le connecteur dans cette session; il n'a été ni fusionné ni réécrit. L'inventaire fonctionnel complémentaire ne remplace pas ce fichier.

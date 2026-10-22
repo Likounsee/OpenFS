@@ -619,10 +619,22 @@ mod tests {
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 write_root_inventory(&mut device, metadata_block);
 
-                // Start counting only after constructing the valid fixture: the verification
-                // API itself must not write metadata, update the journal, or flush the device.
+                let descriptor = PersistentInventoryDescriptor {
+                    root_id: ObjectId(1),
+                    metadata_blocks: vec![metadata_block],
+                    metadata_record_count: 1,
+                    directory_blocks: vec![],
+                    directory_entry_count: 0,
+                };
+                volume
+                    .publish_persistent_inventory(&mut device, &descriptor)
+                    .unwrap();
+
+                // Start counting only after constructing and publishing the valid fixture:
+                // neither caller-located nor descriptor-discovered verification may write
+                // metadata, update the journal, or flush the device.
                 let mut audited = ReadOnlyAuditDevice::new(device);
-                let report = volume
+                let caller_report = volume
                     .verify_persistent_inventory(
                         &mut audited,
                         ObjectId(1),
@@ -632,8 +644,16 @@ mod tests {
                         0,
                     )
                     .unwrap();
+                let discovered_report = volume
+                    .verify_discovered_persistent_inventory(&mut audited)
+                    .unwrap()
+                    .expect("published inventory descriptor must be discovered");
 
-                assert!(report.is_consistent(), "block size {block_size}");
+                assert!(caller_report.is_consistent(), "caller report at block size {block_size}");
+                assert!(
+                    discovered_report.is_consistent(),
+                    "discovered report at block size {block_size}"
+                );
                 assert_eq!(
                     audited.writes, 0,
                     "verification wrote at block size {block_size}"
