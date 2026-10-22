@@ -14751,4 +14751,104 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+ 
+    #[test]
+    fn persistent_path_rename_moves_file_and_rejects_collision_atomically() {
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-path-rename-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(
+                        &mut device,
+                        "/",
+                        ObjectId(2),
+                        "docs",
+                    )
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/",
+                        ObjectId(3),
+                        "note.txt",
+                    )
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/docs",
+                        ObjectId(4),
+                        "existing.txt",
+                    )
+                    .unwrap();
+
+                let payload = b"persistent path rename keeps file contents";
+                volume
+                    .write_persistent_file_contents(&mut device, "/note.txt", payload)
+                    .unwrap();
+                volume
+                    .rename_persistent_path(&mut device, "/note.txt", "/docs", "moved.txt")
+                    .unwrap();
+
+                assert!(volume
+                    .read_persistent_path_range(&mut device, "/note.txt", 0, payload.len())
+                    .is_err());
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/docs/moved.txt",
+                            0,
+                            payload.len(),
+                        )
+                        .unwrap(),
+                    payload
+                );
+
+                // A destination collision must fail before publishing any bytes.
+                let before = snapshot_image_bytes(&mut device);
+                assert!(volume
+                    .rename_persistent_path(
+                        &mut device,
+                        "/docs/moved.txt",
+                        "/docs",
+                        "existing.txt",
+                    )
+                    .is_err());
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before,
+                    "failed rename must leave the complete image unchanged at block size {block_size}"
+                );
+
+                drop(volume);
+                let reopened = open_volume(&mut device).unwrap();
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/note.txt", 0, payload.len())
+                    .is_err());
+                assert_eq!(
+                    reopened
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/docs/moved.txt",
+                            0,
+                            payload.len(),
+                        )
+                        .unwrap(),
+                    payload,
+                    "renamed file must retain its contents after reopen at block size {block_size}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
