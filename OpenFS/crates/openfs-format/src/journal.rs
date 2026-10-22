@@ -724,6 +724,34 @@ mod tests {
             plan_recovery(&records, 0),
             Err(Error::Corrupt("invalid or interleaved journal transaction"))
         ));
+
+        // Transaction IDs remain strictly increasing after every terminal record,
+        // not only after ABORT. Reusing a committed ID would make replay ambiguous.
+        let reused_after_commit = vec![
+            record(JournalRecordKind::Begin, 1, 7, b""),
+            record(JournalRecordKind::Update, 2, 7, b"redo-a"),
+            record(JournalRecordKind::Commit, 3, 7, b""),
+            record(JournalRecordKind::Begin, 4, 7, b""),
+            record(JournalRecordKind::Update, 5, 7, b"redo-b"),
+            record(JournalRecordKind::Commit, 6, 7, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&reused_after_commit, 0),
+            Err(Error::Corrupt("invalid or interleaved journal transaction"))
+        ));
+
+        // A new transaction must not move the ID counter backwards either.
+        let decreasing_after_abort = vec![
+            record(JournalRecordKind::Begin, 1, 8, b""),
+            record(JournalRecordKind::Abort, 2, 8, b""),
+            record(JournalRecordKind::Begin, 3, 7, b""),
+            record(JournalRecordKind::Update, 4, 7, b"redo"),
+            record(JournalRecordKind::Commit, 5, 7, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&decreasing_after_abort, 0),
+            Err(Error::Corrupt("invalid or interleaved journal transaction"))
+        ));
     }
 
     #[test]
