@@ -608,5 +608,28 @@ mod tests {
             PersistentInventoryDescriptor::decode(&zero_root),
             Err(Error::Corrupt("inventory descriptor root ID is zero"))
         ));
+
+        // Reserved fields and trailing padding must remain canonical at every supported
+        // block size, even when an attacker recomputes the descriptor checksum.
+        for block_size in [4096_usize, 8192, 16_384, 32_768, 65_536] {
+            let valid = sample().encode(block_size).unwrap();
+            for offset in [36_usize, 44, block_size - 1] {
+                let mut corrupt = valid.clone();
+                corrupt[offset] = 1;
+                refresh_checksum(&mut corrupt);
+                let expected_error = if offset == block_size - 1 {
+                    "inventory descriptor padding must be zero"
+                } else {
+                    "inventory descriptor reserved bytes must be zero"
+                };
+                assert!(
+                    matches!(
+                        PersistentInventoryDescriptor::decode(&corrupt),
+                        Err(Error::Corrupt(message)) if message == expected_error
+                    ),
+                    "nonzero byte at offset {offset} accepted for block size {block_size}"
+                );
+            }
+        }
     }
 }
