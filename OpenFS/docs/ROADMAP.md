@@ -682,3 +682,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Après réouverture, le contenu du fichier déplacé est relu et les anciens chemins du fichier déplacé et du fichier supprimé doivent rester absents. `check-image` et `audit-image` vérifient ensuite l'image; l'audit doit toujours laisser chaque octet inchangé.
 - Ce test renforce la couverture d'intégration du namespace persistant, mais ne remplace pas les tests d'injection de panne entre les phases de publication/récupération.
 - Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %; l'avancement ne sera réévalué qu'après validation CI exacte-SHA.
+
+
+### Correction de formatage — test de déplacement/suppression
+
+- La CI du commit `2707115b621aa855cb729bfd57062be7401218d0` a échoué sur `cargo fmt --all -- --check`, sous Linux et Windows, à cause d'une seule expression de lecture de chemin absente du formatage rustfmt canonique.
+- Le test a été ajusté à la sortie attendue par rustfmt. Pas de changement de comportement fonctionnel.
+- La suite doit repartir sur le nouveau SHA avant de conclure que le scénario de déplacement/suppression est validé.

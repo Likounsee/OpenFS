@@ -1568,12 +1568,7 @@ mod tests {
                 );
                 assert!(
                     reopened_volume
-                        .read_persistent_path_range(
-                            &mut reopened_device,
-                            "/docs/note.txt",
-                            0,
-                            64,
-                        )
+                        .read_persistent_path_range(&mut reopened_device, "/docs/note.txt", 0, 64,)
                         .is_err(),
                     "renamed source path must not remain published at block size {block_size}"
                 );
