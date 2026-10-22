@@ -14752,7 +14752,7 @@ mod tests {
         }
     }
 
- 
+
     #[test]
     fn persistent_path_rename_moves_file_and_rejects_collision_atomically() {
         use crate::ObjectId;
