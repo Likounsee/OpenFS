@@ -15226,6 +15226,53 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .is_consistent());
+
+            // Replacing the now-short file with empty contents must publish a
+            // zero-length file without retaining the previous extent-map root.
+            volume
+                .write_persistent_file_contents(&mut device, "/large.bin", &[])
+                .unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", 0, 0)
+                    .unwrap(),
+                b""
+            );
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            let empty_file = namespace.object(ObjectId(2)).unwrap();
+            assert_eq!(empty_file.size, 0);
+            assert_eq!(empty_file.extent_root_block, None);
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", 0, 0)
+                    .unwrap(),
+                b""
+            );
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            let empty_file = namespace.object(ObjectId(2)).unwrap();
+            assert_eq!(empty_file.size, 0);
+            assert_eq!(empty_file.extent_root_block, None);
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
         }
         fs::remove_file(path).unwrap();
     }
