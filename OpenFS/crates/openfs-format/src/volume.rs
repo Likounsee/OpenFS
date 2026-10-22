@@ -14875,7 +14875,7 @@ mod tests {
                     reopened
                         .read_persistent_path_range(
                             &mut device,
-                            "/docs/moved.txt",
+                            "/archive/moved.txt",
                             0,
                             payload.len(),
                         )
