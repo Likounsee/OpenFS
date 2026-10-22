@@ -81,8 +81,11 @@ def main() -> int:
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDS, lineterminator="\n")
-        writer.writeheader()
+        # Keep the header unquoted and quote every data field, matching the checked-in CSV.
+        handle.write(",".join(FIELDS) + "\n")
+        writer = csv.DictWriter(
+            handle, fieldnames=FIELDS, quoting=csv.QUOTE_ALL, lineterminator="\n"
+        )
         writer.writerows(rows)
     print(f"Wrote {len(rows)} declarations from {len(rust_files)} Rust files to {output}")
     print("Lexical indexing is not a complete Rust AST or behavioral audit.")
