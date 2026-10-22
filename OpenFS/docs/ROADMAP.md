@@ -569,3 +569,11 @@ Until that work is done, retain the existing values only as provisional estimate
 - La CI exacte-SHA du commit `d3a706fdd460e8ae6faad15ea66e553eedc07aca` est verte sous Linux et Windows : formatage, tests du workspace et Clippy réussis ([run 39694672671](https://github.com/Likounsee/OpenFS/actions/runs/39694672671)). Cela valide notamment `allocation_bitmap_diagnostics_are_read_only_across_supported_block_sizes`.
 - Le test CLI `checks_current_image_without_modifying_it` est étendu aux cinq tailles de blocs prises en charge. Il compare l'image octet par octet avant/après `check-image` et vérifie le rejet d'une taille non prise en charge sans créer de fichier.
 - Le nouveau test doit être validé par une CI exacte-SHA avant que cette couverture supplémentaire soit comptabilisée comme validée.
+
+
+### Mise à jour du 2026-10-22 — vérificateur d'inventaire strictement en lecture seule
+
+- Ajout de `persistent_inventory_verification_performs_no_writes_or_flushes` : le test prépare une image valide puis enveloppe le périphérique dans un compteur d'écritures et de flushes.
+- Le test vérifie les cinq tailles de blocs prises en charge (4, 8, 16, 32 et 64 KiB), exige un rapport cohérent et zéro écriture/zéro flush pendant la vérification.
+- La fixture est créée avant l'activation des compteurs afin de mesurer uniquement l'API du vérificateur. Cela démontre le comportement logiciel du chemin testé, pas la durabilité matérielle ni l'exhaustivité de tous les chemins de corruption.
+- La validation CI exacte-SHA de ce nouveau test reste à obtenir après publication du commit.

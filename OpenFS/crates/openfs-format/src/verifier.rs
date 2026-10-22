@@ -568,4 +568,76 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    struct ReadOnlyAuditDevice<D> {
+        inner: D,
+        writes: usize,
+        flushes: usize,
+    }
+
+    impl<D> ReadOnlyAuditDevice<D> {
+        fn new(inner: D) -> Self {
+            Self {
+                inner,
+                writes: 0,
+                flushes: 0,
+            }
+        }
+    }
+
+    impl<D: BlockDevice> BlockDevice for ReadOnlyAuditDevice<D> {
+        fn block_size(&self) -> u32 {
+            self.inner.block_size()
+        }
+
+        fn block_count(&self) -> u64 {
+            self.inner.block_count()
+        }
+
+        fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> openfs_core::Result<()> {
+            self.inner.read_blocks(first_block, output)
+        }
+
+        fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> openfs_core::Result<()> {
+            self.writes += 1;
+            self.inner.write_blocks(first_block, input)
+        }
+
+        fn flush(&mut self) -> openfs_core::Result<()> {
+            self.flushes += 1;
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn persistent_inventory_verification_performs_no_writes_or_flushes() {
+        for block_size in [4096_u32, 8192, 16384, 32768, 65536] {
+            let path = image_path(&format!("verifier-read-only-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let metadata_block = volume.allocate_block(&mut device).unwrap();
+                write_root_inventory(&mut device, metadata_block);
+
+                // Start counting only after constructing the valid fixture: the verification
+                // API itself must not write metadata, update the journal, or flush the device.
+                let mut audited = ReadOnlyAuditDevice::new(device);
+                let report = volume
+                    .verify_persistent_inventory(
+                        &mut audited,
+                        ObjectId(1),
+                        &[metadata_block],
+                        1,
+                        &[],
+                        0,
+                    )
+                    .unwrap();
+
+                assert!(report.is_consistent(), "block size {block_size}");
+                assert_eq!(audited.writes, 0, "verification wrote at block size {block_size}");
+                assert_eq!(audited.flushes, 0, "verification flushed at block size {block_size}");
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
