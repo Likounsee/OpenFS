@@ -14907,4 +14907,126 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn persistent_batch_rename_is_atomic_and_survives_reopen() {
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("persistent-batch-rename-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "docs")
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(
+                        &mut device,
+                        "/",
+                        ObjectId(3),
+                        "archive",
+                    )
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(4), "alpha.bin")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(5), "beta.bin")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/archive",
+                        ObjectId(6),
+                        "occupied.bin",
+                    )
+                    .unwrap();
+
+                let alpha = b"alpha payload for batch rename";
+                let beta = b"beta payload for batch rename";
+                volume
+                    .write_persistent_file_contents(&mut device, "/alpha.bin", alpha)
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/beta.bin", beta)
+                    .unwrap();
+
+                // A conflict in one member rejects the entire batch before publication.
+                let before_collision = snapshot_image_bytes(&mut device);
+                assert!(volume
+                    .rename_persistent_objects(
+                        &mut device,
+                        &[
+                            (ObjectId(4), ObjectId(2), "alpha.txt".to_owned()),
+                            (ObjectId(5), ObjectId(3), "occupied.bin".to_owned()),
+                        ],
+                    )
+                    .is_err());
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before_collision,
+                    "failed batch rename must not change the image at block size {block_size}"
+                );
+
+                // Duplicate object IDs make the requested batch ambiguous and are rejected.
+                let before_duplicate = snapshot_image_bytes(&mut device);
+                assert!(volume
+                    .rename_persistent_objects(
+                        &mut device,
+                        &[
+                            (ObjectId(4), ObjectId(2), "alpha.txt".to_owned()),
+                            (ObjectId(4), ObjectId(3), "alpha-copy.txt".to_owned()),
+                        ],
+                    )
+                    .is_err());
+                assert_eq!(
+                    snapshot_image_bytes(&mut device),
+                    before_duplicate,
+                    "duplicate batch targets must not change the image at block size {block_size}"
+                );
+
+                // A valid batch publishes both moves together.
+                volume
+                    .rename_persistent_objects(
+                        &mut device,
+                        &[
+                            (ObjectId(4), ObjectId(2), "alpha.txt".to_owned()),
+                            (ObjectId(5), ObjectId(3), "beta.txt".to_owned()),
+                        ],
+                    )
+                    .unwrap();
+                drop(volume);
+
+                let reopened = open_volume(&mut device).unwrap();
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/alpha.bin", 0, alpha.len())
+                    .is_err());
+                assert!(reopened
+                    .read_persistent_path_range(&mut device, "/beta.bin", 0, beta.len())
+                    .is_err());
+                assert_eq!(
+                    reopened
+                        .read_persistent_path_range(&mut device, "/docs/alpha.txt", 0, alpha.len())
+                        .unwrap(),
+                    alpha
+                );
+                assert_eq!(
+                    reopened
+                        .read_persistent_path_range(&mut device, "/archive/beta.txt", 0, beta.len())
+                        .unwrap(),
+                    beta
+                );
+                assert!(reopened
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent());
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
