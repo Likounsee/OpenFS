@@ -231,6 +231,9 @@ impl Namespace {
             {
                 return Err(Error::Corrupt("path entry disagrees with object metadata"));
             }
+            components
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed("unable to grow namespace path components"))?;
             components.push(name);
             current = parent_id;
         }
