@@ -1563,30 +1563,6 @@ mod tests {
                 "successful audit must not modify a valid image at block size {block_size}"
             );
 
-            // A damaged checkpoint must not be repaired implicitly by audit-image
-            // when its peer is valid and the persistent namespace itself is sound.
-            let checkpoint_a = {
-                let mut device = ImageDevice::open(&path, block_size).unwrap();
-                let volume = open_volume(&mut device).unwrap();
-                volume.volume.layout.journal.checkpoint_a
-            };
-            {
-                let mut device = ImageDevice::open(&path, block_size).unwrap();
-                device
-                    .write_blocks(checkpoint_a, &vec![0xA5; block_size as usize])
-                    .unwrap();
-                device.flush().unwrap();
-            }
-            let before_damaged_audit = fs::read(&path).unwrap();
-            assert!(
-                super::audit_image(&path, block_size).is_ok(),
-                "audit should accept a valid inventory with one damaged checkpoint at block size {block_size}"
-            );
-            assert_eq!(
-                fs::read(&path).unwrap(),
-                before_damaged_audit,
-                "audit must not rewrite a damaged checkpoint at block size {block_size}"
-            );
             fs::remove_file(path).unwrap();
         }
     }

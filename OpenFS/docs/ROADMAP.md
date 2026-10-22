@@ -3,11 +3,11 @@
 ### Reprise de session — 2026-10-22 (vertical slice CLI persistant)
 
 - Branche cible : `OpenFS` uniquement; aucune modification de `main` ni de `OpenFS-old`.
-- Le dernier workflow exact-SHA `39851938335` sur `f2edfbd` est maintenant terminé avec **Linux et Windows réussis** (formatage, tests workspace toutes fonctionnalités et Clippy).
+- Le workflow `39851938335` sur `f2edfbd` est vert sur Linux et Windows. Le lot suivant a révélé une hypothèse de test trop forte : après plusieurs mutations de fichier, endommager arbitrairement un checkpoint peut enlever le seul checkpoint assez récent pour correspondre au journal circulaire. Ce n'est pas équivalent au scénario déjà couvert où le checkpoint pair reste suffisant. La corruption de checkpoint reste donc couverte par son test dédié sur un volume propre.
 - Relecture structurée renouvelée de l'arborescence, du workflow CI, des contrats journal/récupération, du module CLI, des codecs et des zones ciblées de `volume.rs`. Les très gros fichiers ont été examinés par sections, pas ligne par ligne; ne pas présenter cela comme un audit exhaustif manuel.
-- Extension du test d'intégration CLI existant pour couvrir sur les cinq tailles de blocs le chemin combiné `init-namespace → mkdir → touch → write → append → truncate → close/reopen → check-image`. Le contenu final est relu depuis le volume rouvert, et le checker est invoqué ensuite en lecture seule.
-- Cette passe relie davantage les commandes utilisateur aux APIs persistantes et complète l'inventaire fonctionnel. Elle ne prouve pas encore l'atomicité de toutes les mutations lors de coupures d'alimentation ni le montage OS.
-- Les estimations restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 % jusqu'à validation de ce nouveau SHA par CI Linux et Windows.
+- Le test CLI vertical-slice couvre sur les cinq tailles de blocs : `init-namespace → mkdir → touch → write → append → truncate → close/reopen → check-image → audit-image`. Le contenu final est relu depuis le volume rouvert; le contrôle et l'audit sont vérifiés sans changement des octets de l'image. Le scénario de checkpoint endommagé demeure isolé dans son test spécialisé.
+- Le test initial du lot a échoué précisément à cette hypothèse de checkpoint; l'assertion incorrecte est retirée, pas masquée. Le nouveau commit doit encore passer CI Linux et Windows avant validation.
+- Les estimations restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 %.
 
 
 ### Reprise de session — 2026-10-22 (couverture du streaming complet)
