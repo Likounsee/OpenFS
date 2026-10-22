@@ -666,3 +666,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le même scénario corrompt ensuite un seul checkpoint alors que son pair reste valide, puis exige que audit-image réussisse et conserve octet pour octet l'image endommagée. L'audit ne doit pas se transformer en réparation implicite.
 - L'inventaire fonctionnel OFS-F-026 est synchronisé avec cette couverture. La vérification Linux/Windows du nouveau commit reste requise; aucune hausse de pourcentage n'est accordée avant validation.
 - Les estimations restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Mise à jour du 2026-10-22 — correction Clippy du workflow CLI persistant
+
+- Le run exact-SHA [39853416440](https://github.com/Likounsee/OpenFS/actions/runs/39853416440) a confirmé que les tests Rust passent sous Linux (324 tests de `openfs-format` et 13 tests CLI), mais Clippy Linux bloque sur un `mut` inutile dans le test de réouverture du fichier persistant.
+- Le qualificatif mutable a été retiré : le volume rouvert sert uniquement à lire et vérifier le contenu après réouverture. Aucun comportement de production n'est modifié.
+- Le job Windows était encore en cours au moment de l'inspection; il ne doit pas être présenté comme vert avant résultat final. Le prochain run doit valider rustfmt, tests et Clippy sur les deux plateformes.
+- Estimations inchangées tant que la CI complète n'est pas verte : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.

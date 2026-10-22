@@ -1539,7 +1539,7 @@ mod tests {
 
             {
                 let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
-                let mut reopened_volume = open_volume(&mut reopened_device).unwrap();
+                let reopened_volume = open_volume(&mut reopened_device).unwrap();
                 assert_eq!(
                     reopened_volume
                         .read_persistent_path_range(&mut reopened_device, "/docs/note.txt", 0, 64,)
