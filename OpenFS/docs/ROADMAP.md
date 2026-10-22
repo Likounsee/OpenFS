@@ -1,5 +1,17 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
+### Reprise de session — 2026-10-22 (couverture du streaming complet)
+
+- Branche de travail : `OpenFS` uniquement. La branche a été résolue par l'arbre Git; ne pas modifier `main` ni `OpenFS-old`.
+- Inventaire de l'arbre Git relu : 62 entrées au total, dont les manifests des quatre crates, les sources Rust, les documents d'architecture/format/sécurité/récupération, les inventaires CSV, le générateur d'inventaire et le workflow CI. Les chemins prioritaires ont été relus dans cette passe; les très gros fichiers (`volume.rs`, inventaires CSV et rapport exhaustif) ont été inspectés par sections ou métadonnées plutôt que ligne par ligne. Ce n'est donc pas une affirmation d'audit manuel exhaustif de chaque ligne.
+- Relecture ciblée renouvelée : `OpenFS/Cargo.toml`, manifests des crates, `FORMAT_SPEC.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, `scripts/generate_symbol_inventory.py`, les deux inventaires CSV et `.github/workflows/ci.yml`. Les invariants restent : préflight de capacité avant mutation, COMMIT durable avant application des blocs de données, checkpoint après application, et récupération après résultat d'E/S incertain.
+- Nouveau test dans `crates/openfs-format/src/volume.rs` : `stream_persistent_file_to_writer` est désormais testé sur un fichier multi-blocs complet avec un writer qui n'accepte que 7 octets par appel. Le test vérifie que `write_all` gère les écritures partielles, que le nombre retourné correspond à la taille persistante et que tous les octets reçus correspondent au contenu attendu. Le chemin d'erreur du writer est également vérifié pour les deux API de streaming (plage et fichier complet), et les cas EOF/flush restent couverts.
+- Commits code de cette passe : `fd1d23345ef6bae1f05c79e338ce82860e739a9f` (`test(format): exercise whole-file streaming with short writes`) et `1b95446e0b9098caf04c4ce63edc475244c845b6` (`test(format): assert full-file stream write errors propagate`). Aucun test Rust n'a été exécuté dans cet environnement : ces commits ajoutent des régressions à valider, ils ne prouvent pas encore le succès des tests.
+- Le workflow CI du dépôt est présent à `.github/workflows/ci.yml` (racine). Il vérifie la reproductibilité du CSV, `cargo fmt --all -- --check`, `cargo test --workspace --all-features` et `cargo clippy --workspace --all-targets --all-features -- -D warnings` sous Linux et Windows. Le statut doit être contrôlé sur le HEAD exact; des listes vides de checks/runs ne sont pas une réussite CI.
+- Estimations conservées faute de validation du nouveau test : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 %. Ne créditer aucun progrès de phase avant validation par tests et CI Linux/Windows.
+
+---
+
 ### Reprise de session — 2026-10-22 (tests de bornes de lecture)
 
 - Branche de travail : `OpenFS` uniquement. Ne pas modifier `main` ni `OpenFS-old`.
