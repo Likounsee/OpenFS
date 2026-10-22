@@ -15244,6 +15244,29 @@ mod tests {
             assert_eq!(streamed_count, 3);
             assert_eq!(streamed_suffix, expected[suffix_start..]);
 
+            // Exercise the whole-file streaming entry point independently,
+            // including Write::write implementations that accept short chunks.
+            struct ChunkedWriter(Vec<u8>);
+            impl std::io::Write for ChunkedWriter {
+                fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                    let count = buffer.len().min(7);
+                    self.0.extend_from_slice(&buffer[..count]);
+                    Ok(count)
+                }
+
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            let mut chunked = ChunkedWriter(Vec::new());
+            assert_eq!(
+                volume
+                    .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut chunked)
+                    .unwrap(),
+                expected.len() as u64
+            );
+            assert_eq!(chunked.0, expected);
+
             let mut streamed_past_eof = Vec::new();
             assert_eq!(
                 volume
