@@ -1,7 +1,8 @@
-//! Fixed-width metadata records for the initial on-disk format draft.
+//! Fixed-width metadata record codec for the OpenFS on-disk format.
 //!
-//! This module defines record encoding only. It does not yet persist a namespace,
-//! implement directory indexing, or provide transaction/crash-recovery guarantees.
+//! This module validates and encodes individual records. Persistent namespace operations
+//! are orchestrated by higher layers; this codec alone does not implement directory
+//! indexing or provide transaction/crash-recovery guarantees.
 
 use crate::crc32c;
 use openfs_core::{Error, Result};

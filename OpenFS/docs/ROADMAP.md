@@ -592,3 +592,9 @@ Until that work is done, retain the existing values only as provisional estimate
 - Le test `discovered_verification_rejects_semantically_invalid_descriptor_without_writes` fabrique un descripteur dont le CRC est valide mais dont l'identifiant racine est nul, puis vérifie le refus sans écriture ni flush.
 - Le scénario est exécuté sur les cinq tailles de blocs supportées. Les compteurs ne sont activés qu'après la création de l'image et l'écriture du descripteur invalide.
 - Le formatage ayant fait échouer la CI du commit précédent est corrigé; aucune réussite de CI n'est revendiquée pour ce nouveau commit avant la fin du run exact-SHA.
+
+
+### Mise à jour — réconciliation de l'inventaire de fichiers
+
+- `INVENTAIRE_FICHIERS.csv` est régénéré à partir des métadonnées Git de l'arbre non tronqué du snapshot `c8b8cacf02ff` (46 fichiers). Les tailles et SHA de blob sont des métadonnées Git; elles ne prétendent pas démontrer que chaque ligne de chaque source a été auditée.
+- Les commentaires de module dans `metadata.rs` et `directory_entry.rs` ont été corrigés pour ne plus laisser entendre que les opérations d'espace de noms persistantes n'existent pas; les codecs restent distincts de l'orchestration de volume et de la récupération transactionnelle.

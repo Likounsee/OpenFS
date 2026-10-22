@@ -1,7 +1,8 @@
-//! Fixed-width directory-entry codec for the initial OpenFS format draft.
+//! Fixed-width directory-entry codec for the OpenFS on-disk format.
 //!
-//! This is a validated record encoding only. It does not provide directory indexing,
-//! persistent namespace mutation, or transaction/crash-recovery guarantees.
+//! This module validates and encodes individual entries. Directory indexing and persistent
+//! namespace mutations are orchestrated by higher layers; this codec alone does not provide
+//! transaction/crash-recovery guarantees.
 
 use crate::crc32c;
 use crate::metadata::ObjectKind;

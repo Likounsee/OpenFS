@@ -70,3 +70,11 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 
 - Le run `39791177933` sur `2c9d77fc56e020e955f8721b0e0e97bfcb227fcc` a échoué sur Linux et Windows à l'étape `cargo fmt --check`; les tests workspace et Clippy ont donc été ignorés. La différence indiquée par les logs était uniquement la mise en forme d'un `assert!`.
 - Le formatage est corrigé. En complément, le test de descripteur sémantiquement invalide à CRC valide exige désormais zéro écriture et zéro flush sur cinq tailles de blocs. Cette révision doit encore passer sa propre CI.
+
+
+## Réconciliation de l'inventaire des fichiers — snapshot c8b8cacf02ff
+
+- `INVENTAIRE_FICHIERS.csv` a été régénéré depuis l'arbre Git récursif non tronqué : 46 fichiers suivis, avec chemin, catégorie, taille et blob SHA tirés de Git.
+- L'entrée historique `DIFFERENCES_OPENFS_OLD.txt` a été retirée de cet index courant car elle n'existe pas dans l'arbre Git de ce snapshot.
+- L'index décrit les métadonnées du snapshot source `c8b8cacf02ff`; la ligne du fichier d'inventaire lui-même est explicitement marquée comme auto-référentielle, car un fichier ne peut pas contenir son propre SHA final.
+- Cette réconciliation ne remplace pas la relecture sémantique des sources, ne reconstruit pas `INVENTAIRE_SYMBOLES.csv` et ne modifie pas `INVENTAIRE_EXHAUSTIF.csv`.
