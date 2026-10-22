@@ -2763,7 +2763,6 @@ mod allocation_bitmap_report_tests {
                     free_inventory.len() as u64,
                     volume.volume.layout.data_blocks() - 6
                 );
-                let free_extents = volume.free_extent_inventory(&mut device).unwrap();
                 assert_eq!(
                     free_extents,
                     vec![
