@@ -798,9 +798,9 @@ impl Namespace {
         }
 
         let mut referenced = std::collections::HashSet::new();
-        referenced
-            .try_reserve(self.names.len())
-            .map_err(|_| Error::AllocationFailed("unable to reserve namespace reference validation"))?;
+        referenced.try_reserve(self.names.len()).map_err(|_| {
+            Error::AllocationFailed("unable to reserve namespace reference validation")
+        })?;
         for ((parent_id, key_name), entry) in &self.names {
             entry
                 .encode()
@@ -845,9 +845,9 @@ impl Namespace {
             ));
         }
         let mut visited = std::collections::HashSet::new();
-        visited
-            .try_reserve(self.objects.len())
-            .map_err(|_| Error::AllocationFailed("unable to reserve namespace reachability validation"))?;
+        visited.try_reserve(self.objects.len()).map_err(|_| {
+            Error::AllocationFailed("unable to reserve namespace reachability validation")
+        })?;
         let mut pending = Vec::new();
         pending
             .try_reserve(1)
