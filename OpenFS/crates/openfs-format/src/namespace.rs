@@ -1505,4 +1505,66 @@ mod tests {
         let names: Vec<_> = ns.children(ObjectId(1)).map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["Alpha", "alpha", "zeta"]);
     }
+
+    #[test]
+    fn rename_rejects_old_parent_generation_overflow_without_mutating_indexes() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "source", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(1, 3, "destination", ObjectKind::Directory),
+            record(3, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 4, "item.txt", ObjectKind::File),
+            record(4, 2, ObjectKind::File),
+        )
+        .unwrap();
+        ns.objects.get_mut(&ObjectId(2)).unwrap().generation = u32::MAX;
+
+        assert!(matches!(
+            ns.rename(ObjectId(4), ObjectId(3), "moved.txt"),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(ns.path_of(ObjectId(4)).unwrap(), "/source/item.txt");
+        assert!(ns.lookup(ObjectId(2), "item.txt").is_some());
+        assert!(ns.lookup(ObjectId(3), "moved.txt").is_none());
+        assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 2);
+        assert!(ns.validate().is_ok());
+    }
+
+    #[test]
+    fn rename_rejects_destination_parent_generation_overflow_without_mutating_indexes() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "source", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(1, 3, "destination", ObjectKind::Directory),
+            record(3, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+        ns.insert(
+            entry(2, 4, "item.txt", ObjectKind::File),
+            record(4, 2, ObjectKind::File),
+        )
+        .unwrap();
+        ns.objects.get_mut(&ObjectId(3)).unwrap().generation = u32::MAX;
+
+        assert!(matches!(
+            ns.rename(ObjectId(4), ObjectId(3), "moved.txt"),
+            Err(Error::ArithmeticOverflow)
+        ));
+        assert_eq!(ns.path_of(ObjectId(4)).unwrap(), "/source/item.txt");
+        assert!(ns.lookup(ObjectId(2), "item.txt").is_some());
+        assert!(ns.lookup(ObjectId(3), "moved.txt").is_none());
+        assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 2);
+        assert!(ns.validate().is_ok());
+    }
 }
