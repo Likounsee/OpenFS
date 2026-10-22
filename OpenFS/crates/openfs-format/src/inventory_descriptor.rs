@@ -630,6 +630,17 @@ mod tests {
                     "nonzero byte at offset {offset} accepted for block size {block_size}"
                 );
             }
+
+            let mut impossible_count = valid;
+            impossible_count[28..32].copy_from_slice(&u32::MAX.to_le_bytes());
+            refresh_checksum(&mut impossible_count);
+            assert!(
+                matches!(
+                    PersistentInventoryDescriptor::decode(&impossible_count),
+                    Err(Error::Corrupt(_))
+                ),
+                "impossible metadata count accepted for block size {block_size}"
+            );
         }
     }
 }
