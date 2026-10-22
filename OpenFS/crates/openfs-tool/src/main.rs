@@ -1507,7 +1507,7 @@ mod tests {
         assert!(!zero_path.exists());
         assert!(!huge_path.exists());
     }
- 
+
     #[test]
     fn audit_image_accepts_valid_persistent_inventory_at_every_block_size() {
         for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
@@ -1526,5 +1526,4 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
 }
