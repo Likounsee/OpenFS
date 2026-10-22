@@ -768,6 +768,35 @@ mod tests {
     }
 
     #[test]
+    fn recovery_plan_allows_transaction_id_gaps_but_keeps_committed_order() {
+        let records = vec![
+            record(JournalRecordKind::Begin, 1, 3, b""),
+            record(JournalRecordKind::Update, 2, 3, b"first"),
+            record(JournalRecordKind::Commit, 3, 3, b""),
+            record(JournalRecordKind::Begin, 4, 17, b""),
+            record(JournalRecordKind::Update, 5, 17, b"discard"),
+            record(JournalRecordKind::Abort, 6, 17, b""),
+            record(JournalRecordKind::Begin, 7, 900, b""),
+            record(JournalRecordKind::Update, 8, 900, b"last"),
+            record(JournalRecordKind::Commit, 9, 900, b""),
+        ];
+
+        assert_eq!(
+            plan_recovery(&records, 0).unwrap(),
+            vec![
+                CommittedTransaction {
+                    transaction_id: 3,
+                    updates: vec![b"first".to_vec()],
+                },
+                CommittedTransaction {
+                    transaction_id: 900,
+                    updates: vec![b"last".to_vec()],
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn recovery_plan_rejects_checkpoint_sequence_overflow_before_replay() {
         let records = vec![record(JournalRecordKind::Begin, 1, 1, b"")];
         assert!(matches!(
