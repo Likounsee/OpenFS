@@ -14924,12 +14924,7 @@ mod tests {
                     .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "docs")
                     .unwrap();
                 volume
-                    .create_persistent_directory_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(3),
-                        "archive",
-                    )
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(3), "archive")
                     .unwrap();
                 volume
                     .create_persistent_file_at_path(&mut device, "/", ObjectId(4), "alpha.bin")
