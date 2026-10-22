@@ -69,10 +69,15 @@ pub fn decode_metadata_records(bytes: &[u8]) -> Result<Vec<MetadataRecord>> {
             "metadata inventory is not record-aligned",
         ));
     }
-    bytes
-        .chunks_exact(METADATA_RECORD_SIZE)
-        .map(MetadataRecord::decode)
-        .collect()
+    let record_count = bytes.len() / METADATA_RECORD_SIZE;
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(record_count)
+        .map_err(|_| Error::AllocationFailed("unable to allocate decoded metadata records"))?;
+    for record in bytes.chunks_exact(METADATA_RECORD_SIZE) {
+        records.push(MetadataRecord::decode(record)?);
+    }
+    Ok(records)
 }
 
 impl MetadataRecord {
