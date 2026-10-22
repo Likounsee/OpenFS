@@ -619,3 +619,10 @@ Until that work is done, retain the existing values only as provisional estimate
 ### CI — inventaire de symboles
 
 La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py`, puis `git diff --exit-code -- docs/INVENTAIRE_SYMBOLES.csv`. Cela vérifie que l'index lexical est reproductible sur le checkout et empêche une modification de source Rust de laisser silencieusement l'index périmé. Ce contrôle ne remplace ni l'analyse sémantique ni les tests Rust.
+
+### Mise à jour du 2026-10-22 — CI exacte-SHA de l'inventaire lexical
+
+- Le run exact-SHA [39802397765](https://github.com/Likounsee/OpenFS/actions/runs/39802397765), sur le commit `b7cf17f8eea15b1ed8c1997d19d8cf6a575f3d45`, est **vert sous Linux et Windows** : génération reproductible de l'index, rustfmt, tests du workspace avec toutes les fonctionnalités et Clippy sur toutes les cibles.
+- Cause du blocage précédent : l'index encodait un SHA obtenu via `git log`. Le checkout CI est superficiel, donc son historique disponible ne permet pas de reproduire la même révision source que le CSV suivi. Le générateur n'utilise plus l'historique Git pour construire les notes; les 1 003 déclarations des 16 fichiers Rust restent indexées.
+- Cette correction valide la reproductibilité de l'index et la CI du commit cité. Elle ne constitue pas une validation sémantique de chaque symbole ni une preuve de préparation à la production.
+- Les estimations P0/P1/P2/P3 et l'avancement global restent inchangés.
