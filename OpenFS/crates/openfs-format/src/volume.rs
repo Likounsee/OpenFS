@@ -15103,7 +15103,13 @@ mod tests {
                 volume
                     .remove_persistent_objects(
                         &mut device,
-                        &[ObjectId(4), ObjectId(5), ObjectId(3), ObjectId(2), ObjectId(6)],
+                        &[
+                            ObjectId(4),
+                            ObjectId(5),
+                            ObjectId(3),
+                            ObjectId(2),
+                            ObjectId(6),
+                        ],
                     )
                     .unwrap();
                 drop(volume);
