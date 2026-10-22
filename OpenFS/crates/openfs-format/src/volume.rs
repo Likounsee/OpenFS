@@ -15174,8 +15174,7 @@ mod tests {
                 generation: 1,
             };
             let mut bytes = vec![0_u8; block_size];
-            bytes[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root_record.encode().unwrap());
+            bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
             device.write_blocks(metadata_block, &bytes).unwrap();
             volume
                 .publish_persistent_inventory(
@@ -15230,5 +15229,4 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
-
 }
