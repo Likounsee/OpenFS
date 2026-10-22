@@ -15218,12 +15218,7 @@ mod tests {
             );
             assert!(
                 volume
-                    .read_persistent_path_range(
-                        &mut device,
-                        "/large.bin",
-                        u64::MAX,
-                        usize::MAX,
-                    )
+                    .read_persistent_path_range(&mut device, "/large.bin", u64::MAX, usize::MAX,)
                     .unwrap()
                     .is_empty(),
                 "a range beginning beyond EOF must return no bytes"
@@ -15261,11 +15256,7 @@ mod tests {
             let mut chunked = ChunkedWriter(Vec::new());
             assert_eq!(
                 volume
-                    .stream_persistent_file_to_writer(
-                        &mut device,
-                        "/large.bin",
-                        &mut chunked,
-                    )
+                    .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut chunked,)
                     .unwrap(),
                 expected.len() as u64
             );
@@ -15311,11 +15302,7 @@ mod tests {
                 )
                 .is_err());
             assert!(volume
-                .stream_persistent_file_to_writer(
-                    &mut device,
-                    "/large.bin",
-                    &mut RejectWrites,
-                )
+                .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut RejectWrites,)
                 .is_err());
 
             // Empty ranges still flush the destination, and a flush error must
