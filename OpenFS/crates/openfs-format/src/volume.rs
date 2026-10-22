@@ -11099,7 +11099,7 @@ mod tests {
                 ));
 
                 drop(volume);
-                let reopened = open_volume(&mut device).unwrap();
+                let mut reopened = open_volume(&mut device).unwrap();
                 assert_eq!(reopened.volume.layout.data_start, 20);
                 assert_eq!(reopened.volume.layout.backup_superblock, 23);
                 assert!(matches!(
@@ -14867,7 +14867,7 @@ mod tests {
                 );
 
                 drop(volume);
-                let mut reopened = open_volume(&mut device).unwrap();
+                let reopened = open_volume(&mut device).unwrap();
                 assert!(reopened
                     .read_persistent_path_range(&mut device, "/note.txt", 0, payload.len())
                     .is_err());
