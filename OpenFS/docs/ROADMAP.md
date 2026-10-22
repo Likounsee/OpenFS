@@ -1,5 +1,15 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
+### Reprise de session — 2026-10-22 (vertical slice CLI persistant)
+
+- Branche cible : `OpenFS` uniquement; aucune modification de `main` ni de `OpenFS-old`.
+- Le dernier workflow exact-SHA `39851938335` sur `f2edfbd` est maintenant terminé avec **Linux et Windows réussis** (formatage, tests workspace toutes fonctionnalités et Clippy).
+- Relecture structurée renouvelée de l'arborescence, du workflow CI, des contrats journal/récupération, du module CLI, des codecs et des zones ciblées de `volume.rs`. Les très gros fichiers ont été examinés par sections, pas ligne par ligne; ne pas présenter cela comme un audit exhaustif manuel.
+- Extension du test d'intégration CLI existant pour couvrir sur les cinq tailles de blocs le chemin combiné `init-namespace → mkdir → touch → write → append → truncate → close/reopen → check-image`. Le contenu final est relu depuis le volume rouvert, et le checker est invoqué ensuite en lecture seule.
+- Cette passe relie davantage les commandes utilisateur aux APIs persistantes et complète l'inventaire fonctionnel. Elle ne prouve pas encore l'atomicité de toutes les mutations lors de coupures d'alimentation ni le montage OS.
+- Les estimations restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 % jusqu'à validation de ce nouveau SHA par CI Linux et Windows.
+
+
 ### Reprise de session — 2026-10-22 (couverture du streaming complet)
 
 - Branche de travail : `OpenFS` uniquement. La branche a été résolue par l'arbre Git; ne pas modifier `main` ni `OpenFS-old`.

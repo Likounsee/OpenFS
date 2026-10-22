@@ -1519,6 +1519,44 @@ mod tests {
             }
 
             super::initialize_namespace_image(&path, block_size).unwrap();
+
+            // Exercise the user-facing persistent file workflow as one vertical slice:
+            // create namespace entries, write, append, truncate, close/reopen, then audit.
+            super::create_namespace_entry(&path, block_size, "/docs", true).unwrap();
+            super::create_namespace_entry(&path, block_size, "/docs/note.txt", false).unwrap();
+            let original_payload = b"persistent file payload";
+            super::write_namespace_file(&path, block_size, "/docs/note.txt", original_payload)
+                .unwrap();
+            super::append_namespace_file(&path, block_size, "/docs/note.txt", b" + appended")
+                .unwrap();
+            super::truncate_namespace_file(
+                &path,
+                block_size,
+                "/docs/note.txt",
+                original_payload.len() as u64,
+            )
+            .unwrap();
+
+            {
+                let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                let mut reopened_volume = open_volume(&mut reopened_device).unwrap();
+                assert_eq!(
+                    reopened_volume
+                        .read_persistent_path_range(
+                            &mut reopened_device,
+                            "/docs/note.txt",
+                            0,
+                            64,
+                        )
+                        .unwrap(),
+                    original_payload,
+                    "create/write/append/truncate must survive reopen at block size {block_size}"
+                );
+            }
+            assert!(
+                super::check_image(&path, block_size).is_ok(),
+                "read-only check should accept the persistent file workflow at block size {block_size}"
+            );
             let before_audit = fs::read(&path).unwrap();
             assert!(
                 super::audit_image(&path, block_size).is_ok(),
