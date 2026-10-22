@@ -752,6 +752,19 @@ mod tests {
             plan_recovery(&decreasing_after_abort, 0),
             Err(Error::Corrupt("invalid or interleaved journal transaction"))
         ));
+
+        let decreasing_after_commit = vec![
+            record(JournalRecordKind::Begin, 1, 8, b""),
+            record(JournalRecordKind::Update, 2, 8, b"redo-a"),
+            record(JournalRecordKind::Commit, 3, 8, b""),
+            record(JournalRecordKind::Begin, 4, 7, b""),
+            record(JournalRecordKind::Update, 5, 7, b"redo-b"),
+            record(JournalRecordKind::Commit, 6, 7, b""),
+        ];
+        assert!(matches!(
+            plan_recovery(&decreasing_after_commit, 0),
+            Err(Error::Corrupt("invalid or interleaved journal transaction"))
+        ));
     }
 
     #[test]
