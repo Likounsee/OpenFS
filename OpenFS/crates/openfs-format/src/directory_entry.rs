@@ -36,10 +36,15 @@ pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
             "directory inventory is not record-aligned",
         ));
     }
-    bytes
-        .chunks_exact(DIRECTORY_ENTRY_SIZE)
-        .map(DirectoryEntry::decode)
-        .collect()
+    let record_count = bytes.len() / DIRECTORY_ENTRY_SIZE;
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(record_count)
+        .map_err(|_| Error::AllocationFailed("unable to allocate decoded directory entries"))?;
+    for record in bytes.chunks_exact(DIRECTORY_ENTRY_SIZE) {
+        entries.push(DirectoryEntry::decode(record)?);
+    }
+    Ok(entries)
 }
 
 impl DirectoryEntry {
