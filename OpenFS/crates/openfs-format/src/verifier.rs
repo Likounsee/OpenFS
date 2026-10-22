@@ -131,7 +131,24 @@ impl OpenedVolume {
         // This catches aliases between index pages and file data instead of misreporting
         // those allocated blocks as orphans. Keep ranges compressed: each physical extent
         // remains one range in the bitmap reconciliation rather than expanding all blocks.
+        let index_extent_count = sources
+            .metadata_blocks
+            .len()
+            .checked_add(sources.directory_blocks.len())
+            .and_then(|count| count.checked_add(usize::from(sources.descriptor_block.is_some())))
+            .and_then(|count| {
+                count.checked_add(
+                    namespace
+                        .objects()
+                        .filter(|record| record.extent_root_block.is_some())
+                        .count(),
+                )
+            })
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut index_extents = Vec::new();
+        index_extents
+            .try_reserve_exact(index_extent_count)
+            .map_err(|_| Error::AllocationFailed("unable to reserve verifier index extents"))?;
         let mut logical_cursor = 0_u64;
         for block in sources
             .metadata_blocks
