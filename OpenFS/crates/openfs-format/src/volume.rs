@@ -15148,4 +15148,87 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn multi_block_persistent_file_replacement_survives_reopen() {
+        use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
+
+        let path = image_path("persistent-multiblock-replacement");
+        let block_size = 4096_usize;
+        let expected: Vec<u8> = (0..(block_size * 2 + 137))
+            .map(|index| ((index * 31 + 7) % 251) as u8)
+            .collect();
+        let replacement = b"short replacement";
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let root = ObjectId(1);
+            let metadata_block = volume.allocate_block(&mut device).unwrap();
+            let root_record = MetadataRecord {
+                id: root,
+                parent_id: 0,
+                kind: ObjectKind::Directory,
+                flags: 0,
+                size: 0,
+                extent_root_block: None,
+                generation: 1,
+            };
+            let mut bytes = vec![0_u8; block_size];
+            bytes[..crate::METADATA_RECORD_SIZE]
+                .copy_from_slice(&root_record.encode().unwrap());
+            device.write_blocks(metadata_block, &bytes).unwrap();
+            volume
+                .publish_persistent_inventory(
+                    &mut device,
+                    &PersistentInventoryDescriptor {
+                        root_id: root,
+                        metadata_blocks: vec![metadata_block],
+                        metadata_record_count: 1,
+                        directory_blocks: vec![],
+                        directory_entry_count: 0,
+                    },
+                )
+                .unwrap();
+            volume
+                .create_persistent_file(&mut device, root, ObjectId(2), "large.bin")
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/large.bin", &expected)
+                .unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", 0, expected.len())
+                    .unwrap(),
+                expected
+            );
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", 0, expected.len())
+                    .unwrap(),
+                expected
+            );
+
+            volume
+                .write_persistent_file_contents(&mut device, "/large.bin", replacement)
+                .unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/large.bin", 0, replacement.len())
+                    .unwrap(),
+                replacement
+            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
 }
