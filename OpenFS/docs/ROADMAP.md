@@ -1,13 +1,14 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
-### Reprise de session — 2026-10-22 (HEAD fb16aae)
+### Reprise de session — 2026-10-22 (base fb16aae, tests ajoutés)
 
-- HEAD observé sur la branche de travail `OpenFS` : `fb16aae945e3afe1f0c69775ca8a48922af6a197` (`docs(inventory): track multi-block empty replacement coverage`). La branche `OpenFS` reste l'unique cible de modification; `main` et `OpenFS-old` ne sont pas des branches de travail.
-- Relecture ciblée de `DEVELOPMENT.md`, `FORMAT_SPEC.md`, `RECOVERY_DESIGN.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, du workflow CI, du générateur d'inventaire, du CSV des symboles, de `Cargo.toml`, et de sections de `crates/openfs-format/src/volume.rs`. Le module `volume.rs` (681 Ko) n'a pas été intégralement audité dans cette passe; ne pas interpréter cette relecture partielle comme un audit exhaustif du dépôt.
-- Le contrat P2 confirme que les opérations de fichiers peuvent traverser plusieurs étapes persistantes et ne sont pas automatiquement atomiques. Les invariants prioritaires restent : ne pas publier de références avant la durabilité des contenus requis, ne pas libérer des blocs encore référencés, et rouvrir/récupérer après un résultat d'E/S incertain.
-- Le test de persistance consulté couvre déjà écriture multi-blocs, réouverture, échec d'append sans changement de taille/contenu, troncature et croissance sparse après nettoyage de queue défaillant. Les prochains tests doivent viser des frontières de panne précises, pas augmenter artificiellement le nombre de tests.
-- Le statut combiné et la recherche d'exécutions GitHub Actions n'ont retourné aucun résultat exploitable pour ce SHA. **CI exacte-SHA : non confirmée**, et non déclarée verte.
-- Aucun changement de code, aucune exécution locale des tests et aucun résultat de régénération CSV n'ont été établis pendant cette passe. Les estimations restent inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %. La prochaine modification de code doit être accompagnée d'un test de régression exécutable et d'une vérification CI sur le nouveau SHA.
+- HEAD initial de cette passe : `fb16aae945e3afe1f0c69775ca8a48922af6a197`. La branche de travail reste `OpenFS` uniquement; ne pas modifier `main` ni `OpenFS-old`.
+- Relecture ciblée de `DEVELOPMENT.md`, `FORMAT_SPEC.md`, `RECOVERY_DESIGN.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, du workflow CI, du générateur d'inventaire, du CSV des symboles, de `Cargo.toml`, et de sections de `crates/openfs-format/src/volume.rs`. Le module `volume.rs` (environ 681 Ko) n'a pas été intégralement audité; ceci n'est pas un audit exhaustif du dépôt.
+- Le contrat P2 confirme que les opérations de fichiers peuvent traverser plusieurs étapes persistantes et ne sont pas automatiquement atomiques. Les invariants prioritaires restent : ne pas publier de références avant la durabilité requise, ne pas libérer de blocs encore référencés, et rouvrir/récupérer après un résultat d'E/S incertain.
+- Test ajouté dans `volume.rs` : la lecture persistante avec une longueur `usize::MAX` renvoie uniquement le suffixe restant jusqu'à EOF; un offset `u64::MAX` renvoie un résultat vide. Cela protège le clamp de la longueur de lecture aux données réellement disponibles, sans allouer selon la taille demandée par l'appelant.
+- Commits de session : `c62ed7d` (note de suivi), `ec78889` (test de limites de lecture), `e30e591` (mise en forme du test).
+- Aucun test Rust ni génération d'inventaire n'a pu être exécuté dans l'environnement de cette session. Le statut combiné et la recherche d'exécutions Actions n'ont retourné aucun résultat exploitable pour le SHA `e30e591a37a5e4d14dd3ed9f52ed78e84f981980`. **CI exacte-SHA : non confirmée**, donc pas déclarée verte.
+- Les estimations restent inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %. Ne créditer aucun progrès de phase avant exécution du test, des vérifications du workspace et de la CI Linux/Windows.
 
 
 Last source audit: 2026-10-22  
