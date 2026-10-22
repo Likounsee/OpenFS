@@ -15258,6 +15258,56 @@ mod tests {
                 0
             );
             assert!(streamed_past_eof.is_empty());
+
+            // Host-writer failures must be returned to the caller instead of
+            // being mistaken for a successful, complete stream.
+            struct RejectWrites;
+            impl std::io::Write for RejectWrites {
+                fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "injected output write failure",
+                    ))
+                }
+
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            assert!(volume
+                .stream_persistent_path_range_to_writer(
+                    &mut device,
+                    "/large.bin",
+                    0,
+                    1,
+                    &mut RejectWrites,
+                )
+                .is_err());
+
+            // Empty ranges still flush the destination, and a flush error must
+            // not be hidden just because no payload bytes were emitted.
+            struct RejectFlush;
+            impl std::io::Write for RejectFlush {
+                fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                    Ok(buffer.len())
+                }
+
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "injected output flush failure",
+                    ))
+                }
+            }
+            assert!(volume
+                .stream_persistent_path_range_to_writer(
+                    &mut device,
+                    "/large.bin",
+                    u64::MAX,
+                    u64::MAX,
+                    &mut RejectFlush,
+                )
+                .is_err());
         }
 
         {
