@@ -15218,7 +15218,12 @@ mod tests {
             );
             assert!(
                 volume
-                    .read_persistent_path_range(&mut device, "/large.bin", u64::MAX, usize::MAX)
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/large.bin",
+                        u64::MAX,
+                        usize::MAX,
+                    )
                     .unwrap()
                     .is_empty(),
                 "a range beginning beyond EOF must return no bytes"
