@@ -43,7 +43,7 @@ def main() -> int:
     args = parser.parse_args()
     script_path = Path(__file__).resolve()
     root = args.root.resolve() if args.root else script_path.parents[2]
-    source_revision = git(root, "rev-parse", "HEAD")
+    source_revision = git(root, "log", "-1", "--format=%H", "--", "OpenFS/crates")
     source_root = root / "OpenFS" / "crates"
     rust_files = sorted(source_root.rglob("*.rs"))
     output = root / "OpenFS" / "docs" / "INVENTAIRE_SYMBOLES.csv"
@@ -73,9 +73,8 @@ def main() -> int:
                 "declaration": line.strip(),
                 "status": "Indexed",
                 "analysis_note": (
-                    f"Lexical index regenerated from checkout HEAD "
-                    f"{source_revision[:12]}; declaration and line detected, "
-                    "behavior not validated."
+                    f"Lexical index for source snapshot {source_revision[:12]}; "
+                    "declaration and line detected, behavior not validated."
                 ),
             })
 
