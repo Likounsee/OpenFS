@@ -15261,7 +15261,11 @@ mod tests {
             let mut chunked = ChunkedWriter(Vec::new());
             assert_eq!(
                 volume
-                    .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut chunked)
+                    .stream_persistent_file_to_writer(
+                        &mut device,
+                        "/large.bin",
+                        &mut chunked,
+                    )
                     .unwrap(),
                 expected.len() as u64
             );
