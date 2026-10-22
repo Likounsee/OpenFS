@@ -1,5 +1,15 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
+### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
+
+- Branche de travail : `OpenFS` uniquement; `main` et `OpenFS-old` restent intouchées.
+- Relecture structurée de l'arbre Git (62 entrées), des manifests, du workflow CI, des contrats P1/P2, du modèle de récupération, du module BlockDevice et des sections ciblées de `volume.rs`, `namespace.rs` et du CLI. Les gros fichiers ont été examinés par sections ciblées, pas ligne par ligne; ce n'est pas un audit manuel exhaustif de chaque ligne.
+- Le scénario CLI persistant couvre maintenant aussi `mkdir /docs/archive`, la création/écriture de `/docs/discard.txt`, le déplacement de `/docs/note.txt` vers `/docs/archive/note.txt`, puis la suppression de `/docs/discard.txt`. Après fermeture/réouverture, il vérifie le contenu à la nouvelle adresse et l'absence des deux anciens chemins, pour les cinq tailles de blocs (4, 8, 16, 32 et 64 KiB).
+- CI du commit `9c1a54a9b6d8103ed590ec2d054ad5dcb8439689` : [run 39854507344](https://github.com/Likounsee/OpenFS/actions/runs/39854507344) **vert sous Linux et Windows**; inventaire des symboles reproductible, rustfmt, tests du workspace avec toutes les features et Clippy sur toutes les cibles/features sont terminés avec succès sur les deux systèmes.
+- Limite encore ouverte : ce scénario valide le chemin nominal après réouverture, pas chaque frontière d'échec E/S du renommage/suppression. La prochaine tranche doit cibler l'injection de pannes, la récupération et l'intégrité des blocs avant d'augmenter les estimations.
+- Estimations maintenues sans hausse : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global pondéré 60 %.
+
+
 ### Reprise de session — 2026-10-22 (vertical slice CLI persistant)
 
 - Branche cible : `OpenFS` uniquement; aucune modification de `main` ni de `OpenFS-old`.
