@@ -161,7 +161,12 @@ impl OpenedVolume {
             }
         }
         let index_map = ExtentMap::new(index_extents)?;
-        let mut owned_maps: Vec<(ExtentMap, u64)> = Vec::with_capacity(extent_maps.len() + 1);
+        let mut owned_maps: Vec<(ExtentMap, u64)> = Vec::new();
+        owned_maps
+            .try_reserve_exact(
+                extent_maps.len().checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| Error::AllocationFailed("unable to reserve verifier extent maps"))?;
         owned_maps.push((index_map, logical_cursor));
         for (object_id, map) in &extent_maps {
             let record = namespace
@@ -170,12 +175,17 @@ impl OpenedVolume {
             let block_size = u64::from(self.volume.block_size);
             let logical_blocks =
                 record.size / block_size + u64::from(record.size % block_size != 0);
-            owned_maps.push((map.clone(), logical_blocks));
+            owned_maps.push((map.try_clone()?, logical_blocks));
         }
-        let map_refs: Vec<(&ExtentMap, u64)> = owned_maps
-            .iter()
-            .map(|(map, logical_blocks)| (map, *logical_blocks))
-            .collect();
+        let mut map_refs: Vec<(&ExtentMap, u64)> = Vec::new();
+        map_refs
+            .try_reserve_exact(owned_maps.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve verifier map references"))?;
+        map_refs.extend(
+            owned_maps
+                .iter()
+                .map(|(map, logical_blocks)| (map, *logical_blocks)),
+        );
         let allocation = self.extent_map_ownership_report(device, &map_refs)?;
 
         Ok(PersistentInventoryReport {
