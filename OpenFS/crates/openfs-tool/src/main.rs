@@ -1537,15 +1537,56 @@ mod tests {
             )
             .unwrap();
 
+            // Include persistent rename and removal in the same cross-block-size workflow.
+            super::create_namespace_entry(&path, block_size, "/docs/archive", true).unwrap();
+            super::create_namespace_entry(&path, block_size, "/docs/discard.txt", false).unwrap();
+            super::write_namespace_file(&path, block_size, "/docs/discard.txt", b"remove me")
+                .unwrap();
+            super::move_namespace_entry(
+                &path,
+                block_size,
+                "/docs/note.txt",
+                "/docs/archive/note.txt",
+            )
+            .unwrap();
+            super::remove_namespace_entry(&path, block_size, "/docs/discard.txt").unwrap();
+
             {
                 let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
                 let reopened_volume = open_volume(&mut reopened_device).unwrap();
                 assert_eq!(
                     reopened_volume
-                        .read_persistent_path_range(&mut reopened_device, "/docs/note.txt", 0, 64,)
+                        .read_persistent_path_range(
+                            &mut reopened_device,
+                            "/docs/archive/note.txt",
+                            0,
+                            64,
+                        )
                         .unwrap(),
                     original_payload,
-                    "create/write/append/truncate must survive reopen at block size {block_size}"
+                    "create/write/append/truncate/move must survive reopen at block size {block_size}"
+                );
+                assert!(
+                    reopened_volume
+                        .read_persistent_path_range(
+                            &mut reopened_device,
+                            "/docs/note.txt",
+                            0,
+                            64,
+                        )
+                        .is_err(),
+                    "renamed source path must not remain published at block size {block_size}"
+                );
+                assert!(
+                    reopened_volume
+                        .read_persistent_path_range(
+                            &mut reopened_device,
+                            "/docs/discard.txt",
+                            0,
+                            64,
+                        )
+                        .is_err(),
+                    "removed file must remain absent after reopen at block size {block_size}"
                 );
             }
             assert!(

@@ -674,3 +674,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le qualificatif mutable a été retiré : le volume rouvert sert uniquement à lire et vérifier le contenu après réouverture. Aucun comportement de production n'est modifié.
 - Le job Windows était encore en cours au moment de l'inspection; il ne doit pas être présenté comme vert avant résultat final. Le prochain run doit valider rustfmt, tests et Clippy sur les deux plateformes.
 - Estimations inchangées tant que la CI complète n'est pas verte : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Mise à jour du 2026-10-22 — vertical slice CLI élargi aux mutations namespace
+
+- Le scénario de test CLI persistant traverse maintenant, sur les cinq tailles de blocs supportées, la création des répertoires/fichiers, l'écriture, l'append, la troncature, le déplacement du fichier vers un sous-répertoire, la suppression d'un second fichier, puis la fermeture/réouverture.
+- Après réouverture, le contenu du fichier déplacé est relu et les anciens chemins du fichier déplacé et du fichier supprimé doivent rester absents. `check-image` et `audit-image` vérifient ensuite l'image; l'audit doit toujours laisser chaque octet inchangé.
+- Ce test renforce la couverture d'intégration du namespace persistant, mais ne remplace pas les tests d'injection de panne entre les phases de publication/récupération.
+- Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %; l'avancement ne sera réévalué qu'après validation CI exacte-SHA.
