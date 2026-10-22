@@ -612,7 +612,14 @@ mod tests {
         // Reserved fields and trailing padding must remain canonical at every supported
         // block size, even when an attacker recomputes the descriptor checksum.
         for block_size in [4096_usize, 8192, 16_384, 32_768, 65_536] {
-            let valid = sample().encode(block_size).unwrap();
+            let empty_descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let valid = empty_descriptor.encode(block_size).unwrap();
             for offset in [36_usize, 44, block_size - 1] {
                 let mut corrupt = valid.clone();
                 corrupt[offset] = 1;
