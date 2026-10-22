@@ -605,3 +605,12 @@ Until that work is done, retain the existing values only as provisional estimate
 - `verify_persistent_inventory` ne recherche pas le descripteur : il ne connaît que les propriétaires fournis par l'appelant. Si un descripteur persistant est présent mais non déclaré dans ses entrées, son bloc doit être rapporté comme orphelin par ce rapport.
 - `verify_discovered_persistent_inventory` découvre le descripteur et l'inclut explicitement dans le graphe des propriétaires; avec la même image, ce rapport doit être cohérent.
 - Le test multi-tailles vérifie désormais cette différence attendue ainsi que l'absence d'écritures/flushes pour les deux chemins.
+
+
+### Mise à jour — inventaire de symboles reproductible
+
+- Ajout de `OpenFS/scripts/generate_symbol_inventory.py`, un générateur Python standard-library-only pour reconstruire l'index des déclarations Rust.
+- `INVENTAIRE_SYMBOLES.csv` a été recalculé sur le snapshot source `31adce9a3974` : 1 003 déclarations repérées dans les 16 fichiers Rust.
+- Le générateur est lexical et volontairement conservateur : `Indexed` confirme uniquement la présence d'une déclaration à une ligne donnée, pas son comportement, sa sûreté ou sa couverture de tests.
+- Le gros `INVENTAIRE_EXHAUSTIF.csv` reste inchangé tant que son contenu complet n'est pas récupérable pour comparaison.
+- Les estimations P0/P1/P2/P3 restent inchangées; une mise à jour de documentation ne suffit pas à augmenter l'avancement fonctionnel.

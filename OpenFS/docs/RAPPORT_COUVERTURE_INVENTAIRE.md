@@ -89,3 +89,12 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 - Le commentaire d'en-tête de `namespace.rs` précise que le modèle reste en mémoire, mais qu'il est utilisé par les opérations de volume persistantes pour valider les changements.
 - `COMPATIBILITY.md` distingue désormais la récupération journalisée déjà présente pour certains chemins des garanties universelles encore absentes pour toutes les opérations de fichiers et d'espace de noms.
 - `INVENTAIRE_SYMBOLES.csv` demeure volontairement signalé comme index historique : ses lignes doivent être régénérées par une extraction de symboles reproductible, plutôt que de simplement remplacer le SHA source sans recalculer les numéros de ligne.
+
+
+## Mise à jour — index de symboles reproductible (snapshot 31adce9a3974)
+
+- Les 16 fichiers Rust du workspace ont été relus pour reconstruire l'index lexical à partir de leurs lignes de déclaration; le nouvel index contient 1 003 entrées.
+- Le script `OpenFS/scripts/generate_symbol_inventory.py` régénère `INVENTAIRE_SYMBOLES.csv` depuis le checkout courant, sans dépendance Python externe.
+- L'index distingue la détection syntaxique du comportement : le statut `Indexed` signifie seulement qu'une déclaration et son numéro de ligne ont été détectés. Ce n'est ni une validation sémantique ni une couverture de tests.
+- `INVENTAIRE_EXHAUSTIF.csv` est conservé inchangé; son contenu intégral n'a pas été relu dans cette passe, car sa récupération complète n'est pas disponible via le connecteur.
+- La CI exacte-SHA du snapshot précédent est verte : run 39792518837. La CI du commit contenant cette mise à jour devra être vérifiée séparément.
