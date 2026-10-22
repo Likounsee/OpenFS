@@ -614,3 +614,8 @@ Until that work is done, retain the existing values only as provisional estimate
 - Le générateur est lexical et volontairement conservateur : `Indexed` confirme uniquement la présence d'une déclaration à une ligne donnée, pas son comportement, sa sûreté ou sa couverture de tests.
 - Le gros `INVENTAIRE_EXHAUSTIF.csv` reste inchangé tant que son contenu complet n'est pas récupérable pour comparaison.
 - Les estimations P0/P1/P2/P3 restent inchangées; une mise à jour de documentation ne suffit pas à augmenter l'avancement fonctionnel.
+
+
+### CI — inventaire de symboles
+
+La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py`, puis `git diff --exit-code -- docs/INVENTAIRE_SYMBOLES.csv`. Cela vérifie que l'index lexical est reproductible sur le checkout et empêche une modification de source Rust de laisser silencieusement l'index périmé. Ce contrôle ne remplace ni l'analyse sémantique ni les tests Rust.

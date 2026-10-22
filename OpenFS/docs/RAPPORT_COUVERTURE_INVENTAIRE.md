@@ -98,3 +98,8 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 - L'index distingue la détection syntaxique du comportement : le statut `Indexed` signifie seulement qu'une déclaration et son numéro de ligne ont été détectés. Ce n'est ni une validation sémantique ni une couverture de tests.
 - `INVENTAIRE_EXHAUSTIF.csv` est conservé inchangé; son contenu intégral n'a pas été relu dans cette passe, car sa récupération complète n'est pas disponible via le connecteur.
 - La CI exacte-SHA du snapshot précédent est verte : run 39792518837. La CI du commit contenant cette mise à jour devra être vérifiée séparément.
+
+
+## Contrôle de reproductibilité en CI
+
+La CI Linux et Windows régénère l'index lexical avec `scripts/generate_symbol_inventory.py` et échoue si `docs/INVENTAIRE_SYMBOLES.csv` diffère du fichier suivi. Cela vérifie la reproductibilité de l'inventaire, pas le comportement sémantique des symboles.

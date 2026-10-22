@@ -1,5 +1,5 @@
 "path","kind","bytes","sha","analysis_state","notes"
-".github/workflows/ci.yml","CI/config","1403","a3fb18ad289552f454bf270e37a8bc024dfbae32","Git tree metadata from 31adce9a3974","Git blob metadata describes the tracked snapshot, not a semantic audit."
+".github/workflows/ci.yml","CI/config","1943","1142956a0ea0b03ab0074a1c6e4fc50febcc0514","CI checks Rust and reproducible symbol index","Runs the standard-library Python generator on Linux and Windows and fails if the tracked symbol index changes."
 ".gitignore","Other file","28","fc9a80ef31de761d1ad7932afc38980eb27d33e2","Git tree metadata from 31adce9a3974","Git blob metadata describes the tracked snapshot, not a semantic audit."
 "OpenFS/.gitignore","Other file","30","0baeea18e0d84bc73d3fe2efb903dc0e5316facc","Git tree metadata from 31adce9a3974","Git blob metadata describes the tracked snapshot, not a semantic audit."
 "OpenFS/Cargo.toml","Rust manifest/config","342","2f8a6ac3f700231b7b06fb44f87fc5f5ff6c29fe","Git tree metadata from 31adce9a3974","Git blob metadata describes the tracked snapshot, not a semantic audit."

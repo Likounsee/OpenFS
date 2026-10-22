@@ -25,6 +25,13 @@ jobs:
         working-directory: OpenFS
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Verify symbol inventory is reproducible
+        run: |
+          python scripts/generate_symbol_inventory.py
+          git diff --exit-code -- docs/INVENTAIRE_SYMBOLES.csv
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -44,6 +51,13 @@ jobs:
         working-directory: OpenFS
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Verify symbol inventory is reproducible
+        run: |
+          python scripts/generate_symbol_inventory.py
+          git diff --exit-code -- docs/INVENTAIRE_SYMBOLES.csv
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
