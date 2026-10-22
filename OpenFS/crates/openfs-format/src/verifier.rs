@@ -556,12 +556,17 @@ mod tests {
             bytes[40] ^= 1;
             device.write_blocks(descriptor_block, &bytes).unwrap();
 
+            // Count I/O only after creating the intentionally corrupted fixture.
+            // Verification must report the checksum failure without attempting a repair.
+            let mut audited = ReadOnlyAuditDevice::new(device);
             assert!(matches!(
-                volume.verify_discovered_persistent_inventory(&mut device),
+                volume.verify_discovered_persistent_inventory(&mut audited),
                 Err(openfs_core::Error::Corrupt(
                     "inventory descriptor CRC32C mismatch"
                 ))
             ));
+            assert_eq!(audited.writes, 0, "checksum verification must not write");
+            assert_eq!(audited.flushes, 0, "checksum verification must not flush");
         }
         fs::remove_file(path).unwrap();
     }
