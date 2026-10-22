@@ -1,8 +1,8 @@
 //! In-memory namespace validation and lookup over decoded OpenFS records.
 //!
-//! This layer intentionally does not claim disk persistence or crash consistency.
-//! It provides a deterministic logical model that a future journaled metadata store
-//! can validate before committing changes to the block device.
+//! Persistent volume operations use this logical model to validate namespace changes
+//! before committing the relevant on-disk updates. This module itself remains an
+//! in-memory model and does not independently provide persistence or crash consistency.
 
 use std::collections::BTreeMap;
 

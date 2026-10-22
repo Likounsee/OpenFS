@@ -81,3 +81,11 @@ Exécution vérifiée : `39666862823`, statut `completed`, conclusion `cancelled
 
 
 - Contrat corrigé dans le test : le rapport caller-located doit signaler un descripteur non déclaré comme allocation orpheline; le rapport découvert doit inclure ce bloc et être cohérent. Le compteur d'écritures/flushes reste à zéro pour les deux.
+
+
+## Relecture complémentaire des modules et compatibilité
+
+- Les modules `metadata.rs` et `directory_entry.rs` décrivent désormais précisément leurs responsabilités de codec, sans nier l'existence des opérations persistantes dans les couches supérieures.
+- Le commentaire d'en-tête de `namespace.rs` précise que le modèle reste en mémoire, mais qu'il est utilisé par les opérations de volume persistantes pour valider les changements.
+- `COMPATIBILITY.md` distingue désormais la récupération journalisée déjà présente pour certains chemins des garanties universelles encore absentes pour toutes les opérations de fichiers et d'espace de noms.
+- `INVENTAIRE_SYMBOLES.csv` demeure volontairement signalé comme index historique : ses lignes doivent être régénérées par une extraction de symboles reproductible, plutôt que de simplement remplacer le SHA source sans recalculer les numéros de ligne.
