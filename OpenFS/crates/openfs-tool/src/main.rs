@@ -1542,12 +1542,7 @@ mod tests {
                 let mut reopened_volume = open_volume(&mut reopened_device).unwrap();
                 assert_eq!(
                     reopened_volume
-                        .read_persistent_path_range(
-                            &mut reopened_device,
-                            "/docs/note.txt",
-                            0,
-                            64,
-                        )
+                        .read_persistent_path_range(&mut reopened_device, "/docs/note.txt", 0, 64,)
                         .unwrap(),
                     original_payload,
                     "create/write/append/truncate must survive reopen at block size {block_size}"
