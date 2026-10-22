@@ -1507,4 +1507,24 @@ mod tests {
         assert!(!zero_path.exists());
         assert!(!huge_path.exists());
     }
+ 
+    #[test]
+    fn audit_image_accepts_valid_persistent_inventory_at_every_block_size() {
+        for block_size in [4096, 8192, 16_384, 32_768, 65_536] {
+            let path = unique_path(&format!("audit-valid-inventory-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                device.flush().unwrap();
+            }
+
+            super::initialize_namespace_image(&path, block_size).unwrap();
+            assert!(
+                super::audit_image(&path, block_size).is_ok(),
+                "audit-image should accept a valid persistent inventory at block size {block_size}"
+            );
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
