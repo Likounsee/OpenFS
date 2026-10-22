@@ -1,5 +1,15 @@
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
+### Reprise de session — 2026-10-22 (HEAD fb16aae)
+
+- HEAD observé sur la branche de travail `OpenFS` : `fb16aae945e3afe1f0c69775ca8a48922af6a197` (`docs(inventory): track multi-block empty replacement coverage`). La branche `OpenFS` reste l'unique cible de modification; `main` et `OpenFS-old` ne sont pas des branches de travail.
+- Relecture ciblée de `DEVELOPMENT.md`, `FORMAT_SPEC.md`, `RECOVERY_DESIGN.md`, `P2_JOURNAL_TRANSACTION_CONTRACT.md`, du workflow CI, du générateur d'inventaire, du CSV des symboles, de `Cargo.toml`, et de sections de `crates/openfs-format/src/volume.rs`. Le module `volume.rs` (681 Ko) n'a pas été intégralement audité dans cette passe; ne pas interpréter cette relecture partielle comme un audit exhaustif du dépôt.
+- Le contrat P2 confirme que les opérations de fichiers peuvent traverser plusieurs étapes persistantes et ne sont pas automatiquement atomiques. Les invariants prioritaires restent : ne pas publier de références avant la durabilité des contenus requis, ne pas libérer des blocs encore référencés, et rouvrir/récupérer après un résultat d'E/S incertain.
+- Le test de persistance consulté couvre déjà écriture multi-blocs, réouverture, échec d'append sans changement de taille/contenu, troncature et croissance sparse après nettoyage de queue défaillant. Les prochains tests doivent viser des frontières de panne précises, pas augmenter artificiellement le nombre de tests.
+- Le statut combiné et la recherche d'exécutions GitHub Actions n'ont retourné aucun résultat exploitable pour ce SHA. **CI exacte-SHA : non confirmée**, et non déclarée verte.
+- Aucun changement de code, aucune exécution locale des tests et aucun résultat de régénération CSV n'ont été établis pendant cette passe. Les estimations restent inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %. La prochaine modification de code doit être accompagnée d'un test de régression exécutable et d'une vérification CI sur le nouveau SHA.
+
+
 Last source audit: 2026-10-22  
 Authoritative repository/branch: Likounsee/OpenFS, branch OpenFS only  
 Code baseline audited: f7d7bdaf5d06095fd8cd448cf255ecc6eca6b0fc  
