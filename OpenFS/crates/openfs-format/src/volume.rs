@@ -15847,15 +15847,14 @@ mod tests {
                             }
                             (Err(Error::InvalidInput(_)), Err(Error::InvalidInput(_))) => {
                                 // The new namespace committed: neither descendant may remain.
-                                assert!(matches!(
-                                    reopened.read_persistent_path_range(
-                                        &mut reopened_device,
-                                        "/discard",
-                                        0,
-                                        1,
-                                    ),
-                                    Err(Error::InvalidInput(_))
-                                ));
+                                let (_, recovered_namespace) = reopened
+                                    .reconstruct_discovered_namespace(&mut reopened_device)
+                                    .unwrap()
+                                    .unwrap();
+                                assert!(
+                                    recovered_namespace.resolve_path("/discard").is_err(),
+                                    "removed subtree root must not remain in the recovered namespace"
+                                );
                             }
                             (top, child) => panic!(
                                 "subtree removal recovered a partial namespace at block size {block_size}, injected {failure_kind} {fail_at}: top={top:?}, child={child:?}"
