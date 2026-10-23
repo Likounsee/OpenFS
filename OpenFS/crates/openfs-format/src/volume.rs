@@ -15730,7 +15730,7 @@ mod tests {
         use crate::ObjectId;
 
         // A recursive removal must publish the whole subtree atomically. Exercise
-        // representative small, medium and maximum block sizes at write/flush boundaries.
+        // every supported block size at each injected write/flush failure boundary.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
                 for fail_at in 0..=6 {
