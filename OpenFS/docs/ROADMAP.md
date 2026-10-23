@@ -738,3 +738,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test `persistent_path_remove_recovers_old_or_removed_namespace_after_write_and_flush_failures` couvre les erreurs injectées d'écriture et de flush aux positions 0 à 8, sur les tailles de blocs 4, 8, 16, 32 et 64 Kio.
 - Après chaque panne, l'image est rouverte; le fichier doit soit rester lisible avec son contenu intact, soit être absent, et l'inventaire découvert doit conserver une propriété cohérente.
 - Le test augmente la couverture des frontières d'E/S simulées, sans prouver à lui seul la durabilité sur matériel réel. CI exacte-SHA Linux et Windows requise avant validation; estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Matrice de récupération de suppression récursive — 2026-10-23
+
+- Ajout du test `persistent_tree_remove_recovers_complete_subtree_or_keeps_it_after_write_and_flush_failures` : suppression d'un dossier avec fichier direct, sous-dossier et fichier imbriqué, sous injections d'écriture/flush.
+- La matrice couvre trois tailles de blocs représentatives (4, 16 et 64 Kio) et sept positions d'injection par type d'opération. Après réouverture, le sous-arbre doit être intégralement présent avec ses contenus ou intégralement absent; un fichier extérieur doit toujours rester intact et l'inventaire doit être cohérent.
+- Cette couverture par image fichier et fautes simulées ne remplace pas les tests sur matériel réel. Validation CI exacte-SHA Linux et Windows en attente; estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.

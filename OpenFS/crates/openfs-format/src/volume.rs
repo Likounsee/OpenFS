@@ -15723,4 +15723,134 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn persistent_tree_remove_recovers_complete_subtree_or_keeps_it_after_write_and_flush_failures() {
+        use crate::ObjectId;
+
+        // A recursive removal must publish the whole subtree atomically. Exercise
+        // representative small, medium and maximum block sizes at write/flush boundaries.
+        for block_size in [4096_u32, 16_384, 65_536] {
+            for failure_kind in ["write", "flush"] {
+                for fail_at in 0..=6 {
+                    let path = image_path(&format!(
+                        "persistent-tree-remove-{failure_kind}-{block_size}-{fail_at}"
+                    ));
+                    {
+                        let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                        let mut volume =
+                            format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                        volume
+                            .initialize_persistent_namespace(&mut device, ObjectId(1))
+                            .unwrap();
+                        volume
+                            .create_persistent_directory_at_path(
+                                &mut device, "/", ObjectId(2), "discard",
+                            )
+                            .unwrap();
+                        volume
+                            .create_persistent_directory_at_path(
+                                &mut device, "/discard", ObjectId(3), "nested",
+                            )
+                            .unwrap();
+                        volume
+                            .create_persistent_file_at_path(
+                                &mut device, "/discard", ObjectId(4), "top.bin",
+                            )
+                            .unwrap();
+                        volume
+                            .create_persistent_file_at_path(
+                                &mut device, "/discard/nested", ObjectId(5), "child.bin",
+                            )
+                            .unwrap();
+                        volume
+                            .create_persistent_file_at_path(
+                                &mut device, "/", ObjectId(6), "keep.bin",
+                            )
+                            .unwrap();
+
+                        let top_payload = b"top-level subtree payload";
+                        let child_payload = b"nested subtree payload";
+                        let keep_payload = b"unrelated file must survive subtree removal";
+                        volume
+                            .write_persistent_file_contents(
+                                &mut device, "/discard/top.bin", top_payload,
+                            )
+                            .unwrap();
+                        volume
+                            .write_persistent_file_contents(
+                                &mut device, "/discard/nested/child.bin", child_payload,
+                            )
+                            .unwrap();
+                        volume
+                            .write_persistent_file_contents(
+                                &mut device, "/keep.bin", keep_payload,
+                            )
+                            .unwrap();
+                        drop(volume);
+                        drop(device);
+
+                        let mut device = ImageDevice::open(&path, block_size).unwrap();
+                        let mut volume = open_volume(&mut device).unwrap();
+                        let mut failing = FailNthWrite {
+                            inner: device,
+                            writes_until_failure: (failure_kind == "write").then_some(fail_at),
+                            flushes_until_failure: (failure_kind == "flush").then_some(fail_at),
+                        };
+                        let result =
+                            volume.remove_persistent_tree_at_path(&mut failing, "/discard");
+                        assert!(
+                            result.is_ok() || matches!(result, Err(Error::Io(_))),
+                            "unexpected subtree-removal error at block size {block_size}, {failure_kind} {fail_at}: {result:?}"
+                        );
+                        drop(volume);
+                        drop(failing);
+                    }
+
+                    {
+                        let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                        let reopened = open_volume(&mut reopened_device).unwrap();
+                        let top = reopened.read_persistent_path_range(
+                            &mut reopened_device, "/discard/top.bin", 0, 128,
+                        );
+                        let child = reopened.read_persistent_path_range(
+                            &mut reopened_device, "/discard/nested/child.bin", 0, 128,
+                        );
+                        match (top, child) {
+                            (Ok(top), Ok(child)) => {
+                                assert_eq!(top, b"top-level subtree payload");
+                                assert_eq!(child, b"nested subtree payload");
+                            }
+                            (Err(Error::InvalidInput(_)), Err(Error::InvalidInput(_))) => {
+                                // The new namespace committed: neither descendant may remain.
+                                assert!(matches!(
+                                    reopened.read_persistent_path_range(
+                                        &mut reopened_device, "/discard", 0, 1,
+                                    ),
+                                    Err(Error::InvalidInput(_))
+                                ));
+                            }
+                            (top, child) => panic!(
+                                "subtree removal recovered a partial namespace at block size {block_size}, injected {failure_kind} {fail_at}: top={top:?}, child={child:?}"
+                            ),
+                        }
+                        assert_eq!(
+                            reopened.read_persistent_path_range(
+                                &mut reopened_device, "/keep.bin", 0, 128,
+                            ).unwrap(),
+                            b"unrelated file must survive subtree removal",
+                            "unrelated data must survive subtree removal at block size {block_size}, injected {failure_kind} {fail_at}"
+                        );
+                        assert!(
+                            reopened.verify_discovered_persistent_inventory(&mut reopened_device)
+                                .unwrap().unwrap().is_consistent(),
+                            "recovered ownership must be consistent at block size {block_size}, injected {failure_kind} {fail_at}"
+                        );
+                    }
+                    fs::remove_file(path).unwrap();
+                }
+            }
+        }
+    }
+
 }
