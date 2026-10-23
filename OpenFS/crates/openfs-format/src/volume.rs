@@ -11858,9 +11858,10 @@ mod tests {
                         fail_at,
                     };
                     let mut volume = volume;
+                    let allocation = volume.allocate_block(&mut failing);
                     assert!(
-                        matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
-                        "expected injected failure at write {fail_at}, block size {block_size}"
+                        matches!(allocation, Ok(block) if block == first),
+                        "a post-COMMIT I/O error must be recovered before returning; the allocator must report the durable allocation as successful (write {fail_at}, block size {block_size})"
                     );
                     let mut device = failing.inner;
                     drop(volume);
