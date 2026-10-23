@@ -1988,7 +1988,8 @@ fn run_checksum_argument_policy(
     command: &str,
     expected: Option<u32>,
 ) -> Result<(), Box<dyn StdError>> {
-    if (command == "cat" && expected.is_some()) || (command == "verify-file" && expected.is_none()) {
+    if (command == "cat" && expected.is_some()) || (command == "verify-file" && expected.is_none())
+    {
         return Err("cat rejects checksums; verify-file requires an expected CRC32C".into());
     }
     Ok(())
