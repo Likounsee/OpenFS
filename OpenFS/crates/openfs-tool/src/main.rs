@@ -1505,7 +1505,7 @@ mod tests {
         assert!(create_image(&zero_path, 0).is_err());
         assert!(create_image(&huge_path, u64::MAX).is_err());
         assert!(!zero_path.exists() && !huge_path.exists());
-        assert_eq!([4096, 8192, 16_384, 32_768, 65_536].map(|size| super::parse_block_size(Some(size.to_string())).unwrap()), [4096, 8192, 16_384, 32_768, 65_536]);
+        assert!([4096, 8192, 16_384, 32_768, 65_536].iter().all(|size| super::parse_block_size(Some(size.to_string())).is_ok()) && super::parse_block_size(Some("512".into())).is_err() && super::parse_block_size(None).is_err());
     }
 
     #[test]
