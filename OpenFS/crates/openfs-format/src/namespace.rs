@@ -1657,4 +1657,29 @@ mod tests {
         assert_eq!(ns.object(ObjectId(1)).unwrap().generation, u32::MAX);
         assert!(ns.validate().is_ok());
     }
+
+    #[test]
+    fn set_file_layout_rejects_generation_overflow_without_mutating_extent_ownership() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "file.bin", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+        ns.set_file_layout(ObjectId(2), 8192, Some(42)).unwrap();
+        ns.objects.get_mut(&ObjectId(2)).unwrap().generation = u32::MAX;
+
+        assert!(matches!(
+            ns.set_file_layout(ObjectId(2), 16_384, Some(43)),
+            Err(Error::ArithmeticOverflow)
+        ));
+
+        let file = ns.object(ObjectId(2)).unwrap();
+        assert_eq!(file.size, 8192);
+        assert_eq!(file.extent_root_block, Some(42));
+        assert_eq!(file.generation, u32::MAX);
+        assert_eq!(ns.extent_roots.get(&42), Some(&ObjectId(2)));
+        assert!(!ns.extent_roots.contains_key(&43));
+        assert!(ns.validate().is_ok());
+    }
 }
