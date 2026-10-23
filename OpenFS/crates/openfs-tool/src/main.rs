@@ -637,7 +637,10 @@ fn find_namespace_entries(
             matches = matches.checked_add(1).ok_or("match count overflows")?;
         }
         if record.kind == ObjectKind::Directory {
-            let children = namespace.children(object_id).map(|entry| entry.object_id).collect::<Vec<_>>();
+            let children = namespace
+                .children(object_id)
+                .map(|entry| entry.object_id)
+                .collect::<Vec<_>>();
             // Reverse push preserves the namespace's lexical order during traversal.
             for child in children.into_iter().rev() {
                 pending.push(ObjectId(child));
