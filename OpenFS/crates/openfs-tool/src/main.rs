@@ -123,6 +123,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             find_namespace_entries(Path::new(&path), block_size, &root, &needle)
         }
+        Some("du") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().unwrap_or_else(|| "/".to_owned());
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            report_namespace_usage(Path::new(&path), block_size, &target)
+        }
         Some("space") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -648,6 +657,71 @@ fn find_namespace_entries(
         }
     }
     println!("Matches: {matches}");
+    Ok(())
+}
+
+/// Summarize logical and physically allocated file bytes for a namespace subtree.
+fn report_namespace_usage(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let root_id = namespace.resolve_path(target)?;
+    let extent_maps = volume.read_namespace_extent_maps(&mut device, &namespace)?;
+    let block_bytes = u64::from(block_size);
+    let mut pending = vec![root_id];
+    let mut files = 0_u64;
+    let mut directories = 0_u64;
+    let mut logical_bytes = 0_u64;
+    let mut allocated_bytes = 0_u64;
+
+    while let Some(object_id) = pending.pop() {
+        let record = namespace
+            .object(object_id)
+            .ok_or("namespace entry references missing object metadata")?;
+        match record.kind {
+            ObjectKind::Directory => {
+                directories = directories.checked_add(1).ok_or("directory count overflows")?;
+                for child in namespace.children(object_id).rev() {
+                    pending.push(ObjectId(child.object_id));
+                }
+            }
+            ObjectKind::File => {
+                files = files.checked_add(1).ok_or("file count overflows")?;
+                logical_bytes = logical_bytes
+                    .checked_add(record.size)
+                    .ok_or("logical usage overflows")?;
+                let allocated_blocks = match extent_maps.get(&object_id) {
+                    Some(map) => map.allocated_blocks()?,
+                    None if record.size == 0 && record.extent_root_block.is_none() => 0,
+                    None => return Err("file extent map is missing from persistent inventory".into()),
+                };
+                let file_allocated_bytes = allocated_blocks
+                    .checked_mul(block_bytes)
+                    .ok_or("allocated usage overflows")?;
+                allocated_bytes = allocated_bytes
+                    .checked_add(file_allocated_bytes)
+                    .ok_or("allocated usage overflows")?;
+            }
+        }
+    }
+
+    println!("OpenFS namespace usage");
+    println!("Path: {}", namespace.path_of(root_id)?);
+    println!("Directories: {directories}");
+    println!("Files: {files}");
+    println!("Logical file bytes: {logical_bytes}");
+    println!("Allocated data bytes: {allocated_bytes}");
+    println!(
+        "Sparse logical bytes: {}",
+        logical_bytes.saturating_sub(allocated_bytes.min(logical_bytes))
+    );
+    println!("Note: allocated data excludes extent-map metadata and filesystem journal/bitmap overhead.");
     Ok(())
 }
 
@@ -1208,6 +1282,7 @@ fn print_usage() {
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs tree <image> <block-size> [path]");
     eprintln!("  openfs find <image> <block-size> <root-path> <substring>");
+    eprintln!("  openfs du <image> <block-size> [path]  (recursive logical and allocated usage)");
     eprintln!("  openfs space <image> <block-size>");
     eprintln!("  openfs cat|checksum <image> <block-size> <file-path>");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
