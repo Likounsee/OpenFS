@@ -148,10 +148,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            run_checksum_argument_policy(command, expected_crc32c)?;
             let expected_crc32c = expected_crc32c
                 .map(|value| parse_crc32c(&value))
                 .transpose()?;
+            run_checksum_argument_policy(command, expected_crc32c)?;
             read_or_checksum_namespace_file(
                 command,
                 Path::new(&path),
