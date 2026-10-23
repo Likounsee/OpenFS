@@ -754,3 +754,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - La matrice couvre trois tailles de blocs représentatives (4, 16 et 64 Kio) et sept positions d'injection par type d'opération. Après réouverture, le sous-arbre doit être intégralement présent avec ses contenus ou intégralement absent; un fichier extérieur doit toujours rester intact et l'inventaire doit être cohérent.
 - Cette couverture par image fichier et fautes simulées ne remplace pas les tests sur matériel réel. Validation CI exacte-SHA Linux et Windows en attente; estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
 - Renforcement : chaque cas vérifie maintenant que l'injection demandée a réellement été déclenchée; les indices hors des opérations exécutées ne peuvent plus être comptés comme couverture. Validation CI exacte-SHA requise.
+
+
+### Vérification du chemin de succès de la suppression récursive — 2026-10-23
+
+- Extension du test `persistent_tree_removal_rejects_invalid_targets_before_any_write` : après avoir prouvé que les cibles invalides ne déclenchent aucune écriture/flush, il supprime valablement le répertoire et un descendant vide.
+- Le test vérifie que les deux chemins supprimés ne se résolvent plus et que l'inventaire persistant reste cohérent après publication.
+- Les entrées historiques des inventaires ne sont pas régénérées arbitrairement ni supprimées; aucune nouvelle déclaration de symbole n'a été ajoutée.
+- Le résultat n'est validé qu'après CI Linux et Windows du SHA exact.

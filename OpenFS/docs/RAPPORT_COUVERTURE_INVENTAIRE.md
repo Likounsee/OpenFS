@@ -118,3 +118,11 @@ La CI Linux et Windows régénère l'index lexical avec `scripts/generate_symbol
 - Une matrice complémentaire couvre la suppression d'un sous-arbre contenant plusieurs niveaux et fichiers, avec injections d'erreurs d'écriture et de flush à différentes positions et tailles de blocs.
 - Après réouverture, le test exige un état complet ancien ou nouveau, la conservation d'un fichier extérieur et un inventaire d'ownership cohérent.
 - Le test étend la couverture simulée des frontières de suppression; il ne garantit pas les caractéristiques physiques des caches ou des commandes flush d'un périphérique réel.
+
+
+## Mise à jour du 2026-10-23 — suppression récursive réussie après prévalidation
+
+- Le test existant de refus des cibles invalides vérifie désormais aussi le chemin de succès : suppression d'un répertoire contenant un fichier et un sous-répertoire vide.
+- Après suppression, le test exige que ni le fichier ni le répertoire vide ne soient résolvables et que l'inventaire persistant découvert reste cohérent.
+- L'extension réutilise un test existant afin de préserver l'index des déclarations historiques; elle ne régénère ni ne supprime d'entrées d'inventaire.
+- La validation reste à confirmer par la CI sur le commit exact.
