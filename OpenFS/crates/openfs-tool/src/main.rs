@@ -899,7 +899,10 @@ fn checksum_namespace_file_range(
     )?;
     let actual = checksum.finish();
     println!("File: {target}");
-    println!("Range: {offset}..{}", offset.checked_add(bytes).ok_or("range end overflows")?);
+    println!(
+        "Range: {offset}..{}",
+        offset.checked_add(bytes).ok_or("range end overflows")?
+    );
     println!("Size: {bytes} bytes");
     println!("CRC32C: {actual:08x}");
     if let Some(expected) = expected_crc32c {
@@ -1901,9 +1904,15 @@ fn read_or_checksum_namespace_file(
 
 /// Parse a CRC32C value as one to eight hexadecimal digits, optionally prefixed by 0x.
 fn parse_crc32c(value: &str) -> Result<u32, Box<dyn StdError>> {
-    let digits = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")).unwrap_or(value);
-    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("expected CRC32C as 1-8 hexadecimal digits (optionally prefixed with 0x)".into());
+    let digits = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(
+            "expected CRC32C as 1-8 hexadecimal digits (optionally prefixed with 0x)".into(),
+        );
     }
     Ok(u32::from_str_radix(digits, 16)?)
 }
