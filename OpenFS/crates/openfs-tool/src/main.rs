@@ -173,6 +173,25 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             read_namespace_file_range(Path::new(&path), block_size, &target, offset, length)
         }
+        Some("checksum-range") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing file path")?;
+            let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
+            let length = args.next().ok_or("missing byte length")?.parse::<u64>()?;
+            let expected_crc32c = args.next().map(|value| parse_crc32c(&value)).transpose()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            checksum_namespace_file_range(
+                Path::new(&path),
+                block_size,
+                &target,
+                offset,
+                length,
+                expected_crc32c,
+            )
+        }
         Some("export") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -859,6 +878,40 @@ fn read_namespace_file_range(
     Ok(())
 }
 
+/// Compute CRC32C for a byte range without buffering the entire range in memory.
+fn checksum_namespace_file_range(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    offset: u64,
+    length: u64,
+    expected_crc32c: Option<u32>,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let mut checksum = Crc32cWriter::default();
+    let bytes = volume.stream_persistent_path_range_to_writer(
+        &mut device,
+        target,
+        offset,
+        length,
+        &mut checksum,
+    )?;
+    let actual = checksum.finish();
+    println!("File: {target}");
+    println!("Range: {offset}..{}", offset.checked_add(bytes).ok_or("range end overflows")?);
+    println!("Size: {bytes} bytes");
+    println!("CRC32C: {actual:08x}");
+    if let Some(expected) = expected_crc32c {
+        if actual != expected {
+            println!("Checksum verification: FAILED (expected {expected:08x})");
+            return Err("CRC32C checksum mismatch".into());
+        }
+        println!("Checksum verification: OK");
+    }
+    Ok(())
+}
+
 fn export_namespace_file(
     image_path: &Path,
     block_size: u32,
@@ -1333,6 +1386,7 @@ fn print_usage() {
     eprintln!("  openfs checksum <image> <block-size> <file-path> [expected-crc32c-hex]");
     eprintln!("  checksum with an expected CRC32C exits with an error on mismatch.");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
+    eprintln!("  openfs checksum-range <image> <block-size> <file-path> <offset> <length> [expected-crc32c-hex]");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
