@@ -15821,6 +15821,14 @@ mod tests {
                             result.is_ok() || matches!(result, Err(Error::Io(_))),
                             "unexpected subtree-removal error at block size {block_size}, {failure_kind} {fail_at}: {result:?}"
                         );
+                        assert!(
+                            if failure_kind == "write" {
+                                failing.writes_until_failure.is_none()
+                            } else {
+                                failing.flushes_until_failure.is_none()
+                            },
+                            "configured {failure_kind} failure at position {fail_at} must be exercised"
+                        );
                         drop(volume);
                         drop(failing);
                     }

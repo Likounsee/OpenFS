@@ -110,6 +110,7 @@ La CI Linux et Windows régénère l'index lexical avec `scripts/generate_symbol
 - Un test de récupération de suppression couvre désormais les erreurs d'écriture et de flush injectées aux positions 0 à 8, sur cinq tailles de blocs (4 à 64 Kio).
 - Après réouverture, il vérifie l'ancien contenu si le chemin existe et la cohérence de propriété de l'inventaire découvert. Les erreurs de lecture inattendues ne sont pas acceptées comme preuve de suppression.
 - Cette couverture repose sur une image fichier et un périphérique de test à fautes injectées; elle ne simule pas toutes les propriétés des caches et flushes d'un périphérique physique. La validation exacte-SHA reste requise.
+- La matrice de suppression récursive vérifie aussi que chaque panne configurée a été déclenchée, pour éviter les faux positifs liés à des indices d'injection jamais atteints.
 
 
 ## Mise à jour du 2026-10-23 — suppression récursive après panne
