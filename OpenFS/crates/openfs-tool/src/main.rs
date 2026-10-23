@@ -1963,8 +1963,8 @@ fn read_or_checksum_namespace_file(
     let mut device = ImageDevice::open(path, block_size)?;
     let volume = open_volume(&mut device)?;
     if command == "cat" {
-        let mut stdout = std::io::stdout().lock();
-        volume.stream_persistent_file_to_writer(&mut device, target, &mut stdout)?;
+        // Keep plain output on the dedicated streaming reader path.
+        return read_namespace_file(path, block_size, target);
     } else {
         let mut checksum = Crc32cWriter::default();
         let bytes = volume.stream_persistent_file_to_writer(&mut device, target, &mut checksum)?;
