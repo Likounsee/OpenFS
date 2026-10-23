@@ -190,6 +190,16 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 expected_crc32c,
             )
         }
+        Some("copy") => {
+            let image = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let source = args.next().ok_or("missing source file path")?;
+            let destination = args.next().ok_or("missing destination file path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            copy_namespace_file(Path::new(&image), block_size, &source, &destination)
+        }
         Some("export") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -913,6 +923,68 @@ fn checksum_namespace_file_range(
     Ok(())
 }
 
+/// Copy one persistent file to another without buffering its contents in RAM.
+fn copy_namespace_file(
+    image_path: &Path,
+    block_size: u32,
+    source_path: &str,
+    destination_path: &str,
+) -> Result<(), Box<dyn StdError>> {
+    if source_path == destination_path {
+        return Err("source and destination paths must differ".into());
+    }
+
+    let mut device = ImageDevice::open(image_path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+
+    // A temporary file bounds memory use for large files and also makes a copy
+    // safe when source and destination share the same volume and allocator.
+    let temp_path = unique_temporary_path("copy");
+    let mut temporary = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)?;
+    let copy_result = (|| -> Result<u64, Box<dyn StdError>> {
+        let copied = volume.stream_persistent_file_to_writer(
+            &mut device,
+            source_path,
+            &mut temporary,
+        )?;
+        temporary.sync_all()?;
+        use std::io::{Seek, SeekFrom};
+        temporary.seek(SeekFrom::Start(0))?;
+        let written = volume.write_persistent_file_from_reader(
+            &mut device,
+            destination_path,
+            &mut temporary,
+        )?;
+        if written != copied {
+            return Err("copied byte count changed while reading the staged file".into());
+        }
+        device.flush()?;
+        Ok(written)
+    })();
+
+    drop(temporary);
+    let _ = fs::remove_file(&temp_path);
+    let copied = copy_result?;
+    println!("Copied '{source_path}' to '{destination_path}' ({copied} bytes).");
+    Ok(())
+}
+
+/// Choose a fresh host temporary path; create_new provides the actual collision guard.
+fn unique_temporary_path(label: &str) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "openfs-{label}-{}-{nonce}.tmp",
+        std::process::id()
+    ))
+}
+
 fn export_namespace_file(
     image_path: &Path,
     block_size: u32,
@@ -1389,6 +1461,8 @@ fn print_usage() {
     eprintln!("  checksum with an expected CRC32C exits with an error on mismatch.");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs checksum-range <image> <block-size> <file-path> <offset> <length> [expected-crc32c-hex]");
+    eprintln!("  openfs copy <image> <block-size> <source-file-path> <destination-file-path>");
+    eprintln!("  copy streams through a temporary host file; destination must already exist.");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
     eprintln!("  openfs stat <image> <block-size> <path>");
@@ -1799,6 +1873,28 @@ mod tests {
             )
             .unwrap();
 
+            super::create_namespace_entry(&path, block_size, "/docs/copy.txt", false).unwrap();
+            super::copy_namespace_file(
+                &path,
+                block_size,
+                "/docs/note.txt",
+                "/docs/copy.txt",
+            )
+            .unwrap();
+            {
+                let mut copy_device = ImageDevice::open(&path, block_size).unwrap();
+                let copy_volume = open_volume(&mut copy_device).unwrap();
+                assert_eq!(
+                    copy_volume.read_persistent_path_range(
+                        &mut copy_device,
+                        "/docs/copy.txt",
+                        0,
+                        64,
+                    ).unwrap(),
+                    original_payload,
+                    "copy must preserve file bytes at block size {block_size}"
+                );
+            }
             // Include persistent rename and removal in the same cross-block-size workflow.
             super::create_namespace_entry(&path, block_size, "/docs/archive", true).unwrap();
             super::create_namespace_entry(&path, block_size, "/docs/discard.txt", false).unwrap();
