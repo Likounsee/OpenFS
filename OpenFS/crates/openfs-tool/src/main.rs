@@ -1234,7 +1234,7 @@ mod tests {
     use openfs_block::{BlockDevice, ImageDevice};
     use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct FailWriteAt<D> {
