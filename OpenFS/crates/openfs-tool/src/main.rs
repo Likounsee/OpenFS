@@ -116,7 +116,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
         Some("find") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
-            let root = args.next().unwrap_or_else(|| "/".to_owned());
+            let root = args.next().ok_or("missing root namespace path")?;
             let needle = args.next().ok_or("missing search text")?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
@@ -1204,7 +1204,7 @@ fn print_usage() {
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs tree <image> <block-size> [path]");
-    eprintln!("  openfs find <image> <block-size> [root-path] <substring>");
+    eprintln!("  openfs find <image> <block-size> <root-path> <substring>");
     eprintln!("  openfs space <image> <block-size>");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
@@ -1282,6 +1282,17 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn find_rejects_empty_search_text_before_opening_an_image() {
+        assert!(super::find_namespace_entries(
+            Path::new("image-does-not-need-to-exist.img"),
+            BLOCK_SIZE,
+            "/",
+            "",
+        )
+        .is_err());
     }
 
     #[test]
