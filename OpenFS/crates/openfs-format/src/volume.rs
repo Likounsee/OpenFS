@@ -15640,7 +15640,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_path_remove_recovers_old_or_removed_namespace_after_flush_failure() {
+    fn persistent_path_remove_recovers_old_or_removed_namespace_after_write_and_flush_failures() {
         use crate::ObjectId;
 
         // Removing a file must leave either the complete old namespace or the complete
@@ -15648,75 +15648,75 @@ mod tests {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
                 for fail_at in 0..=8 {
-                let path = image_path(&format!(
-                    "persistent-remove-{failure_kind}-failure-{block_size}-{fail_at}"
-                ));
-                {
-                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                    volume
-                        .initialize_persistent_namespace(&mut device, ObjectId(1))
-                        .unwrap();
-                    volume
-                        .create_persistent_file_at_path(
-                            &mut device,
-                            "/",
-                            ObjectId(2),
-                            "discard.txt",
-                        )
-                        .unwrap();
-                    let payload = b"remove flush recovery must preserve valid ownership";
-                    volume
-                        .write_persistent_file_contents(&mut device, "/discard.txt", payload)
-                        .unwrap();
-                    drop(volume);
-                    drop(device);
+                    let path = image_path(&format!(
+                        "persistent-remove-{failure_kind}-failure-{block_size}-{fail_at}"
+                    ));
+                    {
+                        let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                        let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                        volume
+                            .initialize_persistent_namespace(&mut device, ObjectId(1))
+                            .unwrap();
+                        volume
+                            .create_persistent_file_at_path(
+                                &mut device,
+                                "/",
+                                ObjectId(2),
+                                "discard.txt",
+                            )
+                            .unwrap();
+                        let payload = b"remove recovery must preserve valid ownership";
+                        volume
+                            .write_persistent_file_contents(&mut device, "/discard.txt", payload)
+                            .unwrap();
+                        drop(volume);
+                        drop(device);
 
-                    let mut device = ImageDevice::open(&path, block_size).unwrap();
-                    let mut volume = open_volume(&mut device).unwrap();
-                    let mut failing = FailNthWrite {
-                        inner: device,
-                        writes_until_failure: (failure_kind == "write").then_some(fail_at),
-                        flushes_until_failure: (failure_kind == "flush").then_some(fail_at),
-                    };
-                    let result = volume.remove_persistent_path(&mut failing, "/discard.txt");
-                    assert!(
-                        result.is_ok() || matches!(result, Err(Error::Io(_))),
-                        "unexpected remove error at block size {block_size}, {failure_kind} {fail_at}: {result:?}"
-                    );
-                    drop(volume);
-                    drop(failing);
-                }
-
-                {
-                    let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
-                    let reopened = open_volume(&mut reopened_device).unwrap();
-                    let old_path = reopened.read_persistent_path_range(
-                        &mut reopened_device,
-                        "/discard.txt",
-                        0,
-                        128,
-                    );
-                    match old_path {
-                        Ok(bytes) => assert_eq!(
-                            bytes,
-                            b"remove flush recovery must preserve valid ownership",
-                            "if removal did not commit, payload must remain intact at block size {block_size}, injected {failure_kind} {fail_at}"
-                        ),
-                        Err(Error::InvalidInput(_)) => {}
-                        Err(error) => panic!(
-                            "unexpected read error after recovery at block size {block_size}, injected {failure_kind} {fail_at}: {error:?}"
-                        ),
+                        let mut device = ImageDevice::open(&path, block_size).unwrap();
+                        let mut volume = open_volume(&mut device).unwrap();
+                        let mut failing = FailNthWrite {
+                            inner: device,
+                            writes_until_failure: (failure_kind == "write").then_some(fail_at),
+                            flushes_until_failure: (failure_kind == "flush").then_some(fail_at),
+                        };
+                        let result = volume.remove_persistent_path(&mut failing, "/discard.txt");
+                        assert!(
+                            result.is_ok() || matches!(result, Err(Error::Io(_))),
+                            "unexpected remove error at block size {block_size}, {failure_kind} {fail_at}: {result:?}"
+                        );
+                        drop(volume);
+                        drop(failing);
                     }
-                    assert!(
-                        reopened
-                            .verify_discovered_persistent_inventory(&mut reopened_device)
-                            .unwrap()
-                            .unwrap()
-                            .is_consistent(),
-                        "recovered namespace ownership must be consistent at block size {block_size}, injected {failure_kind} {fail_at}"
-                    );
-                }
+
+                    {
+                        let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                        let reopened = open_volume(&mut reopened_device).unwrap();
+                        let old_path = reopened.read_persistent_path_range(
+                            &mut reopened_device,
+                            "/discard.txt",
+                            0,
+                            128,
+                        );
+                        match old_path {
+                            Ok(bytes) => assert_eq!(
+                                bytes,
+                                b"remove recovery must preserve valid ownership",
+                                "if removal did not commit, payload must remain intact at block size {block_size}, injected {failure_kind} {fail_at}"
+                            ),
+                            Err(Error::InvalidInput(_)) => {}
+                            Err(error) => panic!(
+                                "unexpected read error after recovery at block size {block_size}, injected {failure_kind} {fail_at}: {error:?}"
+                            ),
+                        }
+                        assert!(
+                            reopened
+                                .verify_discovered_persistent_inventory(&mut reopened_device)
+                                .unwrap()
+                                .unwrap()
+                                .is_consistent(),
+                            "recovered namespace ownership must be consistent at block size {block_size}, injected {failure_kind} {fail_at}"
+                        );
+                    }
                     fs::remove_file(path).unwrap();
                 }
             }
