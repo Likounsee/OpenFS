@@ -1,3 +1,13 @@
+### Reprise de session — 2026-10-23 (récupération d'allocation et flush de nettoyage)
+
+- Branche de travail : `OpenFS` uniquement; ne pas modifier `main` ni `OpenFS-old`.
+- Réexamen ciblé de l'arbre Rust (16 fichiers), des manifests, du workflow CI, du contrat journal P2, du contrat de publication P1, du design de récupération, des spécifications de format/compatibilité, de l'architecture, du modèle de sécurité et des guides de développement/périphérique. Les gros fichiers ont été parcourus par sections ciblées; ce n'est pas une lecture manuelle exhaustive de chaque ligne.
+- La CI du commit `4f674704742a69cbf22b34255cfdcb8a93aad266` a passé Linux, y compris les tests workspace et Clippy; Windows était encore en cours au dernier contrôle. Le run antérieur `39974902756` a échoué sur l'inventaire de symboles obsolète, corrigé ensuite dans ce commit.
+- Ajout d'un test de régression sur cinq tailles de blocs : une erreur de flush après l'écriture de nettoyage du bloc candidat doit laisser le bitmap libre; après réouverture, le même bloc doit pouvoir être alloué et ses octets ne doivent pas exposer l'ancien contenu. Le test utilise le `FaultInjectingDevice` déjà présent, sans créer un injecteur parallèle.
+- Ce nouveau test et sa ligne d'inventaire doivent être validés par la CI Linux/Windows du commit qui les contient. Ne pas augmenter les estimations P1/P2 avant validation complète.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
