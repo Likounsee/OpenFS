@@ -1,3 +1,14 @@
+### Reprise de session — 2026-10-23 (suppression récursive persistée après réouverture)
+
+- HEAD de code : `51da0af9ccf169435bad22f2052fdf404ec563bf`; branche `OpenFS` uniquement.
+- Le test `persistent_tree_removal_rejects_invalid_targets_before_any_write` conserve ses contrôles de refus sans écriture/flush, puis exerce la suppression réussie d'un sous-arbre contenant un fichier et un répertoire vide.
+- Après suppression, le test ferme et rouvre l'image : il exige que les deux chemins descendants restent absents, que le fichier frère `/outside.bin` conserve exactement son contenu, et que l'inventaire découvert soit cohérent.
+- CI exacte-SHA : Linux est vert (inventaire reproductible, rustfmt, workspace tests avec toutes les features, Clippy); Windows a passé l'inventaire et rustfmt et exécute encore les tests workspace au dernier contrôle. Ne pas qualifier le run de vert avant la conclusion Windows.
+- Les CSV d'inventaire historiques ne sont pas réécrits par cette extension du test existant.
+- Estimations conservées jusqu'à CI complète : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+---
+
 ### Reprise de session — 2026-10-23 (prévalidation des cibles de suppression récursive)
 
 - CI exacte-SHA précédente verte sous Linux et Windows : commit `f4ead85d406330f3bfc02de5b37a5abd0307d974`, [run 39987023628](https://github.com/Likounsee/OpenFS/actions/runs/39987023628).

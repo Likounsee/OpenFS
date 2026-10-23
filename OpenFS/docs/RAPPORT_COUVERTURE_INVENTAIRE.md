@@ -126,3 +126,11 @@ La CI Linux et Windows régénère l'index lexical avec `scripts/generate_symbol
 - Après suppression, le test exige que ni le fichier ni le répertoire vide ne soient résolvables et que l'inventaire persistant découvert reste cohérent.
 - L'extension réutilise un test existant afin de préserver l'index des déclarations historiques; elle ne régénère ni ne supprime d'entrées d'inventaire.
 - La validation reste à confirmer par la CI sur le commit exact.
+
+
+## Mise à jour du 2026-10-23 — suppression récursive et réouverture (HEAD 51da0af9)
+
+- Le test de suppression récursive vérifie maintenant l'état après fermeture/réouverture de l'image, pas seulement sur l'instance qui a effectué la mutation.
+- Il contrôle l'absence du fichier et du sous-répertoire supprimés, la préservation exacte d'un fichier frère hors du sous-arbre, et la cohérence de l'inventaire d'ownership découvert.
+- CI exacte-SHA observée lors de la mise à jour : Linux a terminé avec succès pour l'inventaire reproductible, rustfmt, tests workspace et Clippy. Windows a passé l'inventaire et rustfmt; les tests workspace sont encore en cours. Validation complète en attente du résultat final Windows.
+- Aucun inventaire CSV historique n'a été réécrit dans cette passe.
