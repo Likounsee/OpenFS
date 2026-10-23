@@ -1,3 +1,11 @@
+### Reprise de session — 2026-10-23 (prévalidation des cibles de suppression récursive)
+
+- CI exacte-SHA précédente verte sous Linux et Windows : commit `f4ead85d406330f3bfc02de5b37a5abd0307d974`, [run 39987023628](https://github.com/Likounsee/OpenFS/actions/runs/39987023628).
+- Nouveau test `persistent_tree_removal_rejects_invalid_targets_before_any_write` : racine, fichier et chemin inexistant doivent être rejetés avant toute écriture ou flush. Le test réouvre ensuite l'image et contrôle le contenu du fichier et la cohérence de l'inventaire persistant.
+- Le test est en attente de validation CI sur son propre SHA. Les pourcentages restent inchangés jusqu'à réussite Linux/Windows.
+
+---
+
 ### Reprise de session — 2026-10-23 (flush failures sur renommage persistant)
 
 - Branche autorisée : `OpenFS` uniquement.

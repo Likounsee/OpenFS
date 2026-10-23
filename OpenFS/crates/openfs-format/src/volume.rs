@@ -15894,4 +15894,91 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn persistent_tree_removal_rejects_invalid_targets_before_any_write() {
+        use crate::ObjectId;
+
+        let path = image_path("persistent-tree-remove-invalid-targets");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume
+                .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "folder")
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(
+                    &mut device,
+                    "/folder",
+                    ObjectId(3),
+                    "file.bin",
+                )
+                .unwrap();
+            volume
+                .write_persistent_file_contents(
+                    &mut device,
+                    "/folder/file.bin",
+                    b"invalid recursive-removal targets must not mutate the volume",
+                )
+                .unwrap();
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
+            let mut failing = FailNthWrite {
+                inner: device,
+                writes_until_failure: Some(0),
+                flushes_until_failure: Some(0),
+            };
+
+            for target in ["/", "/folder/file.bin", "/missing"] {
+                let result = volume.remove_persistent_tree_at_path(&mut failing, target);
+                assert!(
+                    matches!(result, Err(Error::InvalidInput(_))),
+                    "recursive removal of invalid target {target:?} must be rejected: {result:?}"
+                );
+                assert_eq!(
+                    failing.writes_until_failure,
+                    Some(0),
+                    "invalid target {target:?} must be rejected before any write"
+                );
+                assert_eq!(
+                    failing.flushes_until_failure,
+                    Some(0),
+                    "invalid target {target:?} must be rejected before any flush"
+                );
+            }
+            drop(volume);
+            drop(failing);
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/folder/file.bin",
+                        0,
+                        128,
+                    )
+                    .unwrap(),
+                b"invalid recursive-removal targets must not mutate the volume"
+            );
+            assert!(
+                volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent(),
+                "rejected removals must leave the persistent inventory consistent"
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
 }
