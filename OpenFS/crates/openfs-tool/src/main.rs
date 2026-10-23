@@ -113,6 +113,16 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             tree_namespace(Path::new(&path), block_size, &target)
         }
+        Some("find") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let root = args.next().unwrap_or_else(|| "/".to_owned());
+            let needle = args.next().ok_or("missing search text")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            find_namespace_entries(Path::new(&path), block_size, &root, &needle)
+        }
         Some("space") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -591,6 +601,50 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             stack.push((child_id, depth + 1));
         }
     }
+    Ok(())
+}
+
+/// Search a namespace subtree by substring, traversing iteratively to avoid stack overflow.
+fn find_namespace_entries(
+    path: &Path,
+    block_size: u32,
+    root: &str,
+    needle: &str,
+) -> Result<(), Box<dyn StdError>> {
+    if needle.is_empty() {
+        return Err("search text must not be empty".into());
+    }
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    let root_id = namespace.resolve_path(root)?;
+    let mut pending = vec![root_id];
+    let mut matches = 0_u64;
+
+    while let Some(object_id) = pending.pop() {
+        let record = namespace
+            .object(object_id)
+            .ok_or("namespace entry references missing object metadata")?;
+        let full_path = namespace.path_of(object_id)?;
+        if full_path.contains(needle) {
+            let kind = match record.kind {
+                ObjectKind::Directory => "directory",
+                ObjectKind::File => "file",
+            };
+            println!("{kind}\t{} bytes\t{full_path}", record.size);
+            matches = matches.checked_add(1).ok_or("match count overflows")?;
+        }
+        if record.kind == ObjectKind::Directory {
+            let children = namespace.children(object_id).map(|entry| entry.object_id).collect::<Vec<_>>();
+            // Reverse push preserves the namespace's lexical order during traversal.
+            for child in children.into_iter().rev() {
+                pending.push(ObjectId(child));
+            }
+        }
+    }
+    println!("Matches: {matches}");
     Ok(())
 }
 
@@ -1150,6 +1204,7 @@ fn print_usage() {
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs tree <image> <block-size> [path]");
+    eprintln!("  openfs find <image> <block-size> [root-path] <substring>");
     eprintln!("  openfs space <image> <block-size>");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
