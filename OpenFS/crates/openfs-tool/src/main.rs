@@ -144,10 +144,23 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
+            let expected_crc32c = args.next();
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            read_or_checksum_namespace_file(command, Path::new(&path), block_size, &target)
+            if command == "cat" && expected_crc32c.is_some() {
+                return Err("cat does not accept an expected checksum".into());
+            }
+            let expected_crc32c = expected_crc32c
+                .map(|value| parse_crc32c(&value))
+                .transpose()?;
+            read_or_checksum_namespace_file(
+                command,
+                Path::new(&path),
+                block_size,
+                &target,
+                expected_crc32c,
+            )
         }
         Some("read-range") => {
             let path = args.next().ok_or("missing image path")?;
@@ -1316,7 +1329,9 @@ fn print_usage() {
     eprintln!("  openfs find <image> <block-size> <root-path> <substring>");
     eprintln!("  openfs du <image> <block-size> [path]  (recursive logical and allocated usage)");
     eprintln!("  openfs space <image> <block-size>");
-    eprintln!("  openfs cat|checksum <image> <block-size> <file-path>");
+    eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs checksum <image> <block-size> <file-path> [expected-crc32c-hex]");
+    eprintln!("  checksum with an expected CRC32C exits with an error on mismatch.");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
@@ -1805,6 +1820,7 @@ fn read_or_checksum_namespace_file(
     path: &Path,
     block_size: u32,
     target: &str,
+    expected_crc32c: Option<u32>,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
     let volume = open_volume(&mut device)?;
@@ -1814,11 +1830,28 @@ fn read_or_checksum_namespace_file(
     } else {
         let mut checksum = Crc32cWriter::default();
         let bytes = volume.stream_persistent_file_to_writer(&mut device, target, &mut checksum)?;
+        let actual = checksum.finish();
         println!("File: {target}");
         println!("Size: {bytes} bytes");
-        println!("CRC32C: {:08x}", checksum.finish());
+        println!("CRC32C: {actual:08x}");
+        if let Some(expected) = expected_crc32c {
+            if actual != expected {
+                println!("Checksum verification: FAILED (expected {expected:08x})");
+                return Err("CRC32C checksum mismatch".into());
+            }
+            println!("Checksum verification: OK");
+        }
     }
     Ok(())
+}
+
+/// Parse a CRC32C value as one to eight hexadecimal digits, optionally prefixed by 0x.
+fn parse_crc32c(value: &str) -> Result<u32, Box<dyn StdError>> {
+    let digits = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")).unwrap_or(value);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("expected CRC32C as 1-8 hexadecimal digits (optionally prefixed with 0x)".into());
+    }
+    Ok(u32::from_str_radix(digits, 16)?)
 }
 
 /// Incremental CRC32C writer. This is for accidental-corruption detection,
@@ -1871,5 +1904,16 @@ mod checksum_tests {
     #[test]
     fn crc32c_of_empty_input_is_zero() {
         assert_eq!(Crc32cWriter::default().finish(), 0);
+    }
+
+    #[test]
+    fn parses_crc32c_with_optional_prefix_and_rejects_malformed_values() {
+        assert_eq!(super::parse_crc32c("e3069283").unwrap(), 0xe306_9283);
+        assert_eq!(super::parse_crc32c("0xE3069283").unwrap(), 0xe306_9283);
+        assert_eq!(super::parse_crc32c("f").unwrap(), 15);
+        assert!(super::parse_crc32c("").is_err());
+        assert!(super::parse_crc32c("0x").is_err());
+        assert!(super::parse_crc32c("123456789").is_err());
+        assert!(super::parse_crc32c("zzzz").is_err());
     }
 }
