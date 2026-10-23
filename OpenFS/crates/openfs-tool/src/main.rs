@@ -687,7 +687,9 @@ fn report_namespace_usage(
             .ok_or("namespace entry references missing object metadata")?;
         match record.kind {
             ObjectKind::Directory => {
-                directories = directories.checked_add(1).ok_or("directory count overflows")?;
+                directories = directories
+                    .checked_add(1)
+                    .ok_or("directory count overflows")?;
                 for child in namespace.children(object_id).rev() {
                     pending.push(ObjectId(child.object_id));
                 }
@@ -700,7 +702,9 @@ fn report_namespace_usage(
                 let allocated_blocks = match extent_maps.get(&object_id) {
                     Some(map) => map.allocated_blocks()?,
                     None if record.size == 0 && record.extent_root_block.is_none() => 0,
-                    None => return Err("file extent map is missing from persistent inventory".into()),
+                    None => {
+                        return Err("file extent map is missing from persistent inventory".into())
+                    }
                 };
                 let file_allocated_bytes = allocated_blocks
                     .checked_mul(block_bytes)
@@ -722,7 +726,9 @@ fn report_namespace_usage(
                             .checked_mul(block_bytes)
                             .ok_or("logical extent end overflows")?;
                         total
-                            .checked_add(record.size.min(end).saturating_sub(start.min(record.size)))
+                            .checked_add(
+                                record.size.min(end).saturating_sub(start.min(record.size)),
+                            )
                             .ok_or("allocated logical usage overflows")
                     })?,
                     None => 0,
@@ -741,7 +747,9 @@ fn report_namespace_usage(
     println!("Logical file bytes: {logical_bytes}");
     println!("Allocated data bytes: {allocated_bytes}");
     println!("Sparse logical bytes: {sparse_bytes}");
-    println!("Note: allocated data excludes extent-map metadata and filesystem journal/bitmap overhead.");
+    println!(
+        "Note: allocated data excludes extent-map metadata and filesystem journal/bitmap overhead."
+    );
     Ok(())
 }
 
@@ -1786,7 +1794,6 @@ mod tests {
         }
     }
 }
-
 
 /// Stream a file to a CRC32C sink without buffering the entire file in memory.
 fn read_or_checksum_namespace_file(
