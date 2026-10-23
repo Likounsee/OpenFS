@@ -946,11 +946,8 @@ fn copy_namespace_file(
         .create_new(true)
         .open(&temp_path)?;
     let copy_result = (|| -> Result<u64, Box<dyn StdError>> {
-        let copied = volume.stream_persistent_file_to_writer(
-            &mut device,
-            source_path,
-            &mut temporary,
-        )?;
+        let copied =
+            volume.stream_persistent_file_to_writer(&mut device, source_path, &mut temporary)?;
         temporary.sync_all()?;
         use std::io::{Seek, SeekFrom};
         temporary.seek(SeekFrom::Start(0))?;
@@ -979,10 +976,7 @@ fn unique_temporary_path(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    std::env::temp_dir().join(format!(
-        "openfs-{label}-{}-{nonce}.tmp",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("openfs-{label}-{}-{nonce}.tmp", std::process::id()))
 }
 
 fn export_namespace_file(
@@ -1874,23 +1868,15 @@ mod tests {
             .unwrap();
 
             super::create_namespace_entry(&path, block_size, "/docs/copy.txt", false).unwrap();
-            super::copy_namespace_file(
-                &path,
-                block_size,
-                "/docs/note.txt",
-                "/docs/copy.txt",
-            )
-            .unwrap();
+            super::copy_namespace_file(&path, block_size, "/docs/note.txt", "/docs/copy.txt")
+                .unwrap();
             {
                 let mut copy_device = ImageDevice::open(&path, block_size).unwrap();
                 let copy_volume = open_volume(&mut copy_device).unwrap();
                 assert_eq!(
-                    copy_volume.read_persistent_path_range(
-                        &mut copy_device,
-                        "/docs/copy.txt",
-                        0,
-                        64,
-                    ).unwrap(),
+                    copy_volume
+                        .read_persistent_path_range(&mut copy_device, "/docs/copy.txt", 0, 64,)
+                        .unwrap(),
                     original_payload,
                     "copy must preserve file bytes at block size {block_size}"
                 );
@@ -1998,10 +1984,11 @@ fn read_or_checksum_namespace_file(
 }
 
 /// Validate whether a command accepts or requires an expected CRC32C value.
-fn run_checksum_argument_policy(command: &str, expected: Option<u32>) -> Result<(), Box<dyn StdError>> {
-    if (command == "cat" && expected.is_some())
-        || (command == "verify-file" && expected.is_none())
-    {
+fn run_checksum_argument_policy(
+    command: &str,
+    expected: Option<u32>,
+) -> Result<(), Box<dyn StdError>> {
+    if (command == "cat" && expected.is_some()) || (command == "verify-file" && expected.is_none()) {
         return Err("cat rejects checksums; verify-file requires an expected CRC32C".into());
     }
     Ok(())
