@@ -690,8 +690,12 @@ fn report_namespace_usage(
                 directories = directories
                     .checked_add(1)
                     .ok_or("directory count overflows")?;
-                for child in namespace.children(object_id).rev() {
-                    pending.push(ObjectId(child.object_id));
+                let children = namespace
+                    .children(object_id)
+                    .map(|entry| entry.object_id)
+                    .collect::<Vec<_>>();
+                for child in children.into_iter().rev() {
+                    pending.push(ObjectId(child));
                 }
             }
             ObjectKind::File => {
