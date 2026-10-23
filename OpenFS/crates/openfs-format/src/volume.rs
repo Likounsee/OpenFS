@@ -15915,10 +15915,20 @@ mod tests {
                 .create_persistent_directory_at_path(&mut device, "/folder", ObjectId(4), "empty")
                 .unwrap();
             volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(5), "outside.bin")
+                .unwrap();
+            volume
                 .write_persistent_file_contents(
                     &mut device,
                     "/folder/file.bin",
                     b"invalid recursive-removal targets must not mutate the volume",
+                )
+                .unwrap();
+            volume
+                .write_persistent_file_contents(
+                    &mut device,
+                    "/outside.bin",
+                    b"recursive removal must preserve siblings outside the subtree",
                 )
                 .unwrap();
         }
@@ -15990,13 +16000,34 @@ mod tests {
                 ),
                 "empty descendant directory must no longer resolve"
             );
+            drop(volume);
+            drop(device);
+
+            // Reopen after the successful mutation: same-handle reads alone would
+            // not prove that the removed namespace and ownership inventory persist.
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            assert!(matches!(
+                volume.read_persistent_path_range(&mut device, "/folder/file.bin", 0, 128),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                volume.read_persistent_path_range(&mut device, "/folder/empty", 0, 1),
+                Err(Error::InvalidInput(_))
+            ));
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/outside.bin", 0, 128)
+                    .unwrap(),
+                b"recursive removal must preserve siblings outside the subtree"
+            );
             assert!(
                 volume
                     .verify_discovered_persistent_inventory(&mut device)
                     .unwrap()
                     .unwrap()
                     .is_consistent(),
-                "successful recursive removal must leave the inventory consistent"
+                "successful recursive removal must leave the reopened inventory consistent"
             );
         }
         fs::remove_file(path).unwrap();
