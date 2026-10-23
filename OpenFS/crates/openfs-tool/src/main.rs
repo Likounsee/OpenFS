@@ -131,14 +131,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             report_space(Path::new(&path), block_size)
         }
-        Some("cat") => {
+        Some(command @ ("cat" | "checksum")) => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            read_namespace_file(Path::new(&path), block_size, &target)
+            read_or_checksum_namespace_file(command, Path::new(&path), block_size, &target)
         }
         Some("read-range") => {
             let path = args.next().ok_or("missing image path")?;
@@ -1209,7 +1209,7 @@ fn print_usage() {
     eprintln!("  openfs tree <image> <block-size> [path]");
     eprintln!("  openfs find <image> <block-size> <root-path> <substring>");
     eprintln!("  openfs space <image> <block-size>");
-    eprintln!("  openfs cat <image> <block-size> <file-path>");
+    eprintln!("  openfs cat|checksum <image> <block-size> <file-path>");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
@@ -1685,5 +1685,81 @@ mod tests {
 
             fs::remove_file(path).unwrap();
         }
+    }
+}
+
+
+/// Stream a file to a CRC32C sink without buffering the entire file in memory.
+fn read_or_checksum_namespace_file(
+    command: &str,
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    if command == "cat" {
+        let mut stdout = std::io::stdout().lock();
+        volume.stream_persistent_file_to_writer(&mut device, target, &mut stdout)?;
+    } else {
+        let mut checksum = Crc32cWriter::default();
+        let bytes = volume.stream_persistent_file_to_writer(&mut device, target, &mut checksum)?;
+        println!("File: {target}");
+        println!("Size: {bytes} bytes");
+        println!("CRC32C: {:08x}", checksum.finish());
+    }
+    Ok(())
+}
+
+/// Incremental CRC32C writer. This is for accidental-corruption detection,
+/// not cryptographic authentication.
+#[derive(Default)]
+struct Crc32cWriter {
+    state: u32,
+}
+
+impl Crc32cWriter {
+    fn finish(&self) -> u32 {
+        self.state
+    }
+}
+
+impl std::io::Write for Crc32cWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let mut crc = !self.state;
+        for byte in buffer {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0x82f6_3b78
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        self.state = !crc;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod checksum_tests {
+    use super::Crc32cWriter;
+    use std::io::Write;
+
+    #[test]
+    fn crc32c_matches_the_standard_check_value() {
+        let mut writer = Crc32cWriter::default();
+        writer.write_all(b"123456789").unwrap();
+        assert_eq!(writer.finish(), 0xe306_9283);
+    }
+
+    #[test]
+    fn crc32c_of_empty_input_is_zero() {
+        assert_eq!(Crc32cWriter::default().finish(), 0);
     }
 }
