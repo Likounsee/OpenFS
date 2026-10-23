@@ -140,7 +140,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             report_space(Path::new(&path), block_size)
         }
-        Some(command @ ("cat" | "checksum")) => {
+        Some(command @ ("cat" | "checksum" | "verify-file")) => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
@@ -148,9 +148,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            if command == "cat" && expected_crc32c.is_some() {
-                return Err("cat does not accept an expected checksum".into());
-            }
+            run_checksum_argument_policy(command, expected_crc32c)?;
             let expected_crc32c = expected_crc32c
                 .map(|value| parse_crc32c(&value))
                 .transpose()?;
@@ -1387,6 +1385,7 @@ fn print_usage() {
     eprintln!("  openfs space <image> <block-size>");
     eprintln!("  openfs cat <image> <block-size> <file-path>");
     eprintln!("  openfs checksum <image> <block-size> <file-path> [expected-crc32c-hex]");
+    eprintln!("  openfs verify-file <image> <block-size> <file-path> <expected-crc32c-hex>");
     eprintln!("  checksum with an expected CRC32C exits with an error on mismatch.");
     eprintln!("  openfs read-range <image> <block-size> <file-path> <offset> <length>");
     eprintln!("  openfs checksum-range <image> <block-size> <file-path> <offset> <length> [expected-crc32c-hex]");
@@ -1902,6 +1901,16 @@ fn read_or_checksum_namespace_file(
     Ok(())
 }
 
+/// Validate whether a command accepts or requires an expected CRC32C value.
+fn run_checksum_argument_policy(command: &str, expected: Option<u32>) -> Result<(), Box<dyn StdError>> {
+    if (command == "cat" && expected.is_some())
+        || (command == "verify-file" && expected.is_none())
+    {
+        return Err("cat rejects checksums; verify-file requires an expected CRC32C".into());
+    }
+    Ok(())
+}
+
 /// Parse a CRC32C value as one to eight hexadecimal digits, optionally prefixed by 0x.
 fn parse_crc32c(value: &str) -> Result<u32, Box<dyn StdError>> {
     let digits = value
@@ -1956,6 +1965,14 @@ impl std::io::Write for Crc32cWriter {
 mod checksum_tests {
     use super::Crc32cWriter;
     use std::io::Write;
+
+    #[test]
+    fn verify_file_requires_expected_crc32c_and_cat_rejects_one() {
+        assert!(super::run_checksum_argument_policy("verify-file", None).is_err());
+        assert!(super::run_checksum_argument_policy("verify-file", Some(0)).is_ok());
+        assert!(super::run_checksum_argument_policy("cat", Some(0)).is_err());
+        assert!(super::run_checksum_argument_policy("cat", None).is_ok());
+    }
 
     #[test]
     fn crc32c_matches_the_standard_check_value() {
