@@ -731,3 +731,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test de récupération du renommage a isolé un cas plus précoce que la publication de l'inventaire : l'allocation d'un bloc pouvait renvoyer une erreur après un COMMIT durable, alors que le bitmap ne serait mis à jour qu'au rejeu. Le bloc restait alors alloué mais non référencé.
 - Correction : si le COMMIT d'allocation retourne une erreur, réouvrir/récupérer le journal avant de relire le bitmap. Si le bit est alloué après récupération, retourner le bloc comme allocation réussie; sinon conserver l'erreur d'origine. Cela empêche le staging d'inventaire de perdre la propriété d'un bloc dont l'allocation a été validée.
 - CI exact-SHA requis; ne pas considérer la correction comme validée avant tests Linux et Windows.
+
+
+### Matrice de récupération de suppression persistante — 2026-10-23
+
+- Le test `persistent_path_remove_recovers_old_or_removed_namespace_after_write_and_flush_failures` couvre les erreurs injectées d'écriture et de flush aux positions 0 à 8, sur les tailles de blocs 4, 8, 16, 32 et 64 Kio.
+- Après chaque panne, l'image est rouverte; le fichier doit soit rester lisible avec son contenu intact, soit être absent, et l'inventaire découvert doit conserver une propriété cohérente.
+- Le test augmente la couverture des frontières d'E/S simulées, sans prouver à lui seul la durabilité sur matériel réel. CI exacte-SHA Linux et Windows requise avant validation; estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.

@@ -15653,7 +15653,8 @@ mod tests {
                     ));
                     {
                         let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                        let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                        let mut volume =
+                            format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                         volume
                             .initialize_persistent_namespace(&mut device, ObjectId(1))
                             .unwrap();
