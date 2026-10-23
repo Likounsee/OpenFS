@@ -239,6 +239,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             move_namespace_entry(Path::new(&path), block_size, &old_path, &new_path)
         }
+        Some("help" | "--help" | "-h") => {
+            print_usage();
+            Ok(())
+        }
         _ => {
             print_usage();
             Err("invalid command".into())
