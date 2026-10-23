@@ -1479,10 +1479,10 @@ mod tests {
 
         let invalid_path = unique_path("current-check-invalid-block-size");
         assert!(super::check_image(&invalid_path, 512).is_err());
-        assert!(
-            !invalid_path.exists(),
-            "rejecting an unsupported block size must not create an image"
-        );
+        assert!(super::audit_image(&invalid_path, 512).is_err());
+        assert!(super::recover_image(&invalid_path, 512).is_err());
+        assert!(super::initialize_namespace_image(&invalid_path, 512).is_err());
+        assert!(!invalid_path.exists(), "invalid sizes must not create an image");
     }
 
     #[test]
