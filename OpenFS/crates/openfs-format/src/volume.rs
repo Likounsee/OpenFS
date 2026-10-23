@@ -15909,12 +15909,7 @@ mod tests {
                 .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "folder")
                 .unwrap();
             volume
-                .create_persistent_file_at_path(
-                    &mut device,
-                    "/folder",
-                    ObjectId(3),
-                    "file.bin",
-                )
+                .create_persistent_file_at_path(&mut device, "/folder", ObjectId(3), "file.bin")
                 .unwrap();
             volume
                 .write_persistent_file_contents(
@@ -15960,12 +15955,7 @@ mod tests {
             let volume = open_volume(&mut device).unwrap();
             assert_eq!(
                 volume
-                    .read_persistent_path_range(
-                        &mut device,
-                        "/folder/file.bin",
-                        0,
-                        128,
-                    )
+                    .read_persistent_path_range(&mut device, "/folder/file.bin", 0, 128,)
                     .unwrap(),
                 b"invalid recursive-removal targets must not mutate the volume"
             );
@@ -15980,5 +15970,4 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
-
 }
