@@ -679,6 +679,7 @@ fn report_namespace_usage(
     let mut directories = 0_u64;
     let mut logical_bytes = 0_u64;
     let mut allocated_bytes = 0_u64;
+    let mut sparse_bytes = 0_u64;
 
     while let Some(object_id) = pending.pop() {
         let record = namespace
@@ -707,6 +708,28 @@ fn report_namespace_usage(
                 allocated_bytes = allocated_bytes
                     .checked_add(file_allocated_bytes)
                     .ok_or("allocated usage overflows")?;
+                let allocated_logical_bytes = match extent_maps.get(&object_id) {
+                    Some(map) => map.extents().iter().try_fold(0_u64, |total, extent| {
+                        let start = extent
+                            .logical_start
+                            .checked_mul(block_bytes)
+                            .ok_or("logical extent start overflows")?;
+                        let end_block = extent
+                            .logical_start
+                            .checked_add(extent.block_count)
+                            .ok_or("logical extent end overflows")?;
+                        let end = end_block
+                            .checked_mul(block_bytes)
+                            .ok_or("logical extent end overflows")?;
+                        total
+                            .checked_add(record.size.min(end).saturating_sub(start.min(record.size)))
+                            .ok_or("allocated logical usage overflows")
+                    })?,
+                    None => 0,
+                };
+                sparse_bytes = sparse_bytes
+                    .checked_add(record.size - allocated_logical_bytes)
+                    .ok_or("sparse usage overflows")?;
             }
         }
     }
@@ -717,10 +740,7 @@ fn report_namespace_usage(
     println!("Files: {files}");
     println!("Logical file bytes: {logical_bytes}");
     println!("Allocated data bytes: {allocated_bytes}");
-    println!(
-        "Sparse logical bytes: {}",
-        logical_bytes.saturating_sub(allocated_bytes.min(logical_bytes))
-    );
+    println!("Sparse logical bytes: {sparse_bytes}");
     println!("Note: allocated data excludes extent-map metadata and filesystem journal/bitmap overhead.");
     Ok(())
 }
@@ -1743,6 +1763,10 @@ mod tests {
                     "removed file must remain absent after reopen at block size {block_size}"
                 );
             }
+            assert!(
+                super::report_namespace_usage(&path, block_size, "/docs").is_ok(),
+                "recursive namespace usage should accept the persistent tree at block size {block_size}"
+            );
             assert!(
                 super::check_image(&path, block_size).is_ok(),
                 "read-only check should accept the persistent file workflow at block size {block_size}"
