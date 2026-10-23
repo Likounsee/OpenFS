@@ -635,10 +635,18 @@ fn report_space(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     );
     if allocation.free_data_blocks == 0 {
         println!("Free-space ratio: 0.00%");
+        println!("Free-space fragmentation: 0.00%");
     } else {
         let ratio =
             (allocation.free_data_blocks as f64 / allocation.total_data_blocks as f64) * 100.0;
         println!("Free-space ratio: {ratio:.2}%");
+        let fragmented_free_blocks = allocation
+            .free_data_blocks
+            .checked_sub(fragmentation.largest_free_extent_blocks)
+            .ok_or("largest free extent exceeds total free blocks")?;
+        let fragmentation_ratio =
+            (fragmented_free_blocks as f64 / allocation.free_data_blocks as f64) * 100.0;
+        println!("Free-space fragmentation: {fragmentation_ratio:.2}%");
     }
     Ok(())
 }
