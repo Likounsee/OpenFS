@@ -15551,4 +15551,93 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn persistent_path_rename_recovers_old_or_new_namespace_after_flush_failure() {
+        use crate::ObjectId;
+
+        // Inject failures at successive flush boundaries of the rename transaction.
+        // A fresh open must expose exactly one complete name and retain ownership.
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for fail_at in 0..=8 {
+                let path = image_path(&format!(
+                    "persistent-rename-flush-failure-{block_size}-{fail_at}"
+                ));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    volume
+                        .initialize_persistent_namespace(&mut device, ObjectId(1))
+                        .unwrap();
+                    volume
+                        .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "note.txt")
+                        .unwrap();
+                    let payload = b"rename flush recovery must keep one complete namespace";
+                    volume
+                        .write_persistent_file_contents(&mut device, "/note.txt", payload)
+                        .unwrap();
+                    drop(volume);
+                    drop(device);
+
+                    let mut device = ImageDevice::open(&path, block_size).unwrap();
+                    let mut volume = open_volume(&mut device).unwrap();
+                    let mut failing = FailNthWrite {
+                        inner: device,
+                        writes_until_failure: None,
+                        flushes_until_failure: Some(fail_at),
+                    };
+                    let result =
+                        volume.rename_persistent_path(&mut failing, "/note.txt", "/", "moved.txt");
+                    assert!(
+                        result.is_ok() || matches!(result, Err(Error::Io(_))),
+                        "unexpected rename error at block size {block_size}, flush {fail_at}: {result:?}"
+                    );
+                    drop(volume);
+                    drop(failing);
+                }
+
+                {
+                    let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
+                    let reopened = open_volume(&mut reopened_device).unwrap();
+                    let old_path = reopened.read_persistent_path_range(
+                        &mut reopened_device,
+                        "/note.txt",
+                        0,
+                        128,
+                    );
+                    let new_path = reopened.read_persistent_path_range(
+                        &mut reopened_device,
+                        "/moved.txt",
+                        0,
+                        128,
+                    );
+                    assert_ne!(
+                        old_path.is_ok(),
+                        new_path.is_ok(),
+                        "recovery must publish exactly one old/new name at block size {block_size}, injected flush {fail_at}"
+                    );
+                    let actual = match (old_path, new_path) {
+                        (Ok(bytes), Err(_)) | (Err(_), Ok(bytes)) => bytes,
+                        _ => unreachable!("the exclusive old-or-new assertion was checked"),
+                    };
+                    assert_eq!(
+                        actual,
+                        b"rename flush recovery must keep one complete namespace",
+                        "the file payload must survive recovery at block size {block_size}, injected flush {fail_at}"
+                    );
+                    assert!(
+                        reopened
+                            .verify_discovered_persistent_inventory(&mut reopened_device)
+                            .unwrap()
+                            .unwrap()
+                            .is_consistent(),
+                        "recovered namespace ownership must be consistent at block size {block_size}, injected flush {fail_at}"
+                    );
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
 }

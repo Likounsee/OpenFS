@@ -1,3 +1,13 @@
+### Reprise de session — 2026-10-23 (flush failures sur renommage persistant)
+
+- Branche autorisée : `OpenFS` uniquement.
+- CI précédente confirmée verte sur Linux et Windows pour `e4ca2a1d93ba69f22e4a83ff0a39bf2f39671360`.
+- Ajout d'une matrice de régression qui injecte une erreur de flush à chaque frontière testée pendant le renommage persistant. Après chaque essai, elle rouvre l'image et vérifie l'exclusivité ancien-ou-nouveau chemin, l'intégrité du contenu et la cohérence de l'inventaire de propriété des blocs, pour cinq tailles de blocs.
+- Ce test ne prouve pas la durabilité physique après coupure d'alimentation; il vérifie les garanties de récupération du backend image sous erreurs de flush simulées.
+- Résultat du nouveau test et de la CI exacte-SHA en attente; ne pas augmenter P1/P2 avant validation Linux/Windows.
+
+---
+
 ### Reprise de session — 2026-10-23 (récupération d'allocation et flush de nettoyage)
 
 - Branche de travail : `OpenFS` uniquement; ne pas modifier `main` ni `OpenFS-old`.
