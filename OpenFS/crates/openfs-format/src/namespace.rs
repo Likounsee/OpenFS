@@ -1614,4 +1614,47 @@ mod tests {
         assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 2);
         assert!(ns.validate().is_ok());
     }
+
+    #[test]
+    fn insert_rejects_parent_generation_overflow_without_mutating_indexes() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.objects.get_mut(&ObjectId(1)).unwrap().generation = u32::MAX;
+
+        assert!(matches!(
+            ns.insert(
+                entry(1, 2, "cannot-insert.txt", ObjectKind::File),
+                record(2, 1, ObjectKind::File),
+            ),
+            Err(Error::ArithmeticOverflow)
+        ));
+
+        assert_eq!(ns.object_count(), 1);
+        assert_eq!(ns.entry_count(), 0);
+        assert!(ns.object(ObjectId(2)).is_none());
+        assert!(ns.lookup(ObjectId(1), "cannot-insert.txt").is_none());
+        assert_eq!(ns.object(ObjectId(1)).unwrap().generation, u32::MAX);
+    }
+
+    #[test]
+    fn remove_rejects_parent_generation_overflow_without_mutating_indexes() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "keep.txt", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+        ns.objects.get_mut(&ObjectId(1)).unwrap().generation = u32::MAX;
+
+        assert!(matches!(
+            ns.remove(ObjectId(2)),
+            Err(Error::ArithmeticOverflow)
+        ));
+
+        assert_eq!(ns.object_count(), 2);
+        assert_eq!(ns.entry_count(), 1);
+        assert_eq!(ns.path_of(ObjectId(2)).unwrap(), "/keep.txt");
+        assert!(ns.lookup(ObjectId(1), "keep.txt").is_some());
+        assert_eq!(ns.object(ObjectId(1)).unwrap().generation, u32::MAX);
+        assert!(ns.validate().is_ok());
+    }
 }
