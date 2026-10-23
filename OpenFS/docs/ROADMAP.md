@@ -115,6 +115,11 @@ Les anciens lots sont regroupés sans faire passer du travail non réalisé pour
 - **P2** rassemble vérification/réparation et namespace/fichiers persistants.
 - **P3** rassemble découverte et formatage sûrs, intégration OS, compatibilité et livraison.
 
+### Mise à jour du 2026-10-23 — redimensionnement via truncate
+
+- `truncate_persistent_file` accepte maintenant aussi une taille supérieure à l’ancienne : il délègue à l’extension sparse existante, qui préserve le préfixe, publie la nouvelle taille et garantit des zéros dans la plage nouvellement exposée. La régression multi-tailles appelle désormais l’API de redimensionnement publique pour ce scénario.
+- Le comportement est documenté dans le README. La CI du nouveau commit doit encore valider les tests, le formatage, Clippy et l’inventaire sur Linux et Windows avant de considérer ce lot validé.
+
 ### Mise à jour du 2026-10-20
 
 - `9091b25` — corrige le formatage Rust du calcul des octets logiques alloués dans `stat`. La CI exacte-SHA a validé formatage, tests workspace et Clippy sous Linux avant annulation des jobs par un push plus récent; ce n'est pas une validation complète Linux/Windows.

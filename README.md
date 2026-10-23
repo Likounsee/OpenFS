@@ -41,7 +41,7 @@ The workspace already contains:
 - **Persistent namespace and file APIs:** directory and file operations, streaming file import, range I/O, truncation, rename and removal through the development tool.
 - **Image CLI:** create, inspect, check, audit and recover development images without presenting physical-device formatting as safe.
 
-The presence of these components does **not** mean all multi-step operations are atomic under every crash scenario. General transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
+The `truncate` command shrinks files or grows them sparsely (newly exposed bytes read as zeroes). The presence of these components does **not** mean all multi-step operations are atomic under every crash scenario. General transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
 
 ## Repository layout
 
@@ -110,6 +110,7 @@ cargo run -p openfs-tool -- cat ./openfs.img 4096 /docs/hello.txt
 cargo run -p openfs-tool -- export ./openfs.img 4096 /docs/hello.txt ./hello-export.txt
 cargo run -p openfs-tool -- tree ./openfs.img 4096 /
 cargo run -p openfs-tool -- stat ./openfs.img 4096 /docs/hello.txt
+cargo run -p openfs-tool -- truncate ./openfs.img 4096 /docs/hello.txt 16384
 ```
 
 ### Useful diagnostics

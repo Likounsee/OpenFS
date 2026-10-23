@@ -4215,9 +4215,9 @@ impl OpenedVolume {
         Ok(record.size)
     }
 
-    /// Shrink a persistent file and reclaim blocks no longer covered by its new length.
+    /// Resize a persistent file, reclaiming blocks on shrink and using sparse growth.
     ///
-    /// Extending is intentionally rejected: it needs a separate policy for sparse growth.
+    /// Growth delegates to the sparse extension path, which publishes zero-filled bytes.
     /// The replacement extent map and namespace metadata are published before old blocks
     /// are reclaimed. If publication has an uncertain outcome, staged and old blocks are
     /// retained rather than risking freeing storage still referenced by the active inventory.
@@ -4243,9 +4243,9 @@ impl OpenedVolume {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
         if new_size > record.size {
-            return Err(Error::InvalidInput(
-                "persistent truncation cannot extend a file",
-            ));
+            // Match conventional resize semantics: growth publishes sparse zeroes.
+            // Keep this delegation before loading extent maps for the old file.
+            return self.extend_persistent_file_sparse(device, path, new_size);
         }
         if new_size == record.size {
             return Ok(());
@@ -14733,7 +14733,7 @@ mod tests {
                 );
 
                 volume
-                    .extend_persistent_file_sparse(&mut device, "/payload.bin", sparse_len as u64)
+                    .truncate_persistent_file(&mut device, "/payload.bin", sparse_len as u64)
                     .unwrap();
                 drop(volume);
                 let mut volume = open_volume(&mut device).unwrap();
