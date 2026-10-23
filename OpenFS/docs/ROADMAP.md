@@ -699,3 +699,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - La CI du commit `2707115b621aa855cb729bfd57062be7401218d0` a échoué sur `cargo fmt --all -- --check`, sous Linux et Windows, à cause d'une seule expression de lecture de chemin absente du formatage rustfmt canonique.
 - Le test a été ajusté à la sortie attendue par rustfmt. Pas de changement de comportement fonctionnel.
 - La suite doit repartir sur le nouveau SHA avant de conclure que le scénario de déplacement/suppression est validé.
+
+### Reprise — récupération après erreur de publication (2026-10-23)
+
+- Le CI du commit précédent a révélé un cas concret : une erreur pendant l'écriture du journal pouvait laisser l'instance de journal empoisonnée. Le code tentait alors de redécouvrir l'inventaire et de libérer les blocs temporaires avant d'avoir rejoué une éventuelle transaction COMMIT durable.
+- Correction : après l'échec de publication, réouvrir/récupérer le journal sur le même périphérique avant de redécouvrir le descripteur. Si le nouveau descripteur a été validé, le chemin retourne succès; si l'ancien est toujours actif, les blocs temporaires peuvent être récupérés après la décision du journal. Si la récupération échoue, l'opération s'arrête en erreur au lieu de poursuivre des écritures.
+- Validation en attente sur CI Linux et Windows; aucune hausse des estimations avant les deux résultats verts.

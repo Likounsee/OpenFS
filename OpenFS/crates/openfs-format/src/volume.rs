@@ -3110,19 +3110,19 @@ impl OpenedVolume {
         ) {
             Ok(block) => Ok(block),
             Err(error) => {
-                // The journal can report an I/O error after the commit point. Rediscover
-                // exactly once: reclaim staged streams only when the descriptor proves they
-                // are not active, and report success if it proves this publication committed.
+                // Recover a poisoned journal before inspecting ownership after a commit error.
+                // A failed home-block write can happen after COMMIT is durable, so in-memory
+                // bitmap state may still be stale. Recover first, then decide whether staged
+                // blocks are active or safe to reclaim.
+                self.journal = crate::journal_engine::open_journal_protected(
+                    device, self.volume.layout.journal, &[0, self.volume.layout.backup_superblock],
+                )
+                .map_err(|_| Error::Corrupt("journal recovery failed after uncertain commit"))?;
                 match self.discover_persistent_inventory(device) {
                     Ok(Some((block, active))) if active == descriptor => Ok(block),
                     Ok(Some((_, _))) | Ok(None) => {
-                        if self
-                            .reclaim_persistent_blocks(device, &staged_blocks)
-                            .is_err()
-                        {
-                            return Err(Error::Corrupt(
-                                "failed to reclaim staged inventory after publication failed",
-                            ));
+                        if self.reclaim_persistent_blocks(device, &staged_blocks).is_err() {
+                            return Err(Error::Corrupt("staged inventory cleanup failed"));
                         }
                         Err(error)
                     }
