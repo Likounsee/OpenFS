@@ -1155,6 +1155,13 @@ impl OpenedVolume {
                             current = Some(extent);
                         }
                         Some(extent) => {
+                            // An exact fit is globally optimal. Since bitmap segments and
+                            // runs are visited in ascending block order, returning here also
+                            // preserves the lowest-block tie-break without scanning the rest
+                            // of a potentially very large volume.
+                            if extent.block_count == count {
+                                return Ok(Some(extent));
+                            }
                             if extent.block_count >= count
                                 && best.map_or(true, |candidate| {
                                     (extent.block_count, extent.start_block)
@@ -1181,6 +1188,10 @@ impl OpenedVolume {
             }
 
             if let Some(extent) = current {
+                // The final run in this segment may be an exact fit too.
+                if extent.block_count == count {
+                    return Ok(Some(extent));
+                }
                 if extent.block_count >= count
                     && best.map_or(true, |candidate| {
                         (extent.block_count, extent.start_block)
