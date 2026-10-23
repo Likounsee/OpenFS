@@ -15731,7 +15731,7 @@ mod tests {
 
         // A recursive removal must publish the whole subtree atomically. Exercise
         // representative small, medium and maximum block sizes at write/flush boundaries.
-        for block_size in [4096_u32, 16_384, 65_536] {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
                 for fail_at in 0..=6 {
                     let path = image_path(&format!(
