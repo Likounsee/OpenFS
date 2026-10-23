@@ -47,10 +47,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
         }
         Some("check-image") => {
             let path = args.next().ok_or("missing image path")?;
-            let block_size = parse_block_size(args.next())?;
-
-
-
+            let block_size = parse_block_size(
+                // Reject unsupported sizes before opening or mutating an image.
+                args.next(),
+            )?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
@@ -66,10 +66,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
         }
         Some("recover-image") => {
             let path = args.next().ok_or("missing image path")?;
-            let block_size = parse_block_size(args.next())?;
-
-
-
+            let block_size = parse_block_size(
+                // Reject unsupported sizes before opening or mutating an image.
+                args.next(),
+            )?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
@@ -77,10 +77,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
         }
         Some("init-namespace") => {
             let path = args.next().ok_or("missing image path")?;
-            let block_size = parse_block_size(args.next())?;
-
-
-
+            let block_size = parse_block_size(
+                // Reject unsupported sizes before opening or mutating an image.
+                args.next(),
+            )?;
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
