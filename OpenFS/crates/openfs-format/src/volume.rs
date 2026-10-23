@@ -15696,12 +15696,16 @@ mod tests {
                         0,
                         128,
                     );
-                    if let Ok(bytes) = old_path {
-                        assert_eq!(
+                    match old_path {
+                        Ok(bytes) => assert_eq!(
                             bytes,
                             b"remove flush recovery must preserve valid ownership",
                             "if removal did not commit, payload must remain intact at block size {block_size}, injected flush {fail_at}"
-                        );
+                        ),
+                        Err(Error::InvalidInput(_)) => {}
+                        Err(error) => panic!(
+                            "unexpected read error after recovery at block size {block_size}, injected flush {fail_at}: {error:?}"
+                        ),
                     }
                     assert!(
                         reopened
