@@ -113,6 +113,16 @@ cargo run -p openfs-tool -- stat ./openfs.img 4096 /docs/hello.txt
 cargo run -p openfs-tool -- truncate ./openfs.img 4096 /docs/hello.txt 16384
 ```
 
+### Search namespace paths
+
+Use `find` to search a subtree by a case-sensitive substring. The traversal is iterative, so deeply nested directories do not recurse on the native stack:
+
+```sh
+cargo run -p openfs-tool -- find ./openfs.img 4096 /docs note
+```
+
+Each match reports its type, logical size, and full OpenFS path. The root path and search substring are both required.
+
 ### Useful diagnostics
 
 ```sh
