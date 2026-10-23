@@ -705,3 +705,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le CI du commit précédent a révélé un cas concret : une erreur pendant l'écriture du journal pouvait laisser l'instance de journal empoisonnée. Le code tentait alors de redécouvrir l'inventaire et de libérer les blocs temporaires avant d'avoir rejoué une éventuelle transaction COMMIT durable.
 - Correction : après l'échec de publication, réouvrir/récupérer le journal sur le même périphérique avant de redécouvrir le descripteur. Si le nouveau descripteur a été validé, le chemin retourne succès; si l'ancien est toujours actif, les blocs temporaires peuvent être récupérés après la décision du journal. Si la récupération échoue, l'opération s'arrête en erreur au lieu de poursuivre des écritures.
 - Validation en attente sur CI Linux et Windows; aucune hausse des estimations avant les deux résultats verts.
+
+### Allocation: issue I/O indéterminée pendant la réservation (2026-10-23)
+
+- Le test de récupération du renommage a isolé un cas plus précoce que la publication de l'inventaire : l'allocation d'un bloc pouvait renvoyer une erreur après un COMMIT durable, alors que le bitmap ne serait mis à jour qu'au rejeu. Le bloc restait alors alloué mais non référencé.
+- Correction : si le COMMIT d'allocation retourne une erreur, réouvrir/récupérer le journal avant de relire le bitmap. Si le bit est alloué après récupération, retourner le bloc comme allocation réussie; sinon conserver l'erreur d'origine. Cela empêche le staging d'inventaire de perdre la propriété d'un bloc dont l'allocation a été validée.
+- CI exact-SHA requis; ne pas considérer la correction comme validée avant tests Linux et Windows.

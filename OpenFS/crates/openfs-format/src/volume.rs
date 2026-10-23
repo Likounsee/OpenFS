@@ -416,13 +416,28 @@ impl OpenedVolume {
                 existing.fill(0);
                 device.write_blocks(block, &existing)?;
                 device.flush()?;
-                self.journal.commit(
+                if let Err(error) = self.journal.commit(
                     device,
                     &[RedoUpdate {
                         target_block: bitmap_block,
                         contents: bitmap,
                     }],
-                )?;
+                ) {
+                    self.journal = crate::journal_engine::open_journal_protected(
+                        device,
+                        self.volume.layout.journal,
+                        &[0, self.volume.layout.backup_superblock],
+                    )
+                    .map_err(|_| Error::Corrupt("allocator journal recovery failed"))?;
+                    existing.fill(0);
+                    device.read_blocks(bitmap_block, &mut existing)?;
+                    let local = block % bits_per_block;
+                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                    let mask = 1_u8 << (local % 8);
+                    if existing[byte] & mask == 0 {
+                        return Err(error);
+                    }
+                }
                 return Ok(block);
             }
         }
