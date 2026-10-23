@@ -15912,12 +15912,7 @@ mod tests {
                 .create_persistent_file_at_path(&mut device, "/folder", ObjectId(3), "file.bin")
                 .unwrap();
             volume
-                .create_persistent_directory_at_path(
-                    &mut device,
-                    "/folder",
-                    ObjectId(4),
-                    "empty",
-                )
+                .create_persistent_directory_at_path(&mut device, "/folder", ObjectId(4), "empty")
                 .unwrap();
             volume
                 .write_persistent_file_contents(
