@@ -15516,8 +15516,7 @@ mod tests {
             let path = image_path(&format!("allocation-clear-flush-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume =
-                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let first = volume.volume.layout.data_start;
 
                 // Seed a free candidate with stale bytes. Allocation must clear it
@@ -15551,6 +15550,4 @@ mod tests {
             }
             fs::remove_file(path).unwrap();
         }
-    }
-
-}
+   }
