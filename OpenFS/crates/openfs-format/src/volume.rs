@@ -15646,9 +15646,10 @@ mod tests {
         // Removing a file must leave either the complete old namespace or the complete
         // removed namespace after recovery; its blocks must never be ambiguously owned.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in 0..=8 {
+            for failure_kind in ["write", "flush"] {
+                for fail_at in 0..=8 {
                 let path = image_path(&format!(
-                    "persistent-remove-flush-failure-{block_size}-{fail_at}"
+                    "persistent-remove-{failure_kind}-failure-{block_size}-{fail_at}"
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
@@ -15675,13 +15676,13 @@ mod tests {
                     let mut volume = open_volume(&mut device).unwrap();
                     let mut failing = FailNthWrite {
                         inner: device,
-                        writes_until_failure: None,
-                        flushes_until_failure: Some(fail_at),
+                        writes_until_failure: (failure_kind == "write").then_some(fail_at),
+                        flushes_until_failure: (failure_kind == "flush").then_some(fail_at),
                     };
                     let result = volume.remove_persistent_path(&mut failing, "/discard.txt");
                     assert!(
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
-                        "unexpected remove error at block size {block_size}, flush {fail_at}: {result:?}"
+                        "unexpected remove error at block size {block_size}, {failure_kind} {fail_at}: {result:?}"
                     );
                     drop(volume);
                     drop(failing);
@@ -15700,11 +15701,11 @@ mod tests {
                         Ok(bytes) => assert_eq!(
                             bytes,
                             b"remove flush recovery must preserve valid ownership",
-                            "if removal did not commit, payload must remain intact at block size {block_size}, injected flush {fail_at}"
+                            "if removal did not commit, payload must remain intact at block size {block_size}, injected {failure_kind} {fail_at}"
                         ),
                         Err(Error::InvalidInput(_)) => {}
                         Err(error) => panic!(
-                            "unexpected read error after recovery at block size {block_size}, injected flush {fail_at}: {error:?}"
+                            "unexpected read error after recovery at block size {block_size}, injected {failure_kind} {fail_at}: {error:?}"
                         ),
                     }
                     assert!(
@@ -15713,10 +15714,11 @@ mod tests {
                             .unwrap()
                             .unwrap()
                             .is_consistent(),
-                        "recovered namespace ownership must be consistent at block size {block_size}, injected flush {fail_at}"
+                        "recovered namespace ownership must be consistent at block size {block_size}, injected {failure_kind} {fail_at}"
                     );
                 }
-                fs::remove_file(path).unwrap();
+                    fs::remove_file(path).unwrap();
+                }
             }
         }
     }
