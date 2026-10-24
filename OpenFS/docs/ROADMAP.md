@@ -778,3 +778,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test vérifie que les deux chemins supprimés ne se résolvent plus et que l'inventaire persistant reste cohérent après publication.
 - Les entrées historiques des inventaires ne sont pas régénérées arbitrairement ni supprimées; aucune nouvelle déclaration de symbole n'a été ajoutée.
 - Le résultat n'est validé qu'après CI Linux et Windows du SHA exact.
+
+### Reprise de session — 2026-10-25 (précision du test de bornes)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `db56660beec1854f74a450d2eb1a43117770dd54` : le nom du test `openfs-core` décrit maintenant précisément le cas réellement vérifié (acceptation d'une plage de taille maximale), au lieu d'affirmer à tort qu'il teste le dernier bloc.
+- Commit `9018f4cb15e9d7d076a4f114db9603f92bb083c0` : synchronisation de la ligne correspondante dans `INVENTAIRE_SYMBOLES.csv`; le nombre de lignes et les numéros de ligne des déclarations ne changent pas.
+- Statut CI du HEAD : non confirmé; l'API de statut ne renvoie aucun statut pour ce SHA. Aucun test Rust n'a été exécuté dans cet environnement. Ne pas compter cette correction de nom comme une hausse de complétion.
+- Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
