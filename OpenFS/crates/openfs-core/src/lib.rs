@@ -90,7 +90,8 @@ mod tests {
     use super::{check_block_range, Error};
 
     #[test]
-    fn accepts_maximum_range_and_rejects_ranges_past_end() {
+    fn accepts_last_and_maximum_ranges_and_rejects_ranges_past_end() {
+        assert!(check_block_range(9, 1, 10).is_ok());
         assert!(check_block_range(0, u64::MAX, u64::MAX).is_ok());
         assert!(matches!(
             check_block_range(9, 2, 10),
