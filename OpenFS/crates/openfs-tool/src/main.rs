@@ -673,7 +673,10 @@ fn create_namespace_directories(
             }
         }
     }
-    println!("mkdir-p completed for '{}': {created} directory/directories created.", target);
+    println!(
+        "mkdir-p completed for '{}': {created} directory/directories created.",
+        target
+    );
     Ok(())
 }
 
@@ -1653,7 +1656,9 @@ mod tests {
             let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
             let volume = open_volume(&mut device).unwrap();
             assert_eq!(
-                volume.read_persistent_path_range(&mut device, "/note.txt", 0, 64).unwrap(),
+                volume
+                    .read_persistent_path_range(&mut device, "/note.txt", 0, 64)
+                    .unwrap(),
                 b"preserve me"
             );
         }
@@ -1682,7 +1687,10 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(
-                namespace.object(namespace.resolve_path("/alpha/beta/gamma").unwrap()).unwrap().kind,
+                namespace
+                    .object(namespace.resolve_path("/alpha/beta/gamma").unwrap())
+                    .unwrap()
+                    .kind,
                 super::ObjectKind::Directory
             );
         }
@@ -1693,7 +1701,9 @@ mod tests {
             "/alpha/regular-file/child"
         )
         .is_err());
-        assert!(super::create_namespace_directories(&path, BLOCK_SIZE, "/alpha/../escape").is_err());
+        assert!(
+            super::create_namespace_directories(&path, BLOCK_SIZE, "/alpha/../escape").is_err()
+        );
         fs::remove_file(path).unwrap();
     }
 
