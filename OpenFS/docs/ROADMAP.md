@@ -794,3 +794,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `b306b214944f455b100fa420c1db1770462dca72` : inventaire CSV mis à jour, y compris le décalage de ligne du test suivant.
 - Aucun test Rust n'a été exécuté ici. Statut CI du nouveau HEAD non confirmé; ne pas annoncer vert ni augmenter les pourcentages avant les résultats exacts Linux/Windows.
 - Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+### Reprise de session — 2026-10-25 (récupération après corruption de la fin du journal)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `de47e72d4ae0f8d7a2ef0deacb19b0aae52e870b` : ajout d'un test qui laisse un COMMIT durable après une panne d'écriture des blocs de données, puis corrompt le bloc terminal suivant. La réouverture doit rejouer la transaction validée.
+- Commit `7b573bcafd061e445935431977a5da3032d8dc9d` : indexation du nouveau test dans `docs/INVENTAIRE_SYMBOLES.csv`.
+- Commit `15e430bfa114fdbba6efd69ffff4c7580a417a08` : le test couvre désormais plusieurs positions de fin de ring (offsets 4, 5 et dernier bloc), pour vérifier que des écritures terminales malformées ne masquent pas le COMMIT durable précédent.
+- Validation : aucun test Rust n'a été exécuté ici; l'API de statut ne renvoie aucun statut CI exploitable pour le dernier commit. Ne pas annoncer la CI verte.
+- Estimations conservées faute d'exécution des tests : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
