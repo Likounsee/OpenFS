@@ -786,3 +786,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `9018f4cb15e9d7d076a4f114db9603f92bb083c0` : synchronisation de la ligne correspondante dans `INVENTAIRE_SYMBOLES.csv`; le nombre de lignes et les numéros de ligne des déclarations ne changent pas.
 - Statut CI du HEAD : non confirmé; l'API de statut ne renvoie aucun statut pour ce SHA. Aucun test Rust n'a été exécuté dans cet environnement. Ne pas compter cette correction de nom comme une hausse de complétion.
 - Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+### Reprise de session — 2026-10-25 (bornes inclusives et plage maximale)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `176fce2546613cfdb98d2ecd8bbf4c231a8b8243` : le test `openfs-core` vérifie désormais séparément l'acceptation du dernier bloc valide (`9 + 1` sur un périphérique de 10 blocs) et celle d'une plage de taille maximale sans débordement (`0`, `u64::MAX`, capacité `u64::MAX`). Le cas hors limites et le compte nul restent testés.
+- Commit `b306b214944f455b100fa420c1db1770462dca72` : inventaire CSV mis à jour, y compris le décalage de ligne du test suivant.
+- Aucun test Rust n'a été exécuté ici. Statut CI du nouveau HEAD non confirmé; ne pas annoncer vert ni augmenter les pourcentages avant les résultats exacts Linux/Windows.
+- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
