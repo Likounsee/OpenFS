@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn accepts_last_block_and_rejects_ranges_past_end() {
-        assert!(check_block_range(9, 1, 10).is_ok());
+        assert!(check_block_range(9, 1, 10).is_ok() && check_block_range(0, u64::MAX, u64::MAX).is_ok());
         assert!(matches!(
             check_block_range(9, 2, 10),
             Err(Error::OutOfBounds { .. })
