@@ -2554,4 +2554,41 @@ mod tests {
             assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
         }
     }
+
+    #[test]
+    fn torn_redo_chunk_is_ignored_and_preserves_old_home_data() {
+        // A partial UPDATE payload is not a commit. Exercise both chunks of the
+        // encoded block image and byte prefixes around the record header boundary.
+        for tear_at in [1, 2] {
+            for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
+                let mut device = formatted();
+                let mut journal = open_journal(&mut device, REGION).unwrap();
+
+                // Write 0 is BEGIN; writes 1 and 2 are the two redo chunks.
+                let mut torn = TearWriteAt::new(device.clone(), tear_at, prefix_bytes);
+                assert!(
+                    matches!(journal.commit(&mut torn, &[update(0xA5)]), Err(Error::Io(_))),
+                    "redo chunk write {tear_at} should fail after {prefix_bytes} bytes"
+                );
+
+                let mut recovered = torn.into_inner();
+                let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
+                    panic!(
+                        "old state should remain usable after torn redo chunk {tear_at}                          at {prefix_bytes} bytes: {error:?}"
+                    )
+                });
+                assert_eq!(
+                    reopened.checkpoint().checkpoint_sequence,
+                    3,
+                    "an incomplete redo image must not advance the checkpoint"
+                );
+                assert_eq!(
+                    read_home(&mut recovered),
+                    vec![0x11; BS as usize],
+                    "an incomplete redo image must never reach the home block"
+                );
+            }
+        }
+    }
+
 }
