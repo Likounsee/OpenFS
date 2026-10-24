@@ -812,3 +812,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `1049fcef2e3d52534830a05d1a1412c5a03cf8ba` : déclaration du test indexée dans `docs/INVENTAIRE_SYMBOLES.csv`.
 - Validation : tests Rust non exécutés ici; statut CI du HEAD non confirmé. Le nouveau test est une régression ajoutée, pas une preuve d'exécution réussie.
 - Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (atomicité multi-cible après écriture partielle)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `7ad943d568be036126e19e3752443a416eb3c425` : ajout du test `torn_later_redo_chunk_never_partially_applies_multi_target_transaction`. Il laisse l'image redo de la première cible complète, provoque une écriture partielle sur la cible suivante et vérifie que la récupération ne modifie aucune des deux données home sans COMMIT durable.
+- Commit `8fbf0c69dbb9ed630246504269fd268df31ce468` : entrée du test ajoutée à `docs/INVENTAIRE_SYMBOLES.csv`.
+- Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Ne pas considérer ces tests comme validés tant que CI ne les a pas exécutés.
+- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
