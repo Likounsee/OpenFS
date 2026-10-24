@@ -2519,4 +2519,34 @@ mod tests {
         assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
         assert_eq!(read_home(&mut device), vec![0xA6; BS as usize]);
     }
+
+    #[test]
+    fn malformed_terminal_tail_after_durable_commit_is_ignored_and_replayed() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+
+        // Fail the first home write after the COMMIT record is durable, leaving
+        // the committed transaction in the ring for recovery.
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(
+            journal.commit(&mut failing, &[update(0xA5)]),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
+
+        // A damaged terminal append after the complete transaction is a safe
+        // tail: it must not hide the earlier durable COMMIT.
+        let malformed_tail = REGION.ring_start + 4;
+        assert!(malformed_tail < REGION.ring_start + REGION.ring_blocks);
+        recovered
+            .write_blocks(malformed_tail, &vec![0xEE; BS as usize])
+            .unwrap();
+        recovered.flush().unwrap();
+
+        let reopened = open_journal(&mut recovered, REGION)
+            .expect("a malformed terminal tail must not block earlier committed recovery");
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0xA5; BS as usize]);
+    }
 }
