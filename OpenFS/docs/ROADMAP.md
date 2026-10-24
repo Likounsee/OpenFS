@@ -803,3 +803,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `15e430bfa114fdbba6efd69ffff4c7580a417a08` : le test couvre désormais plusieurs positions de fin de ring (offsets 4, 5 et dernier bloc), pour vérifier que des écritures terminales malformées ne masquent pas le COMMIT durable précédent.
 - Validation : aucun test Rust n'a été exécuté ici; l'API de statut ne renvoie aucun statut CI exploitable pour le dernier commit. Ne pas annoncer la CI verte.
 - Estimations conservées faute d'exécution des tests : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (écriture partielle des blocs redo)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `079f40caecce9ba64da0737098c0a8bfd1d9119c` : ajout du test `torn_redo_chunk_is_ignored_and_preserves_old_home_data`. Il injecte une écriture partielle dans chacun des deux blocs UPDATE d'une image redo et teste quatre longueurs de préfixe; la récupération doit conserver le bloc home initial et ne pas avancer le checkpoint.
+- Commit `1049fcef2e3d52534830a05d1a1412c5a03cf8ba` : déclaration du test indexée dans `docs/INVENTAIRE_SYMBOLES.csv`.
+- Validation : tests Rust non exécutés ici; statut CI du HEAD non confirmé. Le nouveau test est une régression ajoutée, pas une preuve d'exécution réussie.
+- Estimations conservées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
