@@ -95,6 +95,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             create_namespace_entry(Path::new(&path), block_size, &target, command == "mkdir")
         }
+        Some("mkdir-p") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace path")?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            create_namespace_directories(Path::new(&path), block_size, &target)
+        }
         Some("ls") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
@@ -571,6 +580,69 @@ fn create_namespace_entry(
         target,
         object_id.0
     );
+    Ok(())
+}
+
+/// Create missing directories in a path, accepting existing directories and
+/// refusing to traverse through regular files.
+fn create_namespace_directories(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let normalized = target.trim_matches('/');
+    if normalized.is_empty() {
+        let mut device = ImageDevice::open(path, block_size)?;
+        let volume = open_volume(&mut device)?;
+        let (_, namespace) = volume
+            .reconstruct_discovered_namespace(&mut device)?
+            .ok_or("no persistent namespace; run init-namespace first")?;
+        let root = namespace
+            .object(namespace.root_id())
+            .ok_or("namespace root metadata is missing")?;
+        if root.kind != ObjectKind::Directory {
+            return Err("namespace root is not a directory".into());
+        }
+        println!("Directory '{}' already exists.", target);
+        return Ok(());
+    }
+
+    let mut current = String::new();
+    let mut created = 0_u64;
+    for component in normalized.split('/') {
+        if component.is_empty() {
+            continue;
+        }
+        if component == "." || component == ".." {
+            return Err("mkdir-p does not accept '.' or '..' path components".into());
+        }
+        current.push('/');
+        current.push_str(component);
+
+        let existing_kind = {
+            let mut device = ImageDevice::open(path, block_size)?;
+            let volume = open_volume(&mut device)?;
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)?
+                .ok_or("no persistent namespace; run init-namespace first")?;
+            namespace
+                .resolve_path(&current)
+                .ok()
+                .and_then(|id| namespace.object(id).map(|record| record.kind))
+        };
+
+        match existing_kind {
+            Some(ObjectKind::Directory) => continue,
+            Some(ObjectKind::File) => {
+                return Err(format!("cannot create '{}' through a regular file", current).into())
+            }
+            None => {
+                create_namespace_entry(path, block_size, &current, true)?;
+                created = created.checked_add(1).ok_or("directory count overflows")?;
+            }
+        }
+    }
+    println!("mkdir-p completed for '{}': {created} directory/directories created.", target);
     Ok(())
 }
 
@@ -1443,6 +1515,7 @@ fn print_usage() {
     eprintln!("  openfs recover-image <path> <block-size>");
     eprintln!("  openfs init-namespace <path> <block-size>");
     eprintln!("  openfs mkdir <image> <block-size> <path>");
+    eprintln!("  openfs mkdir-p <image> <block-size> <path>  (create missing parent directories)");
     eprintln!("  openfs touch <image> <block-size> <path>");
     eprintln!("  openfs ls <image> <block-size> [path]");
     eprintln!("  openfs tree <image> <block-size> [path]");
@@ -1531,6 +1604,41 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn mkdir_p_creates_nested_directories_idempotently_and_rejects_file_components() {
+        let path = unique_path("mkdir-p");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            device.flush().unwrap();
+        }
+        super::initialize_namespace_image(&path, BLOCK_SIZE).unwrap();
+
+        super::create_namespace_directories(&path, BLOCK_SIZE, "/alpha/beta/gamma").unwrap();
+        super::create_namespace_directories(&path, BLOCK_SIZE, "alpha/beta/gamma/").unwrap();
+        {
+            let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                namespace.object(namespace.resolve_path("/alpha/beta/gamma").unwrap()).unwrap().kind,
+                super::ObjectKind::Directory
+            );
+        }
+        super::create_namespace_entry(&path, BLOCK_SIZE, "/alpha/regular-file", false).unwrap();
+        assert!(super::create_namespace_directories(
+            &path,
+            BLOCK_SIZE,
+            "/alpha/regular-file/child"
+        )
+        .is_err());
+        assert!(super::create_namespace_directories(&path, BLOCK_SIZE, "/alpha/../escape").is_err());
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
