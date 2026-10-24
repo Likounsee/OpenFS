@@ -2594,42 +2594,44 @@ mod tests {
 
     #[test]
     fn torn_later_redo_chunk_never_partially_applies_multi_target_transaction() {
-        // The first target's redo image is fully written, but the second target's
-        // first chunk tears. Without a durable COMMIT, neither home block may change.
-        for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
-            let mut device = formatted();
-            let second_home = HOME + 1;
-            device.write_blocks(second_home, &vec![0x22; BS as usize]).unwrap();
-            let mut journal = open_journal(&mut device, REGION).unwrap();
-            let updates = [
-                update(0xA5),
-                RedoUpdate {
-                    target_block: second_home,
-                    contents: vec![0x5A; BS as usize],
-                },
-            ];
+        // The first target's redo image is fully written, but a chunk of the second
+        // target tears. Cover both chunks so recovery never applies a partial transaction.
+        for tear_at in [3, 4] {
+            for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
+                let mut device = formatted();
+                let second_home = HOME + 1;
+                device.write_blocks(second_home, &vec![0x22; BS as usize]).unwrap();
+                let mut journal = open_journal(&mut device, REGION).unwrap();
+                let updates = [
+                    update(0xA5),
+                    RedoUpdate {
+                        target_block: second_home,
+                        contents: vec![0x5A; BS as usize],
+                    },
+                ];
 
-            // BEGIN + two chunks for target 1 = writes 0..=2; tear target 2's
-            // first chunk at write 3, after target 1's complete redo image exists.
-            let mut torn = TearWriteAt::new(device.clone(), 3, prefix_bytes);
-            assert!(
-                matches!(journal.commit(&mut torn, &updates), Err(Error::Io(_))),
-                "second target's redo chunk should tear after {prefix_bytes} bytes"
-            );
+                // BEGIN + two chunks for target 1 = writes 0..=2; writes 3 and 4
+                // are the second target's redo chunks.
+                let mut torn = TearWriteAt::new(device.clone(), tear_at, prefix_bytes);
+                assert!(
+                    matches!(journal.commit(&mut torn, &updates), Err(Error::Io(_))),
+                    "second target's redo chunk {tear_at} should tear after {prefix_bytes} bytes"
+                );
 
-            let mut recovered = torn.into_inner();
-            let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
-                panic!(
-                    "recovery must accept an uncommitted partial multi-target transaction: {error:?}"
-                )
-            });
-            assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
-            assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
-            assert_eq!(
-                read_block(&mut recovered, second_home),
-                vec![0x22; BS as usize],
-                "the first target must not be applied when a later redo chunk tears"
-            );
+                let mut recovered = torn.into_inner();
+                let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
+                    panic!(
+                        "recovery must accept an uncommitted partial multi-target transaction: {error:?}"
+                    )
+                });
+                assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
+                assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
+                assert_eq!(
+                    read_block(&mut recovered, second_home),
+                    vec![0x22; BS as usize],
+                    "neither target may be applied when a later redo chunk tears"
+                );
+            }
         }
     }
 
