@@ -93,7 +93,11 @@ fn run() -> Result<(), Box<dyn StdError>> {
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            create_namespace_entry(Path::new(&path), block_size, &target, command == "mkdir")
+            if command == "mkdir" {
+                create_namespace_entry(Path::new(&path), block_size, &target, true)
+            } else {
+                touch_namespace_file(Path::new(&path), block_size, &target)
+            }
         }
         Some("mkdir-p") => {
             let path = args.next().ok_or("missing image path")?;
@@ -581,6 +585,33 @@ fn create_namespace_entry(
         object_id.0
     );
     Ok(())
+}
+
+/// Create a file only when it is missing. Existing regular files are left untouched,
+/// while a directory at the requested path is reported as a type error.
+fn touch_namespace_file(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let volume = open_volume(&mut device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(&mut device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    match namespace.resolve_path(target) {
+        Ok(object_id) => {
+            let record = namespace
+                .object(object_id)
+                .ok_or("object metadata is missing")?;
+            if record.kind != ObjectKind::File {
+                return Err("touch target already exists and is not a regular file".into());
+            }
+            println!("File '{}' already exists; left unchanged.", target);
+            Ok(())
+        }
+        Err(_) => create_namespace_entry(path, block_size, target, false),
+    }
 }
 
 /// Create missing directories in a path, accepting existing directories and
@@ -1604,6 +1635,31 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn touch_is_idempotent_for_files_and_rejects_directories() {
+        let path = unique_path("touch-idempotent");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            device.flush().unwrap();
+        }
+        super::initialize_namespace_image(&path, BLOCK_SIZE).unwrap();
+        super::touch_namespace_file(&path, BLOCK_SIZE, "/note.txt").unwrap();
+        super::write_namespace_file(&path, BLOCK_SIZE, "/note.txt", b"preserve me").unwrap();
+        super::touch_namespace_file(&path, BLOCK_SIZE, "/note.txt").unwrap();
+        {
+            let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            assert_eq!(
+                volume.read_persistent_path_range(&mut device, "/note.txt", 0, 64).unwrap(),
+                b"preserve me"
+            );
+        }
+        super::create_namespace_entry(&path, BLOCK_SIZE, "/folder", true).unwrap();
+        assert!(super::touch_namespace_file(&path, BLOCK_SIZE, "/folder").is_err());
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
