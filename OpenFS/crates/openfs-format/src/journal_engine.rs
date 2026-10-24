@@ -2574,7 +2574,7 @@ mod tests {
                 let mut recovered = torn.into_inner();
                 let reopened = open_journal(&mut recovered, REGION).unwrap_or_else(|error| {
                     panic!(
-                        "old state should remain usable after torn redo chunk {tear_at}                          at {prefix_bytes} bytes: {error:?}"
+                        "old state should remain usable after torn redo chunk {tear_at} at {prefix_bytes} bytes: {error:?}"
                     )
                 });
                 assert_eq!(
