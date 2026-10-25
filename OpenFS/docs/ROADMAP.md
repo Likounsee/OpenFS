@@ -854,3 +854,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `ef6b5cb9d0a667056fffb1bfc9dae4cb83fb703e` : le test de suppression persistante crée désormais un second fichier indépendant `/keep.txt`, puis vérifie après chaque panne injectée et réouverture que son contenu est intact, en plus de vérifier l'inventaire des blocs.
 - Commits `b56c2cf1683813e78c26d374c23c6400e1174c3d` et `78cc1f0aa15d10ae4de1eacd8b7b379cc0083821` : inventaire des symboles resynchronisé avec les lignes modifiées.
 - Aucun test Rust exécuté ici; statut CI du HEAD non confirmé. Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (matrice de pannes élargie pour suppressions et renommage)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `24cb99b9da6bbc64bd36bb1b346419546ef2ddbd` : extension des points de panne testés pour la suppression persistante d'un fichier (0 à 12) et la suppression récursive d'un sous-arbre (0 à 10), avec les cinq tailles de bloc et les échecs d'écriture/flush. Le test de renommage sur échec d'écriture couvre également les positions 0 à 12 dans le code courant.
+- Le test de suppression vérifie aussi que le fichier voisin `/keep.txt` conserve ses données après récupération. L'inventaire CSV conserve les mêmes lignes de déclaration, aucun symbole n'ayant été ajouté.
+- Tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Pourcentages inchangés : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
