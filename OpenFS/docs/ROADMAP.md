@@ -870,3 +870,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `9766e7abf95f60d97b655b367f43a80292c14da7` : le test de suppression persistante d'un fichier vérifie maintenant, comme celui de suppression récursive, que chaque panne d'écriture ou de flush configurée a réellement été déclenchée. Cela empêche les indices hors du chemin d'exécution d'être comptés comme couverture.
 - Aucun symbole Rust nouveau : l'inventaire lexical n'a pas besoin de nouvelle entrée. Tests Rust non exécutés ici; le statut CI exact-SHA reste à confirmer. Si un indice ne correspond pas à une opération réelle, le test doit échouer et la matrice devra être ajustée plutôt que de prétendre couvrir ce point.
 - Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Ajustement de couverture — 2026-10-25
+
+- Commit `6a5b65e4d45351536cd08e8692b5b2cda21cdcca` : la matrice du test de renommage après panne d'écriture revient à `0..=8`. L'extension précédente à `0..=12` n'était pas accompagnée d'une assertion garantissant que chaque panne était atteinte; elle risquait donc de donner une impression de couverture plus large que la couverture réellement exercée. La suppression de fichier, elle, vérifie maintenant explicitement que le point d'injection a été déclenché.
+- Les tests n'ont pas été exécutés dans cet environnement. Les pourcentages de complétion restent inchangés tant que les vérifications fonctionnelles ne sont pas confirmées.
