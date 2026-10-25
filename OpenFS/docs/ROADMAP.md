@@ -862,3 +862,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `24cb99b9da6bbc64bd36bb1b346419546ef2ddbd` : extension des points de panne testés pour la suppression persistante d'un fichier (0 à 12) et la suppression récursive d'un sous-arbre (0 à 10), avec les cinq tailles de bloc et les échecs d'écriture/flush. Le test de renommage sur échec d'écriture couvre également les positions 0 à 12 dans le code courant.
 - Le test de suppression vérifie aussi que le fichier voisin `/keep.txt` conserve ses données après récupération. L'inventaire CSV conserve les mêmes lignes de déclaration, aucun symbole n'ayant été ajouté.
 - Tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Pourcentages inchangés : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (validation des points d'injection de suppression)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `9766e7abf95f60d97b655b367f43a80292c14da7` : le test de suppression persistante d'un fichier vérifie maintenant, comme celui de suppression récursive, que chaque panne d'écriture ou de flush configurée a réellement été déclenchée. Cela empêche les indices hors du chemin d'exécution d'être comptés comme couverture.
+- Aucun symbole Rust nouveau : l'inventaire lexical n'a pas besoin de nouvelle entrée. Tests Rust non exécutés ici; le statut CI exact-SHA reste à confirmer. Si un indice ne correspond pas à une opération réelle, le test doit échouer et la matrice devra être ajustée plutôt que de prétendre couvrir ce point.
+- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
