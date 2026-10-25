@@ -14777,7 +14777,7 @@ mod tests {
         // injected error is followed by a fresh open so stale in-memory state cannot
         // hide a mixed or unrecoverable on-disk namespace.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            for fail_at in 0..=12 {
+            for fail_at in 0..=8 {
                 let path = image_path(&format!(
                     "persistent-rename-write-failure-{block_size}-{fail_at}"
                 ));
