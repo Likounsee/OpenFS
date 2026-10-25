@@ -15672,9 +15672,24 @@ mod tests {
                                 "discard.txt",
                             )
                             .unwrap();
+                        volume
+                            .create_persistent_file_at_path(
+                                &mut device,
+                                "/",
+                                ObjectId(3),
+                                "keep.txt",
+                            )
+                            .unwrap();
                         let payload = b"remove recovery must preserve valid ownership";
                         volume
                             .write_persistent_file_contents(&mut device, "/discard.txt", payload)
+                            .unwrap();
+                        volume
+                            .write_persistent_file_contents(
+                                &mut device,
+                                "/keep.txt",
+                                b"unrelated file must survive removal",
+                            )
                             .unwrap();
                         drop(volume);
                         drop(device);
@@ -15722,6 +15737,18 @@ mod tests {
                                 .unwrap()
                                 .is_consistent(),
                             "recovered namespace ownership must be consistent at block size {block_size}, injected {failure_kind} {fail_at}"
+                        );
+                        assert_eq!(
+                            reopened
+                                .read_persistent_path_range(
+                                    &mut reopened_device,
+                                    "/keep.txt",
+                                    0,
+                                    128,
+                                )
+                                .unwrap(),
+                            b"unrelated file must survive removal",
+                            "removing one file must preserve unrelated sibling data"
                         );
                     }
                     fs::remove_file(path).unwrap();
