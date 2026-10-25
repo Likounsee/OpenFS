@@ -15653,7 +15653,7 @@ mod tests {
         // removed namespace after recovery; its blocks must never be ambiguously owned.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
-                for fail_at in 0..=8 {
+                for fail_at in 0..=12 {
                     let path = image_path(&format!(
                         "persistent-remove-{failure_kind}-failure-{block_size}-{fail_at}"
                     ));
@@ -15766,7 +15766,7 @@ mod tests {
         // every supported block size at each injected write/flush failure boundary.
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
-                for fail_at in 0..=6 {
+                for fail_at in 0..=10 {
                     let path = image_path(&format!(
                         "persistent-tree-remove-{failure_kind}-{block_size}-{fail_at}"
                     ));
