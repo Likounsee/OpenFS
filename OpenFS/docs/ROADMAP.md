@@ -846,3 +846,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `2add4b0f66605c3264693049dfaa3e54c2a809fc` : le test de suppression persistante d'un fichier injecte désormais les échecs d'écriture et de flush aux positions 0 à 12, au lieu de 0 à 8, pour les cinq tailles de bloc. Chaque scénario rouvre le volume et vérifie que l'espace de noms récupéré reste valide et que l'inventaire d'appartenance est cohérent.
 - Aucun test Rust n'a été exécuté ici; statut CI du HEAD à confirmer. Cette modification élargit la couverture écrite, sans démontrer à elle seule la correction fonctionnelle.
 - Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (préservation des fichiers voisins lors d'une suppression)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `ef6b5cb9d0a667056fffb1bfc9dae4cb83fb703e` : le test de suppression persistante crée désormais un second fichier indépendant `/keep.txt`, puis vérifie après chaque panne injectée et réouverture que son contenu est intact, en plus de vérifier l'inventaire des blocs.
+- Commits `b56c2cf1683813e78c26d374c23c6400e1174c3d` et `78cc1f0aa15d10ae4de1eacd8b7b379cc0083821` : inventaire des symboles resynchronisé avec les lignes modifiées.
+- Aucun test Rust exécuté ici; statut CI du HEAD non confirmé. Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
