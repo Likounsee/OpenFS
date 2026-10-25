@@ -838,3 +838,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `472210a00904e0292f688f9481c83594891f6afd` : index de symboles synchronisé, y compris les décalages de lignes de `volume.rs`.
 - Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Pourcentages inchangés jusqu'à validation.
 - Estimations : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+
+### Reprise de session — 2026-10-25 (points de panne supplémentaires sur suppression persistante)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `2add4b0f66605c3264693049dfaa3e54c2a809fc` : le test de suppression persistante d'un fichier injecte désormais les échecs d'écriture et de flush aux positions 0 à 12, au lieu de 0 à 8, pour les cinq tailles de bloc. Chaque scénario rouvre le volume et vérifie que l'espace de noms récupéré reste valide et que l'inventaire d'appartenance est cohérent.
+- Aucun test Rust n'a été exécuté ici; statut CI du HEAD à confirmer. Cette modification élargit la couverture écrite, sans démontrer à elle seule la correction fonctionnelle.
+- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
