@@ -15511,44 +15511,50 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
     #[test]
-    fn canonical_allocation_keeps_bitmap_free_when_candidate_clear_flush_fails() {
+    fn canonical_allocation_keeps_bitmap_free_when_candidate_clear_io_fails() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
-            let path = image_path(&format!("allocation-clear-flush-failure-{block_size}"));
-            {
-                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let first = volume.volume.layout.data_start;
+            for failure_kind in ["write", "flush"] {
+                let path = image_path(&format!("allocation-clear-{failure_kind}-failure-{block_size}"));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let first = volume.volume.layout.data_start;
 
-                // Seed a free candidate with stale bytes. Allocation must clear it
-                // before publishing the bitmap bit for a new owner.
-                let stale = vec![0xA5; block_size as usize];
-                device.write_blocks(first, &stale).unwrap();
-                device.flush().unwrap();
+                    // Seed a free candidate with stale bytes. Allocation must clear it
+                    // before publishing the bitmap bit for a new owner.
+                    let stale = vec![0xA5; block_size as usize];
+                    device.write_blocks(first, &stale).unwrap();
+                    device.flush().unwrap();
 
-                let mut failing = openfs_block::FaultInjectingDevice::new(device);
-                failing.fail_next(openfs_block::IoOperation::Flush);
-                assert!(
-                    matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
-                    "candidate-clear flush failure must abort allocation (block size {block_size})"
-                );
+                    let mut failing = openfs_block::FaultInjectingDevice::new(device);
+                    failing.fail_next(if failure_kind == "write" {
+                        openfs_block::IoOperation::Write
+                    } else {
+                        openfs_block::IoOperation::Flush
+                    });
+                    assert!(
+                        matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
+                        "candidate-clear {failure_kind} failure must abort allocation (block size {block_size})"
+                    );
 
-                let mut device = failing.into_inner();
-                drop(volume);
-                let mut recovered = open_volume(&mut device).unwrap();
-                assert_eq!(
-                    recovered.allocate_block(&mut device).unwrap(),
-                    first,
-                    "failed candidate clearing must not consume the free block (block size {block_size})"
-                );
+                    let mut device = failing.into_inner();
+                    drop(volume);
+                    let mut recovered = open_volume(&mut device).unwrap();
+                    assert_eq!(
+                        recovered.allocate_block(&mut device).unwrap(),
+                        first,
+                        "failed candidate clearing must not consume the free block (block size {block_size}, {failure_kind})"
+                    );
 
-                let mut contents = vec![0xFF; block_size as usize];
-                device.read_blocks(first, &mut contents).unwrap();
-                assert!(
-                    contents.iter().all(|byte| *byte == 0),
-                    "reused allocation must not expose stale bytes (block size {block_size})"
-                );
+                    let mut contents = vec![0xFF; block_size as usize];
+                    device.read_blocks(first, &mut contents).unwrap();
+                    assert!(
+                        contents.iter().all(|byte| *byte == 0),
+                        "reused allocation must not expose stale bytes (block size {block_size}, {failure_kind})"
+                    );
+                }
+                fs::remove_file(path).unwrap();
             }
-            fs::remove_file(path).unwrap();
         }
     }
 
