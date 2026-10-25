@@ -821,3 +821,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `8fbf0c69dbb9ed630246504269fd268df31ce468` : entrée du test ajoutée à `docs/INVENTAIRE_SYMBOLES.csv`.
 - Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Ne pas considérer ces tests comme validés tant que CI ne les a pas exécutés.
 - Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+### Reprise de session — 2026-10-25 (deuxième bloc redo de la cible suivante)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `f01cb0c1a8e145bf829c8a2b1b760e1370bf2595` : le test d'atomicité multi-cible injecte désormais une écriture partielle dans les deux chunks redo de la seconde cible (indices d'écriture 3 et 4), avec quatre longueurs de préfixe pour chaque cas.
+- L'inventaire CSV ne nécessite pas de nouvelle entrée : le symbole de test existant est conservé et aucune déclaration n'a été ajoutée.
+- Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Cette extension augmente la couverture écrite, pas la complétion fonctionnelle validée.
+- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
