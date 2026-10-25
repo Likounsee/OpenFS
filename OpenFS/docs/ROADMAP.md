@@ -829,3 +829,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - L'inventaire CSV ne nécessite pas de nouvelle entrée : le symbole de test existant est conservé et aucune déclaration n'a été ajoutée.
 - Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Cette extension augmente la couverture écrite, pas la complétion fonctionnelle validée.
 - Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+### Reprise de session — 2026-10-25 (échec d'effacement avant allocation)
+
+- Branche cible : `OpenFS` uniquement.
+- Commit `99874477a2e98bc6fe93df01f66581b8d879941e` : le test d'allocation couvre maintenant les échecs d'écriture **et** de flush pendant l'effacement du bloc candidat, pour les cinq tailles de bloc prises en charge.
+- Pour chaque scénario, le test rouvre le volume, vérifie que le même premier bloc libre peut encore être alloué, puis contrôle que les octets obsolètes ne sont pas exposés.
+- Commit `472210a00904e0292f688f9481c83594891f6afd` : index de symboles synchronisé, y compris les décalages de lignes de `volume.rs`.
+- Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Pourcentages inchangés jusqu'à validation.
+- Estimations : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
