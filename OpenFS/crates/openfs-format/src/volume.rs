@@ -3984,8 +3984,9 @@ impl OpenedVolume {
         // filesystem block size, avoiding tiny device requests on 4 KiB volumes.
         const STREAM_BATCH_BYTES: usize = 1024 * 1024;
         const MAX_STREAM_BATCH_BLOCKS: usize = 64;
-        let stream_batch_blocks =
-            (STREAM_BATCH_BYTES / block_len).clamp(1, MAX_STREAM_BATCH_BLOCKS);
+        let stream_batch_blocks = (STREAM_BATCH_BYTES / block_len)
+            .clamp(1, MAX_STREAM_BATCH_BLOCKS)
+            .min(usize::try_from(last_logical - first_logical + 1).unwrap_or(usize::MAX));
         let batch_capacity = block_len
             .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -4135,8 +4136,10 @@ impl OpenedVolume {
         // filesystem block size, avoiding tiny device requests on 4 KiB volumes.
         const STREAM_BATCH_BYTES: usize = 1024 * 1024;
         const MAX_STREAM_BATCH_BLOCKS: usize = 64;
-        let stream_batch_blocks =
-            (STREAM_BATCH_BYTES / block_len).clamp(1, MAX_STREAM_BATCH_BLOCKS);
+        let stream_batch_blocks = (STREAM_BATCH_BYTES / block_len)
+            .clamp(1, MAX_STREAM_BATCH_BLOCKS)
+            .min(usize::try_from(record.size / block_size + u64::from(record.size % block_size != 0))
+                .unwrap_or(usize::MAX));
         let batch_capacity = block_len
             .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
