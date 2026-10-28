@@ -610,13 +610,26 @@ impl OpenedVolume {
             self.volume.block_size,
         )?;
         bitmap[byte] &= !mask;
-        self.journal.commit(
+        if let Err(error) = self.journal.commit(
             device,
             &[RedoUpdate {
                 target_block: bitmap_block,
                 contents: bitmap,
             }],
-        )?;
+        ) {
+            // A failed commit can be indeterminate: COMMIT may already be durable.
+            // Recover before reusing this handle, then report the on-disk outcome.
+            *self = open_volume(device).map_err(|_| {
+                Error::Corrupt("free-block commit failed and journal recovery failed")
+            })?;
+            return match self.is_data_block_allocated(device, block) {
+                Ok(false) => Ok(()),
+                Ok(true) => Err(error),
+                Err(_) => Err(Error::Corrupt(
+                    "free-block commit failed and allocation state could not be verified",
+                )),
+            };
+        }
         Ok(())
     }
 
@@ -12501,13 +12514,17 @@ mod tests {
                         fail_at,
                     };
                     assert!(
-                        matches!(volume.free_block(&mut failing, first), Err(Error::Io(_))),
-                        "expected injected failure at write {fail_at}, block size {block_size}"
+                        volume.free_block(&mut failing, first).is_ok(),
+                        "a durably committed free must report success after recovery at write {fail_at}, block size {block_size}"
+                    );
+                    assert!(
+                        !volume.is_data_block_allocated(&mut failing, first).unwrap(),
+                        "recovered volume must expose the durable free at write {fail_at}, block size {block_size}"
                     );
                     let mut device = failing.inner;
                     drop(volume);
 
-                    // Recovery must be repeatable after both home-write and
+                    // Recovery must remain repeatable after home-write and
                     // checkpoint-write failures following a durable free.
                     drop(open_volume(&mut device).unwrap());
                     let mut recovered = open_volume(&mut device).unwrap();
