@@ -2465,7 +2465,64 @@ impl OpenedVolume {
             while end < sorted.len() && sorted[end] / bits_per_block == bitmap_segment {
                 end += 1;
             }
-            self.free_blocks_sorted(device, &sorted[start..end])?;
+            let segment_blocks = &sorted[start..end];
+            let mut recovery_attempts = 0;
+            loop {
+                match self.free_blocks_sorted(device, segment_blocks) {
+                    Ok(()) => break,
+                    Err(error) if matches!(error, Error::Io(_)) => {
+                        // A bitmap commit can fail either before or after its durable
+                        // COMMIT record. Recover the journal and inspect the on-disk bits
+                        // before deciding whether this segment still needs freeing.
+                        let recovered = open_volume(device).map_err(|_| {
+                            Error::Corrupt(
+                                "block reclamation failed and journal recovery failed; preserve the image",
+                            )
+                        })?;
+                        *self = recovered;
+
+                        let bitmap_index = bitmap_segment;
+                        let bitmap_block = layout
+                            .bitmap_start
+                            .checked_add(bitmap_index)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        let mut bitmap = try_zeroed_block(
+                            self.volume.block_size as usize,
+                            "allocation failed while verifying reclaimed bitmap segment",
+                        )?;
+                        device.read_blocks(bitmap_block, &mut bitmap)?;
+                        let mut allocated_count = 0usize;
+                        let mut free_count = 0usize;
+                        for &block in segment_blocks {
+                            let local = block % bits_per_block;
+                            let byte = usize::try_from(local / 8)
+                                .map_err(|_| Error::ArithmeticOverflow)?;
+                            if bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                                free_count += 1;
+                            } else {
+                                allocated_count += 1;
+                            }
+                        }
+
+                        if free_count == segment_blocks.len() {
+                            // The original transaction committed despite its reported
+                            // error; do not replay a second free against already-free bits.
+                            break;
+                        }
+                        if allocated_count != segment_blocks.len() || recovery_attempts != 0 {
+                            return Err(Error::Corrupt(
+                                "block reclamation left a mixed or unresolved bitmap state after journal recovery",
+                            ));
+                        }
+
+                        // Recovery proved that no requested block was freed, so one
+                        // retry is safe. A second ambiguous I/O failure is resolved by
+                        // another recovery pass rather than freeing any block blindly.
+                        recovery_attempts += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             start = end;
         }
         Ok(())
