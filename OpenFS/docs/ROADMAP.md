@@ -99,6 +99,16 @@
 
 ---
 
+### Session de développement — 2026-10-28 (récupération des libérations multi-segments)
+
+- **Code de production :** `reclaim_persistent_blocks_in_place` ne traite plus un échec d'E/S d'une libération de bitmap comme un résultat simplement binaire. Après erreur, il rouvre le volume pour récupérer le journal, relit le segment bitmap et vérifie les bits exacts demandés avant de décider si la transaction a déjà été appliquée.
+- Si tous les blocs sont déjà libres, la libération n'est pas rejouée. Si tous sont encore alloués, une seule nouvelle tentative est autorisée. Un état mixte ou une deuxième erreur ambiguë renvoie une erreur de corruption explicite plutôt que de libérer à l'aveugle. Cela protège les suppressions, troncatures et remplacements qui récupèrent plusieurs segments bitmap.
+- Commit code : `d58273c16afb71ebe9b17860fd18d410b8dd0671`; correction de classification d'erreur : `c46682f3777de450f7b49cbeb441329507cd1ed5`.
+- Inventaire lexical de `volume.rs` recalé : 318 déclarations détectées et 318 entrées CSV comparées — commit `b81544db21cbb29d71f05f811bb70c3e2281c93d`.
+- **Validation toujours ouverte :** les tests Rust, rustfmt et Clippy ne sont pas exécutés dans cet environnement; le statut GitHub Actions doit être confirmé séparément.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
