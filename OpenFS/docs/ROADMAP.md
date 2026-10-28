@@ -1,3 +1,13 @@
+### Reprise de session — 2026-10-28 (récupération du journal après échec de tail-scrub de troncature)
+
+- Correction de production dans `truncate_persistent_file` : si le commit du nettoyage des octets après EOF échoue, OpenFS rouvre/récupère désormais le volume avant toute tentative de libération des extents retirés.
+- La récupération doit confirmer que la génération tronquée exacte est active (taille, génération et racine d'extents). Si ce contrôle échoue, les anciens blocs sont conservés et l'image doit être préservée; aucun nettoyage risqué n'est tenté.
+- Si la génération est confirmée, la réclamation peut se poursuivre sur un moteur de journal récupéré; l'erreur originale du nettoyage est ensuite signalée au demandeur.
+- Commit : `9d8754b33041e988d21a49ab8482ddd7be3db2cf`.
+- Validation automatisée de ce SHA : en attente; ne pas présenter la CI comme verte avant les résultats Linux/Windows.
+
+---
+
 ### Reprise de session — 2026-10-28 (résultat indéterminé de libération simple)
 
 - Branche : `OpenFS` uniquement.
