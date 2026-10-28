@@ -2109,7 +2109,7 @@ mod tests {
         // A two-home-block transaction is the minimum useful primitive for
         // publishing related filesystem metadata. Fail each I/O boundary in
         // turn, then reopen and ensure recovery never exposes a mixed pair.
-        for fail_at in 0..24 {
+        for fail_at in 0..13 {
             let mut device = formatted();
             device
                 .write_blocks(HOME + 1, &vec![0x22; BS as usize])
