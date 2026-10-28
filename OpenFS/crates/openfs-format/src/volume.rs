@@ -2470,7 +2470,7 @@ impl OpenedVolume {
             loop {
                 match self.free_blocks_sorted(device, segment_blocks) {
                     Ok(()) => break,
-                    Err(error) if matches!(error, Error::Io(_)) => {
+                    Err(error) if matches!(&error, Error::Io(_)) => {
                         // A bitmap commit can fail either before or after its durable
                         // COMMIT record. Recover the journal and inspect the on-disk bits
                         // before deciding whether this segment still needs freeing.
