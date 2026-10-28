@@ -4411,7 +4411,7 @@ impl OpenedVolume {
 
         // Clear bytes beyond EOF only after publishing the shorter length. Doing this
         // earlier could corrupt the still-authoritative old file if publication failed.
-        let mut tail_cleanup = (|| -> Result<()> {
+        let tail_cleanup = (|| -> Result<()> {
             if remainder != 0 {
                 if let Some(physical) = updated_map.physical_block(new_size / block_size) {
                     let mut contents = try_zeroed_block(
