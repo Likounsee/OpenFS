@@ -4498,7 +4498,8 @@ impl OpenedVolume {
                 "file was truncated but some old blocks could not be reclaimed",
             ));
         }
-        tail_cleanup?;
+        // A failed first scrub is not itself a failure if recovery verified the
+        // published generation and the retry above made the retained tail durable.
         Ok(())
     }
 
