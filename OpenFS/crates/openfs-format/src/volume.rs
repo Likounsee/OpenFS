@@ -14810,6 +14810,10 @@ mod tests {
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
                         "unexpected rename error at block size {block_size}, write {fail_at}: {result:?}"
                     );
+                    assert!(
+                        failing.writes_until_failure.is_none(),
+                        "write failure index {fail_at} was not exercised at block size {block_size}"
+                    );
                     drop(volume);
                     drop(failing);
                 }
@@ -15597,6 +15601,10 @@ mod tests {
                     assert!(
                         result.is_ok() || matches!(result, Err(Error::Io(_))),
                         "unexpected rename error at block size {block_size}, flush {fail_at}: {result:?}"
+                    );
+                    assert!(
+                        failing.flushes_until_failure.is_none(),
+                        "flush failure index {fail_at} was not exercised at block size {block_size}"
                     );
                     drop(volume);
                     drop(failing);
