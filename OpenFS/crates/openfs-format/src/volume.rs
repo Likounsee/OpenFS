@@ -3990,8 +3990,8 @@ impl OpenedVolume {
         let batch_capacity = block_len
             .checked_mul(stream_batch_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut block_buffer =
-            try_zeroed_block(block_len, "unable to allocate persistent path read buffer")?;
+        // The batch buffer is at least one block long, so partial-block reads
+        // reuse its first block instead of allocating a second full-sized buffer.
         let mut batch_buffer = try_zeroed_block(
             batch_capacity,
             "unable to allocate persistent path read batch",
@@ -4068,11 +4068,11 @@ impl OpenedVolume {
                     .ok_or(Error::ArithmeticOverflow)?;
             } else {
                 if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
-                    device.read_blocks(physical, &mut block_buffer)?;
+                    device.read_blocks(physical, &mut batch_buffer[..block_len])?;
                 } else {
-                    block_buffer.fill(0);
+                    batch_buffer[..block_len].fill(0);
                 }
-                writer.write_all(&block_buffer[within_start..within_end])?;
+                writer.write_all(&batch_buffer[within_start..within_end])?;
                 written = written
                     .checked_add(
                         u64::try_from(within_end - within_start)
