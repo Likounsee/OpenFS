@@ -6255,17 +6255,17 @@ impl OpenedVolume {
                             ));
                         }
 
+                        let physical = map
+                            .physical_block(offset / block_size)
+                            .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
+                        let tail_start = usize::try_from(tail_offset)
+                            .map_err(|_| Error::ArithmeticOverflow)?;
                         let cleanup = (|| -> Result<()> {
-                            let physical = map
-                                .physical_block(offset / block_size)
-                                .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
                             let mut current = try_zeroed_block(
                                 block_size_usize,
                                 "allocation failed while preparing persistent I/O buffer",
                             )?;
                             device.read_blocks(physical, &mut current)?;
-                            let tail_start = usize::try_from(tail_offset)
-                                .map_err(|_| Error::ArithmeticOverflow)?;
                             current[tail_start..].fill(0);
                             self.journal.commit(
                                 device,
@@ -6277,9 +6277,85 @@ impl OpenedVolume {
                             Ok(())
                         })();
                         if cleanup.is_err() {
-                            return Err(Error::Corrupt(
-                                "append staging failed and bytes beyond the old EOF could not be cleared after recovery",
-                            ));
+                            // This rollback transaction can itself fail after COMMIT.
+                            // Recover it, re-prove that the old namespace is active, and
+                            // inspect the old EOF tail before retrying any repair.
+                            *self = open_volume(device).map_err(|_| {
+                                Error::Corrupt(
+                                    "append staging rollback failed and journal recovery failed; preserve the image",
+                                )
+                            })?;
+                            let old_generation_is_active = matches!(
+                                self.reconstruct_discovered_namespace(device),
+                                Ok(Some((_, ref active)))
+                                    if active.object(object_id).is_some_and(|item| {
+                                        item.size == record.size
+                                            && item.generation == record.generation
+                                            && item.extent_root_block == record.extent_root_block
+                                    })
+                            );
+                            if !old_generation_is_active {
+                                return Err(Error::Corrupt(
+                                    "append staging rollback failed and the old generation is uncertain; preserve the image",
+                                ));
+                            }
+                            let mut current = try_zeroed_block(
+                                block_size_usize,
+                                "allocation failed while verifying append rollback",
+                            )?;
+                            device.read_blocks(physical, &mut current).map_err(|_| {
+                                Error::Corrupt(
+                                    "append staging rollback could not verify bytes beyond EOF",
+                                )
+                            })?;
+                            if current[tail_start..].iter().any(|byte| *byte != 0) {
+                                current[tail_start..].fill(0);
+                                if self
+                                    .journal
+                                    .commit(
+                                        device,
+                                        &[RedoUpdate {
+                                            target_block: physical,
+                                            contents: current,
+                                        }],
+                                    )
+                                    .is_err()
+                                {
+                                    *self = open_volume(device).map_err(|_| {
+                                        Error::Corrupt(
+                                            "append staging rollback retry failed and journal recovery failed; preserve the image",
+                                        )
+                                    })?;
+                                    let old_generation_is_active = matches!(
+                                        self.reconstruct_discovered_namespace(device),
+                                        Ok(Some((_, ref active)))
+                                            if active.object(object_id).is_some_and(|item| {
+                                                item.size == record.size
+                                                    && item.generation == record.generation
+                                                    && item.extent_root_block == record.extent_root_block
+                                            })
+                                    );
+                                    if !old_generation_is_active {
+                                        return Err(Error::Corrupt(
+                                            "append staging rollback retry left the active generation uncertain; preserve the image",
+                                        ));
+                                    }
+                                    let mut verified = try_zeroed_block(
+                                        block_size_usize,
+                                        "allocation failed while verifying append rollback retry",
+                                    )?;
+                                    device.read_blocks(physical, &mut verified).map_err(|_| {
+                                        Error::Corrupt(
+                                            "append staging rollback retry could not verify bytes beyond EOF",
+                                        )
+                                    })?;
+                                    if verified[tail_start..].iter().any(|byte| *byte != 0) {
+                                        return Err(Error::Corrupt(
+                                            "append staging rollback retry left bytes beyond EOF; preserve the image",
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
