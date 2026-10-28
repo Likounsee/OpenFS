@@ -9,6 +9,15 @@ use std::collections::BTreeMap;
 use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 use openfs_core::{Error, Result};
 
+fn try_clone_name(value: &str) -> Result<String> {
+    let mut cloned = String::new();
+    cloned
+        .try_reserve_exact(value.len())
+        .map_err(|_| Error::AllocationFailed("unable to allocate namespace name"))?;
+    cloned.push_str(value);
+    Ok(cloned)
+}
+
 /// Logical namespace rooted at one directory object.
 ///
 /// The initial implementation supports one parent per object (no hard links) and
@@ -347,7 +356,11 @@ impl Namespace {
                 ));
             }
         }
-        let key = (parent_id, entry.name.clone());
+        // Prepare every owned name before the first index mutation. String::clone()
+        // can abort on allocation failure; the fallible copies keep the namespace
+        // indexes from being left half-updated by name-allocation pressure.
+        let key = (parent_id, try_clone_name(&entry.name)?);
+        let parent_name = try_clone_name(&entry.name)?;
         if self.names.contains_key(&key) {
             return Err(Error::InvalidInput("name already exists in directory"));
         }
@@ -366,8 +379,7 @@ impl Namespace {
             self.extent_roots.insert(root_block, object_id);
         }
         self.objects.insert(object_id, record);
-        self.parents
-            .insert(object_id, (parent_id, entry.name.clone()));
+        self.parents.insert(object_id, (parent_id, parent_name));
         self.names.insert(key, entry);
         Ok(())
     }
@@ -411,7 +423,7 @@ impl Namespace {
         }
         let mut updated_entry = old_entry.clone();
         updated_entry.parent_id = new_parent_id.0;
-        updated_entry.name = new_name.to_owned();
+        updated_entry.name = try_clone_name(new_name)?;
         updated_entry.encode()?;
 
         let parent = self
@@ -424,7 +436,7 @@ impl Namespace {
 
         self.validate_directory_ancestry(new_parent_id, Some(object_id))?;
 
-        let new_key = (new_parent_id, new_name.to_owned());
+        let new_key = (new_parent_id, try_clone_name(new_name)?);
         if self.names.contains_key(&new_key)
             && !(new_parent_id == old_parent_id && new_name == old_entry.name)
         {
@@ -474,11 +486,19 @@ impl Namespace {
             Some(parent)
         };
 
-        let old_key = (old_parent_id, old_entry.name.clone());
+        // Prepare all name storage before mutating any index. In particular, do
+        // not clone a String after removing the old directory edge.
+        let old_key = (old_parent_id, try_clone_name(&old_entry.name)?);
+        let parent_name = try_clone_name(&updated_entry.name)?;
+        let indexed_entry = DirectoryEntry {
+            parent_id: updated_entry.parent_id,
+            object_id: updated_entry.object_id,
+            kind: updated_entry.kind,
+            name: try_clone_name(&updated_entry.name)?,
+        };
         self.names.remove(&old_key);
-        self.names.insert(new_key, updated_entry.clone());
-        self.parents
-            .insert(object_id, (new_parent_id, updated_entry.name));
+        self.names.insert(new_key, indexed_entry);
+        self.parents.insert(object_id, (new_parent_id, parent_name));
         self.objects.insert(object_id, updated_record);
         self.objects.insert(old_parent_id, updated_old_parent);
         if let Some(parent) = updated_new_parent {
