@@ -1005,3 +1005,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Cette correction aligne le chemin best-fit sur les garanties déjà ajoutées aux allocations batch et contiguës classiques; elle réduit le risque qu'un appelant réessaie après un commit déjà durable.
 - Inventaire CSV resynchronisé après le décalage de lignes. Les tests Rust, `cargo fmt`, Clippy et la CI ne sont pas exécutés/confirmés dans cette session; aucun statut vert n'est revendiqué.
 - Estimations actualisées : P0 100 %, P1 79 %, P2 75 %, P3 5 %, global 66 %. Pourcentage estimatif de périmètre, pas une validation par les tests.
+
+### Récupération des commits ambigus pour la libération de blocs (2026-10-28)
+
+- Commit `1b7e0bf3dc7dfe41abd6f313a2c076f2bc8369ed` : `free_contiguous_blocks` rouvre le volume après une erreur de commit, récupère le journal puis vérifie tout le bitmap de la plage. Une plage entièrement libre est considérée comme libérée; une plage entièrement allouée conserve l'erreur initiale; un état mixte ou invérifiable échoue fermé.
+- Commit `3f7c1023a48fe928acb18f39ca86e92e83e59239` : `free_blocks_sorted`, utilisé par les suppressions, troncatures et remplacements, applique la même règle à une liste de blocs non contigus. Il compte l'état réel de chaque bit après récupération et ne confond pas un commit déjà durable avec un échec sans effet.
+- Inventaire CSV mis à jour après les insertions et contrôlé sur les déclarations concernées : 77 entrées de `allocator_extents.rs` vérifiées, aucune incohérence de ligne détectée dans ce contrôle.
+- Validation restante : les tests Rust, `cargo fmt`, Clippy et la CI ne sont pas exécutés/confirmés dans cette session. Les vérifications de l'inventaire ne remplacent pas une compilation ni les tests d'injection de panne.
+- Estimations actualisées : P0 100 %, P1 79 %, P2 76 %, P3 5 %, global estimé 67 %. Le +1 % correspond à l'extension effective de la récupération aux deux chemins de libération; ce n'est pas une affirmation que les tests ont passé.
+
