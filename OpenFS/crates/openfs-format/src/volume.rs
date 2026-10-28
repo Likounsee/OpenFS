@@ -3970,7 +3970,29 @@ impl OpenedVolume {
                 "write-range source accounting does not match the supplied data",
             ));
         }
-        self.journal.commit(device, &updates)?;
+        if let Err(error) = self.journal.commit(device, &updates) {
+            // A multi-block data transaction may have crossed its durable COMMIT
+            // point before an I/O or flush error was returned. Recover before
+            // reporting failure, then verify the complete requested postcondition.
+            *self = open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "file write failed and journal recovery could not be completed",
+                )
+            })?;
+            let mut recovered = try_zeroed_block(
+                self.volume.block_size as usize,
+                "unable to verify recovered file write",
+            )?;
+            for update in &updates {
+                device.read_blocks(update.target_block, &mut recovered).map_err(|_| {
+                    Error::Corrupt("file write recovery could not verify target data")
+                })?;
+                if recovered != update.contents {
+                    return Err(error);
+                }
+            }
+            return Ok(());
+        }
         Ok(())
     }
 
