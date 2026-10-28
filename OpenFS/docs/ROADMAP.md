@@ -882,3 +882,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test `multi_target_transaction_recovers_to_all_old_or_all_new_images` limite maintenant la matrice aux 13 opérations d'E/S réellement effectuées par le commit à deux cibles (écritures, flushs et publication du checkpoint).
 - Chaque position doit provoquer explicitement `Error::Io`; un indice qui ne serait pas atteint fait échouer le test au lieu d'être compté comme couverture. La réouverture vérifie ensuite que les deux blocs restent dans l'état ancien ou passent ensemble au nouvel état, puis que ce résultat reste stable après une seconde ouverture.
 - Modification du test seulement : elle ne prouve pas que la suite passe tant que le test Rust et la CI exacte-SHA n'ont pas été exécutés. Les estimations de complétion restent inchangées.
+
+### Matrice de renommage persistante — injections effectivement exercées (2026-10-28)
+
+- Les tests de renommage persistant après panne d'écriture et après panne de flush vérifient maintenant que l'injecteur a réellement consommé le point de panne configuré. Un indice hors du chemin exécuté provoque un échec du test au lieu d'être compté comme couverture.
+- La vérification après réouverture reste inchangée : exactement l'ancien ou le nouveau nom doit exister, le contenu du fichier doit survivre et l'inventaire des blocs doit rester cohérent.
+- L'index lexical CSV a été synchronisé avec les nouvelles lignes de test. Ces changements améliorent la qualité de la couverture écrite, mais les tests Rust et la CI exacte-SHA doivent encore confirmer le résultat; aucun pourcentage fonctionnel n'est augmenté sur la seule base de ces assertions.
