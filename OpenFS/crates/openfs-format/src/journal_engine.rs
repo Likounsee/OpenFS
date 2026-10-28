@@ -2125,7 +2125,10 @@ mod tests {
                 },
             ];
             let mut failing = FailAt::new(device, fail_at);
-            let _ = journal.commit(&mut failing, &updates);
+            assert!(
+                matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))),
+                "fault injection at operation {fail_at} was not exercised"
+            );
             let mut recovered = failing.into_inner();
 
             // A failed commit may have reached the durable commit point or
