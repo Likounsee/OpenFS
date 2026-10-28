@@ -88,6 +88,17 @@
 
 ---
 
+### Session de développement — 2026-10-28 (trois chemins de rollback append durcis)
+
+- **Append multi-blocs — échec pendant le staging** : si la queue du fichier existant a déjà été modifiée et que le staging échoue, OpenFS rouvre le volume avant toute nouvelle écriture. Il vérifie que la génération d'origine est toujours active, restaure les octets après EOF à zéro, puis tente de récupérer les allocations temporaires. Il ne réutilise plus directement un journal potentiellement empoisonné.
+- **Append — échec de préparation des métadonnées** : si le nettoyage de rollback échoue, le volume est récupéré, l'ancienne génération est vérifiée et le bloc de queue est relu. Un second scrub n'est journalisé que si des octets non nuls persistent; les allocations ne sont pas libérées tant que l'état du journal est incertain.
+- **Append court — échec de publication** : si l'ancienne génération est toujours active mais que le scrub échoue, le code récupère le journal puis vérifie et répare le tail avant de rendre l'erreur d'origine. Cela protège l'invariant « octets après EOF = zéro » contre les erreurs de commit ambiguës.
+- Commits code : `864fde9cda2dc64fb934d0900563371de5f0e81a`, `d3e91fe318b445b55f12a4f0d432b1ce02eec44a`, `d655ac8a36769005aace1a12ccccaa8110a9b5d5`.
+- Inventaire lexical de `volume.rs` resynchronisé : `8f7a5c10ccd2a645357c9e2b35a613228075028b`; les 318 déclarations détectées et les 318 lignes correspondantes ont été comparées.
+- **Validation** : pas de `cargo test`, `cargo fmt` ou Clippy exécuté dans cet environnement. Statut combiné et runs GitHub non disponibles pour certifier ce SHA. Le code est commité, mais sa validation automatisée reste ouverte.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
