@@ -109,6 +109,14 @@
 
 ---
 
+### Complément — journal déjà marqué comme nécessitant une récupération
+
+- La récupération de libération de blocs couvre maintenant aussi le cas où le journal était déjà marqué `recovery_required` avant l'entrée dans la routine de reclamation. Ce cas renvoie `InvalidInput("journal requires recovery after a previous I/O error")`, pas nécessairement `Error::Io`; il est désormais traité comme un état nécessitant une réouverture, suivie de la même vérification exacte des bits du bitmap.
+- Commit : `f7c947903442d0806da5be69a06d79c0e4268f37`. Inventaire synchronisé : `b59c91bce4e795ce47da6cbad8a94b983a92bc21`.
+- Aucun test ni CI n'a été certifié dans cet environnement.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
