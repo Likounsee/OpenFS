@@ -720,15 +720,48 @@ impl OpenedVolume {
         // All requested bits were verified allocated above; clear them with the
         // same edge masks, preserving neighboring allocations in partial bytes.
         set_bitmap_range(&mut bitmap, local_start, local_end, false)?;
-        self.journal
-            .commit(
-                device,
-                &[RedoUpdate {
-                    target_block: bitmap_block,
-                    contents: bitmap,
-                }],
+        if let Err(error) = self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        ) {
+            // A failed journal call can happen after the COMMIT became durable.
+            // Reopen the volume and inspect the entire free range before returning
+            // an error that callers could interpret as permission to retry.
+            *self = crate::volume::open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "contiguous free failed and journal recovery could not be completed",
+                )
+            })?;
+            let mut recovered_bitmap = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while verifying recovered contiguous free",
+            )?;
+            device
+                .read_blocks(bitmap_block, &mut recovered_bitmap)
+                .map_err(|_| {
+                    Error::Corrupt("contiguous free recovery could not verify bitmap state")
+                })?;
+            validate_bitmap_reserved_bits(
+                &recovered_bitmap,
+                base,
+                segment_start,
+                segment_end,
             )
-            .map(|_| ())
+            .map_err(|_| Error::Corrupt("contiguous free recovery found an invalid bitmap"))?;
+            if bitmap_range_matches(&recovered_bitmap, local_start, local_end, false)? {
+                return Ok(());
+            }
+            if bitmap_range_matches(&recovered_bitmap, local_start, local_end, true)? {
+                return Err(error);
+            }
+            return Err(Error::Corrupt(
+                "contiguous free recovery left a mixed bitmap state",
+            ));
+        }
+        Ok(())
     }
 
     /// Find the first free contiguous extent wholly contained in one bitmap block.
