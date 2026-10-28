@@ -58,6 +58,15 @@
 
 ---
 
+### Reprise de session — 2026-10-28 (tampon mémoire de streaming proportionnel à la lecture)
+
+- Optimisation de production dans les deux API de streaming de fichiers persistants : le tampon de lecture par lots est maintenant limité au nombre de blocs effectivement demandés / présents dans le fichier, au lieu d'allouer systématiquement la capacité maximale. Les petites lectures et les petits fichiers évitent donc une allocation temporaire inutile; les lectures volumineuses conservent le regroupement des blocs contigus.
+- Les calculs restent bornés et utilisent des conversions vérifiées; le nombre de blocs demandé est calculé avec `div_ceil` pour éviter une addition de taille potentiellement débordante.
+- Commit code : `0a4318e3270990c180c344ed017f4cb8a9cceac0` puis `123228fe60afda42f28be6052fb869d2ee851abd`; inventaire lexical recalé dans `3c8fc1531905d3fdc0d9d2fd099e7794cd02a760`.
+- Validation Rust/formatage et CI exacte-SHA : pas encore confirmées. Le statut GitHub combiné renvoie parfois une liste vide; cela ne constitue pas une réussite. Les estimations de complétion restent inchangées jusqu'à validation automatisée et à un lot de fonctionnalités plus large.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
