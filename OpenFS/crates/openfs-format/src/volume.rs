@@ -4608,7 +4608,29 @@ impl OpenedVolume {
                             "sparse extension tail scrub failed and the active file generation is uncertain",
                         ));
                     }
-                    return Err(error);
+
+                    // The original commit may have failed before or after its durable
+                    // COMMIT. Recovery settles that ambiguity; inspect the old EOF tail
+                    // and retry the scrub only if stale bytes remain. Do not publish a
+                    // larger size until the newly exposed bytes are guaranteed zero.
+                    let _original_error = error;
+                    let mut recovered_tail = try_zeroed_block(
+                        block_size,
+                        "allocation failed while verifying sparse-extension tail",
+                    )?;
+                    device.read_blocks(physical, &mut recovered_tail)?;
+                    if recovered_tail[tail_remainder..].iter().any(|byte| *byte != 0) {
+                        recovered_tail[tail_remainder..].fill(0);
+                        self.journal.commit(
+                            device,
+                            &[RedoUpdate {
+                                target_block: physical,
+                                contents: recovered_tail,
+                            }],
+                        ).map_err(|_| Error::Corrupt(
+                            "sparse extension tail scrub could not be retried after recovery; preserve the image",
+                        ))?;
+                    }
                 }
             }
         }
