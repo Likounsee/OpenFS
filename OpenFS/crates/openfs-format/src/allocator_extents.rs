@@ -639,15 +639,53 @@ impl OpenedVolume {
             previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
             false,
         )?;
-        self.journal
-            .commit(
-                device,
-                &[RedoUpdate {
-                    target_block: bitmap_block,
-                    contents: bitmap,
-                }],
+        if let Err(error) = self.journal.commit(
+            device,
+            &[RedoUpdate {
+                target_block: bitmap_block,
+                contents: bitmap,
+            }],
+        ) {
+            // Batch free is used by truncate, delete and replacement paths. If the
+            // journal reports an error after a durable COMMIT, returning the error
+            // unchanged could make those callers retry an already-completed release.
+            *self = crate::volume::open_volume(device).map_err(|_| {
+                Error::Corrupt("batch free failed and journal recovery could not be completed")
+            })?;
+            let mut recovered_bitmap = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while verifying recovered batch free",
+            )?;
+            device
+                .read_blocks(bitmap_block, &mut recovered_bitmap)
+                .map_err(|_| Error::Corrupt("batch free recovery could not verify bitmap state"))?;
+            validate_bitmap_reserved_bits(
+                &recovered_bitmap,
+                base,
+                segment_start,
+                segment_end,
             )
-            .map(|_| ())
+            .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
+            let mut free_count = 0usize;
+            let mut allocated_count = 0usize;
+            for &block in sorted {
+                let local = block - base;
+                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                if recovered_bitmap[byte] & (1_u8 << (local % 8)) == 0 {
+                    free_count += 1;
+                } else {
+                    allocated_count += 1;
+                }
+            }
+            if free_count == sorted.len() {
+                return Ok(());
+            }
+            if allocated_count == sorted.len() {
+                return Err(error);
+            }
+            return Err(Error::Corrupt("batch free recovery left a mixed bitmap state"));
+        }
+        Ok(())
     }
 
     /// Free a contiguous data extent atomically with one bitmap journal update.
