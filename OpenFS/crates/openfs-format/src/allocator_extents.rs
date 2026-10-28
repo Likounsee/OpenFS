@@ -1340,13 +1340,56 @@ impl OpenedVolume {
         )?;
         // Preserve adjacent allocation bits while marking the selected run in bulk.
         set_bitmap_range(&mut bitmap, local_start, local_end, true)?;
-        self.journal.commit(
+        if let Err(error) = self.journal.commit(
             device,
             &[RedoUpdate {
                 target_block: bitmap_block,
                 contents: bitmap,
             }],
-        )?;
+        ) {
+            // Best-fit is a separate public allocation path; it must provide the
+            // same no-double-allocation guarantee as the regular contiguous path.
+            *self = crate::volume::open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "best-fit allocation failed and journal recovery could not be completed",
+                )
+            })?;
+            let mut recovered_bitmap = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while verifying recovered best-fit allocation",
+            )?;
+            device
+                .read_blocks(bitmap_block, &mut recovered_bitmap)
+                .map_err(|_| Error::Corrupt("best-fit allocation recovery could not verify bitmap state"))?;
+            validate_bitmap_reserved_bits(
+                &recovered_bitmap,
+                base,
+                segment_start,
+                segment_end,
+            )
+            .map_err(|_| Error::Corrupt("best-fit allocation recovery found an invalid bitmap"))?;
+            let allocated = bitmap_range_matches(
+                &recovered_bitmap,
+                local_start,
+                local_end,
+                true,
+            )?;
+            if allocated {
+                return Ok(extent.start_block);
+            }
+            let free = bitmap_range_matches(
+                &recovered_bitmap,
+                local_start,
+                local_end,
+                false,
+            )?;
+            if free {
+                return Err(error);
+            }
+            return Err(Error::Corrupt(
+                "best-fit allocation recovery left a mixed bitmap state",
+            ));
+        }
         Ok(extent.start_block)
     }
 
