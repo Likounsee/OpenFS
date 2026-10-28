@@ -1014,3 +1014,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Validation restante : les tests Rust, `cargo fmt`, Clippy et la CI ne sont pas exécutés/confirmés dans cette session. Les vérifications de l'inventaire ne remplacent pas une compilation ni les tests d'injection de panne.
 - Estimations actualisées : P0 100 %, P1 79 %, P2 76 %, P3 5 %, global estimé 67 %. Le +1 % correspond à l'extension effective de la récupération aux deux chemins de libération; ce n'est pas une affirmation que les tests ont passé.
 
+### Récupération après commit ambigu : remplacement d’inventaire et écriture de fichier (2026-10-28)
+
+- Commit `1bc3394def2438d1e4a8220d92584970e92b04ea` : le remplacement multi-pages du descripteur d’inventaire rouvre le volume après une erreur de commit, puis compare l’état découvert à l’ancienne ou à la nouvelle génération. Il renvoie le succès uniquement si la nouvelle génération exacte est active; si l’ancienne est restée active, il conserve l’erreur initiale; tout état inattendu échoue fermé.
+- Commit `be598a62e0a1068f53faaadc5c45d75519265236` : les écritures de fichier multi-blocs récupèrent le journal après une erreur ambiguë et relisent tous les blocs concernés. Si tout le contenu demandé est présent, l’opération est reconnue comme accomplie; sinon l’erreur initiale est conservée, et une récupération/lecture impossible renvoie une erreur de corruption explicite.
+- Inventaire CSV resynchronisé après les insertions : contrôle lexical des entrées de `volume.rs` contre leurs lignes source en cours.
+- Validation restante : compilation Rust, tests, formatage, Clippy et CI non confirmés ici. Les vérifications d’offsets du CSV ne sont pas une preuve de compilation.
+- Estimations actualisées après ces deux chemins de production supplémentaires : P0 100 %, P1 80 %, P2 77 %, P3 5 %, global estimé 68 %. Le +1 % est une estimation de périmètre; il ne signifie pas que la suite de tests est verte.
