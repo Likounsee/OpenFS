@@ -6054,10 +6054,57 @@ impl OpenedVolume {
                             Ok(())
                         })();
                         if cleanup.is_err() {
-                            let _ = self.reclaim_persistent_blocks(device, &allocated);
-                            return Err(Error::Corrupt(
-                                "append metadata preparation failed and bytes beyond EOF could not be cleared",
-                            ));
+                            // A failed cleanup commit can leave the journal poisoned.
+                            // Recover before retrying the zero-after-EOF repair or reclaiming
+                            // the staged append blocks.
+                            let recovered = open_volume(device).map_err(|_| {
+                                Error::Corrupt(
+                                    "append metadata preparation failed and journal recovery failed; preserve the image",
+                                )
+                            })?;
+                            *self = recovered;
+                            let old_generation_is_active = matches!(
+                                self.reconstruct_discovered_namespace(device),
+                                Ok(Some((_, ref active)))
+                                    if active.object(object_id).is_some_and(|item| {
+                                        item.size == record.size
+                                            && item.generation == record.generation
+                                            && item.extent_root_block == record.extent_root_block
+                                    })
+                            );
+                            if !old_generation_is_active {
+                                return Err(Error::Corrupt(
+                                    "append metadata preparation failed and the old generation could not be verified; preserve staged blocks",
+                                ));
+                            }
+                            let physical = map
+                                .physical_block(offset / block_size)
+                                .ok_or(Error::Corrupt(
+                                    "append tail disappeared during recovered metadata rollback",
+                                ))?;
+                            let mut current = try_zeroed_block(
+                                block_size_usize,
+                                "allocation failed while verifying append tail after recovery",
+                            )?;
+                            device.read_blocks(physical, &mut current)?;
+                            let tail_start = usize::try_from(tail_offset)
+                                .map_err(|_| Error::ArithmeticOverflow)?;
+                            if current[tail_start..].iter().any(|byte| *byte != 0) {
+                                current[tail_start..].fill(0);
+                                self.journal
+                                    .commit(
+                                        device,
+                                        &[RedoUpdate {
+                                            target_block: physical,
+                                            contents: current,
+                                        }],
+                                    )
+                                    .map_err(|_| {
+                                        Error::Corrupt(
+                                            "append metadata preparation failed and bytes beyond EOF could not be cleared after recovery",
+                                        )
+                                    })?;
+                            }
                         }
                     }
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
