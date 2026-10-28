@@ -4438,7 +4438,7 @@ impl OpenedVolume {
         // namespace already publishes the shorter generation, but the journal handle
         // may now be poisoned. Recover it before attempting reclamation; otherwise the
         // cleanup path itself can fail and strand all retired extents.
-        if let Err(ref original_error) = tail_cleanup {
+        if tail_cleanup.is_err() {
             let recovered = open_volume(device).map_err(|_| {
                 Error::Corrupt(
                     "file was truncated but tail-scrub journal recovery failed; preserve the image",
@@ -4459,12 +4459,37 @@ impl OpenedVolume {
                     "tail-scrub failed and the truncated file generation could not be verified; preserve retired blocks",
                 ));
             }
-            // Preserve the original scrub error for the caller after safe reclamation.
-            let _ = original_error;
+
+            // Recovery may have replayed a durable scrub, or the failed transaction may
+            // never have reached COMMIT. Inspect the retained final block and retry only
+            // when stale bytes are still present. This makes the operation idempotent
+            // across ambiguous write/flush failures instead of returning an error after
+            // the requested truncate is already fully durable.
+            if remainder != 0 {
+                if let Some(physical) = updated_map.physical_block(new_size / block_size) {
+                    let mut contents = try_zeroed_block(
+                        block_size_usize,
+                        "allocation failed while verifying persistent truncate tail",
+                    )?;
+                    device.read_blocks(physical, &mut contents)?;
+                    if contents[remainder..].iter().any(|byte| *byte != 0) {
+                        contents[remainder..].fill(0);
+                        self.journal.commit(
+                            device,
+                            &[RedoUpdate {
+                                target_block: physical,
+                                contents,
+                            }],
+                        ).map_err(|_| Error::Corrupt(
+                            "truncated file tail could not be scrubbed after journal recovery; preserve the image",
+                        ))?;
+                    }
+                }
+            }
         }
 
-        // The shorter size is already published. Reclaim old storage even if clearing
-        // bytes past EOF fails; those bytes are no longer visible through the file API.
+        // The shorter size is already published. Reclaim old storage only after the
+        // active generation is verified and the retained tail is confirmed scrubbed.
         if self
             .reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
             .is_err()
