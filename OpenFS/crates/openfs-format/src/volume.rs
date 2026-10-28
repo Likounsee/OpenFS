@@ -2470,9 +2470,14 @@ impl OpenedVolume {
             loop {
                 match self.free_blocks_sorted(device, segment_blocks) {
                     Ok(()) => break,
-                    Err(error) if matches!(&error, Error::Io(_)) => {
+                    Err(error) if matches!(
+                        &error,
+                        Error::Io(_)
+                            | Error::InvalidInput("journal requires recovery after a previous I/O error")
+                    ) => {
                         // A bitmap commit can fail either before or after its durable
-                        // COMMIT record. Recover the journal and inspect the on-disk bits
+                        // COMMIT record, or the journal may already require recovery.
+                        // Reopen and inspect the on-disk bits
                         // before deciding whether this segment still needs freeing.
                         let recovered = open_volume(device).map_err(|_| {
                             Error::Corrupt(
