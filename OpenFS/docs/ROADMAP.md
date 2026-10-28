@@ -997,3 +997,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - `cfae0369f51f1d2003ca2e60edfa22a7da4a8b73` et `8ff92e15e40a1d8f4660f79848287b831f73dae0` : inventaire CSV resynchronisé après les décalages de lignes. Vérification lexicale effectuée pour les 395 entrées de `allocator_extents.rs` et `volume.rs` : aucune déclaration indexée sur une ligne vide ou différente de sa déclaration source.
 - Validation restante : les tests Rust, rustfmt et Clippy n'ont pas été exécutés dans cet environnement. L'API de statut et la recherche des exécutions GitHub Actions ne renvoient aucun résultat pour le SHA contrôlé; la CI n'est donc **pas confirmée verte**.
 - Estimations de périmètre après ces trois chemins de récupération fonctionnels : P0 100 %, P1 79 %, P2 74 %, P3 5 %, global 65 %. Il s'agit d'une estimation d'avancement, pas d'une affirmation que les changements ont passé les tests.
+
+
+### Récupération du commit ambigu dans l'allocation best-fit (2026-10-28)
+
+- Commit `70e2169f440b9505df6e790176edb191e8b267cb` : le chemin public `allocate_best_fit_contiguous_blocks` ne propage plus aveuglément une erreur de journal. Il rouvre le volume pour déclencher la récupération, relit le bitmap concerné, et ne renvoie le bloc que si toute la plage est effectivement allouée. Si elle est toujours libre, l'erreur d'origine est conservée; état mixte, bitmap illisible/invalide ou récupération impossible : échec fermé avec une erreur de corruption.
+- Cette correction aligne le chemin best-fit sur les garanties déjà ajoutées aux allocations batch et contiguës classiques; elle réduit le risque qu'un appelant réessaie après un commit déjà durable.
+- Inventaire CSV resynchronisé après le décalage de lignes. Les tests Rust, `cargo fmt`, Clippy et la CI ne sont pas exécutés/confirmés dans cette session; aucun statut vert n'est revendiqué.
+- Estimations actualisées : P0 100 %, P1 79 %, P2 75 %, P3 5 %, global 66 %. Pourcentage estimatif de périmètre, pas une validation par les tests.
