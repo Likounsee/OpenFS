@@ -5911,9 +5911,85 @@ impl OpenedVolume {
                         Ok(())
                     })();
                     if cleanup.is_err() {
-                        return Err(Error::Corrupt(
-                            "append data write failed and bytes beyond EOF could not be cleared after recovery",
-                        ));
+                        // The cleanup itself may have reached its durable COMMIT before
+                        // returning an I/O error. Reopen and settle that transaction before
+                        // allowing the caller to retry the append.
+                        *self = open_volume(device).map_err(|_| {
+                            Error::Corrupt(
+                                "append data write failed and cleanup journal recovery failed; preserve the image",
+                            )
+                        })?;
+                        let old_generation_is_active = matches!(
+                            self.reconstruct_discovered_namespace(device),
+                            Ok(Some((_, ref active)))
+                                if active.object(object_id).is_some_and(|item| {
+                                    item.size == record.size
+                                        && item.generation == record.generation
+                                        && item.extent_root_block == record.extent_root_block
+                                })
+                        );
+                        if !old_generation_is_active {
+                            return Err(Error::Corrupt(
+                                "append data cleanup failed and the old generation could not be verified; preserve the image",
+                            ));
+                        }
+                        let mut current = try_zeroed_block(
+                            self.volume.block_size as usize,
+                            "allocation failed while verifying append tail after recovery",
+                        )?;
+                        device.read_blocks(physical_block, &mut current).map_err(|_| {
+                            Error::Corrupt(
+                                "append cleanup recovery could not verify bytes beyond EOF",
+                            )
+                        })?;
+                        if current[in_block..].iter().any(|byte| *byte != 0) {
+                            current[in_block..].fill(0);
+                            if self
+                                .journal
+                                .commit(
+                                    device,
+                                    &[RedoUpdate {
+                                        target_block: physical_block,
+                                        contents: current,
+                                    }],
+                                )
+                                .is_err()
+                            {
+                                *self = open_volume(device).map_err(|_| {
+                                    Error::Corrupt(
+                                        "append cleanup retry failed and journal recovery failed; preserve the image",
+                                    )
+                                })?;
+                                let still_old = matches!(
+                                    self.reconstruct_discovered_namespace(device),
+                                    Ok(Some((_, ref active)))
+                                        if active.object(object_id).is_some_and(|item| {
+                                            item.size == record.size
+                                                && item.generation == record.generation
+                                                && item.extent_root_block == record.extent_root_block
+                                        })
+                                );
+                                if !still_old {
+                                    return Err(Error::Corrupt(
+                                        "append cleanup retry left the active generation uncertain; preserve the image",
+                                    ));
+                                }
+                                let mut verified = try_zeroed_block(
+                                    self.volume.block_size as usize,
+                                    "allocation failed while verifying append cleanup retry",
+                                )?;
+                                device.read_blocks(physical_block, &mut verified).map_err(|_| {
+                                    Error::Corrupt(
+                                        "append cleanup retry could not verify bytes beyond EOF",
+                                    )
+                                })?;
+                                if verified[in_block..].iter().any(|byte| *byte != 0) {
+                                    return Err(Error::Corrupt(
+                                        "append cleanup retry left bytes beyond EOF; preserve the image",
+                                    ));
+                                }
+                            }
+                        }
                     }
                     return Err(error);
                 }
