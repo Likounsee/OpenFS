@@ -4613,7 +4613,6 @@ impl OpenedVolume {
                     // COMMIT. Recovery settles that ambiguity; inspect the old EOF tail
                     // and retry the scrub only if stale bytes remain. Do not publish a
                     // larger size until the newly exposed bytes are guaranteed zero.
-                    let _original_error = error;
                     let mut recovered_tail = try_zeroed_block(
                         block_size,
                         "allocation failed while verifying sparse-extension tail",
@@ -4631,6 +4630,11 @@ impl OpenedVolume {
                             "sparse extension tail scrub could not be retried after recovery; preserve the image",
                         ))?;
                     }
+                    // Keep the original operation's failure visible to the caller and
+                    // leave the old file size published. The tail is now safe for a
+                    // later retry, but this call must not silently turn a failed extend
+                    // into a successful size change.
+                    return Err(error);
                 }
             }
         }
