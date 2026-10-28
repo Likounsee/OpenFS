@@ -1002,13 +1002,40 @@ impl OpenedVolume {
             selected.ok_or(Error::InvalidInput("volume has no free data blocks"))?;
         device.write_blocks(descriptor_block, &encoded)?;
         device.flush()?;
-        self.journal.commit(
+        if let Err(error) = self.journal.commit(
             device,
             &[RedoUpdate {
                 target_block: bitmap_block,
                 contents: bitmap,
             }],
-        )?;
+        ) {
+            // Descriptor bytes are flushed before the bitmap COMMIT. If the commit
+            // reports an error, recovery must decide whether this descriptor became
+            // visible; blindly returning the error could cause a caller to retry
+            // publication even though the inventory was already committed.
+            *self = open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "inventory publication failed and journal recovery could not be completed",
+                )
+            })?;
+            match self.discover_persistent_inventory(device) {
+                Ok(Some((active_block, active_descriptor)))
+                    if active_block == descriptor_block && active_descriptor == *descriptor =>
+                {
+                    persist_inventory_hint(device, active_block)?;
+                    self.inventory_descriptor_hint = Some(active_block);
+                    self.inventory_descriptor_cache =
+                        Some(Some((active_block, active_descriptor)));
+                    return Ok(active_block);
+                }
+                Ok(None) => return Err(error),
+                Ok(Some(_)) | Err(_) => {
+                    return Err(Error::Corrupt(
+                        "inventory publication recovery found an unexpected descriptor state",
+                    ));
+                }
+            }
+        }
         persist_inventory_hint(device, descriptor_block)?;
         self.inventory_descriptor_hint = Some(descriptor_block);
         self.inventory_descriptor_cache = Some(Some((descriptor_block, descriptor.clone())));
