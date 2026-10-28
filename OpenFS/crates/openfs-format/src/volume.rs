@@ -2244,7 +2244,10 @@ impl OpenedVolume {
             parent_id: parent_id.0,
             object_id: object_id.0,
             kind: crate::ObjectKind::File,
-            name: name.to_owned(),
+            name: try_clone_string(
+                name,
+                "allocation failed while copying persistent file name",
+            )?,
         };
         namespace.insert(entry, record)?;
         self.replace_persistent_namespace_inventory(device, &namespace)?;
@@ -2281,7 +2284,10 @@ impl OpenedVolume {
             parent_id: parent_id.0,
             object_id: object_id.0,
             kind: crate::ObjectKind::Directory,
-            name: name.to_owned(),
+            name: try_clone_string(
+                name,
+                "allocation failed while copying persistent directory name",
+            )?,
         };
         namespace.insert(entry, record)?;
         self.replace_persistent_namespace_inventory(device, &namespace)?;
