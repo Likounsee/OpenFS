@@ -3983,15 +3983,32 @@ impl OpenedVolume {
                 self.volume.block_size as usize,
                 "unable to verify recovered file write",
             )?;
+            let mut matching_blocks = 0usize;
             for update in &updates {
                 device.read_blocks(update.target_block, &mut recovered).map_err(|_| {
                     Error::Corrupt("file write recovery could not verify target data")
                 })?;
-                if recovered != update.contents {
-                    return Err(error);
+                if recovered == update.contents {
+                    matching_blocks = matching_blocks
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)?;
                 }
             }
-            return Ok(());
+            if matching_blocks == updates.len() {
+                // Every target has the requested post-image; the durable transaction
+                // succeeded despite the late I/O/flush error.
+                return Ok(());
+            }
+            if matching_blocks == 0 {
+                // No target contains the post-image, so the transaction was not applied.
+                return Err(error);
+            }
+            // A redo transaction must expose all target blocks or none. A mixture is
+            // not an ordinary failed write: callers must not retry over an uncertain
+            // file image because doing so could hide journal or device corruption.
+            return Err(Error::Corrupt(
+                "file write recovery found a mixed transaction image; preserve the volume",
+            ));
         }
         Ok(())
     }
