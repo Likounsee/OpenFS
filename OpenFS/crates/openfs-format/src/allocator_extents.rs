@@ -461,8 +461,8 @@ impl OpenedVolume {
                     self.volume.block_size as usize,
                     "allocation failed while verifying recovered batch allocation",
                 )?;
-                device.read_blocks(bitmap_block, &mut recovered_bitmap)?;
-                validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end)?;
+                device.read_blocks(bitmap_block, &mut recovered_bitmap).map_err(|_| Error::Corrupt("batch allocation recovery could not verify bitmap state"))?;
+                validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end).map_err(|_| Error::Corrupt("batch allocation recovery found an invalid bitmap"))?;
                 let mut allocated_count = 0usize;
                 for block in &selected {
                     let local = *block - base;
@@ -917,8 +917,8 @@ impl OpenedVolume {
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered contiguous allocation",
             )?;
-            device.read_blocks(bitmap_block, &mut recovered_bitmap)?;
-            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)?;
+            device.read_blocks(bitmap_block, &mut recovered_bitmap).map_err(|_| Error::Corrupt("contiguous allocation recovery could not verify bitmap state"))?;
+            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end).map_err(|_| Error::Corrupt("contiguous allocation recovery found an invalid bitmap"))?;
             let allocated = bitmap_range_matches(&recovered_bitmap, start - base, end - base, true)?;
             if allocated {
                 return Ok(start);
