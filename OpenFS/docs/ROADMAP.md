@@ -888,3 +888,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Les tests de renommage persistant après panne d'écriture et après panne de flush vérifient maintenant que l'injecteur a réellement consommé le point de panne configuré. Un indice hors du chemin exécuté provoque un échec du test au lieu d'être compté comme couverture.
 - La vérification après réouverture reste inchangée : exactement l'ancien ou le nouveau nom doit exister, le contenu du fichier doit survivre et l'inventaire des blocs doit rester cohérent.
 - L'index lexical CSV a été synchronisé avec les nouvelles lignes de test. Ces changements améliorent la qualité de la couverture écrite, mais les tests Rust et la CI exacte-SHA doivent encore confirmer le résultat; aucun pourcentage fonctionnel n'est augmenté sur la seule base de ces assertions.
+
+
+### Fiabilité des mutations de namespace — allocations de noms préallouées (2026-10-28)
+
+- `ceece24bde3450a8e4aa7c538b721fc1e172c703` : `Namespace::insert` prépare désormais les copies de nom nécessaires aux index avant la première mutation. `Namespace::rename` prépare aussi la clé, l'entrée d'index et le nom de l'index parent avant de retirer l'ancienne entrée; une allocation de chaîne qui échoue ne laisse donc plus ces index partiellement modifiés.
+- `9421a119a8e5603a35c99134f6c81e789858aec5` : les API de création persistante de fichiers, répertoires et lots utilisent la copie de nom fallible déjà disponible dans le volume, plutôt que des `to_owned()`/`clone()` implicites sur les chemins concernés.
+- `d4586d2e3d6fbd1b63d5db882f9f5b44e1fc0704` : les 366 entrées d'inventaire correspondant à `namespace.rs` et `volume.rs` ont été vérifiées contre la ligne source et leurs offsets resynchronisés; vérification automatisée : 0 déclaration à la mauvaise ligne.
+- Limite : les tests Rust et la CI n'ont pas pu être exécutés/confirmés dans cette session. Cette progression est une amélioration ciblée de la sûreté des mutations, pas une affirmation que l'ensemble du système est validé.
+- Estimations actualisées : P0 100 %, P1 79 %, P2 70 %, P3 5 %, global 61 %.
