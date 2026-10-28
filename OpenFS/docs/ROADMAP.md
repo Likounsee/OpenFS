@@ -1031,3 +1031,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `abda842f355ecc4e220fed254330f4e66adde65d` : resynchronisation de l'inventaire des symboles; 395 lignes d'inventaire de `volume.rs` et `allocator_extents.rs` vérifiées contre leurs déclarations source, sans ligne manquante ni désaccord de signature.
 - Validation : vérification lexicale de l'inventaire réussie. Compilation, tests Rust, `cargo fmt`, Clippy et CI restent non confirmés dans cet environnement; les contrôles GitHub consultés ne renvoient aucun statut ni workflow, ce qui ne signifie pas que la CI est verte.
 - Estimations après ces corrections de récupération de production : P0 100 %, P1 80 %, P2 78 %, P3 5 %, global estimé 69 %. Le point supplémentaire reflète les chemins d'erreur de production couverts, pas une validation complète.
+
+### Correction de rollback après échec de publication d'append (2026-10-28)
+
+- Commit `7e36232f9907a16d57ef0e473d0ac187b49e65d8` : le chemin où la publication échoue alors que l'ancienne génération reste active ne se contente plus de renvoyer une erreur si le nettoyage de la queue échoue. Il rouvre le volume pour résoudre un éventuel COMMIT durable, vérifie de nouveau la génération précédente, relit la queue, ne réécrit que si des octets hors EOF subsistent, puis relit les données pour confirmer que le nettoyage a réussi.
+- Commit `84d29bf8d3b429e5a144c44e968f1bf11de5d294` : si la tentative de réparation échoue elle aussi, le code récupère le journal avant de vérifier l'état final; il ne confond donc pas une erreur tardive d'E/S avec une annulation certaine.
+- Commit `e1eb8ed24da470304d48354864477e310cabe4dc` : les offsets de l'inventaire ont été resynchronisés après le changement de source. Vérification lexicale de 395 entrées liées à `volume.rs` et `allocator_extents.rs` : aucune ligne manquante ni signature discordante.
+- Matériel : la clé USB dédiée pourra servir aux essais destructifs une fois le chemin d'accès brut et le protocole de test explicitement sécurisés. Le CLI actuel reste volontairement limité aux images fichiers et ne doit pas être contourné en ciblant un disque physique à l'aveugle.
+- Validation : cette vérification de l'inventaire est réussie; compilation, tests Rust, formatage, Clippy et CI restent non confirmés dans cet environnement. Les contrôles GitHub consultés ne renvoient aucun statut ni workflow, ce qui ne signifie pas que la CI est verte.
+- Estimations après cette correction de comportement : P0 100 %, P1 81 %, P2 79 %, P3 5 %, global estimé 70 %. Le point supplémentaire correspond à un chemin de rollback de production renforcé, pas à une suite de tests validée.
+
