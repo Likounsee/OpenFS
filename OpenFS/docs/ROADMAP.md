@@ -1021,3 +1021,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire CSV resynchronisé après les insertions : contrôle lexical des entrées de `volume.rs` contre leurs lignes source en cours.
 - Validation restante : compilation Rust, tests, formatage, Clippy et CI non confirmés ici. Les vérifications d’offsets du CSV ne sont pas une preuve de compilation.
 - Estimations actualisées après ces deux chemins de production supplémentaires : P0 100 %, P1 80 %, P2 77 %, P3 5 %, global estimé 68 %. Le +1 % est une estimation de périmètre; il ne signifie pas que la suite de tests est verte.
+
+
+### Récupération des transactions ambiguës — écritures et append (2026-10-28)
+
+- Commit `731a3488d7909671d85c7bed9eec25e25682843a` : la récupération d'une écriture de fichier multi-blocs compare désormais l'image complète de chaque bloc. Tout le post-image présent signifie succès durable; aucun bloc correspondant conserve l'erreur initiale; un mélange de blocs anciens/nouveaux est signalé comme corruption au lieu d'être traité comme un simple échec réessayable.
+- Commit `11f4fc7d04e9ae07ff883257e3b5821994669aae` : si le nettoyage du tail d'un append mono-bloc échoue à son tour, le volume est rouvert, l'ancienne génération est vérifiée et les octets au-delà de l'EOF sont relus avant toute nouvelle tentative.
+- Commit `f929fb6b8c82ca66ea0f2978566c19c74bd67b29` : même protection dans le rollback d'un append multi-blocs lors d'un échec de staging; aucun nettoyage supplémentaire n'est effectué via un journal potentiellement empoisonné, et l'état final du tail est vérifié après récupération.
+- Commit `abda842f355ecc4e220fed254330f4e66adde65d` : resynchronisation de l'inventaire des symboles; 395 lignes d'inventaire de `volume.rs` et `allocator_extents.rs` vérifiées contre leurs déclarations source, sans ligne manquante ni désaccord de signature.
+- Validation : vérification lexicale de l'inventaire réussie. Compilation, tests Rust, `cargo fmt`, Clippy et CI restent non confirmés dans cet environnement; les contrôles GitHub consultés ne renvoient aucun statut ni workflow, ce qui ne signifie pas que la CI est verte.
+- Estimations après ces corrections de récupération de production : P0 100 %, P1 80 %, P2 78 %, P3 5 %, global estimé 69 %. Le point supplémentaire reflète les chemins d'erreur de production couverts, pas une validation complète.
