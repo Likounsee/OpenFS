@@ -105,9 +105,9 @@ Scope: re-audit of the filesystem source tree and inventory; follow-up integrati
 | --- | ---: | ---: | --- |
 | **P0 — Socle d'ingénierie et sécurité** | 10 % | **100 %** | Socle validé; rouvrir en cas de défaut concret de sécurité ou d'intégrité. |
 | **P1 — Format, layout, allocateur, transactions et récupération** | 35 % | **79 %** | Fusion pondérée des anciens lots format/allocateur et journal; des blocages de propriété, remplacement de descripteur et transactions générales restent ouverts. |
-| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **69 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
+| **P2 — Vérification, namespace persistant et E/S fichiers** | 30 % | **71 %** | Vérification partielle; create/write/truncate/rename/unlink durables et parcours persistant complet restent à réaliser. |
 | **P3 — Périphériques sûrs, intégration OS et livraison** | 25 % | **5 %** | Découverte/formatage sûr et adaptateurs de montage absents; durcissement de livraison principalement planifié. |
-| **Global pondéré** | **100 %** | **60 %** | Estimation pondérée : 59,6 % avant arrondi. Ce n'est pas un pourcentage de préparation à la production. |
+| **Global estimé** | **100 %** | **62 %** | Estimation d'ingénierie globale, arrondie et non équivalente à un taux de tests réussis ou à un niveau de préparation à la production. Les poids des phases servent à planifier le périmètre, pas à produire une fausse précision arithmétique. |
 
 Les anciens lots sont regroupés sans faire passer du travail non réalisé pour terminé :
 - **P0** garde le socle d'ingénierie.
@@ -897,3 +897,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - `d4586d2e3d6fbd1b63d5db882f9f5b44e1fc0704` : les 366 entrées d'inventaire correspondant à `namespace.rs` et `volume.rs` ont été vérifiées contre la ligne source et leurs offsets resynchronisés; vérification automatisée : 0 déclaration à la mauvaise ligne.
 - Limite : les tests Rust et la CI n'ont pas pu être exécutés/confirmés dans cette session. Cette progression est une amélioration ciblée de la sûreté des mutations, pas une affirmation que l'ensemble du système est validé.
 - Estimations actualisées : P0 100 %, P1 79 %, P2 70 %, P3 5 %, global 61 %.
+
+
+### Correction de résultat durable — append mono-bloc et multi-blocs (2026-10-28)
+
+- Commit `de27bee9c910677ce89c0000f807600b0181b2b0` : dans les deux chemins d'append, si la redécouverte confirme que la nouvelle génération exacte du fichier est déjà publiée, l'API renvoie maintenant `Ok(())` au lieu de propager l'erreur tardive d'E/S. Le chemin multi-blocs ne signale le succès qu'après avoir aussi récupéré l'ancien root; si cette récupération échoue, il renvoie toujours une erreur explicite de corruption/nettoyage.
+- Pourquoi c'est important : un appelant ne doit pas recevoir un échec réessayable lorsque l'append a déjà été durablement commis, ce qui pourrait sinon dupliquer les données.
+- Commit `4e60e0a6098cae06f9dfb35ffef8db39f84c0805` : resynchronisation de l'inventaire après le décalage de lignes; les entrées de `volume.rs` ont été vérifiées contre les déclarations, sans symbole non résolu ni ligne incohérente.
+- Validation restante : les tests Rust et la CI exacte-SHA ne sont pas confirmés dans cet environnement. Le pourcentage reste une estimation de complétion du périmètre, pas une déclaration que cette correction a passé la suite de tests.
+- Estimations actualisées après cette correction de comportement : P0 100 %, P1 79 %, P2 71 %, P3 5 %, global estimé 62 %.
