@@ -67,6 +67,14 @@
 
 ---
 
+### Correctif de suivi — inventaire lexical revérifié
+
+- Après recalcul depuis les déclarations Rust réelles, les 318 entrées de `volume.rs` dans `INVENTAIRE_SYMBOLES.csv` sont maintenant alignées exactement sur les lignes, types, noms et déclarations source. La passe a révélé que les décalages historiques du fichier étaient plus grands que le dernier changement local ne l'expliquait; les 318 entrées ont été recalées, pas seulement les symboles situés après les deux optimisations.
+- Commit de synchronisation : `23a99021521f91b0c88f406b6a4fbde51ebcdb5a`. Vérification croisée via lecture GitHub : 318 symboles source, 318 entrées CSV, zéro divergence dans ce fichier.
+- Limite : cette vérification ciblée n'exécute pas le générateur Python de CI ni les tests Rust. Le statut combiné GitHub et les runs accessibles pour le SHA restent vides; CI non confirmée.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
