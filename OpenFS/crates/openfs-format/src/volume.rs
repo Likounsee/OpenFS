@@ -5801,9 +5801,50 @@ impl OpenedVolume {
                                 Ok(())
                             })();
                             if cleanup.is_err() {
-                                return Err(Error::Corrupt(
-                                    "append publication failed with the old generation active, but bytes beyond EOF could not be cleared",
-                                ));
+                                // The cleanup's own commit may have failed after writing
+                                // COMMIT. Reopen before retrying, and only repair the tail
+                                // if the exact pre-append generation remains active.
+                                let recovered = open_volume(device).map_err(|_| {
+                                    Error::Corrupt(
+                                        "append publication failed and journal recovery failed; preserve the image",
+                                    )
+                                })?;
+                                *self = recovered;
+                                let old_generation_is_active = matches!(
+                                    self.reconstruct_discovered_namespace(device),
+                                    Ok(Some((_, ref active)))
+                                        if active.object(object_id).is_some_and(|item| {
+                                            item.size == record.size
+                                                && item.generation == record.generation
+                                                && item.extent_root_block == record.extent_root_block
+                                        })
+                                );
+                                if !old_generation_is_active {
+                                    return Err(Error::Corrupt(
+                                        "append publication failed and the old generation could not be verified; preserve the image",
+                                    ));
+                                }
+                                let mut current = try_zeroed_block(
+                                    self.volume.block_size as usize,
+                                    "allocation failed while verifying append tail after recovery",
+                                )?;
+                                device.read_blocks(physical_block, &mut current)?;
+                                if current[in_block..].iter().any(|byte| *byte != 0) {
+                                    current[in_block..].fill(0);
+                                    self.journal
+                                        .commit(
+                                            device,
+                                            &[RedoUpdate {
+                                                target_block: physical_block,
+                                                contents: current,
+                                            }],
+                                        )
+                                        .map_err(|_| {
+                                            Error::Corrupt(
+                                                "append publication failed and bytes beyond EOF could not be cleared after recovery",
+                                            )
+                                        })?;
+                                }
                             }
                             return Err(error);
                         }
