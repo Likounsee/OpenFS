@@ -4474,15 +4474,19 @@ impl OpenedVolume {
                     device.read_blocks(physical, &mut contents)?;
                     if contents[remainder..].iter().any(|byte| *byte != 0) {
                         contents[remainder..].fill(0);
-                        self.journal.commit(
-                            device,
-                            &[RedoUpdate {
-                                target_block: physical,
-                                contents,
-                            }],
-                        ).map_err(|_| Error::Corrupt(
-                            "truncated file tail could not be scrubbed after journal recovery; preserve the image",
-                        ))?;
+                        self.journal
+                            .commit(
+                                device,
+                                &[RedoUpdate {
+                                    target_block: physical,
+                                    contents,
+                                }],
+                            )
+                            .map_err(|_| {
+                                Error::Corrupt(
+                                    "truncated file tail could not be scrubbed after journal recovery; preserve the image",
+                                )
+                            })?;
                     }
                 }
             }
@@ -4620,15 +4624,19 @@ impl OpenedVolume {
                     device.read_blocks(physical, &mut recovered_tail)?;
                     if recovered_tail[tail_remainder..].iter().any(|byte| *byte != 0) {
                         recovered_tail[tail_remainder..].fill(0);
-                        self.journal.commit(
-                            device,
-                            &[RedoUpdate {
-                                target_block: physical,
-                                contents: recovered_tail,
-                            }],
-                        ).map_err(|_| Error::Corrupt(
-                            "sparse extension tail scrub could not be retried after recovery; preserve the image",
-                        ))?;
+                        self.journal
+                            .commit(
+                                device,
+                                &[RedoUpdate {
+                                    target_block: physical,
+                                    contents: recovered_tail,
+                                }],
+                            )
+                            .map_err(|_| {
+                                Error::Corrupt(
+                                    "sparse extension tail scrub could not be retried after recovery; preserve the image",
+                                )
+                            })?;
                     }
                     // Keep the original operation's failure visible to the caller and
                     // leave the old file size published. The tail is now safe for a
