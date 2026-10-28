@@ -1,3 +1,14 @@
+### Reprise de session — 2026-10-28 (résultat indéterminé de libération simple)
+
+- Branche : `OpenFS` uniquement.
+- Correction de production : `free_block` ne laisse plus le handle réutilisable avec un journal potentiellement incertain lorsqu'un commit échoue après avoir éventuellement atteint le stockage. Il rouvre/récupère le volume puis inspecte le bit d'allocation : une libération durable est rapportée comme réussie, un bloc encore alloué conserve l'erreur E/S initiale, et un résultat impossible à vérifier échoue en corruption.
+- Régression mise à jour pour les erreurs de write/flush après commit durable : contrôle du résultat de l'opération et de l'état d'allocation sur le handle récupéré, puis vérification que la réouverture reste répétable.
+- Commit code : `f291594f18e958190b80408863ebc1b43539bb03`.
+- Tests Rust et CI exacte-SHA : non encore confirmés; les résultats vides du statut combiné ne valent pas réussite. Pourcentages inchangés en attente de validation Linux/Windows.
+- Inventaire : décalages de lignes de `volume.rs` recalculés après l'insertion de code; à confirmer par le générateur CI.
+
+---
+
 ### Reprise de session — 2026-10-23 (suppression récursive persistée après réouverture)
 
 - HEAD de code : `51da0af9ccf169435bad22f2052fdf404ec563bf`; branche `OpenFS` uniquement.
