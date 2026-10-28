@@ -1041,3 +1041,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Validation : cette vérification de l'inventaire est réussie; compilation, tests Rust, formatage, Clippy et CI restent non confirmés dans cet environnement. Les contrôles GitHub consultés ne renvoient aucun statut ni workflow, ce qui ne signifie pas que la CI est verte.
 - Estimations après cette correction de comportement : P0 100 %, P1 81 %, P2 79 %, P3 5 %, global estimé 70 %. Le point supplémentaire correspond à un chemin de rollback de production renforcé, pas à une suite de tests validée.
 
+
+### Allocateur : nouvelle tentative après invalidation d'un candidat (2026-10-28)
+
+- Commit `85f61793aff3cba2b311b61a5272507ce702c832` : `allocate_blocks` ne transforme plus une bitmap candidate devenue occupée entre le scan et la relecture en erreur de corruption. Il recommence le scan depuis le premier segment, avec une limite de trois invalidations, puis renvoie une erreur explicite et réessayable si la contention persiste.
+- Le même changement applique une nouvelle recherche bornée à `allocate_contiguous_blocks` lorsque la plage repérée n'est plus libre au moment de la relecture. Les états mixtes après une erreur de COMMIT restent traités comme corruption; la récupération du journal et la vérification des bits restent obligatoires.
+- Commit `37d76754c2b60cbe55fbf133cc7face05ace81f8` : mise en forme des nouveaux chemins de récupération. Commit `3bb3e3a953614e478bd0d7204785fec6528c9e7c` : inventaire resynchronisé; 395 entrées de `volume.rs` et `allocator_extents.rs` contrôlées contre la ligne de déclaration, sans décalage détecté.
+- Limite importante : cette reprise réduit les faux diagnostics de corruption lors d'une invalidation observée, mais ne constitue pas un verrou inter-processus autour de toute la séquence scan/commit. Une garantie complète de concurrence entre plusieurs ouvreurs demande une stratégie de verrouillage du volume et des tests multi-ouvreurs dédiés.
+- Validation : compilation/tests/formatage/Clippy non exécutés ici. La compilation locale fournie par l'utilisateur est bloquée avant le code OpenFS par l'absence de `link.exe` MSVC; les vérifications GitHub consultées ne fournissent aucun statut CI exploitable. Ne pas interpréter cela comme une CI verte.
+- Estimations après ce changement de comportement : P0 100 %, P1 81 %, P2 80 %, P3 5 %, global estimé 71 %. Le point supplémentaire correspond aux chemins de reprise bornée de l'allocateur, pas à une validation de compilation.
