@@ -75,6 +75,18 @@
 
 ---
 
+### Session de développement — 2026-10-28 (récupération idempotente des tails + buffers streaming)
+
+- **Troncature persistante** : après échec ambigu du tail-scrub, le volume est récupéré puis la génération publiée est vérifiée. Le code relit le dernier bloc, détecte si le scrub a réellement été durable et ne le retente que si des octets au-delà d'EOF subsistent. La réclamation des anciens extents ne commence qu'après ce contrôle.
+- **Extension sparse** : si le scrub préalable de l'ancien EOF échoue, le code récupère le journal, vérifie que l'ancienne génération reste active, inspecte le tail et le scrubbe de nouveau si nécessaire. L'appel d'extension conserve une erreur visible et ne publie pas une taille plus grande sur ce chemin d'échec.
+- **Streaming de plage** : réutilise le tampon de lots pour les lectures partielles, supprimant une allocation supplémentaire d'un bloc complet; les deux API de streaming bornent aussi la capacité de lot au volume de données demandé.
+- **Inventaire** : les 318 déclarations lexicales de `volume.rs` ont été resynchronisées après ces changements. Contrôle croisé source/CSV effectué via l'API GitHub : nombre et déclarations correspondent. La génération Python complète n'a pas été exécutée.
+- Commits de code : `6d775fed50324f50cc722d8ffbd1fdf3ea9f1bf0`, `865e216e4a54963143a4f757c66eb3696a17dee6`, `14a15a9b1e9892aee650ed4a218920a3acba4156`, `76cc21fc9bdef006454753ff5a396c4edcb44cef`, `44085ada59e8339250cc077fd2644656458e4e8a`.
+- Inventaire actualisé : `acf8091fbfb309b790731c9deca8cbb0f7549e1f`.
+- **Validation honnête** : aucune exécution de `cargo test`, `cargo fmt`, Clippy ni CI n'a pu être réalisée dans cet environnement. Le clone local a échoué faute de résolution DNS GitHub; les API de statut/runs ne fournissent pas de résultat pour les derniers SHA. Ces modifications ne sont donc pas encore certifiées par les tests.
+
+---
+
 # OpenFS roadmap — source-audited plan to a usable filesystem
 
 ### Reprise de session — 2026-10-22 (rename/remove persistant et CI exacte-SHA)
