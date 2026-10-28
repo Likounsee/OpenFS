@@ -6567,17 +6567,33 @@ impl OpenedVolume {
                                     })?;
                                     if current[tail_start..].iter().any(|byte| *byte != 0) {
                                         current[tail_start..].fill(0);
-                                        self.journal.commit(
+                                        if self.journal.commit(
                                             device,
                                             &[RedoUpdate {
                                                 target_block: physical,
                                                 contents: current,
                                             }],
-                                        ).map_err(|_| {
-                                            Error::Corrupt(
-                                                "append publication rollback retry failed; preserve the image",
-                                            )
-                                        })?;
+                                        ).is_err() {
+                                            *self = open_volume(device).map_err(|_| {
+                                                Error::Corrupt(
+                                                    "append publication rollback retry and journal recovery failed; preserve the image",
+                                                )
+                                            })?;
+                                        }
+                                        let old_generation_is_active = matches!(
+                                            self.reconstruct_discovered_namespace(device),
+                                            Ok(Some((_, ref active)))
+                                                if active.object(object_id).is_some_and(|item| {
+                                                    item.size == record.size
+                                                        && item.generation == record.generation
+                                                        && item.extent_root_block == record.extent_root_block
+                                                })
+                                        );
+                                        if !old_generation_is_active {
+                                            return Err(Error::Corrupt(
+                                                "append publication rollback retry left the active generation uncertain; preserve the image",
+                                            ));
+                                        }
                                         let mut verified = try_zeroed_block(
                                             block_size_usize,
                                             "allocation failed while verifying append rollback retry",
