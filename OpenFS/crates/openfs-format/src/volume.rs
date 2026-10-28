@@ -6528,9 +6528,71 @@ impl OpenedVolume {
                                     Ok(())
                                 })();
                                 if cleanup.is_err() {
-                                    return Err(Error::Corrupt(
-                                        "append publication failed with the old generation active, but bytes beyond EOF could not be cleared",
-                                    ));
+                                    // This final rollback branch used to return immediately.
+                                    // A failed scrub can itself have a durable COMMIT, so
+                                    // recover the journal and verify the old generation and
+                                    // EOF tail before deciding whether another scrub is safe.
+                                    *self = open_volume(device).map_err(|_| {
+                                        Error::Corrupt(
+                                            "append publication rollback failed and journal recovery failed; preserve the image",
+                                        )
+                                    })?;
+                                    let old_generation_is_active = matches!(
+                                        self.reconstruct_discovered_namespace(device),
+                                        Ok(Some((_, ref active)))
+                                            if active.object(object_id).is_some_and(|item| {
+                                                item.size == record.size
+                                                    && item.generation == record.generation
+                                                    && item.extent_root_block == record.extent_root_block
+                                            })
+                                    );
+                                    if !old_generation_is_active {
+                                        return Err(Error::Corrupt(
+                                            "append publication rollback could not verify the old generation; preserve staged blocks",
+                                        ));
+                                    }
+                                    let physical = map.physical_block(offset / block_size).ok_or(
+                                        Error::Corrupt("append tail disappeared during rollback verification"),
+                                    )?;
+                                    let tail_start = usize::try_from(tail_offset)
+                                        .map_err(|_| Error::ArithmeticOverflow)?;
+                                    let mut current = try_zeroed_block(
+                                        block_size_usize,
+                                        "allocation failed while verifying append rollback tail",
+                                    )?;
+                                    device.read_blocks(physical, &mut current).map_err(|_| {
+                                        Error::Corrupt(
+                                            "append publication rollback could not verify bytes beyond EOF",
+                                        )
+                                    })?;
+                                    if current[tail_start..].iter().any(|byte| *byte != 0) {
+                                        current[tail_start..].fill(0);
+                                        self.journal.commit(
+                                            device,
+                                            &[RedoUpdate {
+                                                target_block: physical,
+                                                contents: current,
+                                            }],
+                                        ).map_err(|_| {
+                                            Error::Corrupt(
+                                                "append publication rollback retry failed; preserve the image",
+                                            )
+                                        })?;
+                                        let mut verified = try_zeroed_block(
+                                            block_size_usize,
+                                            "allocation failed while verifying append rollback retry",
+                                        )?;
+                                        device.read_blocks(physical, &mut verified).map_err(|_| {
+                                            Error::Corrupt(
+                                                "append publication rollback retry could not verify bytes beyond EOF",
+                                            )
+                                        })?;
+                                        if verified[tail_start..].iter().any(|byte| *byte != 0) {
+                                            return Err(Error::Corrupt(
+                                                "append publication rollback retry left bytes beyond EOF; preserve the image",
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                             if self.reclaim_persistent_blocks(device, &allocated).is_err() {
