@@ -82,7 +82,8 @@
 - **Streaming de plage** : réutilise le tampon de lots pour les lectures partielles, supprimant une allocation supplémentaire d'un bloc complet; les deux API de streaming bornent aussi la capacité de lot au volume de données demandé.
 - **Inventaire** : les 318 déclarations lexicales de `volume.rs` ont été resynchronisées après ces changements. Contrôle croisé source/CSV effectué via l'API GitHub : nombre et déclarations correspondent. La génération Python complète n'a pas été exécutée.
 - Commits de code : `6d775fed50324f50cc722d8ffbd1fdf3ea9f1bf0`, `865e216e4a54963143a4f757c66eb3696a17dee6`, `14a15a9b1e9892aee650ed4a218920a3acba4156`, `76cc21fc9bdef006454753ff5a396c4edcb44cef`, `44085ada59e8339250cc077fd2644656458e4e8a`.
-- Inventaire actualisé : `acf8091fbfb309b790731c9deca8cbb0f7549e1f`.
+- Mise en forme des nouvelles chaînes de commit de récupération : `9382e496904dc690b45ce11d78d6c4fe0b0009a0`.
+- Inventaire recalé une nouvelle fois après formatage : `8a42c77ebfb72f1813b9e8de45cf86cdc0913388`.
 - **Validation honnête** : aucune exécution de `cargo test`, `cargo fmt`, Clippy ni CI n'a pu être réalisée dans cet environnement. Le clone local a échoué faute de résolution DNS GitHub; les API de statut/runs ne fournissent pas de résultat pour les derniers SHA. Ces modifications ne sont donc pas encore certifiées par les tests.
 
 ---
