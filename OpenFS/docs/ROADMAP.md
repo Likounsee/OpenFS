@@ -986,3 +986,14 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `4e60e0a6098cae06f9dfb35ffef8db39f84c0805` : resynchronisation de l'inventaire après le décalage de lignes; les entrées de `volume.rs` ont été vérifiées contre les déclarations, sans symbole non résolu ni ligne incohérente.
 - Validation restante : les tests Rust et la CI exacte-SHA ne sont pas confirmés dans cet environnement. Le pourcentage reste une estimation de complétion du périmètre, pas une déclaration que cette correction a passé la suite de tests.
 - Estimations actualisées après cette correction de comportement : P0 100 %, P1 79 %, P2 71 %, P3 5 %, global estimé 62 %.
+
+
+### Récupération des commits indéterminés — allocation et publication d'inventaire (2026-10-28)
+
+- Branche de travail : `OpenFS` uniquement; aucune modification de `main` ni de `OpenFS-old`.
+- `1cb894f7cba0d44f3038912ab973f4a5f80d0f05` : `allocate_blocks` ne propage plus directement une erreur de commit du bitmap. Il rouvre/récupère le journal, relit le bitmap et distingue le lot entièrement alloué (succès durable), entièrement libre (erreur d'origine) et l'état mixte (corruption explicite).
+- `3d9ffc63a9f5853fadc3713d799dcdf6e399af69` et `4e9ea56daf655aa06ab1b236472b773e2c52a9bb` : le même principe est appliqué à `allocate_contiguous_blocks`; si l'état ne peut pas être relu/validé après récupération, le code échoue explicitement en corruption au lieu de renvoyer une erreur I/O qui pourrait déclencher une nouvelle allocation.
+- `bb320581dc49b3d0a02ecf2bf52643a2da30bbe0` : `publish_persistent_inventory` récupère le journal après un commit indéterminé et redécouvre le descripteur. Si le descripteur exact est déjà actif, l'opération renvoie le succès durable; s'il est absent, elle conserve l'erreur d'origine; tout état inattendu échoue fermé.
+- `cfae0369f51f1d2003ca2e60edfa22a7da4a8b73` et `8ff92e15e40a1d8f4660f79848287b831f73dae0` : inventaire CSV resynchronisé après les décalages de lignes. Vérification lexicale effectuée pour les 395 entrées de `allocator_extents.rs` et `volume.rs` : aucune déclaration indexée sur une ligne vide ou différente de sa déclaration source.
+- Validation restante : les tests Rust, rustfmt et Clippy n'ont pas été exécutés dans cet environnement. L'API de statut et la recherche des exécutions GitHub Actions ne renvoient aucun résultat pour le SHA contrôlé; la CI n'est donc **pas confirmée verte**.
+- Estimations de périmètre après ces trois chemins de récupération fonctionnels : P0 100 %, P1 79 %, P2 74 %, P3 5 %, global 65 %. Il s'agit d'une estimation d'avancement, pas d'une affirmation que les changements ont passé les tests.
