@@ -440,13 +440,48 @@ impl OpenedVolume {
                 previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
                 true,
             )?;
-            self.journal.commit(
+            if let Err(error) = self.journal.commit(
                 device,
                 &[RedoUpdate {
                     target_block: bitmap_block,
                     contents: bitmap,
                 }],
-            )?;
+            ) {
+                // A commit error does not prove that the bitmap transaction was
+                // rolled back: the durable COMMIT may have reached disk before the
+                // failing write/flush was reported. Recover the journal and inspect
+                // the authoritative bitmap before exposing an error that callers
+                // might retry (and allocate a second batch).
+                *self = crate::volume::open_volume(device).map_err(|_| {
+                    Error::Corrupt(
+                        "batch allocation failed and journal recovery could not be completed",
+                    )
+                })?;
+                let mut recovered_bitmap = try_zeroed_buffer(
+                    self.volume.block_size as usize,
+                    "allocation failed while verifying recovered batch allocation",
+                )?;
+                device.read_blocks(bitmap_block, &mut recovered_bitmap)?;
+                validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end)?;
+                let mut allocated_count = 0usize;
+                for block in &selected {
+                    let local = *block - base;
+                    let byte = usize::try_from(local / 8)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    if recovered_bitmap[byte] & (1_u8 << (local % 8)) != 0 {
+                        allocated_count += 1;
+                    }
+                }
+                if allocated_count == selected.len() {
+                    return Ok(selected);
+                }
+                if allocated_count == 0 {
+                    return Err(error);
+                }
+                return Err(Error::Corrupt(
+                    "batch allocation recovery left a mixed bitmap state",
+                ));
+            }
             return Ok(selected);
         }
         Err(Error::InvalidInput(
@@ -865,13 +900,37 @@ impl OpenedVolume {
         // Mark the already-validated range with the same masks in one pass per
         // bitmap byte, avoiding per-block division and modulo operations.
         set_bitmap_range(&mut bitmap, start - base, end - base, true)?;
-        self.journal.commit(
+        if let Err(error) = self.journal.commit(
             device,
             &[RedoUpdate {
                 target_block: bitmap_block,
                 contents: bitmap,
             }],
-        )?;
+        ) {
+            // Resolve an indeterminate COMMIT before returning a retryable error.
+            *self = crate::volume::open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "contiguous allocation failed and journal recovery could not be completed",
+                )
+            })?;
+            let mut recovered_bitmap = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while verifying recovered contiguous allocation",
+            )?;
+            device.read_blocks(bitmap_block, &mut recovered_bitmap)?;
+            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)?;
+            let allocated = bitmap_range_matches(&recovered_bitmap, start - base, end - base, true)?;
+            if allocated {
+                return Ok(start);
+            }
+            let free = bitmap_range_matches(&recovered_bitmap, start - base, end - base, false)?;
+            if free {
+                return Err(error);
+            }
+            return Err(Error::Corrupt(
+                "contiguous allocation recovery left a mixed bitmap state",
+            ));
+        }
         Ok(start)
     }
 
