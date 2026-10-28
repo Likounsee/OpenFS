@@ -4411,7 +4411,7 @@ impl OpenedVolume {
 
         // Clear bytes beyond EOF only after publishing the shorter length. Doing this
         // earlier could corrupt the still-authoritative old file if publication failed.
-        let tail_cleanup = (|| -> Result<()> {
+        let mut tail_cleanup = (|| -> Result<()> {
             if remainder != 0 {
                 if let Some(physical) = updated_map.physical_block(new_size / block_size) {
                     let mut contents = try_zeroed_block(
@@ -4431,6 +4431,35 @@ impl OpenedVolume {
             }
             Ok(())
         })();
+
+        // A tail-scrub commit can fail after its COMMIT record is durable. The
+        // namespace already publishes the shorter generation, but the journal handle
+        // may now be poisoned. Recover it before attempting reclamation; otherwise the
+        // cleanup path itself can fail and strand all retired extents.
+        if let Err(ref original_error) = tail_cleanup {
+            let recovered = open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "file was truncated but tail-scrub journal recovery failed; preserve the image",
+                )
+            })?;
+            *self = recovered;
+            let active_generation_is_truncated = matches!(
+                self.reconstruct_discovered_namespace(device),
+                Ok(Some((_, ref active)))
+                    if active.object(object_id).is_some_and(|item| {
+                        item.size == new_size
+                            && item.generation == next_generation
+                            && item.extent_root_block == new_root
+                    })
+            );
+            if !active_generation_is_truncated {
+                return Err(Error::Corrupt(
+                    "tail-scrub failed and the truncated file generation could not be verified; preserve retired blocks",
+                ));
+            }
+            // Preserve the original scrub error for the caller after safe reclamation.
+            let _ = original_error;
+        }
 
         // The shorter size is already published. Reclaim old storage even if clearing
         // bytes past EOF fails; those bytes are no longer visible through the file API.
