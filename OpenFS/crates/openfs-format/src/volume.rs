@@ -5665,7 +5665,10 @@ impl OpenedVolume {
                                     && item.extent_root_block == record.extent_root_block
                             }) =>
                         {
-                            return Err(error);
+                            // The exact new generation is durable and discoverable;
+                            // returning an I/O error here could make callers retry an
+                            // append that has already committed.
+                            return Ok(());
                         }
                         Ok(Some((_, active)))
                             if active.object(object_id).is_some_and(|item| {
@@ -5962,7 +5965,9 @@ impl OpenedVolume {
                                     "append was published but the previous extent-map root could not be reclaimed",
                                 ));
                             }
-                            return Err(error);
+                            // The new root is active and the retired root was reclaimed.
+                            // Report success rather than inviting a duplicate append retry.
+                            return Ok(());
                         }
                         Ok(Some((_, active)))
                             if active
