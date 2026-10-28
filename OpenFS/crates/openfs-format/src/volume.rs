@@ -1337,7 +1337,41 @@ impl OpenedVolume {
         // Exact commit point: journal.commit flushes the COMMIT record before applying
         // home bitmap pages. Before that durable flush recovery retains old ownership;
         // after it, recovery must replay every bitmap image even if a later write/flush fails.
-        self.journal.commit(device, &updates)?;
+        if let Err(error) = self.journal.commit(device, &updates) {
+            // This transaction can change several bitmap pages at once. A failed
+            // write/flush after the durable COMMIT must not be mistaken for a
+            // rollback: reopen to replay the journal, then identify which complete
+            // descriptor generation is authoritative before deciding the API result.
+            *self = open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "inventory replacement failed and journal recovery could not be completed",
+                )
+            })?;
+            match self.discover_persistent_inventory(device) {
+                Ok(Some((active_block, active_descriptor)))
+                    if active_block == new_block && active_descriptor == *descriptor =>
+                {
+                    persist_inventory_hint(device, active_block)?;
+                    self.inventory_descriptor_hint = Some(active_block);
+                    self.inventory_descriptor_cache =
+                        Some(Some((active_block, active_descriptor)));
+                    return Ok(active_block);
+                }
+                Ok(Some((active_block, active_descriptor)))
+                    if active_block == old_block && active_descriptor == old_descriptor =>
+                {
+                    self.inventory_descriptor_hint = Some(old_block);
+                    self.inventory_descriptor_cache =
+                        Some(Some((old_block, active_descriptor)));
+                    return Err(error);
+                }
+                Ok(None) | Ok(Some(_)) | Err(_) => {
+                    return Err(Error::Corrupt(
+                        "inventory replacement recovery found an unexpected descriptor state",
+                    ));
+                }
+            }
+        }
         persist_inventory_hint(device, new_block)?;
         self.inventory_descriptor_hint = Some(new_block);
         self.inventory_descriptor_cache = Some(Some((new_block, descriptor.clone())));
