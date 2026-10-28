@@ -5951,6 +5951,31 @@ impl OpenedVolume {
                 Ok(root) => root,
                 Err(error) => {
                     if modified_old_tail {
+                        // The staging failure may itself be a journal I/O error. Never
+                        // try to scrub through that possibly poisoned journal instance:
+                        // recover first, then prove the old namespace generation is still
+                        // authoritative before touching the old file's final block.
+                        let recovered = open_volume(device).map_err(|_| {
+                            Error::Corrupt(
+                                "append staging failed and journal recovery failed; preserve the image",
+                            )
+                        })?;
+                        *self = recovered;
+                        let old_generation_is_active = matches!(
+                            self.reconstruct_discovered_namespace(device),
+                            Ok(Some((_, ref active)))
+                                if active.object(object_id).is_some_and(|item| {
+                                    item.size == record.size
+                                        && item.generation == record.generation
+                                        && item.extent_root_block == record.extent_root_block
+                                })
+                        );
+                        if !old_generation_is_active {
+                            return Err(Error::Corrupt(
+                                "append staging failed and the old file generation could not be verified; preserve staged blocks",
+                            ));
+                        }
+
                         let cleanup = (|| -> Result<()> {
                             let physical = map
                                 .physical_block(offset / block_size)
@@ -5974,7 +5999,7 @@ impl OpenedVolume {
                         })();
                         if cleanup.is_err() {
                             return Err(Error::Corrupt(
-                                "append staging failed and bytes beyond the old EOF could not be cleared",
+                                "append staging failed and bytes beyond the old EOF could not be cleared after recovery",
                             ));
                         }
                     }
