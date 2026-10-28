@@ -1360,14 +1360,18 @@ impl OpenedVolume {
             )?;
             device
                 .read_blocks(bitmap_block, &mut recovered_bitmap)
-                .map_err(|_| Error::Corrupt("best-fit allocation recovery could not verify bitmap state"))?;
+                .map_err(|_| {
+                    Error::Corrupt("best-fit allocation recovery could not verify bitmap state")
+                })?;
             validate_bitmap_reserved_bits(
                 &recovered_bitmap,
                 base,
                 segment_start,
                 segment_end,
             )
-            .map_err(|_| Error::Corrupt("best-fit allocation recovery found an invalid bitmap"))?;
+            .map_err(|_| {
+                Error::Corrupt("best-fit allocation recovery found an invalid bitmap")
+            })?;
             let allocated = bitmap_range_matches(
                 &recovered_bitmap,
                 local_start,
