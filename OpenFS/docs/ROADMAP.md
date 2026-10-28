@@ -876,3 +876,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 - Commit `6a5b65e4d45351536cd08e8692b5b2cda21cdcca` : la matrice du test de renommage après panne d'écriture revient à `0..=8`. L'extension précédente à `0..=12` n'était pas accompagnée d'une assertion garantissant que chaque panne était atteinte; elle risquait donc de donner une impression de couverture plus large que la couverture réellement exercée. La suppression de fichier, elle, vérifie maintenant explicitement que le point d'injection a été déclenché.
 - Les tests n'ont pas été exécutés dans cet environnement. Les pourcentages de complétion restent inchangés tant que les vérifications fonctionnelles ne sont pas confirmées.
+
+### Matrice multi-cible du journal — bornes d'injection corrigées (2026-10-28)
+
+- Le test `multi_target_transaction_recovers_to_all_old_or_all_new_images` limite maintenant la matrice aux 13 opérations d'E/S réellement effectuées par le commit à deux cibles (écritures, flushs et publication du checkpoint).
+- Chaque position doit provoquer explicitement `Error::Io`; un indice qui ne serait pas atteint fait échouer le test au lieu d'être compté comme couverture. La réouverture vérifie ensuite que les deux blocs restent dans l'état ancien ou passent ensemble au nouvel état, puis que ce résultat reste stable après une seconde ouverture.
+- Modification du test seulement : elle ne prouve pas que la suite passe tant que le test Rust et la CI exacte-SHA n'ont pas été exécutés. Les estimations de complétion restent inchangées.
