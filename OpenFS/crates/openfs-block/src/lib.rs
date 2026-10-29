@@ -315,38 +315,69 @@ impl BlockDevice for ImageDevice {
 /// A read-only handle to an existing raw device or regular-file test fixture.
 /// Geometry must come from a trusted, independently verified source. This type
 /// never requests write access and deliberately exposes no write operation.
-pub struct ReadOnlyRawDevice { file: File, block_size: u32, block_count: u64 }
+pub struct ReadOnlyRawDevice {
+    file: File,
+    block_size: u32,
+    block_count: u64,
+}
 
 impl ReadOnlyRawDevice {
     /// Open an existing path with read access only; never creates or truncates it.
     pub fn open(path: impl AsRef<Path>, block_size: u32, block_count: u64) -> Result<Self> {
         validate_block_size(block_size)?;
-        if block_count == 0 { return Err(Error::InvalidInput("raw device must contain at least one block")); }
-        let expected_length = u64::from(block_size).checked_mul(block_count).ok_or(Error::ArithmeticOverflow)?;
+        if block_count == 0 {
+            return Err(Error::InvalidInput(
+                "raw device must contain at least one block",
+            ));
+        }
+        let expected_length = u64::from(block_size)
+            .checked_mul(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
         let file = OpenOptions::new().read(true).open(path)?;
         let metadata = file.metadata()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileTypeExt;
             if !metadata.is_file() && !metadata.file_type().is_block_device() {
-                return Err(Error::InvalidInput("raw device path must identify a regular file or block device"));
+                return Err(Error::InvalidInput(
+                    "raw device path must identify a regular file or block device",
+                ));
             }
         }
         if metadata.is_file() && metadata.len() != expected_length {
-            return Err(Error::InvalidInput("regular-file length does not match declared raw-device geometry"));
+            return Err(Error::InvalidInput(
+                "regular-file length does not match declared raw-device geometry",
+            ));
         }
-        Ok(Self { file, block_size, block_count })
+        Ok(Self {
+            file,
+            block_size,
+            block_count,
+        })
     }
-    pub fn block_size(&self) -> u32 { self.block_size }
-    pub fn block_count(&self) -> u64 { self.block_count }
+
+    pub fn block_size(&self) -> u32 {
+        self.block_size
+    }
+
+    pub fn block_count(&self) -> u64 {
+        self.block_count
+    }
+
     pub fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
-        let size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let size =
+            usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         if output.is_empty() || output.len() % size != 0 {
-            return Err(Error::InvalidInput("buffer length must be a non-zero multiple of block size"));
+            return Err(Error::InvalidInput(
+                "buffer length must be a non-zero multiple of block size",
+            ));
         }
-        let count = u64::try_from(output.len() / size).map_err(|_| Error::ArithmeticOverflow)?;
+        let count =
+            u64::try_from(output.len() / size).map_err(|_| Error::ArithmeticOverflow)?;
         check_block_range(first_block, count, self.block_count)?;
-        let offset = first_block.checked_mul(u64::from(self.block_size)).ok_or(Error::ArithmeticOverflow)?;
+        let offset = first_block
+            .checked_mul(u64::from(self.block_size))
+            .ok_or(Error::ArithmeticOverflow)?;
         let mut file = &self.file;
         file.seek(SeekFrom::Start(offset)).map_err(|error| {
             Error::Io(std::io::Error::new(
@@ -357,7 +388,9 @@ impl ReadOnlyRawDevice {
         file.read_exact(output).map_err(|error| {
             Error::Io(std::io::Error::new(
                 error.kind(),
-                format!("reading {count} raw-device block(s) at block {first_block} failed: {error}"),
+                format!(
+                    "reading {count} raw-device block(s) at block {first_block} failed: {error}"
+                ),
             ))
         })?;
         Ok(())
