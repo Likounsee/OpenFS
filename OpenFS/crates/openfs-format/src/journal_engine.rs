@@ -2637,7 +2637,7 @@ mod tests {
 
                 // BEGIN + two chunks for target 1 = writes 0..=2; writes 3 and 4
                 // are the second target's redo chunks.
-                let mut torn = TearWriteAt::new(device.clone(), tear_at, prefix_bytes);
+                let mut torn = TearWriteAt::new_incomplete(device.clone(), tear_at, prefix_bytes);
                 assert!(
                     matches!(journal.commit(&mut torn, &updates), Err(Error::Io(_))),
                     "second target's redo chunk {tear_at} should tear after {prefix_bytes} bytes"
