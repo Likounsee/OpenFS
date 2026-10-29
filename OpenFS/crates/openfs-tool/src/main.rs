@@ -2437,25 +2437,26 @@ fn read_or_checksum_namespace_file(
     target: &str,
     expected_crc32c: Option<u32>,
 ) -> Result<(), Box<dyn StdError>> {
+    if command == "cat" {
+        // The dedicated reader owns the image handle; do not retain a second
+        // exclusive writer lock while it opens the same image.
+        return read_namespace_file(path, block_size, target);
+    }
+
     let mut device = ImageDevice::open(path, block_size)?;
     let volume = open_volume(&mut device)?;
-    if command == "cat" {
-        // Keep plain output on the dedicated streaming reader path.
-        return read_namespace_file(path, block_size, target);
-    } else {
-        let mut checksum = Crc32cWriter::default();
-        let bytes = volume.stream_persistent_file_to_writer(&mut device, target, &mut checksum)?;
-        let actual = checksum.finish();
-        println!("File: {target}");
-        println!("Size: {bytes} bytes");
-        println!("CRC32C: {actual:08x}");
-        if let Some(expected) = expected_crc32c {
-            if actual != expected {
-                println!("Checksum verification: FAILED (expected {expected:08x})");
-                return Err("CRC32C checksum mismatch".into());
-            }
-            println!("Checksum verification: OK");
+    let mut checksum = Crc32cWriter::default();
+    let bytes = volume.stream_persistent_file_to_writer(&mut device, target, &mut checksum)?;
+    let actual = checksum.finish();
+    println!("File: {target}");
+    println!("Size: {bytes} bytes");
+    println!("CRC32C: {actual:08x}");
+    if let Some(expected) = expected_crc32c {
+        if actual != expected {
+            println!("Checksum verification: FAILED (expected {expected:08x})");
+            return Err("CRC32C checksum mismatch".into());
         }
+        println!("Checksum verification: OK");
     }
     Ok(())
 }
