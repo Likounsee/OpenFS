@@ -31,7 +31,9 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() { return Err("too many arguments".into()); }
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
             probe_read_only_device(Path::new(&path), block_size, block_count)
         }
         Some("create-image") => {
@@ -1565,7 +1567,11 @@ fn parse_probe_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError
     Ok(size)
 }
 
-fn probe_read_only_device(path: &Path, block_size: u32, block_count: u64) -> Result<(), Box<dyn StdError>> {
+fn probe_read_only_device(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
     let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
     let mut first = vec![0_u8; block_size as usize];
     let mut last = vec![0_u8; block_size as usize];
@@ -1574,7 +1580,10 @@ fn probe_read_only_device(path: &Path, block_size: u32, block_count: u64) -> Res
     println!("Read-only device probe: OK");
     println!("Logical block size: {} bytes", device.block_size());
     println!("Block count: {}", device.block_count());
-    println!("Capacity: {} bytes", u64::from(device.block_size()) * device.block_count());
+    println!(
+        "Capacity: {} bytes",
+        u64::from(device.block_size()) * device.block_count()
+    );
     println!("First block prefix: {:02x?}", &first[..first.len().min(16)]);
     println!("Last block prefix: {:02x?}", &last[..last.len().min(16)]);
     println!("No writes were performed.");
