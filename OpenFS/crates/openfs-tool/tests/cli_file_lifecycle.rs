@@ -105,6 +105,7 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     let read_back = run_image(&image, "cat", &["/docs/deep/payload.bin"]);
     assert_eq!(read_back.stdout, expected);
 
+    run_image(&image, "touch", &["/docs/copied.bin"]);
     run_image(
         &image,
         "copy",
