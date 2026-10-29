@@ -514,6 +514,28 @@ mod tests {
     }
 
     #[test]
+    fn read_only_raw_device_reads_blocks_and_rejects_out_of_range_access() {
+        let image = TempImage::new();
+        {
+            let mut writable = ImageDevice::create(&image.0, 512, 4).unwrap();
+            writable.write_blocks(0, &[0x31; 512]).unwrap();
+            writable.write_blocks(3, &[0x73; 512]).unwrap();
+            writable.flush().unwrap();
+        }
+        let mut read_only = super::ReadOnlyRawDevice::open(&image.0, 512, 4).unwrap();
+        assert_eq!(read_only.block_size(), 512);
+        assert_eq!(read_only.block_count(), 4);
+        let mut first = [0; 512];
+        let mut last = [0; 512];
+        read_only.read_blocks(0, &mut first).unwrap();
+        read_only.read_blocks(3, &mut last).unwrap();
+        assert_eq!(first, [0x31; 512]);
+        assert_eq!(last, [0x73; 512]);
+        assert!(read_only.read_blocks(4, &mut last).is_err());
+        assert!(super::ReadOnlyRawDevice::open(&image.0, 512, 3).is_err());
+    }
+
+    #[test]
     fn image_round_trip_survives_reopen_and_flush() {
         let image = TempImage::new();
         {
