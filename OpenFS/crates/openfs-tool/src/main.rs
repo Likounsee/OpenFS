@@ -1676,7 +1676,9 @@ fn inspect_raw_gpt(
     // Validate the backup copy too. A valid primary GPT alone does not prove that
     // the secondary header and its partition array are usable for recovery.
     if backup_lba != block_count - 1 || first_usable < 2 || last_usable >= backup_lba {
-        return Err("GPT primary header does not describe standard end-of-device backup geometry".into());
+        return Err(
+            "GPT primary header does not describe standard end-of-device backup geometry".into(),
+        );
     }
     if entries_end > first_usable {
         return Err("primary GPT partition-entry array overlaps the usable LBA range".into());
@@ -1729,7 +1731,9 @@ fn inspect_raw_gpt(
     let backup_entries = &backup_entries[..usize::try_from(entries_bytes)?];
     let actual_backup_entries_crc = crc32_ieee(backup_entries);
     if actual_backup_entries_crc != expected_entries_crc || backup_entries != entries {
-        return Err("backup GPT partition-entry array is corrupt or differs from the primary copy".into());
+        return Err(
+            "backup GPT partition-entry array is corrupt or differs from the primary copy".into(),
+        );
     }
 
     println!("Primary GPT header CRC: OK");
