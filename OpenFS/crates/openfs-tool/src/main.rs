@@ -594,23 +594,33 @@ fn touch_namespace_file(
     block_size: u32,
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
-    let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
-    match namespace.resolve_path(target) {
-        Ok(object_id) => {
-            let record = namespace
-                .object(object_id)
-                .ok_or("object metadata is missing")?;
-            if record.kind != ObjectKind::File {
-                return Err("touch target already exists and is not a regular file".into());
+    // Release the writable volume (and its single-writer lease) before delegating
+    // creation to create_namespace_entry, which opens the image independently.
+    let exists = {
+        let mut device = ImageDevice::open(path, block_size)?;
+        let volume = open_volume(&mut device)?;
+        let (_, namespace) = volume
+            .reconstruct_discovered_namespace(&mut device)?
+            .ok_or("no persistent namespace; run init-namespace first")?;
+        match namespace.resolve_path(target) {
+            Ok(object_id) => {
+                let record = namespace
+                    .object(object_id)
+                    .ok_or("object metadata is missing")?;
+                if record.kind != ObjectKind::File {
+                    return Err("touch target already exists and is not a regular file".into());
+                }
+                true
             }
-            println!("File '{}' already exists; left unchanged.", target);
-            Ok(())
+            Err(_) => false,
         }
-        Err(_) => create_namespace_entry(path, block_size, target, false),
+    };
+
+    if exists {
+        println!("File '{}' already exists; left unchanged.", target);
+        Ok(())
+    } else {
+        create_namespace_entry(path, block_size, target, false)
     }
 }
 
