@@ -29,7 +29,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
     match args.next().as_deref() {
         Some("probe-device") => {
             let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_block_size(args.next())?;
+            let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
             if args.next().is_some() { return Err("too many arguments".into()); }
             probe_read_only_device(Path::new(&path), block_size, block_count)
@@ -1555,6 +1555,14 @@ fn format_uuid(uuid: [u8; 16]) -> String {
         &hex[16..20],
         &hex[20..32]
     )
+}
+
+fn parse_probe_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError>> {
+    let size = value.ok_or("missing block size")?.parse::<u32>()?;
+    if !(512..=65_536).contains(&size) || !size.is_power_of_two() {
+        return Err("probe block size must be a power of two from 512 through 65536".into());
+    }
+    Ok(size)
 }
 
 fn probe_read_only_device(path: &Path, block_size: u32, block_count: u64) -> Result<(), Box<dyn StdError>> {
