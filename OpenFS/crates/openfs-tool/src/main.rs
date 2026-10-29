@@ -1673,7 +1673,69 @@ fn inspect_raw_gpt(
         .into());
     }
 
+    // Validate the backup copy too. A valid primary GPT alone does not prove that
+    // the secondary header and its partition array are usable for recovery.
+    if backup_lba != block_count - 1 || first_usable < 2 || last_usable >= backup_lba {
+        return Err("GPT primary header does not describe standard end-of-device backup geometry".into());
+    }
+    if entries_end > first_usable {
+        return Err("primary GPT partition-entry array overlaps the usable LBA range".into());
+    }
+    let mut backup_header = vec![0_u8; block_size as usize];
+    device.read_blocks(backup_lba, &mut backup_header)?;
+    if backup_header.get(0..8) != Some(b"EFI PART") {
+        return Err("backup GPT header signature is missing".into());
+    }
+    let backup_header_size = read_u32_le(&backup_header, 12)?;
+    if !(92..=block_size).contains(&backup_header_size) {
+        return Err("backup GPT header size is outside the supported bounds".into());
+    }
+    let expected_backup_header_crc = read_u32_le(&backup_header, 16)?;
+    let mut crc_backup_header = backup_header[..backup_header_size as usize].to_vec();
+    crc_backup_header[16..20].fill(0);
+    let actual_backup_header_crc = crc32_ieee(&crc_backup_header);
+    if actual_backup_header_crc != expected_backup_header_crc {
+        return Err(format!(
+            "backup GPT header CRC mismatch (stored {expected_backup_header_crc:08x}, computed {actual_backup_header_crc:08x})"
+        ).into());
+    }
+    let backup_current_lba = read_u64_le(&backup_header, 24)?;
+    let backup_primary_lba = read_u64_le(&backup_header, 32)?;
+    let backup_first_usable = read_u64_le(&backup_header, 40)?;
+    let backup_last_usable = read_u64_le(&backup_header, 48)?;
+    let backup_entries_lba = read_u64_le(&backup_header, 72)?;
+    let backup_entry_count = read_u32_le(&backup_header, 80)?;
+    let backup_entry_size = read_u32_le(&backup_header, 84)?;
+    let backup_entries_crc = read_u32_le(&backup_header, 88)?;
+    if backup_current_lba != backup_lba
+        || backup_primary_lba != current_lba
+        || backup_first_usable != first_usable
+        || backup_last_usable != last_usable
+        || backup_header.get(56..72) != header.get(56..72)
+        || backup_entry_count != entry_count
+        || backup_entry_size != entry_size
+        || backup_entries_crc != expected_entries_crc
+    {
+        return Err("primary and backup GPT headers disagree".into());
+    }
+    let backup_entries_end = backup_entries_lba
+        .checked_add(entries_blocks)
+        .ok_or("backup GPT partition-entry range overflow")?;
+    if backup_entries_lba <= last_usable || backup_entries_end > backup_lba {
+        return Err("backup GPT partition-entry array is outside its expected region".into());
+    }
+    let mut backup_entries = vec![0_u8; usize::try_from(padded_entries_bytes)?];
+    device.read_blocks(backup_entries_lba, &mut backup_entries)?;
+    let backup_entries = &backup_entries[..usize::try_from(entries_bytes)?];
+    let actual_backup_entries_crc = crc32_ieee(backup_entries);
+    if actual_backup_entries_crc != expected_entries_crc || backup_entries != entries {
+        return Err("backup GPT partition-entry array is corrupt or differs from the primary copy".into());
+    }
+
     println!("Primary GPT header CRC: OK");
+    println!("Backup GPT header CRC: OK");
+    println!("Primary/backup GPT metadata: consistent");
+    println!("Backup partition array CRC: OK");
     println!("Partition array CRC: OK");
     println!("Backup GPT header LBA: {backup_lba}");
     println!("Usable LBA range: {first_usable}..={last_usable}");
