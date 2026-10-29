@@ -2452,3 +2452,25 @@ mod checksum_tests {
         assert!(super::parse_crc32c("zzzz").is_err());
     }
 }
+
+#[cfg(test)]
+mod gpt_tests {
+    use super::{crc32_ieee, read_u32_le, read_u64_le};
+
+    #[test]
+    fn ieee_crc32_matches_the_standard_check_value() {
+        assert_eq!(crc32_ieee(b"123456789"), 0xcbf4_3926);
+        assert_eq!(crc32_ieee(b""), 0);
+    }
+
+    #[test]
+    fn little_endian_gpt_fields_are_bounds_checked() {
+        assert_eq!(read_u32_le(&[0x78, 0x56, 0x34, 0x12], 0).unwrap(), 0x1234_5678);
+        assert_eq!(
+            read_u64_le(&[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01], 0).unwrap(),
+            0x0102_0304_0506_0708
+        );
+        assert!(read_u32_le(&[0, 1, 2], 0).is_err());
+        assert!(read_u64_le(&[0; 7], 0).is_err());
+    }
+}
