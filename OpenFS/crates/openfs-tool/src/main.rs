@@ -1576,7 +1576,6 @@ fn parse_probe_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError
     Ok(size)
 }
 
-
 /// Inspect GPT metadata from a physical device without issuing any writes.
 fn inspect_raw_gpt(
     path: &Path,
@@ -1657,9 +1656,7 @@ fn inspect_raw_gpt(
         .checked_add(entries_blocks)
         .ok_or("GPT partition-entry range overflow")?;
     if entries_lba < 2 || entries_end > block_count || entries_bytes > 16 * 1024 * 1024 {
-        return Err(
-            "GPT partition-entry array lies outside the device or exceeds 16 MiB".into(),
-        );
+        return Err("GPT partition-entry array lies outside the device or exceeds 16 MiB".into());
     }
 
     let padded_entries_bytes = entries_blocks
