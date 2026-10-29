@@ -1130,6 +1130,12 @@ mod tests {
                 let mut mixed = vec![0; input.len()];
                 self.inner.read_blocks(first, &mut mixed)?;
                 mixed[..self.prefix_bytes].copy_from_slice(&input[..self.prefix_bytes]);
+                // A torn write must leave a suffix that actually differs from the
+                // intended block. Journal records end with zero padding, so a zeroed
+                // old block can otherwise make a `len - 1` prefix accidentally equal
+                // the complete valid record. Preserve the prefix and force one stale
+                // suffix byte to expose the tear to the decoder/checksum.
+                mixed[self.prefix_bytes] = input[self.prefix_bytes] ^ 0xFF;
                 self.inner.write_blocks(first, &mixed)?;
                 return Err(Error::Io(std::io::Error::other(
                     "injected torn journal write",
