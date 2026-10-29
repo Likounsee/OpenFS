@@ -332,21 +332,47 @@ impl ReadOnlyRawDevice {
         let expected_length = u64::from(block_size)
             .checked_mul(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
-        let file = OpenOptions::new().read(true).open(path)?;
-        let metadata = file.metadata()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileTypeExt;
-            if !metadata.is_file() && !metadata.file_type().is_block_device() {
+        let path = path.as_ref();
+        let file = OpenOptions::new().read(true).open(path).map_err(|error| {
+            Error::Io(std::io::Error::new(
+                error.kind(),
+                format!("opening raw device {} failed: {error}", path.display()),
+            ))
+        })?;
+
+        // Windows may reject GetFileInformationByHandle for PhysicalDrive
+        // handles even when CreateFile succeeded. Physical-device capacity is
+        // supplied from the independently inspected disk geometry, so avoid
+        // File::metadata on that path. Regular-file fixtures remain length-checked.
+        #[cfg(windows)]
+        let is_physical_device = path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with(r"\\.\physicaldrive");
+        #[cfg(not(windows))]
+        let is_physical_device = false;
+
+        if !is_physical_device {
+            let metadata = file.metadata().map_err(|error| {
+                Error::Io(std::io::Error::new(
+                    error.kind(),
+                    format!("querying raw-device metadata for {} failed: {error}", path.display()),
+                ))
+            })?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileTypeExt;
+                if !metadata.is_file() && !metadata.file_type().is_block_device() {
+                    return Err(Error::InvalidInput(
+                        "raw device path must identify a regular file or block device",
+                    ));
+                }
+            }
+            if metadata.is_file() && metadata.len() != expected_length {
                 return Err(Error::InvalidInput(
-                    "raw device path must identify a regular file or block device",
+                    "regular-file length does not match declared raw-device geometry",
                 ));
             }
-        }
-        if metadata.is_file() && metadata.len() != expected_length {
-            return Err(Error::InvalidInput(
-                "regular-file length does not match declared raw-device geometry",
-            ));
         }
         Ok(Self {
             file,
