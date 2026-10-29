@@ -1024,8 +1024,7 @@ impl OpenedVolume {
                 {
                     persist_inventory_hint(device, active_block)?;
                     self.inventory_descriptor_hint = Some(active_block);
-                    self.inventory_descriptor_cache =
-                        Some(Some((active_block, active_descriptor)));
+                    self.inventory_descriptor_cache = Some(Some((active_block, active_descriptor)));
                     return Ok(active_block);
                 }
                 Ok(None) => return Err(error),
@@ -1353,16 +1352,14 @@ impl OpenedVolume {
                 {
                     persist_inventory_hint(device, active_block)?;
                     self.inventory_descriptor_hint = Some(active_block);
-                    self.inventory_descriptor_cache =
-                        Some(Some((active_block, active_descriptor)));
+                    self.inventory_descriptor_cache = Some(Some((active_block, active_descriptor)));
                     return Ok(active_block);
                 }
                 Ok(Some((active_block, active_descriptor)))
                     if active_block == old_block && active_descriptor == old_descriptor =>
                 {
                     self.inventory_descriptor_hint = Some(old_block);
-                    self.inventory_descriptor_cache =
-                        Some(Some((old_block, active_descriptor)));
+                    self.inventory_descriptor_cache = Some(Some((old_block, active_descriptor)));
                     return Err(error);
                 }
                 Ok(None) | Ok(Some(_)) | Err(_) => {
@@ -2318,10 +2315,7 @@ impl OpenedVolume {
             parent_id: parent_id.0,
             object_id: object_id.0,
             kind: crate::ObjectKind::File,
-            name: try_clone_string(
-                name,
-                "allocation failed while copying persistent file name",
-            )?,
+            name: try_clone_string(name, "allocation failed while copying persistent file name")?,
         };
         namespace.insert(entry, record)?;
         self.replace_persistent_namespace_inventory(device, &namespace)?;
@@ -2531,11 +2525,15 @@ impl OpenedVolume {
             loop {
                 match self.free_blocks_sorted(device, segment_blocks) {
                     Ok(()) => break,
-                    Err(error) if matches!(
-                        &error,
-                        Error::Io(_)
-                            | Error::InvalidInput("journal requires recovery after a previous I/O error")
-                    ) => {
+                    Err(error)
+                        if matches!(
+                            &error,
+                            Error::Io(_)
+                                | Error::InvalidInput(
+                                    "journal requires recovery after a previous I/O error"
+                                )
+                        ) =>
+                    {
                         // A bitmap commit can fail either before or after its durable
                         // COMMIT record, or the journal may already require recovery.
                         // Reopen and inspect the on-disk bits
@@ -3975,9 +3973,7 @@ impl OpenedVolume {
             // point before an I/O or flush error was returned. Recover before
             // reporting failure, then verify the complete requested postcondition.
             *self = open_volume(device).map_err(|_| {
-                Error::Corrupt(
-                    "file write failed and journal recovery could not be completed",
-                )
+                Error::Corrupt("file write failed and journal recovery could not be completed")
             })?;
             let mut recovered = try_zeroed_block(
                 self.volume.block_size as usize,
@@ -3985,9 +3981,11 @@ impl OpenedVolume {
             )?;
             let mut matching_blocks = 0usize;
             for update in &updates {
-                device.read_blocks(update.target_block, &mut recovered).map_err(|_| {
-                    Error::Corrupt("file write recovery could not verify target data")
-                })?;
+                device
+                    .read_blocks(update.target_block, &mut recovered)
+                    .map_err(|_| {
+                        Error::Corrupt("file write recovery could not verify target data")
+                    })?;
                 if recovered == update.contents {
                     matching_blocks = matching_blocks
                         .checked_add(1)
@@ -4784,7 +4782,10 @@ impl OpenedVolume {
                         "allocation failed while verifying sparse-extension tail",
                     )?;
                     device.read_blocks(physical, &mut recovered_tail)?;
-                    if recovered_tail[tail_remainder..].iter().any(|byte| *byte != 0) {
+                    if recovered_tail[tail_remainder..]
+                        .iter()
+                        .any(|byte| *byte != 0)
+                    {
                         recovered_tail[tail_remainder..].fill(0);
                         self.journal
                             .commit(
@@ -5937,11 +5938,13 @@ impl OpenedVolume {
                             self.volume.block_size as usize,
                             "allocation failed while verifying append tail after recovery",
                         )?;
-                        device.read_blocks(physical_block, &mut current).map_err(|_| {
-                            Error::Corrupt(
-                                "append cleanup recovery could not verify bytes beyond EOF",
-                            )
-                        })?;
+                        device
+                            .read_blocks(physical_block, &mut current)
+                            .map_err(|_| {
+                                Error::Corrupt(
+                                    "append cleanup recovery could not verify bytes beyond EOF",
+                                )
+                            })?;
                         if current[in_block..].iter().any(|byte| *byte != 0) {
                             current[in_block..].fill(0);
                             if self
@@ -5978,11 +5981,13 @@ impl OpenedVolume {
                                     self.volume.block_size as usize,
                                     "allocation failed while verifying append cleanup retry",
                                 )?;
-                                device.read_blocks(physical_block, &mut verified).map_err(|_| {
-                                    Error::Corrupt(
+                                device.read_blocks(physical_block, &mut verified).map_err(
+                                    |_| {
+                                        Error::Corrupt(
                                         "append cleanup retry could not verify bytes beyond EOF",
                                     )
-                                })?;
+                                    },
+                                )?;
                                 if verified[in_block..].iter().any(|byte| *byte != 0) {
                                     return Err(Error::Corrupt(
                                         "append cleanup retry left bytes beyond EOF; preserve the image",
@@ -6258,8 +6263,8 @@ impl OpenedVolume {
                         let physical = map
                             .physical_block(offset / block_size)
                             .ok_or(Error::Corrupt("append tail disappeared during rollback"))?;
-                        let tail_start = usize::try_from(tail_offset)
-                            .map_err(|_| Error::ArithmeticOverflow)?;
+                        let tail_start =
+                            usize::try_from(tail_offset).map_err(|_| Error::ArithmeticOverflow)?;
                         let cleanup = (|| -> Result<()> {
                             let mut current = try_zeroed_block(
                                 block_size_usize,
@@ -6432,9 +6437,9 @@ impl OpenedVolume {
                                     "append metadata preparation failed and the old generation could not be verified; preserve staged blocks",
                                 ));
                             }
-                            let physical = map
-                                .physical_block(offset / block_size)
-                                .ok_or(Error::Corrupt(
+                            let physical =
+                                map.physical_block(offset / block_size)
+                                    .ok_or(Error::Corrupt(
                                     "append tail disappeared during recovered metadata rollback",
                                 ))?;
                             let mut current = try_zeroed_block(
@@ -6551,9 +6556,11 @@ impl OpenedVolume {
                                             "append publication rollback could not verify the old generation; preserve staged blocks",
                                         ));
                                     }
-                                    let physical = map.physical_block(offset / block_size).ok_or(
-                                        Error::Corrupt("append tail disappeared during rollback verification"),
-                                    )?;
+                                    let physical =
+                                        map.physical_block(offset / block_size)
+                                            .ok_or(Error::Corrupt(
+                                            "append tail disappeared during rollback verification",
+                                        ))?;
                                     let tail_start = usize::try_from(tail_offset)
                                         .map_err(|_| Error::ArithmeticOverflow)?;
                                     let mut current = try_zeroed_block(
@@ -6567,13 +6574,17 @@ impl OpenedVolume {
                                     })?;
                                     if current[tail_start..].iter().any(|byte| *byte != 0) {
                                         current[tail_start..].fill(0);
-                                        if self.journal.commit(
-                                            device,
-                                            &[RedoUpdate {
-                                                target_block: physical,
-                                                contents: current,
-                                            }],
-                                        ).is_err() {
+                                        if self
+                                            .journal
+                                            .commit(
+                                                device,
+                                                &[RedoUpdate {
+                                                    target_block: physical,
+                                                    contents: current,
+                                                }],
+                                            )
+                                            .is_err()
+                                        {
                                             *self = open_volume(device).map_err(|_| {
                                                 Error::Corrupt(
                                                     "append publication rollback retry and journal recovery failed; preserve the image",
@@ -10877,14 +10888,16 @@ mod tests {
                 // the journal, verifies every target has the requested post-image, and
                 // reports success when recovery completes the whole transaction.
                 assert!(
-                    volume.write_file_range(
-                        &mut failing,
-                        &namespace,
-                        &loaded,
-                        ObjectId(2),
-                        recovery_offset,
-                        &recovery_payload,
-                    ).is_ok(),
+                    volume
+                        .write_file_range(
+                            &mut failing,
+                            &namespace,
+                            &loaded,
+                            ObjectId(2),
+                            recovery_offset,
+                            &recovery_payload,
+                        )
+                        .is_ok(),
                     "a fully recovered committed write should return success"
                 );
                 drop(volume);
@@ -16154,7 +16167,9 @@ mod tests {
     fn canonical_allocation_keeps_bitmap_free_when_candidate_clear_io_fails() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
-                let path = image_path(&format!("allocation-clear-{failure_kind}-failure-{block_size}"));
+                let path = image_path(&format!(
+                    "allocation-clear-{failure_kind}-failure-{block_size}"
+                ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                     let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();

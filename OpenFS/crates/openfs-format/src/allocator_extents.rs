@@ -473,17 +473,18 @@ impl OpenedVolume {
                     device
                         .read_blocks(bitmap_block, &mut recovered_bitmap)
                         .map_err(|_| {
-                            Error::Corrupt("batch allocation recovery could not verify bitmap state")
+                            Error::Corrupt(
+                                "batch allocation recovery could not verify bitmap state",
+                            )
                         })?;
-                    validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end)
-                        .map_err(|_| {
-                        Error::Corrupt("batch allocation recovery found an invalid bitmap")
-                    })?;
+                    validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end).map_err(
+                        |_| Error::Corrupt("batch allocation recovery found an invalid bitmap"),
+                    )?;
                     let mut allocated_count = 0usize;
                     for block in &selected {
                         let local = *block - base;
-                        let byte = usize::try_from(local / 8)
-                            .map_err(|_| Error::ArithmeticOverflow)?;
+                        let byte =
+                            usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
                         if recovered_bitmap[byte] & (1_u8 << (local % 8)) != 0 {
                             allocated_count += 1;
                         }
@@ -673,13 +674,8 @@ impl OpenedVolume {
             device
                 .read_blocks(bitmap_block, &mut recovered_bitmap)
                 .map_err(|_| Error::Corrupt("batch free recovery could not verify bitmap state"))?;
-            validate_bitmap_reserved_bits(
-                &recovered_bitmap,
-                base,
-                segment_start,
-                segment_end,
-            )
-            .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
+            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
+                .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
             let mut free_count = 0usize;
             let mut allocated_count = 0usize;
             for &block in sorted {
@@ -697,7 +693,9 @@ impl OpenedVolume {
             if allocated_count == sorted.len() {
                 return Err(error);
             }
-            return Err(Error::Corrupt("batch free recovery left a mixed bitmap state"));
+            return Err(Error::Corrupt(
+                "batch free recovery left a mixed bitmap state",
+            ));
         }
         Ok(())
     }
@@ -783,9 +781,7 @@ impl OpenedVolume {
             // Reopen the volume and inspect the entire free range before returning
             // an error that callers could interpret as permission to retry.
             *self = crate::volume::open_volume(device).map_err(|_| {
-                Error::Corrupt(
-                    "contiguous free failed and journal recovery could not be completed",
-                )
+                Error::Corrupt("contiguous free failed and journal recovery could not be completed")
             })?;
             let mut recovered_bitmap = try_zeroed_buffer(
                 self.volume.block_size as usize,
@@ -796,13 +792,8 @@ impl OpenedVolume {
                 .map_err(|_| {
                     Error::Corrupt("contiguous free recovery could not verify bitmap state")
                 })?;
-            validate_bitmap_reserved_bits(
-                &recovered_bitmap,
-                base,
-                segment_start,
-                segment_end,
-            )
-            .map_err(|_| Error::Corrupt("contiguous free recovery found an invalid bitmap"))?;
+            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
+                .map_err(|_| Error::Corrupt("contiguous free recovery found an invalid bitmap"))?;
             if bitmap_range_matches(&recovered_bitmap, local_start, local_end, false)? {
                 return Ok(());
             }
@@ -1015,27 +1006,21 @@ impl OpenedVolume {
                 device
                     .read_blocks(bitmap_block, &mut recovered_bitmap)
                     .map_err(|_| {
-                        Error::Corrupt("contiguous allocation recovery could not verify bitmap state")
+                        Error::Corrupt(
+                            "contiguous allocation recovery could not verify bitmap state",
+                        )
                     })?;
                 validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
                     .map_err(|_| {
-                    Error::Corrupt("contiguous allocation recovery found an invalid bitmap")
-                })?;
-                let allocated = bitmap_range_matches(
-                    &recovered_bitmap,
-                    start - base,
-                    end - base,
-                    true,
-                )?;
+                        Error::Corrupt("contiguous allocation recovery found an invalid bitmap")
+                    })?;
+                let allocated =
+                    bitmap_range_matches(&recovered_bitmap, start - base, end - base, true)?;
                 if allocated {
                     return Ok(start);
                 }
-                let free = bitmap_range_matches(
-                    &recovered_bitmap,
-                    start - base,
-                    end - base,
-                    false,
-                )?;
+                let free =
+                    bitmap_range_matches(&recovered_bitmap, start - base, end - base, false)?;
                 if free {
                     return Err(error);
                 }
@@ -1473,30 +1458,15 @@ impl OpenedVolume {
                 .map_err(|_| {
                     Error::Corrupt("best-fit allocation recovery could not verify bitmap state")
                 })?;
-            validate_bitmap_reserved_bits(
-                &recovered_bitmap,
-                base,
-                segment_start,
-                segment_end,
-            )
-            .map_err(|_| {
-                Error::Corrupt("best-fit allocation recovery found an invalid bitmap")
-            })?;
-            let allocated = bitmap_range_matches(
-                &recovered_bitmap,
-                local_start,
-                local_end,
-                true,
-            )?;
+            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
+                .map_err(|_| {
+                    Error::Corrupt("best-fit allocation recovery found an invalid bitmap")
+                })?;
+            let allocated = bitmap_range_matches(&recovered_bitmap, local_start, local_end, true)?;
             if allocated {
                 return Ok(extent.start_block);
             }
-            let free = bitmap_range_matches(
-                &recovered_bitmap,
-                local_start,
-                local_end,
-                false,
-            )?;
+            let free = bitmap_range_matches(&recovered_bitmap, local_start, local_end, false)?;
             if free {
                 return Err(error);
             }

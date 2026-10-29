@@ -2589,7 +2589,10 @@ mod tests {
                 // Write 0 is BEGIN; writes 1 and 2 are the two redo chunks.
                 let mut torn = TearWriteAt::new_incomplete(device.clone(), tear_at, prefix_bytes);
                 assert!(
-                    matches!(journal.commit(&mut torn, &[update(0xA5)]), Err(Error::Io(_))),
+                    matches!(
+                        journal.commit(&mut torn, &[update(0xA5)]),
+                        Err(Error::Io(_))
+                    ),
                     "redo chunk write {tear_at} should fail after {prefix_bytes} bytes"
                 );
 
@@ -2616,7 +2619,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn torn_later_redo_chunk_never_partially_applies_multi_target_transaction() {
         // The first target's redo image is fully written, but a chunk of the second
@@ -2625,7 +2627,9 @@ mod tests {
             for prefix_bytes in [1, 20, BS as usize / 2, BS as usize - 1] {
                 let mut device = formatted();
                 let second_home = HOME + 1;
-                device.write_blocks(second_home, &vec![0x22; BS as usize]).unwrap();
+                device
+                    .write_blocks(second_home, &vec![0x22; BS as usize])
+                    .unwrap();
                 let mut journal = open_journal(&mut device, REGION).unwrap();
                 let updates = [
                     update(0xA5),
@@ -2661,5 +2665,4 @@ mod tests {
             }
         }
     }
-
 }
