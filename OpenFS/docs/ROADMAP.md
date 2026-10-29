@@ -1050,3 +1050,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Limite importante : cette reprise réduit les faux diagnostics de corruption lors d'une invalidation observée, mais ne constitue pas un verrou inter-processus autour de toute la séquence scan/commit. Une garantie complète de concurrence entre plusieurs ouvreurs demande une stratégie de verrouillage du volume et des tests multi-ouvreurs dédiés.
 - Validation : compilation/tests/formatage/Clippy non exécutés ici. La compilation locale fournie par l'utilisateur est bloquée avant le code OpenFS par l'absence de `link.exe` MSVC; les vérifications GitHub consultées ne fournissent aucun statut CI exploitable. Ne pas interpréter cela comme une CI verte.
 - Estimations après ce changement de comportement : P0 100 %, P1 81 %, P2 80 %, P3 5 %, global estimé 71 %. Le point supplémentaire correspond aux chemins de reprise bornée de l'allocateur, pas à une validation de compilation.
+
+
+### Préparation USB Windows — inventaire matériel non destructif (2026-10-29)
+
+- Ajout de `scripts/inspect-usb-disks.ps1` : inventaire consultatif des disques Windows, modèle, numéro de série, bus, capacité, style de partition, indicateurs boot/system et étiquettes de volumes. Il ne crée, ne formate et n'écrit rien.
+- Ajout de `docs/USB_TESTING.md` : procédure de compilation du workspace, identification d'une clé dédiée et séparation explicite entre backend image, backend raw générique et tests physiques encore absents.
+- Analyse du code existant : `openfs-block::RawDevice` existe déjà mais ouvre en lecture/écriture, reçoit une géométrie fournie par l'appelant et ne découvre pas les propriétés du périphérique Windows. Le CLI documenté reste orienté images; le flux d'ouverture raw n'est pas exposé comme un test USB contrôlé.
+- Limites de ce lot : aucun secteur physique n'a été lu ou écrit; le script n'a pas été exécuté sur une machine Windows dans cet environnement. Aucune écriture de formatage n'est activée.
+- Validation GitHub : le statut combiné consulté pour le HEAD antérieur renvoyait zéro statut; cela ne prouve pas une réussite. Les commandes Rust/CI n'ont pas été exécutées ici et restent à vérifier pour le nouveau HEAD.
+- Pourcentages conservés : global 71 % selon l'estimation documentée précédemment; tests matériels réels 0 % validé; pile USB/stockage physique partiellement implémentée (backend raw générique existant, détection/géométrie/CLI USB manquants); système de fichiers image avancé mais validation exacte du HEAD en attente.
