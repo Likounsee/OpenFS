@@ -348,8 +348,18 @@ impl ReadOnlyRawDevice {
         check_block_range(first_block, count, self.block_count)?;
         let offset = first_block.checked_mul(u64::from(self.block_size)).ok_or(Error::ArithmeticOverflow)?;
         let mut file = &self.file;
-        file.seek(SeekFrom::Start(offset))?;
-        file.read_exact(output)?;
+        file.seek(SeekFrom::Start(offset)).map_err(|error| {
+            Error::Io(std::io::Error::new(
+                error.kind(),
+                format!("seeking raw device to byte offset {offset} failed: {error}"),
+            ))
+        })?;
+        file.read_exact(output).map_err(|error| {
+            Error::Io(std::io::Error::new(
+                error.kind(),
+                format!("reading {count} raw-device block(s) at block {first_block} failed: {error}"),
+            ))
+        })?;
         Ok(())
     }
 }
