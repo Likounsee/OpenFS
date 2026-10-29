@@ -2580,10 +2580,13 @@ mod tests {
                         "old state should remain usable after torn redo chunk {tear_at} at {prefix_bytes} bytes: {error:?}"
                     )
                 });
+                // Recovery may retire the valid BEGIN/UPDATE prefix of an abandoned
+                // transaction. It must stop at the last complete record before the
+                // torn chunk and, regardless of checkpoint progress, never replay it.
                 assert_eq!(
                     reopened.checkpoint().checkpoint_sequence,
-                    3,
-                    "an incomplete redo image must not advance the checkpoint"
+                    tear_at as u64,
+                    "checkpoint must stop before the torn redo chunk"
                 );
                 assert_eq!(
                     read_home(&mut recovered),
@@ -2627,7 +2630,9 @@ mod tests {
                         "recovery must accept an uncommitted partial multi-target transaction: {error:?}"
                     )
                 });
-                assert_eq!(reopened.checkpoint().checkpoint_sequence, 3);
+                // The valid prefix may be retired, but the torn chunk and absent COMMIT
+                // must prevent either target from being replayed.
+                assert_eq!(reopened.checkpoint().checkpoint_sequence, tear_at as u64);
                 assert_eq!(read_home(&mut recovered), vec![0x11; BS as usize]);
                 assert_eq!(
                     read_block(&mut recovered, second_home),
