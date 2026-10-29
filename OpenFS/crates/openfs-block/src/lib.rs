@@ -378,21 +378,51 @@ impl ReadOnlyRawDevice {
         let offset = first_block
             .checked_mul(u64::from(self.block_size))
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut file = &self.file;
-        file.seek(SeekFrom::Start(offset)).map_err(|error| {
-            Error::Io(std::io::Error::new(
-                error.kind(),
-                format!("seeking raw device to byte offset {offset} failed: {error}"),
-            ))
-        })?;
-        file.read_exact(output).map_err(|error| {
-            Error::Io(std::io::Error::new(
-                error.kind(),
-                format!(
-                    "reading {count} raw-device block(s) at block {first_block} failed: {error}"
-                ),
-            ))
-        })?;
+        // Windows raw physical-disk handles do not reliably support the
+        // shared file-pointer seek path. Use positional OVERLAPPED reads via
+        // FileExt::seek_read instead; this also avoids shared seek state.
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            let mut completed = 0_usize;
+            while completed < output.len() {
+                let current_offset = offset
+                    .checked_add(completed as u64)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self.file.seek_read(&mut output[completed..], current_offset)
+                    .map_err(|error| Error::Io(std::io::Error::new(
+                        error.kind(),
+                        format!(
+                            "Windows positional read failed at byte offset {current_offset} (block {first_block}, {count} blocks): {error}"
+                        ),
+                    )))?;
+                if bytes == 0 {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                    )));
+                }
+                completed += bytes;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let mut file = &self.file;
+            file.seek(SeekFrom::Start(offset)).map_err(|error| {
+                Error::Io(std::io::Error::new(
+                    error.kind(),
+                    format!("seeking raw device to byte offset {offset} failed: {error}"),
+                ))
+            })?;
+            file.read_exact(output).map_err(|error| {
+                Error::Io(std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "reading {count} raw-device block(s) at block {first_block} failed: {error}"
+                    ),
+                ))
+            })?;
+        }
         Ok(())
     }
 }
