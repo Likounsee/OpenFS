@@ -14,10 +14,8 @@ impl TestDirectory {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must be after Unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "openfs-cli-e2e-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("openfs-cli-e2e-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).expect("create isolated test directory");
         Self(path)
     }
@@ -74,10 +72,7 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     let image = directory.image();
     let image_arg = image.to_str().unwrap();
 
-    assert_ok(
-        invoke(["create-image", image_arg, "32"]),
-        "create-image",
-    );
+    assert_ok(invoke(["create-image", image_arg, "32"]), "create-image");
     run_image(&image, "init-namespace", &[]);
     run_image(&image, "mkdir-p", &["/docs/deep"]);
     run_image(&image, "touch", &["/docs/deep/payload.bin"]);
@@ -111,11 +106,7 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
         "copy",
         &["/docs/deep/payload.bin", "/docs/copied.bin"],
     );
-    run_image(
-        &image,
-        "mv",
-        &["/docs/copied.bin", "/docs/deep/moved.bin"],
-    );
+    run_image(&image, "mv", &["/docs/copied.bin", "/docs/deep/moved.bin"]);
     let moved = run_image(&image, "cat", &["/docs/deep/moved.bin"]);
     assert_eq!(moved.stdout, expected);
 
@@ -158,6 +149,9 @@ fn create_image_never_truncates_an_existing_file() {
         image.to_str().expect("temporary path is UTF-8"),
         "32",
     ]);
-    assert!(!output.status.success(), "create-image unexpectedly replaced an existing file");
+    assert!(
+        !output.status.success(),
+        "create-image unexpectedly replaced an existing file"
+    );
     assert_eq!(fs::read(&image).expect("read sentinel"), sentinel);
 }
