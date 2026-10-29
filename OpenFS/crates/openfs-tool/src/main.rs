@@ -1598,7 +1598,11 @@ fn inspect_raw_gpt(
     println!("Capacity: {} bytes", u64::from(block_size) * block_count);
     println!(
         "Protective MBR signature: {}",
-        if mbr.get(510..512) == Some(&[0x55, 0xaa]) { "valid" } else { "missing" }
+        if mbr.get(510..512) == Some(&[0x55, 0xaa]) {
+            "valid"
+        } else {
+            "missing"
+        }
     );
     let mbr_type = mbr.get(450).copied().unwrap_or(0);
     println!("MBR partition type in first entry: 0x{mbr_type:02x}");
@@ -1606,7 +1610,10 @@ fn inspect_raw_gpt(
     let mut header = vec![0_u8; block_size as usize];
     device.read_blocks(1, &mut header)?;
     if header.get(0..8) != Some(b"EFI PART") {
-        return Err("primary GPT header signature is missing; no GPT partition layout can be trusted".into());
+        return Err(
+            "primary GPT header signature is missing; no GPT partition layout can be trusted"
+                .into(),
+        );
     }
 
     let header_size = read_u32_le(&header, 12)?;
@@ -1620,7 +1627,8 @@ fn inspect_raw_gpt(
     if actual_header_crc != expected_header_crc {
         return Err(format!(
             "primary GPT header CRC mismatch (stored {expected_header_crc:08x}, computed {actual_header_crc:08x})"
-        ).into());
+        )
+        .into());
     }
 
     let current_lba = read_u64_le(&header, 24)?;
@@ -1649,17 +1657,23 @@ fn inspect_raw_gpt(
         .checked_add(entries_blocks)
         .ok_or("GPT partition-entry range overflow")?;
     if entries_lba < 2 || entries_end > block_count || entries_bytes > 16 * 1024 * 1024 {
-        return Err("GPT partition-entry array lies outside the device or exceeds 16 MiB".into());
+        return Err(
+            "GPT partition-entry array lies outside the device or exceeds 16 MiB".into(),
+        );
     }
 
-    let mut entries = vec![0_u8; usize::try_from(entries_blocks * u64::from(block_size))?];
+    let padded_entries_bytes = entries_blocks
+        .checked_mul(u64::from(block_size))
+        .ok_or("GPT padded partition-entry length overflow")?;
+    let mut entries = vec![0_u8; usize::try_from(padded_entries_bytes)?];
     device.read_blocks(entries_lba, &mut entries)?;
     let entries = &entries[..usize::try_from(entries_bytes)?];
     let actual_entries_crc = crc32_ieee(entries);
     if actual_entries_crc != expected_entries_crc {
         return Err(format!(
             "GPT partition-entry CRC mismatch (stored {expected_entries_crc:08x}, computed {actual_entries_crc:08x})"
-        ).into());
+        )
+        .into());
     }
 
     println!("Primary GPT header CRC: OK");
@@ -1676,10 +1690,18 @@ fn inspect_raw_gpt(
         let first = u64::from_le_bytes(entry[32..40].try_into()?);
         let last = u64::from_le_bytes(entry[40..48].try_into()?);
         if first > last || first < first_usable || last > last_usable {
-            return Err(format!("GPT partition entry {} has an invalid LBA range", index + 1).into());
+            return Err(
+                format!("GPT partition entry {} has an invalid LBA range", index + 1).into(),
+            );
         }
         let name = decode_gpt_name(&entry[56..entry.len().min(128)]);
-        println!("Partition {}: LBA {}..={} ({})", index + 1, first, last, name);
+        println!(
+            "Partition {}: LBA {}..={} ({})",
+            index + 1,
+            first,
+            last,
+            name
+        );
         found += 1;
     }
     println!("Populated GPT entries: {found}");
@@ -1688,11 +1710,21 @@ fn inspect_raw_gpt(
 }
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn StdError>> {
-    Ok(u32::from_le_bytes(bytes.get(offset..offset + 4).ok_or("truncated GPT field")?.try_into()?))
+    Ok(u32::from_le_bytes(
+        bytes
+            .get(offset..offset + 4)
+            .ok_or("truncated GPT field")?
+            .try_into()?,
+    ))
 }
 
 fn read_u64_le(bytes: &[u8], offset: usize) -> Result<u64, Box<dyn StdError>> {
-    Ok(u64::from_le_bytes(bytes.get(offset..offset + 8).ok_or("truncated GPT field")?.try_into()?))
+    Ok(u64::from_le_bytes(
+        bytes
+            .get(offset..offset + 8)
+            .ok_or("truncated GPT field")?
+            .try_into()?,
+    ))
 }
 
 fn crc32_ieee(bytes: &[u8]) -> u32 {
@@ -1700,15 +1732,24 @@ fn crc32_ieee(bytes: &[u8]) -> u32 {
     for byte in bytes {
         crc ^= u32::from(*byte);
         for _ in 0..8 {
-            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc
 }
 
 fn decode_gpt_name(bytes: &[u8]) -> String {
-    let units = bytes.chunks_exact(2).take(36).map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
-    let decoded = char::decode_utf16(units).take_while(|value| !matches!(value, Ok('\0'))).map(|value| value.unwrap_or(char::REPLACEMENT_CHARACTER));
+    let units = bytes
+        .chunks_exact(2)
+        .take(36)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+    let decoded = char::decode_utf16(units)
+        .take_while(|value| !matches!(value, Ok('\0')))
+        .map(|value| value.unwrap_or(char::REPLACEMENT_CHARACTER));
     decoded.collect::<String>()
 }
 
@@ -1739,7 +1780,9 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
-    eprintln!("  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)");
+    eprintln!(
+        "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
+    );
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs audit-image <path> <block-size>");
@@ -2465,7 +2508,10 @@ mod gpt_tests {
 
     #[test]
     fn little_endian_gpt_fields_are_bounds_checked() {
-        assert_eq!(read_u32_le(&[0x78, 0x56, 0x34, 0x12], 0).unwrap(), 0x1234_5678);
+        assert_eq!(
+            read_u32_le(&[0x78, 0x56, 0x34, 0x12], 0).unwrap(),
+            0x1234_5678
+        );
         assert_eq!(
             read_u64_le(&[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01], 0).unwrap(),
             0x0102_0304_0506_0708
