@@ -10,7 +10,7 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openfs_block::{BlockDevice, ImageDevice};
+use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
 
 const BLOCK_SIZE: u32 = 4096;
@@ -27,6 +27,13 @@ fn main() {
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("probe-device") => {
+            let path = args.next().ok_or("missing device path")?;
+            let block_size = parse_block_size(args.next())?;
+            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
+            if args.next().is_some() { return Err("too many arguments".into()); }
+            probe_read_only_device(Path::new(&path), block_size, block_count)
+        }
         Some("create-image") => {
             let path = args.next().ok_or("missing image path")?;
             let size_mib = args
@@ -1550,9 +1557,26 @@ fn format_uuid(uuid: [u8; 16]) -> String {
     )
 }
 
+fn probe_read_only_device(path: &Path, block_size: u32, block_count: u64) -> Result<(), Box<dyn StdError>> {
+    let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
+    let mut first = vec![0_u8; block_size as usize];
+    let mut last = vec![0_u8; block_size as usize];
+    device.read_blocks(0, &mut first)?;
+    device.read_blocks(block_count - 1, &mut last)?;
+    println!("Read-only device probe: OK");
+    println!("Logical block size: {} bytes", device.block_size());
+    println!("Block count: {}", device.block_count());
+    println!("Capacity: {} bytes", u64::from(device.block_size()) * device.block_count());
+    println!("First block prefix: {:02x?}", &first[..first.len().min(16)]);
+    println!("Last block prefix: {:02x?}", &last[..last.len().min(16)]);
+    println!("No writes were performed.");
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs create-image <path> <size-MiB>");
+    eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs audit-image <path> <block-size>");
