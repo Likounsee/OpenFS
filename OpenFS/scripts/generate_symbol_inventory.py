@@ -37,7 +37,12 @@ def main() -> int:
     script_path = Path(__file__).resolve()
     root = args.root.resolve() if args.root else script_path.parents[2]
     source_root = root / "OpenFS" / "crates"
-    rust_files = sorted(source_root.rglob("*.rs"))
+    # Integration-test harnesses validate behavior but are not part of the
+    # production symbol inventory. Keep their declarations out of this index.
+    rust_files = sorted(
+        path for path in source_root.rglob("*.rs")
+        if "tests" not in path.relative_to(source_root).parts
+    )
     output = root / "OpenFS" / "docs" / "INVENTAIRE_SYMBOLES.csv"
     rows: list[dict[str, str]] = []
 
