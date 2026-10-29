@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [Nullable[UInt32]] $DiskNumber
+    [UInt32] $DiskNumber = [UInt32]::MaxValue
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,12 +41,14 @@ $report = foreach ($disk in $disks) {
     }
 }
 
-if ($PSBoundParameters.ContainsKey('DiskNumber')) {
-    $selected = @($report | Where-Object { $_.DiskNumber -eq $DiskNumber.Value })
+if ($DiskNumber -ne [UInt32]::MaxValue) {
+    $selected = @($report | Where-Object { $_.DiskNumber -eq $DiskNumber })
     if ($selected.Count -ne 1) {
         throw "Disk number $($DiskNumber.Value) was not found. No disk was changed."
     }
     $selected | Format-List
+    Write-Host ""
+    Write-Host "READ-ONLY INVENTORY ONLY: no disk was opened for writing or modified."
     if ($selected[0].IsBoot -or $selected[0].IsSystem) {
         Write-Warning "This disk is marked as boot/system. Do not use it for OpenFS tests."
     }
