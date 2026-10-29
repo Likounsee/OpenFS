@@ -36,6 +36,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             probe_read_only_device(Path::new(&path), block_size, block_count)
         }
+        Some("inspect-device") => {
+            let path = args.next().ok_or("missing device path")?;
+            let block_size = parse_probe_block_size(args.next())?;
+            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            inspect_raw_gpt(Path::new(&path), block_size, block_count)
+        }
         Some("create-image") => {
             let path = args.next().ok_or("missing image path")?;
             let size_mib = args
@@ -1567,6 +1576,142 @@ fn parse_probe_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError
     Ok(size)
 }
 
+
+/// Inspect GPT metadata from a physical device without issuing any writes.
+fn inspect_raw_gpt(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
+    if block_size < 512 {
+        return Err("GPT inspection requires a logical block size of at least 512 bytes".into());
+    }
+    if block_count < 3 {
+        return Err("device is too small to contain GPT metadata".into());
+    }
+
+    let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
+    let mut mbr = vec![0_u8; block_size as usize];
+    device.read_blocks(0, &mut mbr)?;
+    println!("Read-only GPT inspection");
+    println!("Device: {}", path.display());
+    println!("Capacity: {} bytes", u64::from(block_size) * block_count);
+    println!(
+        "Protective MBR signature: {}",
+        if mbr.get(510..512) == Some(&[0x55, 0xaa]) { "valid" } else { "missing" }
+    );
+    let mbr_type = mbr.get(450).copied().unwrap_or(0);
+    println!("MBR partition type in first entry: 0x{mbr_type:02x}");
+
+    let mut header = vec![0_u8; block_size as usize];
+    device.read_blocks(1, &mut header)?;
+    if header.get(0..8) != Some(b"EFI PART") {
+        return Err("primary GPT header signature is missing; no GPT partition layout can be trusted".into());
+    }
+
+    let header_size = read_u32_le(&header, 12)?;
+    if !(92..=block_size).contains(&header_size) {
+        return Err("GPT header size is outside the supported bounds".into());
+    }
+    let expected_header_crc = read_u32_le(&header, 16)?;
+    let mut crc_header = header[..header_size as usize].to_vec();
+    crc_header[16..20].fill(0);
+    let actual_header_crc = crc32_ieee(&crc_header);
+    if actual_header_crc != expected_header_crc {
+        return Err(format!(
+            "primary GPT header CRC mismatch (stored {expected_header_crc:08x}, computed {actual_header_crc:08x})"
+        ).into());
+    }
+
+    let current_lba = read_u64_le(&header, 24)?;
+    let backup_lba = read_u64_le(&header, 32)?;
+    let first_usable = read_u64_le(&header, 40)?;
+    let last_usable = read_u64_le(&header, 48)?;
+    let entries_lba = read_u64_le(&header, 72)?;
+    let entry_count = read_u32_le(&header, 80)?;
+    let entry_size = read_u32_le(&header, 84)?;
+    let expected_entries_crc = read_u32_le(&header, 88)?;
+
+    if current_lba != 1 || backup_lba >= block_count || first_usable > last_usable {
+        return Err("GPT header contains invalid device geometry".into());
+    }
+    if entry_count == 0 || entry_count > 4096 || entry_size < 128 || entry_size % 8 != 0 {
+        return Err("GPT partition-entry geometry is invalid or exceeds safety limits".into());
+    }
+    let entries_bytes = u64::from(entry_count)
+        .checked_mul(u64::from(entry_size))
+        .ok_or("GPT partition-entry byte length overflow")?;
+    let entries_blocks = entries_bytes
+        .checked_add(u64::from(block_size) - 1)
+        .ok_or("GPT partition-entry block count overflow")?
+        / u64::from(block_size);
+    let entries_end = entries_lba
+        .checked_add(entries_blocks)
+        .ok_or("GPT partition-entry range overflow")?;
+    if entries_lba < 2 || entries_end > block_count || entries_bytes > 16 * 1024 * 1024 {
+        return Err("GPT partition-entry array lies outside the device or exceeds 16 MiB".into());
+    }
+
+    let mut entries = vec![0_u8; usize::try_from(entries_blocks * u64::from(block_size))?];
+    device.read_blocks(entries_lba, &mut entries)?;
+    let entries = &entries[..usize::try_from(entries_bytes)?];
+    let actual_entries_crc = crc32_ieee(entries);
+    if actual_entries_crc != expected_entries_crc {
+        return Err(format!(
+            "GPT partition-entry CRC mismatch (stored {expected_entries_crc:08x}, computed {actual_entries_crc:08x})"
+        ).into());
+    }
+
+    println!("Primary GPT header CRC: OK");
+    println!("Partition array CRC: OK");
+    println!("Backup GPT header LBA: {backup_lba}");
+    println!("Usable LBA range: {first_usable}..={last_usable}");
+    let mut found = 0_u32;
+    for index in 0..entry_count {
+        let start = usize::try_from(u64::from(index) * u64::from(entry_size))?;
+        let entry = &entries[start..start + entry_size as usize];
+        if entry[..16].iter().all(|byte| *byte == 0) {
+            continue;
+        }
+        let first = u64::from_le_bytes(entry[32..40].try_into()?);
+        let last = u64::from_le_bytes(entry[40..48].try_into()?);
+        if first > last || first < first_usable || last > last_usable {
+            return Err(format!("GPT partition entry {} has an invalid LBA range", index + 1).into());
+        }
+        let name = decode_gpt_name(&entry[56..entry.len().min(128)]);
+        println!("Partition {}: LBA {}..={} ({})", index + 1, first, last, name);
+        found += 1;
+    }
+    println!("Populated GPT entries: {found}");
+    println!("No writes were performed.");
+    Ok(())
+}
+
+fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn StdError>> {
+    Ok(u32::from_le_bytes(bytes.get(offset..offset + 4).ok_or("truncated GPT field")?.try_into()?))
+}
+
+fn read_u64_le(bytes: &[u8], offset: usize) -> Result<u64, Box<dyn StdError>> {
+    Ok(u64::from_le_bytes(bytes.get(offset..offset + 8).ok_or("truncated GPT field")?.try_into()?))
+}
+
+fn crc32_ieee(bytes: &[u8]) -> u32 {
+    let mut crc = !0_u32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
+
+fn decode_gpt_name(bytes: &[u8]) -> String {
+    let units = bytes.chunks_exact(2).take(36).map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+    let decoded = char::decode_utf16(units).take_while(|value| !matches!(value, Ok('\0'))).map(|value| value.unwrap_or(char::REPLACEMENT_CHARACTER));
+    decoded.collect::<String>()
+}
+
 fn probe_read_only_device(
     path: &Path,
     block_size: u32,
@@ -1594,6 +1739,7 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
+    eprintln!("  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs audit-image <path> <block-size>");
