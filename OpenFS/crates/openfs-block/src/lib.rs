@@ -356,7 +356,10 @@ impl ReadOnlyRawDevice {
             let metadata = file.metadata().map_err(|error| {
                 Error::Io(std::io::Error::new(
                     error.kind(),
-                    format!("querying raw-device metadata for {} failed: {error}", path.display()),
+                    format!(
+                        "querying raw-device metadata for {} failed: {error}",
+                        path.display()
+                    ),
                 ))
             })?;
             #[cfg(unix)]
