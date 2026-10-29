@@ -311,7 +311,6 @@ impl BlockDevice for ImageDevice {
     }
 }
 
-
 /// A read-only handle to an existing raw device or regular-file test fixture.
 /// Geometry must come from a trusted, independently verified source. This type
 /// never requests write access and deliberately exposes no write operation.
@@ -365,15 +364,13 @@ impl ReadOnlyRawDevice {
     }
 
     pub fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
-        let size =
-            usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        let size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
         if output.is_empty() || output.len() % size != 0 {
             return Err(Error::InvalidInput(
                 "buffer length must be a non-zero multiple of block size",
             ));
         }
-        let count =
-            u64::try_from(output.len() / size).map_err(|_| Error::ArithmeticOverflow)?;
+        let count = u64::try_from(output.len() / size).map_err(|_| Error::ArithmeticOverflow)?;
         check_block_range(first_block, count, self.block_count)?;
         let offset = first_block
             .checked_mul(u64::from(self.block_size))
@@ -399,7 +396,9 @@ impl ReadOnlyRawDevice {
                 if bytes == 0 {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
-                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                        format!(
+                            "Windows raw-device read returned EOF at byte offset {current_offset}"
+                        ),
                     )));
                 }
                 completed += bytes;
