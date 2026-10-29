@@ -9391,13 +9391,19 @@ mod tests {
                         write_index: 0,
                         fail_at,
                     };
-                    assert!(
-                        matches!(
-                            volume.publish_persistent_inventory(&mut failing, &descriptor),
-                            Err(Error::Io(_))
-                        ),
-                        "write {fail_at} should fail (block size {block_size})"
-                    );
+                    let publication =
+                        volume.publish_persistent_inventory(&mut failing, &descriptor);
+                    if fail_at <= 4 {
+                        assert!(
+                            matches!(publication, Err(Error::Io(_))),
+                            "pre-COMMIT write {fail_at} should fail (block size {block_size})"
+                        );
+                    } else {
+                        assert!(
+                            publication.is_ok(),
+                            "a committed descriptor recovered after write {fail_at} should return success (block size {block_size})"
+                        );
+                    }
 
                     let mut device = failing.inner;
                     drop(volume);
@@ -9604,11 +9610,8 @@ mod tests {
                 // begin/update records. Fail the next flush, after the commit record write.
                 device.armed = true;
                 assert!(
-                    matches!(
-                        volume.publish_persistent_inventory(&mut device, &descriptor),
-                        Err(Error::Io(_))
-                    ),
-                    "injected journal commit flush must report an I/O error at block size {block_size}"
+                    volume.publish_persistent_inventory(&mut device, &descriptor).is_ok(),
+                    "a committed descriptor recovered after the commit-flush error should return success at block size {block_size}"
                 );
                 descriptor
             };
@@ -10870,7 +10873,10 @@ mod tests {
                     write_index: 0,
                     fail_at: fail_after_commit,
                 };
-                assert!(matches!(
+                // The injected failure occurs after COMMIT. The write API reopens
+                // the journal, verifies every target has the requested post-image, and
+                // reports success when recovery completes the whole transaction.
+                assert!(
                     volume.write_file_range(
                         &mut failing,
                         &namespace,
@@ -10878,9 +10884,9 @@ mod tests {
                         ObjectId(2),
                         recovery_offset,
                         &recovery_payload,
-                    ),
-                    Err(Error::Io(_))
-                ));
+                    ).is_ok(),
+                    "a fully recovered committed write should return success"
+                );
                 drop(volume);
                 let mut device = failing.inner;
                 let mut volume = open_volume(&mut device).unwrap();
@@ -12185,13 +12191,19 @@ mod tests {
                         flush_index: 0,
                         fail_at,
                     };
-                    assert!(
-                        matches!(
-                            volume.publish_persistent_inventory(&mut failing, &descriptor),
-                            Err(Error::Io(_))
-                        ),
-                        "flush {fail_at} should fail (block size {block_size})"
-                    );
+                    let publication =
+                        volume.publish_persistent_inventory(&mut failing, &descriptor);
+                    if fail_at <= 1 {
+                        assert!(
+                            matches!(publication, Err(Error::Io(_))),
+                            "pre-COMMIT flush {fail_at} should fail (block size {block_size})"
+                        );
+                    } else {
+                        assert!(
+                            publication.is_ok(),
+                            "a committed descriptor recovered after flush {fail_at} should return success (block size {block_size})"
+                        );
+                    }
                     let mut device = failing.inner;
                     drop(volume);
                     let mut recovered = open_volume(&mut device).unwrap();
