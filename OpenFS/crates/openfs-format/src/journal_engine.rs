@@ -1096,14 +1096,27 @@ mod tests {
         operation: usize,
         tear_at: usize,
         prefix_bytes: usize,
+        force_incomplete: bool,
     }
     impl<D> TearWriteAt<D> {
         fn new(inner: D, tear_at: usize, prefix_bytes: usize) -> Self {
+            Self::with_incomplete_suffix(inner, tear_at, prefix_bytes, false)
+        }
+        fn new_incomplete(inner: D, tear_at: usize, prefix_bytes: usize) -> Self {
+            Self::with_incomplete_suffix(inner, tear_at, prefix_bytes, true)
+        }
+        fn with_incomplete_suffix(
+            inner: D,
+            tear_at: usize,
+            prefix_bytes: usize,
+            force_incomplete: bool,
+        ) -> Self {
             Self {
                 inner,
                 operation: 0,
                 tear_at,
                 prefix_bytes,
+                force_incomplete,
             }
         }
         fn into_inner(self) -> D {
@@ -1130,12 +1143,12 @@ mod tests {
                 let mut mixed = vec![0; input.len()];
                 self.inner.read_blocks(first, &mut mixed)?;
                 mixed[..self.prefix_bytes].copy_from_slice(&input[..self.prefix_bytes]);
-                // A torn write must leave a suffix that actually differs from the
-                // intended block. Journal records end with zero padding, so a zeroed
-                // old block can otherwise make a `len - 1` prefix accidentally equal
-                // the complete valid record. Preserve the prefix and force one stale
-                // suffix byte to expose the tear to the decoder/checksum.
-                mixed[self.prefix_bytes] = input[self.prefix_bytes] ^ 0xFF;
+                // Some tests need a guaranteed-invalid record; others deliberately
+                // model a reported error where the unwritten old suffix already matches
+                // the intended bytes, so the complete record can remain durable.
+                if self.force_incomplete {
+                    mixed[self.prefix_bytes] = input[self.prefix_bytes] ^ 0xFF;
+                }
                 self.inner.write_blocks(first, &mixed)?;
                 return Err(Error::Io(std::io::Error::other(
                     "injected torn journal write",
@@ -1917,7 +1930,7 @@ mod tests {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
             // One block redo is encoded as multiple chunks; the commit record follows them.
-            let mut failing = TearWriteAt::new(device.clone(), 3, prefix_bytes);
+            let mut failing = TearWriteAt::new_incomplete(device.clone(), 3, prefix_bytes);
             assert!(
                 matches!(
                     journal.commit(&mut failing, &[update(0xA5)]),
@@ -2574,7 +2587,7 @@ mod tests {
                 let mut journal = open_journal(&mut device, REGION).unwrap();
 
                 // Write 0 is BEGIN; writes 1 and 2 are the two redo chunks.
-                let mut torn = TearWriteAt::new(device.clone(), tear_at, prefix_bytes);
+                let mut torn = TearWriteAt::new_incomplete(device.clone(), tear_at, prefix_bytes);
                 assert!(
                     matches!(journal.commit(&mut torn, &[update(0xA5)]), Err(Error::Io(_))),
                     "redo chunk write {tear_at} should fail after {prefix_bytes} bytes"
