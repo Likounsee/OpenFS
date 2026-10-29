@@ -44,7 +44,7 @@ $report = foreach ($disk in $disks) {
 if ($DiskNumber -ne [UInt32]::MaxValue) {
     $selected = @($report | Where-Object { $_.DiskNumber -eq $DiskNumber })
     if ($selected.Count -ne 1) {
-        throw "Disk number $($DiskNumber.Value) was not found. No disk was changed."
+        throw "Disk number $DiskNumber was not found. No disk was changed."
     }
     $selected | Format-List
     Write-Host ""
