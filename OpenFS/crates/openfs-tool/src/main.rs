@@ -54,6 +54,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             inspect_raw_gpt(Path::new(&path), block_size, block_count)
         }
+        Some("diagnose-device") => {
+            let path = args.next().ok_or("missing device path")?;
+            let block_size = parse_probe_block_size(args.next())?;
+            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            diagnose_raw_gpt(Path::new(&path), block_size, block_count)
+        }
         Some("inspect-device-json") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
@@ -1789,6 +1798,138 @@ fn inspect_raw_gpt_report(
         last_usable_lba: last_usable,
         partitions,
     })
+}
+
+/// Diagnose MBR and both GPT copies independently, without modifying the device.
+fn diagnose_raw_gpt(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
+    if block_size < 512 || block_count < 3 {
+        return Err("GPT diagnosis requires at least three blocks of 512 bytes".into());
+    }
+
+    let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
+    let mut mbr = vec![0_u8; block_size as usize];
+    device.read_blocks(0, &mut mbr)?;
+
+    println!("Read-only MBR/GPT diagnostic");
+    println!("Device: {}", path.display());
+    println!("Capacity: {} bytes", u64::from(block_size) * block_count);
+    println!("MBR signature: {}", if mbr.get(510..512) == Some(&[0x55, 0xaa]) { "0x55AA (present)" } else { "INVALID / MISSING" });
+    for index in 0..4 {
+        let offset = 446 + index * 16;
+        let entry = &mbr[offset..offset + 16];
+        let partition_type = entry[4];
+        let start_lba = u32::from_le_bytes(entry[8..12].try_into()?);
+        let sectors = u32::from_le_bytes(entry[12..16].try_into()?);
+        if partition_type != 0 || entry[0] != 0 || start_lba != 0 || sectors != 0 {
+            println!(
+                "MBR entry {}: boot=0x{:02x}, type=0x{:02x}, start_lba={}, sectors={}",
+                index + 1, entry[0], partition_type, start_lba, sectors
+            );
+        }
+    }
+    match validate_protective_mbr(&mbr, block_count) {
+        Ok(()) => println!("Protective MBR validation: OK"),
+        Err(error) => println!("Protective MBR validation: FAILED ({error})"),
+    }
+
+    let backup_lba = block_count - 1;
+    for (label, lba) in [("PRIMARY", 1), ("BACKUP", backup_lba)] {
+        println!();
+        println!("{label} GPT copy at LBA {lba}:");
+        match diagnose_gpt_copy(&mut device, block_size, block_count, lba, label) {
+            Ok(()) => println!("{label} GPT copy diagnostic: completed"),
+            Err(error) => println!("{label} GPT copy diagnostic: FAILED ({error})"),
+        }
+    }
+    println!();
+    println!("No writes were performed.");
+    Ok(())
+}
+
+/// Validate and report one GPT header and its referenced partition-entry array.
+fn diagnose_gpt_copy(
+    device: &mut ReadOnlyRawDevice,
+    block_size: u32,
+    block_count: u64,
+    header_lba: u64,
+    label: &str,
+) -> Result<(), Box<dyn StdError>> {
+    let mut header = vec![0_u8; block_size as usize];
+    device.read_blocks(header_lba, &mut header)?;
+    if header.get(0..8) != Some(b"EFI PART") {
+        return Err("EFI PART signature is missing".into());
+    }
+
+    let revision = read_u32_le(&header, 8)?;
+    let header_size = read_u32_le(&header, 12)?;
+    if !(92..=block_size).contains(&header_size) {
+        return Err(format!("header size {header_size} is outside 92..={block_size}").into());
+    }
+    let stored_header_crc = read_u32_le(&header, 16)?;
+    let mut crc_header = header[..header_size as usize].to_vec();
+    crc_header[16..20].fill(0);
+    let computed_header_crc = crc32_ieee(&crc_header);
+
+    let current_lba = read_u64_le(&header, 24)?;
+    let alternate_lba = read_u64_le(&header, 32)?;
+    let first_usable = read_u64_le(&header, 40)?;
+    let last_usable = read_u64_le(&header, 48)?;
+    let entries_lba = read_u64_le(&header, 72)?;
+    let entry_count = read_u32_le(&header, 80)?;
+    let entry_size = read_u32_le(&header, 84)?;
+    let stored_entries_crc = read_u32_le(&header, 88)?;
+
+    println!("  Revision: 0x{revision:08x}");
+    println!("  Header size: {header_size}");
+    println!("  Header LBA fields: current={current_lba}, alternate={alternate_lba}");
+    println!("  Usable LBA range: {first_usable}..={last_usable}");
+    println!("  Disk GUID: {:02x?}", &header[56..72]);
+    println!("  Entry array: LBA={entries_lba}, count={entry_count}, entry_size={entry_size}");
+    println!("  Header CRC: stored={stored_header_crc:08x}, computed={computed_header_crc:08x} ({})",
+        if stored_header_crc == computed_header_crc { "OK" } else { "MISMATCH" });
+
+    if entry_count == 0 || entry_count > 4096 || entry_size < 128 || entry_size % 8 != 0 {
+        return Err("partition-entry geometry is invalid or exceeds safety limits".into());
+    }
+    let entries_bytes = u64::from(entry_count)
+        .checked_mul(u64::from(entry_size))
+        .ok_or("partition-entry byte length overflow")?;
+    if entries_bytes > 16 * 1024 * 1024 {
+        return Err("partition-entry array exceeds 16 MiB safety limit".into());
+    }
+    let entries_blocks = entries_bytes
+        .checked_add(u64::from(block_size) - 1)
+        .ok_or("partition-entry block count overflow")?
+        / u64::from(block_size);
+    let entries_end = entries_lba.checked_add(entries_blocks)
+        .ok_or("partition-entry range overflow")?;
+    if entries_lba == 0 || entries_end > block_count {
+        return Err("partition-entry array lies outside the device".into());
+    }
+    let padded_bytes = usize::try_from(entries_blocks * u64::from(block_size))?;
+    let mut entries = vec![0_u8; padded_bytes];
+    device.read_blocks(entries_lba, &mut entries)?;
+    let actual_entries_crc = crc32_ieee(&entries[..usize::try_from(entries_bytes)?]);
+    println!("  Entry-array CRC: stored={stored_entries_crc:08x}, computed={actual_entries_crc:08x} ({})",
+        if stored_entries_crc == actual_entries_crc { "OK" } else { "MISMATCH" });
+
+    if current_lba != header_lba {
+        println!("  WARNING: current_lba does not match the physical {label} header location");
+    }
+    if alternate_lba >= block_count || first_usable > last_usable || last_usable >= block_count {
+        println!("  WARNING: header LBA geometry is outside expected device bounds");
+    }
+    if stored_header_crc != computed_header_crc {
+        return Err("header CRC mismatch".into());
+    }
+    if stored_entries_crc != actual_entries_crc {
+        return Err("partition-entry array CRC mismatch".into());
+    }
+    Ok(())
 }
 
 fn inspect_raw_gpt(
