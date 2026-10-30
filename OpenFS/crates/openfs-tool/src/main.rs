@@ -3295,7 +3295,8 @@ mod checksum_tests {
 mod gpt_tests {
     use super::{
         crc32_ieee, identify_filesystem_signature, read_u32_le, read_u64_le,
-        unpartitioned_probe_lbas, validate_gpt_partitions, validate_protective_mbr,
+        unpartitioned_probe_lbas, validate_fat32_boot_sector, validate_gpt_partitions,
+        validate_protective_mbr,
     };
 
     fn protective_mbr(block_count: u64) -> Vec<u8> {
