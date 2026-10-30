@@ -588,17 +588,67 @@ impl BlockDevice for RawDevice {
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
         self.validate_buffer(first_block, output.len())?;
-        self.file
-            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
-        self.file.read_exact(output)?;
+        let offset = self.byte_offset(first_block)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            let mut completed = 0_usize;
+            while completed < output.len() {
+                let current_offset = offset
+                    .checked_add(u64::try_from(completed).map_err(|_| Error::ArithmeticOverflow)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self.file.seek_read(&mut output[completed..], current_offset)
+                    .map_err(|error| Error::Io(std::io::Error::new(
+                        error.kind(),
+                        format!("Windows raw-device read failed at byte offset {current_offset}: {error}"),
+                    )))?;
+                if bytes == 0 {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                    )));
+                }
+                completed += bytes;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.file.seek(SeekFrom::Start(offset))?;
+            self.file.read_exact(output)?;
+        }
         Ok(())
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
         self.validate_buffer(first_block, input.len())?;
-        self.file
-            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
-        self.file.write_all(input)?;
+        let offset = self.byte_offset(first_block)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            let mut completed = 0_usize;
+            while completed < input.len() {
+                let current_offset = offset
+                    .checked_add(u64::try_from(completed).map_err(|_| Error::ArithmeticOverflow)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self.file.seek_write(&input[completed..], current_offset)
+                    .map_err(|error| Error::Io(std::io::Error::new(
+                        error.kind(),
+                        format!("Windows raw-device write failed at byte offset {current_offset}: {error}"),
+                    )))?;
+                if bytes == 0 {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        format!("Windows raw-device write returned zero bytes at byte offset {current_offset}"),
+                    )));
+                }
+                completed += bytes;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.file.seek(SeekFrom::Start(offset))?;
+            self.file.write_all(input)?;
+        }
         Ok(())
     }
 
