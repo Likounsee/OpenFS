@@ -2845,10 +2845,16 @@ mod gpt_tests {
     }
 
     fn valid_gpt_image(label: &str) -> std::path::PathBuf {
+        valid_gpt_image_with_block_size(label, 512)
+    }
+
+    fn valid_gpt_image_with_block_size(
+        label: &str,
+        block_size: usize,
+    ) -> std::path::PathBuf {
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        const BLOCK_SIZE: usize = 512;
         const BLOCK_COUNT: usize = 100;
         const ENTRY_BYTES: usize = 4 * 128;
 
@@ -2861,19 +2867,19 @@ mod gpt_tests {
             std::process::id()
         ));
 
-        let mut image = vec![0_u8; BLOCK_SIZE * BLOCK_COUNT];
+        let mut image = vec![0_u8; block_size * BLOCK_COUNT];
         let mbr = protective_mbr(BLOCK_COUNT as u64);
-        image[..BLOCK_SIZE].copy_from_slice(&mbr);
+        image[..512].copy_from_slice(&mbr);
 
         let mut entries = vec![0_u8; ENTRY_BYTES];
         entries[..128].copy_from_slice(&partition_entry(1, 3, 10));
         let entries_crc = crc32_ieee(&entries);
-        image[2 * BLOCK_SIZE..2 * BLOCK_SIZE + ENTRY_BYTES].copy_from_slice(&entries);
-        image[98 * BLOCK_SIZE..98 * BLOCK_SIZE + ENTRY_BYTES].copy_from_slice(&entries);
+        image[2 * block_size..2 * block_size + ENTRY_BYTES].copy_from_slice(&entries);
+        image[98 * block_size..98 * block_size + ENTRY_BYTES].copy_from_slice(&entries);
 
         for (header_lba, alternate_lba, entries_lba) in [(1_usize, 99_u64, 2_u64), (99, 1, 98)] {
-            let start = header_lba * BLOCK_SIZE;
-            let header = &mut image[start..start + BLOCK_SIZE];
+            let start = header_lba * block_size;
+            let header = &mut image[start..start + block_size];
             header[..8].copy_from_slice(b"EFI PART");
             header[8..12].copy_from_slice(&0x0001_0000_u32.to_le_bytes());
             header[12..16].copy_from_slice(&92_u32.to_le_bytes());
@@ -2905,6 +2911,21 @@ mod gpt_tests {
             fs::read(&path).unwrap(),
             before,
             "GPT inspection must never modify the source device or image"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn inspect_accepts_4k_logical_sector_gpt_without_writing() {
+        use std::fs;
+
+        let path = valid_gpt_image_with_block_size("valid-4k", 4096);
+        let before = fs::read(&path).unwrap();
+        assert!(super::inspect_raw_gpt(&path, 4096, 100).is_ok());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "4K-sector GPT inspection must not modify the source image"
         );
         fs::remove_file(path).unwrap();
     }
