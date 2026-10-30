@@ -298,12 +298,18 @@ impl BlockDevice for ImageDevice {
             use std::os::windows::fs::FileExt;
             let mut completed = 0_usize;
             while completed < output.len() {
-                let current_offset = offset.checked_add(completed as u64).ok_or(Error::ArithmeticOverflow)?;
-                let bytes = self.file.seek_read(&mut output[completed..], current_offset)?;
+                let current_offset = offset
+                    .checked_add(completed as u64)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self
+                    .file
+                    .seek_read(&mut output[completed..], current_offset)?;
                 if bytes == 0 {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
-                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                        format!(
+                            "Windows raw-device read returned EOF at byte offset {current_offset}"
+                        ),
                     )));
                 }
                 completed += bytes;
@@ -325,7 +331,9 @@ impl BlockDevice for ImageDevice {
             use std::os::windows::fs::FileExt;
             let mut completed = 0_usize;
             while completed < input.len() {
-                let current_offset = offset.checked_add(completed as u64).ok_or(Error::ArithmeticOverflow)?;
+                let current_offset = offset
+                    .checked_add(completed as u64)
+                    .ok_or(Error::ArithmeticOverflow)?;
                 let bytes = self.file.seek_write(&input[completed..], current_offset)?;
                 if bytes == 0 {
                     return Err(Error::Io(std::io::Error::new(
@@ -531,7 +539,10 @@ impl RawDevice {
         // Windows may reject metadata queries for PhysicalDrive handles. Geometry
         // for that path is supplied by the caller from an independently verified source.
         #[cfg(windows)]
-        let is_physical_device = path.to_string_lossy().to_ascii_lowercase().starts_with(r"\\.\physicaldrive");
+        let is_physical_device = path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with(r"\\.\physicaldrive");
         #[cfg(not(windows))]
         let is_physical_device = false;
 
@@ -606,7 +617,9 @@ impl BlockDevice for RawDevice {
                 if bytes == 0 {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
-                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                        format!(
+                            "Windows raw-device read returned EOF at byte offset {current_offset}"
+                        ),
                     )));
                 }
                 completed += bytes;

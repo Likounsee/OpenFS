@@ -52,7 +52,8 @@ fn run() -> Result<(), Box<dyn StdError>> {
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            let (checksum, bytes) = scan_read_only_device(Path::new(&path), block_size, block_count)?;
+            let (checksum, bytes) =
+                scan_read_only_device(Path::new(&path), block_size, block_count)?;
             println!("Read-only full-device scan: OK");
             println!("Bytes scanned: {bytes}");
             println!("CRC32/IEEE: {checksum:08x}");
@@ -1854,7 +1855,9 @@ fn scan_read_only_device(
         let bytes = usize::try_from(blocks * u64::from(block_size))?;
         device.read_blocks(next_block, &mut buffer[..bytes])?;
         crc = crc32_ieee_update(crc, &buffer[..bytes]);
-        next_block = next_block.checked_add(blocks).ok_or("device scan block offset overflow")?;
+        next_block = next_block
+            .checked_add(blocks)
+            .ok_or("device scan block offset overflow")?;
     }
     let total_bytes = u64::from(block_size)
         .checked_mul(block_count)
