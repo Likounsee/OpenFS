@@ -14,6 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
 
+mod windows_device;
+
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 const MAX_IMAGE_SIZE_MIB: u64 = 1024 * 1024;
@@ -28,6 +30,12 @@ fn main() {
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("list-devices") => {
+            if args.next().is_some() {
+                return Err("list-devices does not accept arguments".into());
+            }
+            windows_device::list_devices()
+        }
         Some("probe-device") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
@@ -2082,6 +2090,7 @@ fn probe_read_only_device(
 
 fn print_usage() {
     eprintln!("Usage:");
+    eprintln!("  openfs list-devices  (read-only physical disk inventory; Windows only)");
     eprintln!("  openfs create-image <path> <size-MiB>");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(

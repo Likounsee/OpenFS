@@ -183,3 +183,17 @@ For each physical probe, save:
 - OpenFS commit SHA and Windows version/build.
 
 Never report a physical read or write as successful unless the command was run against the currently re-identified USB device and its output was captured.
+
+
+## 2A. OpenFS host-side disk inventory command
+
+The Rust CLI now provides a metadata-only Windows inventory command:
+
+```powershell
+cargo build --release -p openfs-tool
+.\target\release\openfs.exe list-devices
+```
+
+It queries `Win32_DiskDrive` through the built-in Windows PowerShell/CIM stack and reports disk number, model, serial, byte capacity, interface type, USB transport classification, and PnP identity. The command is inventory only: it does not open a physical-drive handle, lock or dismount volumes, read sectors, or write to a disk. It lists all physical disks so that USB devices exposed through USB Attached SCSI (UASP) are not missed merely because Windows reports their interface as SCSI.
+
+Treat the reported disk number as temporary. Before any later raw-device command, cross-check the current Windows `Get-Disk` record and the PnP identity against the dedicated test USB. The inventory command is not itself authorization to probe a disk.
