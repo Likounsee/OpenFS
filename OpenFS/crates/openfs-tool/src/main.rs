@@ -3017,11 +3017,10 @@ mod gpt_tests {
 
     #[test]
     fn json_escape_handles_quotes_slashes_and_control_characters() {
-        let input = concat!("disk\\\\\\\"name", "\\nline\\tend\\r", "\\u{0001}");
-        assert_eq!(
-            super::json_escape(input),
-            r#"disk\\\\\\\"name\\nline\\tend\\r\\u0001"#
-        );
+        assert_eq!(super::json_escape("quote\""), "quote\\\"");
+        assert_eq!(super::json_escape("slash\\"), "slash\\\\");
+        assert_eq!(super::json_escape("line\nnext\tend\r"), "line\\nnext\\tend\\r");
+        assert_eq!(super::json_escape("\u{0001}"), "\\u0001");
     }
 
     #[test]
