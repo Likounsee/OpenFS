@@ -3000,6 +3000,8 @@ mod gpt_tests {
 
     #[test]
     fn inspect_report_contains_validated_device_geometry_and_partitions() {
+        use std::fs;
+
         let path = valid_gpt_image("report");
         let report = super::inspect_raw_gpt_report(&path, 512, 100).unwrap();
         assert_eq!(report.block_size, 512);
