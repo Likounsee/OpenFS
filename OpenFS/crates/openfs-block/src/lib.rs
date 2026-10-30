@@ -291,17 +291,55 @@ impl BlockDevice for ImageDevice {
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
         self.validate_buffer(first_block, output.len())?;
-        self.file
-            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
-        self.file.read_exact(output)?;
+        let offset = self.byte_offset(first_block)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            let mut completed = 0_usize;
+            while completed < output.len() {
+                let current_offset = offset.checked_add(completed as u64).ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self.file.seek_read(&mut output[completed..], current_offset)?;
+                if bytes == 0 {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        format!("Windows raw-device read returned EOF at byte offset {current_offset}"),
+                    )));
+                }
+                completed += bytes;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.file.seek(SeekFrom::Start(offset))?;
+            self.file.read_exact(output)?;
+        }
         Ok(())
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
         self.validate_buffer(first_block, input.len())?;
-        self.file
-            .seek(SeekFrom::Start(self.byte_offset(first_block)?))?;
-        self.file.write_all(input)?;
+        let offset = self.byte_offset(first_block)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            let mut completed = 0_usize;
+            while completed < input.len() {
+                let current_offset = offset.checked_add(completed as u64).ok_or(Error::ArithmeticOverflow)?;
+                let bytes = self.file.seek_write(&input[completed..], current_offset)?;
+                if bytes == 0 {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        format!("Windows raw-device write returned zero bytes at byte offset {current_offset}"),
+                    )));
+                }
+                completed += bytes;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.file.seek(SeekFrom::Start(offset))?;
+            self.file.write_all(input)?;
+        }
         Ok(())
     }
 
@@ -485,25 +523,33 @@ impl RawDevice {
         let expected_length = u64::from(block_size)
             .checked_mul(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
+        let path = path.as_ref();
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         lock_exclusive(&file)?;
-        let metadata = file.metadata()?;
-        // On Unix, a writable path is not necessarily a block device: character
-        // devices such as /dev/null and FIFOs can otherwise pass the caller-supplied
-        // geometry check and silently discard writes or block indefinitely.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileTypeExt;
-            if !metadata.is_file() && !metadata.file_type().is_block_device() {
+
+        // Windows may reject metadata queries for PhysicalDrive handles. Geometry
+        // for that path is supplied by the caller from an independently verified source.
+        #[cfg(windows)]
+        let is_physical_device = path.to_string_lossy().to_ascii_lowercase().starts_with(r"\\.\physicaldrive");
+        #[cfg(not(windows))]
+        let is_physical_device = false;
+
+        if !is_physical_device {
+            let metadata = file.metadata()?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileTypeExt;
+                if !metadata.is_file() && !metadata.file_type().is_block_device() {
+                    return Err(Error::InvalidInput(
+                        "raw device path must identify a regular file or block device",
+                    ));
+                }
+            }
+            if metadata.is_file() && metadata.len() != expected_length {
                 return Err(Error::InvalidInput(
-                    "raw device path must identify a regular file or block device",
+                    "regular-file length does not match declared raw-device geometry",
                 ));
             }
-        }
-        if metadata.is_file() && metadata.len() != expected_length {
-            return Err(Error::InvalidInput(
-                "regular-file length does not match declared raw-device geometry",
-            ));
         }
         Ok(Self {
             file,
