@@ -47,10 +47,16 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
         }
 
         let index = fields[0].parse::<u32>().map_err(|_| {
-            format!("invalid disk index in Windows inventory row {}", line_index + 1)
+            format!(
+                "invalid disk index in Windows inventory row {}",
+                line_index + 1
+            )
         })?;
         let size_bytes = fields[3].parse::<u64>().map_err(|_| {
-            format!("invalid disk capacity in Windows inventory row {}", line_index + 1)
+            format!(
+                "invalid disk capacity in Windows inventory row {}",
+                line_index + 1
+            )
         })?;
         let logical_sector_size = fields[5].parse::<u32>().map_err(|_| {
             format!(
@@ -59,10 +65,16 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
             )
         })?;
         let is_boot = parse_bool(fields[8]).ok_or_else(|| {
-            format!("invalid boot-disk flag in Windows inventory row {}", line_index + 1)
+            format!(
+                "invalid boot-disk flag in Windows inventory row {}",
+                line_index + 1
+            )
         })?;
         let is_system = parse_bool(fields[9]).ok_or_else(|| {
-            format!("invalid system-disk flag in Windows inventory row {}", line_index + 1)
+            format!(
+                "invalid system-disk flag in Windows inventory row {}",
+                line_index + 1
+            )
         })?;
 
         if size_bytes == 0 {
@@ -78,7 +90,9 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
             ));
         }
         if disks.iter().any(|disk: &PhysicalDisk| disk.index == index) {
-            return Err(format!("duplicate physical disk index {index} in Windows inventory"));
+            return Err(format!(
+                "duplicate physical disk index {index} in Windows inventory"
+            ));
         }
 
         disks.push(PhysicalDisk {
@@ -142,7 +156,13 @@ foreach ($disk in $disks) {
 "#;
 
     let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
         .output()?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
@@ -150,9 +170,8 @@ foreach ($disk in $disks) {
     }
 
     let stdout = String::from_utf8(output.stdout)?;
-    let disks = parse_inventory(&stdout).map_err(|error| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, error)
-    })?;
+    let disks = parse_inventory(&stdout)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
 
     println!("Windows physical disk inventory (metadata only; no disk access or writes).");
     if disks.is_empty() {
@@ -226,21 +245,17 @@ mod tests {
 
     #[test]
     fn identifies_uasp_usb_from_pnp_id_even_when_bus_is_scsi() {
-        let disks = parse_inventory(&row(
-            3,
-            "SCSI",
-            r"USB\VID_0781&PID_5581",
-            "False",
-            "False",
-        ))
-        .unwrap();
+        let disks =
+            parse_inventory(&row(3, "SCSI", r"USB\VID_0781&PID_5581", "False", "False")).unwrap();
         assert!(disks[0].is_usb_transport());
     }
 
     #[test]
     fn rejects_malformed_rows_and_invalid_numbers() {
         assert!(parse_inventory("1\ttoo-few-fields").is_err());
-        assert!(parse_inventory("x\tModel\tSerial\t1024\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(
+            parse_inventory("x\tModel\tSerial\t1024\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err()
+        );
         assert!(parse_inventory("1\tModel\tSerial\tNaN\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
         assert!(parse_inventory("1\tModel\tSerial\t0\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
         assert!(parse_inventory("1\tModel\tSerial\t1024\tUSB\t0\tID\tPNP\tFalse\tFalse").is_err());
@@ -292,5 +307,4 @@ mod tests {
         assert_eq!(super::parse_bool("false"), Some(false));
         assert_eq!(super::parse_bool("yes"), None);
     }
-
 }
