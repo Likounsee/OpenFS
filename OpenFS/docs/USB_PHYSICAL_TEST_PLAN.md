@@ -194,6 +194,6 @@ cargo build --release -p openfs-tool
 .\target\release\openfs.exe list-devices
 ```
 
-It queries `Win32_DiskDrive` through the built-in Windows PowerShell/CIM stack and reports disk number, model, serial, byte capacity, interface type, USB transport classification, and PnP identity. The command is inventory only: it does not open a physical-drive handle, lock or dismount volumes, read sectors, or write to a disk. It lists all physical disks so that USB devices exposed through USB Attached SCSI (UASP) are not missed merely because Windows reports their interface as SCSI.
+It queries `Get-Disk` for disk number, model, serial, byte capacity, authoritative bus type, logical sector size, unique ID, and boot/system flags; it joins the PnP identity from `Win32_DiskDrive` through CIM. USB Attached SCSI (UASP) devices are identified by the Windows bus type even when their PnP interface appears as SCSI. The command is inventory only: it does not open a physical-drive handle, lock or dismount volumes, read sectors, or write to a disk. It lists all physical disks and reports whether Windows identifies the bus as USB, rather than assuming that a SCSI interface means an internal disk.
 
 Treat the reported disk number as temporary. Before any later raw-device command, cross-check the current Windows `Get-Disk` record and the PnP identity against the dedicated test USB. The inventory command is not itself authorization to probe a disk.
