@@ -129,6 +129,15 @@ Run the first/last-block probe (read-only):
 if ($LASTEXITCODE -ne 0) { throw "OpenFS read-only probe failed: $LASTEXITCODE" }
 ```
 
+Run a complete read-only scan over every logical block. The tool uses a bounded 4 MiB buffer and calculates a whole-device CRC32/IEEE checksum:
+
+```powershell
+& $OpenFs scan-device $DevicePath $LogicalSectorSize $BlockCount
+if ($LASTEXITCODE -ne 0) { throw "OpenFS full-device scan failed: $LASTEXITCODE" }
+```
+
+Run the same scan a second time and compare the CRC32 values. A mismatch is a reason to stop and investigate the USB connection, bridge, power, or media; it is not permission to attempt repairs. A full scan of a 123 GB device may take several minutes or longer depending on the USB generation and flash controller.
+
 Run GPT validation (also read-only):
 
 ```powershell
