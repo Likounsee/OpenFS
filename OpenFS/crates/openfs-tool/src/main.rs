@@ -1846,8 +1846,8 @@ fn diagnose_raw_gpt(
     }
 
     let backup_lba = block_count - 1;
-    let mut primary_partitions = None;
-    let mut backup_partitions = None;
+    let mut primary_report = None;
+    let mut backup_report = None;
     for (label, lba) in [("PRIMARY", 1), ("BACKUP", backup_lba)] {
         println!();
         println!("{label} GPT copy at LBA {lba}:");
@@ -1855,15 +1855,15 @@ fn diagnose_raw_gpt(
             Ok(partitions) => {
                 println!("{label} GPT copy diagnostic: completed");
                 if label == "PRIMARY" {
-                    primary_partitions = Some(partitions);
+                    primary_report = Some(partitions);
                 } else {
-                    backup_partitions = Some(partitions);
+                    backup_report = Some(partitions);
                 }
             }
             Err(error) => println!("{label} GPT copy diagnostic: FAILED ({error})"),
         }
     }
-    match (primary_partitions, backup_partitions) {
+    match (primary_report, backup_report) {
         (Some(primary), Some(backup)) if primary == backup => {
             println!("Primary/backup partition semantics: MATCH");
         }
@@ -1884,7 +1884,7 @@ fn diagnose_gpt_copy(
     block_count: u64,
     header_lba: u64,
     label: &str,
-) -> Result<Vec<GptPartition>, Box<dyn StdError>> {
+) -> Result<(Vec<GptPartition>, Vec<u8>, [u8; 16], u64, u64), Box<dyn StdError>> {
     let mut header = vec![0_u8; block_size as usize];
     device.read_blocks(header_lba, &mut header)?;
     if header.get(0..8) != Some(b"EFI PART") {
@@ -1983,7 +1983,7 @@ fn diagnose_gpt_copy(
     for (index, first, last, name) in &partitions {
         println!("    Partition {index}: LBA {first}..={last}, name={name:?}");
     }
-    Ok(partitions)
+    Ok((partitions, entries.to_vec(), header[56..72].try_into()?, first_usable, last_usable))
 }
 
 fn inspect_raw_gpt(
