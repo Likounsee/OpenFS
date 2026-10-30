@@ -397,7 +397,8 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     if let Err(error) = format_volume(&mut device, uuid, 0) {
         drop(device);
         let _ = fs::remove_file(path);
-        return Err(error.into());    }
+        return Err(error.into());
+    }
     println!("OpenFS development image created.");
     println!("Path: {}", path.display());
     println!("Size: {size_mib} MiB ({block_count} blocks × {BLOCK_SIZE} bytes)");
@@ -796,7 +797,8 @@ fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
     let mut stack: Vec<(ObjectId, usize)> = if root_record.kind == ObjectKind::Directory {
         vec![(root_id, 0)]
     } else {
-        Vec::new()    };
+        Vec::new()
+    };
     while let Some((directory_id, depth)) = stack.pop() {
         let children = namespace
             .children(directory_id)
@@ -1195,7 +1197,8 @@ fn export_namespace_file(
 fn import_host_file(
     image_path: &Path,
     block_size: u32,
-    input_path: &Path,    target: &str,
+    input_path: &Path,
+    target: &str,
 ) -> Result<(), Box<dyn StdError>> {
     // Reject importing the image into itself. Streaming would otherwise read from
     // a file while OpenFS is modifying that same file underneath the source handle.
@@ -1594,7 +1597,8 @@ fn development_uuid() -> [u8; 16] {
 
 fn format_uuid(uuid: [u8; 16]) -> String {
     let hex = uuid
-        .iter()        .map(|byte| format!("{byte:02x}"))
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     format!(
         "{}-{}-{}-{}-{}",
@@ -1996,7 +2000,8 @@ fn diagnose_gpt_copy(
                 .into(),
         );
     }
-    let padded_bytes = usize::try_from(        entries_blocks
+    let padded_bytes = usize::try_from(
+        entries_blocks
             .checked_mul(u64::from(block_size))
             .ok_or("padded partition-entry byte length overflow")?,
     )?;
@@ -2395,7 +2400,8 @@ fn scan_read_only_device(
     block_count: u64,
 ) -> Result<(u32, u64), Box<dyn StdError>> {
     if block_count == 0 {
-        return Err("device must contain at least one block".into());    }
+        return Err("device must contain at least one block".into());
+    }
     let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
     let target_chunk_bytes = 4 * 1024 * 1024_u64;
     let chunk_blocks = (target_chunk_bytes / u64::from(block_size)).max(1);
@@ -2794,7 +2800,8 @@ mod tests {
             writes: 0,
             fail_at: 4,
         };
-        assert!(journal.commit(&mut failing, &[redo]).is_err());        drop(journal);
+        assert!(journal.commit(&mut failing, &[redo]).is_err());
+        drop(journal);
         drop(failing.into_inner());
 
         let before = fs::read(&path).unwrap();
@@ -3193,7 +3200,8 @@ mod checksum_tests {
         assert_eq!(super::parse_crc32c("e3069283").unwrap(), 0xe306_9283);
         assert_eq!(super::parse_crc32c("0xE3069283").unwrap(), 0xe306_9283);
         assert_eq!(super::parse_crc32c("f").unwrap(), 15);
-        assert!(super::parse_crc32c("").is_err());        assert!(super::parse_crc32c("0x").is_err());
+        assert!(super::parse_crc32c("").is_err());
+        assert!(super::parse_crc32c("0x").is_err());
         assert!(super::parse_crc32c("123456789").is_err());
         assert!(super::parse_crc32c("zzzz").is_err());
     }
