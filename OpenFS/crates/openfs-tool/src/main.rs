@@ -1829,6 +1829,15 @@ fn diagnose_raw_gpt(
                 "MBR entry {}: boot=0x{:02x}, type=0x{:02x}, start_lba={}, sectors={}",
                 index + 1, entry[0], partition_type, start_lba, sectors
             );
+            if partition_type == 0xEE {
+                let expected = (block_count - 1).min(u64::from(u32::MAX)) as u32;
+                println!(
+                    "  Protective coverage: observed={} sectors, expected={} sectors ({})",
+                    sectors,
+                    expected,
+                    if sectors == expected { "OK" } else { "MISMATCH" }
+                );
+            }
         }
     }
     match validate_protective_mbr(&mbr, block_count) {
@@ -3031,6 +3040,19 @@ mod gpt_tests {
         let mut corrupt = mbr.clone();
         corrupt[510] = 0;
         assert!(validate_protective_mbr(&corrupt, 4096).is_err());
+    }
+
+    #[test]
+    fn protective_mbr_coverage_saturates_only_above_the_32_bit_lba_limit() {
+        let under_limit = protective_mbr(240_253_440);
+        assert!(validate_protective_mbr(&under_limit, 240_253_440).is_ok());
+
+        let mut overclaimed = under_limit.clone();
+        overclaimed[446 + 12..446 + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(validate_protective_mbr(&overclaimed, 240_253_440).is_err());
+
+        let above_limit = protective_mbr(u64::from(u32::MAX) + 100);
+        assert!(validate_protective_mbr(&above_limit, u64::from(u32::MAX) + 100).is_ok());
     }
 
     #[test]
