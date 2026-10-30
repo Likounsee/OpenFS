@@ -46,6 +46,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             inspect_raw_gpt(Path::new(&path), block_size, block_count)
         }
+        Some("inspect-device-json") => {
+            let path = args.next().ok_or("missing device path")?;
+            let block_size = parse_probe_block_size(args.next())?;
+            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            inspect_raw_gpt_json(Path::new(&path), block_size, block_count)
+        }
         Some("scan-device") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
@@ -1593,11 +1602,11 @@ fn parse_probe_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError
 }
 
 /// Inspect GPT metadata from a physical device without issuing any writes.
-fn inspect_raw_gpt(
+fn inspect_raw_gpt_report(
     path: &Path,
     block_size: u32,
     block_count: u64,
-) -> Result<(), Box<dyn StdError>> {
+) -> Result<GptInspection, Box<dyn StdError>> {
     if block_size < 512 {
         return Err("GPT inspection requires a logical block size of at least 512 bytes".into());
     }
@@ -1609,10 +1618,6 @@ fn inspect_raw_gpt(
     let mut mbr = vec![0_u8; block_size as usize];
     device.read_blocks(0, &mut mbr)?;
     validate_protective_mbr(&mbr, block_count)?;
-    println!("Read-only GPT inspection");
-    println!("Device: {}", path.display());
-    println!("Capacity: {} bytes", u64::from(block_size) * block_count);
-    println!("Protective MBR: valid (0xEE, starts at LBA 1, covers device)");
 
     let mut header = vec![0_u8; block_size as usize];
     device.read_blocks(1, &mut header)?;
@@ -1763,20 +1768,99 @@ fn inspect_raw_gpt(
 
     let partitions =
         validate_gpt_partitions(entries, entry_count, entry_size, first_usable, last_usable)?;
+    let capacity_bytes = u64::from(block_size)
+        .checked_mul(block_count)
+        .ok_or("device capacity overflows u64")?;
+    Ok(GptInspection {
+        device: path.display().to_string(),
+        block_size,
+        block_count,
+        capacity_bytes,
+        backup_header_lba: backup_lba,
+        first_usable_lba: first_usable,
+        last_usable_lba: last_usable,
+        partitions,
+    })
+}
+
+fn inspect_raw_gpt(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
+    let report = inspect_raw_gpt_report(path, block_size, block_count)?;
+    println!("Read-only GPT inspection");
+    println!("Device: {}", report.device);
+    println!("Capacity: {} bytes", report.capacity_bytes);
+    println!("Logical block size: {} bytes", report.block_size);
+    println!("Logical block count: {}", report.block_count);
+    println!("Protective MBR: valid (0xEE, starts at LBA 1, covers device)");
     println!("Primary GPT header CRC: OK");
     println!("Backup GPT header CRC: OK");
     println!("Primary/backup GPT metadata: consistent");
     println!("Backup partition array CRC: OK");
     println!("Partition array CRC: OK");
     println!("Protective MBR: OK");
-    println!("Backup GPT header LBA: {backup_lba}");
-    println!("Usable LBA range: {first_usable}..={last_usable}");
-    for (index, first, last, name) in &partitions {
+    println!("Backup GPT header LBA: {}", report.backup_header_lba);
+    println!(
+        "Usable LBA range: {}..={}",
+        report.first_usable_lba, report.last_usable_lba
+    );
+    for (index, first, last, name) in &report.partitions {
         println!("Partition {index}: LBA {first}..={last} ({name})");
     }
-    println!("Populated GPT entries: {}", partitions.len());
+    println!("Populated GPT entries: {}", report.partitions.len());
     println!("No writes were performed.");
     Ok(())
+}
+
+fn inspect_raw_gpt_json(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
+    let report = inspect_raw_gpt_report(path, block_size, block_count)?;
+    println!("{{");
+    println!("  \"status\": \"ok\",");
+    println!("  \"read_only\": true,");
+    println!("  \"device\": \"{}\",", json_escape(&report.device));
+    println!("  \"block_size\": {},", report.block_size);
+    println!("  \"block_count\": {},", report.block_count);
+    println!("  \"capacity_bytes\": {},", report.capacity_bytes);
+    println!("  \"backup_header_lba\": {},", report.backup_header_lba);
+    println!("  \"first_usable_lba\": {},", report.first_usable_lba);
+    println!("  \"last_usable_lba\": {},", report.last_usable_lba);
+    println!("  \"partitions\": [");
+    for (position, (index, first, last, name)) in report.partitions.iter().enumerate() {
+        let comma = if position + 1 == report.partitions.len() { "" } else { "," };
+        println!(
+            "    {{\"index\": {index}, \"first_lba\": {first}, \"last_lba\": {last}, \"name\": \"{}\"}}{comma}",
+            json_escape(name)
+        );
+    }
+    println!("  ],");
+    println!("  \"writes_performed\": false");
+    println!("}}");
+    Ok(())
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character <= '\u{001f}' => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04x}", character as u32);
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn StdError>> {
@@ -1813,6 +1897,17 @@ fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn S
 }
 
 type GptPartition = (u32, u64, u64, String);
+
+struct GptInspection {
+    device: String,
+    block_size: u32,
+    block_count: u64,
+    capacity_bytes: u64,
+    backup_header_lba: u64,
+    first_usable_lba: u64,
+    last_usable_lba: u64,
+    partitions: Vec<GptPartition>,
+}
 
 fn validate_gpt_partitions(
     entries: &[u8],
@@ -1991,6 +2086,9 @@ fn print_usage() {
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
+    );
+    eprintln!(
+        "  openfs inspect-device-json <path> <block-size> <block-count>  (read-only GPT validation as JSON)"
     );
     eprintln!("  openfs scan-device <path> <block-size> <block-count>  (read-only full-device CRC32 scan)");
     eprintln!("  openfs inspect-image <path>");
