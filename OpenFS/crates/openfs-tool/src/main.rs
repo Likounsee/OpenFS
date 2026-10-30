@@ -45,6 +45,20 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             inspect_raw_gpt(Path::new(&path), block_size, block_count)
         }
+        Some("scan-device") => {
+            let path = args.next().ok_or("missing device path")?;
+            let block_size = parse_probe_block_size(args.next())?;
+            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            let (checksum, bytes) = scan_read_only_device(Path::new(&path), block_size, block_count)?;
+            println!("Read-only full-device scan: OK");
+            println!("Bytes scanned: {bytes}");
+            println!("CRC32/IEEE: {checksum:08x}");
+            println!("No writes were performed.");
+            Ok(())
+        }
         Some("create-image") => {
             let path = args.next().ok_or("missing image path")?;
             let size_mib = args
@@ -1805,6 +1819,49 @@ fn crc32_ieee(bytes: &[u8]) -> u32 {
     !crc
 }
 
+fn crc32_ieee_update(mut crc: u32, bytes: &[u8]) -> u32 {
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    crc
+}
+
+/// Read every logical block with a bounded 4 MiB buffer and return a whole-device CRC32.
+fn scan_read_only_device(
+    path: &Path,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(u32, u64), Box<dyn StdError>> {
+    if block_count == 0 {
+        return Err("device must contain at least one block".into());
+    }
+    let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
+    let target_chunk_bytes = 4 * 1024 * 1024_u64;
+    let chunk_blocks = (target_chunk_bytes / u64::from(block_size)).max(1);
+    let chunk_bytes = usize::try_from(chunk_blocks * u64::from(block_size))?;
+    let mut buffer = vec![0_u8; chunk_bytes];
+    let mut crc = !0_u32;
+    let mut next_block = 0_u64;
+    while next_block < block_count {
+        let blocks = (block_count - next_block).min(chunk_blocks);
+        let bytes = usize::try_from(blocks * u64::from(block_size))?;
+        device.read_blocks(next_block, &mut buffer[..bytes])?;
+        crc = crc32_ieee_update(crc, &buffer[..bytes]);
+        next_block = next_block.checked_add(blocks).ok_or("device scan block offset overflow")?;
+    }
+    let total_bytes = u64::from(block_size)
+        .checked_mul(block_count)
+        .ok_or("device scan byte count overflow")?;
+    Ok((!crc, total_bytes))
+}
+
 fn decode_gpt_name(bytes: &[u8]) -> String {
     let units = bytes
         .chunks_exact(2)
@@ -1846,6 +1903,7 @@ fn print_usage() {
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
     );
+    eprintln!("  openfs scan-device <path> <block-size> <block-count>  (read-only full-device CRC32 scan)");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs audit-image <path> <block-size>");
@@ -2007,6 +2065,25 @@ mod tests {
         assert!(
             super::create_namespace_directories(&path, BLOCK_SIZE, "/alpha/../escape").is_err()
         );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn scan_device_reads_all_blocks_with_streaming_crc32() {
+        let path = unique_path("scan-device");
+        {
+            let mut device = ImageDevice::create(&path, 512, 19).unwrap();
+            let mut contents = vec![0_u8; 512 * 19];
+            for (index, byte) in contents.iter_mut().enumerate() {
+                *byte = (index.wrapping_mul(37) & 0xff) as u8;
+            }
+            device.write_blocks(0, &contents).unwrap();
+            device.flush().unwrap();
+            let expected = super::crc32_ieee(&contents);
+            let (actual, bytes) = super::scan_read_only_device(&path, 512, 19).unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(bytes, 512 * 19);
+        }
         fs::remove_file(path).unwrap();
     }
 
