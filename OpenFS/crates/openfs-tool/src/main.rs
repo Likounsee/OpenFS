@@ -1812,13 +1812,15 @@ fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn S
     Ok(())
 }
 
+type GptPartition = (u32, u64, u64, String);
+
 fn validate_gpt_partitions(
     entries: &[u8],
     entry_count: u32,
     entry_size: u32,
     first_usable: u64,
     last_usable: u64,
-) -> Result<Vec<(u32, u64, u64, String)>, Box<dyn StdError>> {
+) -> Result<Vec<GptPartition>, Box<dyn StdError>> {
     if entry_size < 128 || entry_size % 8 != 0 {
         return Err("GPT partition-entry size is invalid".into());
     }
