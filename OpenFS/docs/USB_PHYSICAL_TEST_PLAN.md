@@ -5,6 +5,7 @@
 This plan is deliberately staged. The current CLI exposes only read-only physical-device commands:
 - `probe-device`: reads the first and last logical blocks.
 - `inspect-device`: validates the primary and backup GPT structures and partition-entry checksums.
+- `diagnose-device`: reports MBR entry fields and independently checks each GPT copy's header and partition-array CRCs, without requiring a valid Protective MBR.
 
 There is currently no supported CLI command to format or write a physical disk. Do not use the library's lower-level writable `RawDevice` directly against a personal disk. Physical write testing remains blocked until the on-disk format, recovery behavior, Windows disk ownership/locking, and an explicit target-confirmation workflow have been validated.
 
@@ -146,6 +147,15 @@ if ($LASTEXITCODE -ne 0) { throw "OpenFS GPT inspection failed: $LASTEXITCODE" }
 ```
 
 A GPT error is a diagnostic result, not permission to initialize or repair the disk. Preserve the output and stop. A disk with no partition table may legitimately fail GPT inspection; this does not prove that OpenFS can safely format it.
+
+If `inspect-device` stops at the Protective MBR check, re-identify the USB disk by serial and capacity, then run the independent read-only diagnostic:
+
+```powershell
+& $OpenFs diagnose-device $DevicePath $LogicalSectorSize $BlockCount
+if ($LASTEXITCODE -ne 0) { throw "OpenFS GPT diagnostic could not read the device: $LASTEXITCODE" }
+```
+
+This command reports the four MBR entries and checks the primary header at LBA 1 and backup header at the final LBA separately, including header and entry-array CRCs. A failed copy is reported without preventing examination of the other copy. It does not repair, initialize, or write anything.
 
 ## 5. Current functional boundary
 
