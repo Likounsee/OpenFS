@@ -4,6 +4,7 @@
 //! support must wait for a journal-integrated on-disk format and stronger recovery
 //! guarantees; image creation never truncates or overwrites an existing path.
 
+use std::collections::HashSet;
 use std::env;
 use std::error::Error as StdError;
 use std::fs::{self, OpenOptions};
@@ -1607,19 +1608,11 @@ fn inspect_raw_gpt(
     let mut device = ReadOnlyRawDevice::open(path, block_size, block_count)?;
     let mut mbr = vec![0_u8; block_size as usize];
     device.read_blocks(0, &mut mbr)?;
+    validate_protective_mbr(&mbr, block_count)?;
     println!("Read-only GPT inspection");
     println!("Device: {}", path.display());
     println!("Capacity: {} bytes", u64::from(block_size) * block_count);
-    println!(
-        "Protective MBR signature: {}",
-        if mbr.get(510..512) == Some(&[0x55, 0xaa]) {
-            "valid"
-        } else {
-            "missing"
-        }
-    );
-    let mbr_type = mbr.get(450).copied().unwrap_or(0);
-    println!("MBR partition type in first entry: 0x{mbr_type:02x}");
+    println!("Protective MBR: valid (0xEE, starts at LBA 1, covers device)");
 
     let mut header = vec![0_u8; block_size as usize];
     device.read_blocks(1, &mut header)?;
@@ -1630,9 +1623,19 @@ fn inspect_raw_gpt(
         );
     }
 
+    let revision = read_u32_le(&header, 8)?;
+    if revision != 0x0001_0000 {
+        return Err(format!("unsupported GPT header revision 0x{revision:08x}").into());
+    }
     let header_size = read_u32_le(&header, 12)?;
     if !(92..=block_size).contains(&header_size) {
         return Err("GPT header size is outside the supported bounds".into());
+    }
+    if read_u32_le(&header, 20)? != 0 {
+        return Err("GPT header reserved field must be zero".into());
+    }
+    if header[56..72].iter().all(|byte| *byte == 0) {
+        return Err("GPT disk GUID must not be zero".into());
     }
     let expected_header_crc = read_u32_le(&header, 16)?;
     let mut crc_header = header[..header_size as usize].to_vec();
@@ -1654,7 +1657,12 @@ fn inspect_raw_gpt(
     let entry_size = read_u32_le(&header, 84)?;
     let expected_entries_crc = read_u32_le(&header, 88)?;
 
-    if current_lba != 1 || backup_lba >= block_count || first_usable > last_usable {
+    if current_lba != 1
+        || backup_lba != block_count - 1
+        || first_usable < 2
+        || first_usable > last_usable
+        || last_usable >= backup_lba
+    {
         return Err("GPT header contains invalid device geometry".into());
     }
     if entry_count == 0 || entry_count > 4096 || entry_size < 128 || entry_size % 8 != 0 {
@@ -1690,11 +1698,6 @@ fn inspect_raw_gpt(
 
     // Validate the backup copy too. A valid primary GPT alone does not prove that
     // the secondary header and its partition array are usable for recovery.
-    if backup_lba != block_count - 1 || first_usable < 2 || last_usable >= backup_lba {
-        return Err(
-            "GPT primary header does not describe standard end-of-device backup geometry".into(),
-        );
-    }
     if entries_end > first_usable {
         return Err("primary GPT partition-entry array overlaps the usable LBA range".into());
     }
@@ -1703,9 +1706,16 @@ fn inspect_raw_gpt(
     if backup_header.get(0..8) != Some(b"EFI PART") {
         return Err("backup GPT header signature is missing".into());
     }
+    let backup_revision = read_u32_le(&backup_header, 8)?;
+    if backup_revision != revision {
+        return Err("primary and backup GPT revisions disagree".into());
+    }
     let backup_header_size = read_u32_le(&backup_header, 12)?;
-    if !(92..=block_size).contains(&backup_header_size) {
-        return Err("backup GPT header size is outside the supported bounds".into());
+    if backup_header_size != header_size || !(92..=block_size).contains(&backup_header_size) {
+        return Err("backup GPT header size disagrees with the primary header".into());
+    }
+    if read_u32_le(&backup_header, 20)? != 0 {
+        return Err("backup GPT header reserved field must be zero".into());
     }
     let expected_backup_header_crc = read_u32_le(&backup_header, 16)?;
     let mut crc_backup_header = backup_header[..backup_header_size as usize].to_vec();
@@ -1738,7 +1748,7 @@ fn inspect_raw_gpt(
     let backup_entries_end = backup_entries_lba
         .checked_add(entries_blocks)
         .ok_or("backup GPT partition-entry range overflow")?;
-    if backup_entries_lba <= last_usable || backup_entries_end > backup_lba {
+    if backup_entries_lba <= last_usable || backup_entries_end != backup_lba {
         return Err("backup GPT partition-entry array is outside its expected region".into());
     }
     let mut backup_entries = vec![0_u8; usize::try_from(padded_entries_bytes)?];
@@ -1751,40 +1761,114 @@ fn inspect_raw_gpt(
         );
     }
 
+    let partitions =
+        validate_gpt_partitions(entries, entry_count, entry_size, first_usable, last_usable)?;
     println!("Primary GPT header CRC: OK");
     println!("Backup GPT header CRC: OK");
     println!("Primary/backup GPT metadata: consistent");
     println!("Backup partition array CRC: OK");
     println!("Partition array CRC: OK");
+    println!("Protective MBR: OK");
     println!("Backup GPT header LBA: {backup_lba}");
     println!("Usable LBA range: {first_usable}..={last_usable}");
-    let mut found = 0_u32;
+    for (index, first, last, name) in &partitions {
+        println!("Partition {index}: LBA {first}..={last} ({name})");
+    }
+    println!("Populated GPT entries: {}", partitions.len());
+    println!("No writes were performed.");
+    Ok(())
+}
+
+fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn StdError>> {
+    if block_count < 3 || mbr.len() < 512 {
+        return Err("device is too small for a protective MBR".into());
+    }
+    if mbr.get(510..512) != Some(&[0x55, 0xaa]) {
+        return Err("protective MBR signature 0x55AA is missing".into());
+    }
+
+    let expected_sectors = (block_count - 1).min(u64::from(u32::MAX)) as u32;
+    let mut protective_entries = 0_u32;
+    for index in 0..4 {
+        let offset = 446 + index * 16;
+        let entry = &mbr[offset..offset + 16];
+        let partition_type = entry[4];
+        if partition_type == 0 {
+            continue;
+        }
+        if partition_type != 0xEE {
+            return Err("hybrid or non-protective MBR entries are not accepted".into());
+        }
+        protective_entries += 1;
+        let start_lba = u32::from_le_bytes(entry[8..12].try_into()?);
+        let sector_count = u32::from_le_bytes(entry[12..16].try_into()?);
+        if entry[0] != 0 || start_lba != 1 || sector_count != expected_sectors {
+            return Err("protective MBR entry has an invalid boot flag or coverage".into());
+        }
+    }
+    if protective_entries != 1 {
+        return Err("MBR must contain exactly one protective 0xEE partition".into());
+    }
+    Ok(())
+}
+
+fn validate_gpt_partitions(
+    entries: &[u8],
+    entry_count: u32,
+    entry_size: u32,
+    first_usable: u64,
+    last_usable: u64,
+) -> Result<Vec<(u32, u64, u64, String)>, Box<dyn StdError>> {
+    if entry_size < 128 || entry_size % 8 != 0 {
+        return Err("GPT partition-entry size is invalid".into());
+    }
+    let expected_len = u64::from(entry_count)
+        .checked_mul(u64::from(entry_size))
+        .ok_or("GPT partition-entry length overflow")?;
+    if usize::try_from(expected_len)? != entries.len() {
+        return Err("GPT partition-entry array length does not match its geometry".into());
+    }
+
+    let mut partition_guids = HashSet::new();
+    let mut ranges = Vec::new();
+    let mut partitions = Vec::new();
     for index in 0..entry_count {
         let start = usize::try_from(u64::from(index) * u64::from(entry_size))?;
         let entry = &entries[start..start + entry_size as usize];
         if entry[..16].iter().all(|byte| *byte == 0) {
+            if entry.iter().any(|byte| *byte != 0) {
+                return Err(format!("unused GPT entry {} contains non-zero data", index + 1).into());
+            }
             continue;
         }
+        if entry[16..32].iter().all(|byte| *byte == 0) {
+            return Err(format!("GPT partition entry {} has a zero unique GUID", index + 1).into());
+        }
+        let unique_guid: [u8; 16] = entry[16..32].try_into()?;
+        if !partition_guids.insert(unique_guid) {
+            return Err(format!("GPT partition entry {} duplicates a unique GUID", index + 1).into());
+        }
+
         let first = u64::from_le_bytes(entry[32..40].try_into()?);
         let last = u64::from_le_bytes(entry[40..48].try_into()?);
         if first > last || first < first_usable || last > last_usable {
-            return Err(
-                format!("GPT partition entry {} has an invalid LBA range", index + 1).into(),
-            );
+            return Err(format!("GPT partition entry {} has an invalid LBA range", index + 1).into());
         }
         let name = decode_gpt_name(&entry[56..entry.len().min(128)]);
-        println!(
-            "Partition {}: LBA {}..={} ({})",
-            index + 1,
-            first,
-            last,
-            name
-        );
-        found += 1;
+        ranges.push((first, last, index + 1));
+        partitions.push((index + 1, first, last, name));
     }
-    println!("Populated GPT entries: {found}");
-    println!("No writes were performed.");
-    Ok(())
+
+    ranges.sort_unstable_by_key(|range| range.0);
+    for pair in ranges.windows(2) {
+        if pair[1].0 <= pair[0].1 {
+            return Err(format!(
+                "GPT partitions {} and {} overlap",
+                pair[0].2, pair[1].2
+            ).into());
+        }
+    }
+    Ok(partitions)
 }
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn StdError>> {
@@ -2645,7 +2729,29 @@ mod checksum_tests {
 
 #[cfg(test)]
 mod gpt_tests {
-    use super::{crc32_ieee, read_u32_le, read_u64_le};
+    use super::{
+        crc32_ieee, read_u32_le, read_u64_le, validate_gpt_partitions,
+        validate_protective_mbr,
+    };
+
+    fn protective_mbr(block_count: u64) -> Vec<u8> {
+        let mut mbr = vec![0_u8; 512];
+        mbr[446 + 4] = 0xEE;
+        mbr[446 + 8..446 + 12].copy_from_slice(&1_u32.to_le_bytes());
+        let sectors = (block_count - 1).min(u64::from(u32::MAX)) as u32;
+        mbr[446 + 12..446 + 16].copy_from_slice(&sectors.to_le_bytes());
+        mbr[510..512].copy_from_slice(&[0x55, 0xAA]);
+        mbr
+    }
+
+    fn partition_entry(unique_guid: u8, first: u64, last: u64) -> [u8; 128] {
+        let mut entry = [0_u8; 128];
+        entry[..16].copy_from_slice(&[0xA5; 16]);
+        entry[16..32].copy_from_slice(&[unique_guid; 16]);
+        entry[32..40].copy_from_slice(&first.to_le_bytes());
+        entry[40..48].copy_from_slice(&last.to_le_bytes());
+        entry
+    }
 
     #[test]
     fn ieee_crc32_matches_the_standard_check_value() {
@@ -2665,5 +2771,74 @@ mod gpt_tests {
         );
         assert!(read_u32_le(&[0, 1, 2], 0).is_err());
         assert!(read_u64_le(&[0; 7], 0).is_err());
+    }
+
+    #[test]
+    fn accepts_a_standard_protective_mbr_and_rejects_bad_signature() {
+        let mbr = protective_mbr(4096);
+        assert!(validate_protective_mbr(&mbr, 4096).is_ok());
+
+        let mut corrupt = mbr.clone();
+        corrupt[510] = 0;
+        assert!(validate_protective_mbr(&corrupt, 4096).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_incomplete_and_hybrid_protective_mbr_entries() {
+        let mut mbr = protective_mbr(4096);
+        mbr[446 + 8..446 + 12].copy_from_slice(&2_u32.to_le_bytes());
+        assert!(validate_protective_mbr(&mbr, 4096).is_err());
+
+        let mut mbr = protective_mbr(4096);
+        mbr[446 + 12..446 + 16].copy_from_slice(&100_u32.to_le_bytes());
+        assert!(validate_protective_mbr(&mbr, 4096).is_err());
+
+        let mut mbr = protective_mbr(4096);
+        mbr[462 + 4] = 0x07;
+        assert!(validate_protective_mbr(&mbr, 4096).is_err());
+    }
+
+    #[test]
+    fn accepts_adjacent_partitions_and_rejects_overlapping_ranges() {
+        let first = partition_entry(1, 34, 100);
+        let second = partition_entry(2, 101, 200);
+        let mut entries = Vec::from(first);
+        entries.extend_from_slice(&second);
+        assert_eq!(
+            validate_gpt_partitions(&entries, 2, 128, 34, 400)
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let overlapping = partition_entry(2, 100, 200);
+        entries[128..256].copy_from_slice(&overlapping);
+        assert!(validate_gpt_partitions(&entries, 2, 128, 34, 400).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_or_duplicate_partition_guids_and_invalid_ranges() {
+        let mut zero_guid = partition_entry(1, 34, 100);
+        zero_guid[16..32].fill(0);
+        assert!(validate_gpt_partitions(&zero_guid, 1, 128, 34, 400).is_err());
+
+        let entry = partition_entry(1, 34, 100);
+        let mut duplicate = Vec::from(entry);
+        duplicate.extend_from_slice(&entry);
+        assert!(validate_gpt_partitions(&duplicate, 2, 128, 34, 400).is_err());
+
+        let reversed = partition_entry(2, 100, 34);
+        assert!(validate_gpt_partitions(&reversed, 1, 128, 34, 400).is_err());
+
+        let out_of_bounds = partition_entry(3, 34, 401);
+        assert!(validate_gpt_partitions(&out_of_bounds, 1, 128, 34, 400).is_err());
+    }
+
+    #[test]
+    fn rejects_nonzero_data_in_unused_entries_and_mismatched_array_lengths() {
+        let mut unused = [0_u8; 128];
+        unused[127] = 1;
+        assert!(validate_gpt_partitions(&unused, 1, 128, 34, 400).is_err());
+        assert!(validate_gpt_partitions(&[], 1, 128, 34, 400).is_err());
     }
 }
