@@ -2294,6 +2294,7 @@ fn print_usage() {
     eprintln!(
         "  openfs inspect-device-json <path> <block-size> <block-count>  (read-only GPT validation as JSON)"
     );
+    eprintln!("  openfs diagnose-device <path> <block-size> <block-count>  (read-only MBR/GPT semantic diagnostics)");
     eprintln!("  openfs scan-device <path> <block-size> <block-count>  (read-only full-device CRC32 scan)");
     eprintln!("  openfs inspect-image <path>");
     eprintln!("  openfs check-image <path> <block-size>");
