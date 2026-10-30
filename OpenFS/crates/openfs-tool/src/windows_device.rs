@@ -150,7 +150,9 @@ foreach ($disk in $disks) {
     }
 
     let stdout = String::from_utf8(output.stdout)?;
-    let disks = parse_inventory(&stdout).map_err(|error| -> Box<dyn StdError> { error.into() })?;
+    let disks = parse_inventory(&stdout).map_err(|error| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+    })?;
 
     println!("Windows physical disk inventory (metadata only; no disk access or writes).");
     if disks.is_empty() {
