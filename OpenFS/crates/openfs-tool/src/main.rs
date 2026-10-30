@@ -3253,4 +3253,28 @@ mod gpt_tests {
         fs::remove_file(path).unwrap();
     }
 
+
+    #[test]
+    fn gpt_copy_diagnostics_are_independent_of_an_invalid_protective_mbr() {
+        use std::fs;
+
+        let path = valid_gpt_image("independent-copy-diagnostic");
+        let mut image = fs::read(&path).unwrap();
+        image[446] = 0x80; // Invalid boot indicator; leave both GPT copies intact.
+        fs::write(&path, image).unwrap();
+
+        let mbr = {
+            let bytes = fs::read(&path).unwrap();
+            bytes[..512].to_vec()
+        };
+        assert!(super::validate_protective_mbr(&mbr, 100).is_err());
+
+        let mut device = super::ReadOnlyRawDevice::open(&path, 512, 100).unwrap();
+        assert!(super::diagnose_gpt_copy(&mut device, 512, 100, 1, "PRIMARY").is_ok());
+        assert!(super::diagnose_gpt_copy(&mut device, 512, 100, 99, "BACKUP").is_ok());
+        drop(device);
+
+        fs::remove_file(path).unwrap();
+    }
+
 }
