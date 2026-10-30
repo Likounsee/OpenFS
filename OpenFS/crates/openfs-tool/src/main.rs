@@ -2097,6 +2097,64 @@ fn identify_filesystem_signature(bytes: &[u8]) -> &'static str {
     "unknown / unsupported signature"
 }
 
+/// Perform conservative structural checks on a FAT32 BIOS Parameter Block.
+/// This is not a complete FAT32 consistency check and never writes to the device.
+fn validate_fat32_boot_sector(
+    bytes: &[u8],
+    device_block_size: u32,
+    remaining_device_blocks: u64,
+) -> Result<(), &'static str> {
+    if bytes.len() < 512 || bytes.get(510..512) != Some(&[0x55, 0xaa]) {
+        return Err("missing 512-byte boot-sector signature");
+    }
+    let bytes_per_sector = u16::from_le_bytes([bytes[11], bytes[12]]);
+    if !matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096) {
+        return Err("invalid bytes-per-sector field");
+    }
+    if u32::from(bytes_per_sector) != device_block_size {
+        return Err("BPB sector size differs from device logical sector size");
+    }
+    let sectors_per_cluster = bytes[13];
+    if sectors_per_cluster == 0 || !sectors_per_cluster.is_power_of_two() {
+        return Err("sectors-per-cluster is not a non-zero power of two");
+    }
+    let reserved_sectors = u16::from_le_bytes([bytes[14], bytes[15]]);
+    let fat_count = bytes[16];
+    let root_entries = u16::from_le_bytes([bytes[17], bytes[18]]);
+    let total_sectors_16 = u16::from_le_bytes([bytes[19], bytes[20]]);
+    let fat_size_16 = u16::from_le_bytes([bytes[22], bytes[23]]);
+    let total_sectors_32 = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
+    let fat_size_32 = u32::from_le_bytes(bytes[36..40].try_into().unwrap());
+    let root_cluster = u32::from_le_bytes(bytes[44..48].try_into().unwrap());
+    let fsinfo_sector = u16::from_le_bytes([bytes[48], bytes[49]]);
+    let backup_boot_sector = u16::from_le_bytes([bytes[50], bytes[51]]);
+    if reserved_sectors == 0 || !matches!(fat_count, 1 | 2) {
+        return Err("invalid reserved-sector or FAT-count field");
+    }
+    if root_entries != 0 || total_sectors_16 != 0 || fat_size_16 != 0 {
+        return Err("FAT32 legacy BPB fields are inconsistent");
+    }
+    if total_sectors_32 == 0 || fat_size_32 == 0 || root_cluster < 2 {
+        return Err("FAT32 total sectors, FAT size, or root cluster is invalid");
+    }
+    if fsinfo_sector != 0xffff && fsinfo_sector >= reserved_sectors {
+        return Err("FSInfo sector lies outside reserved region");
+    }
+    if backup_boot_sector != 0xffff && backup_boot_sector >= reserved_sectors {
+        return Err("backup boot sector lies outside reserved region");
+    }
+    let volume_bytes = u64::from(total_sectors_32)
+        .checked_mul(u64::from(bytes_per_sector))
+        .ok_or("FAT32 volume byte length overflows")?;
+    let available_bytes = remaining_device_blocks
+        .checked_mul(u64::from(device_block_size))
+        .ok_or("remaining device byte length overflows")?;
+    if volume_bytes > available_bytes {
+        return Err("FAT32 volume extends beyond the device");
+    }
+    Ok(())
+}
+
 /// Build a small, deterministic set of plausible volume-start offsets.
 /// This is deliberately not a whole-device scan: only the first/last 16 MiB
 /// and the GPT first-usable LBA are sampled, at MiB boundaries.
@@ -2140,7 +2198,18 @@ fn probe_unpartitioned_filesystem_candidates(
         buffer.fill(0);
         device.read_blocks(*lba, &mut buffer)?;
         let signature = identify_filesystem_signature(&buffer);
-        if signature != "unknown / unsupported signature" {
+        if signature == "FAT32" {
+            let remaining_blocks = block_count.saturating_sub(*lba);
+            match validate_fat32_boot_sector(&buffer, block_size, remaining_blocks) {
+                Ok(()) => {
+                    matches += 1;
+                    println!("  Candidate at LBA {lba}: FAT32 BPB structurally plausible (still unverified)");
+                }
+                Err(reason) => println!(
+                    "  Candidate at LBA {lba}: FAT32 text signature only; BPB rejected ({reason})"
+                ),
+            }
+        } else if signature != "unknown / unsupported signature" {
             matches += 1;
             println!("  Candidate at LBA {lba}: {signature} (unverified signature)");
         }
@@ -3338,6 +3407,30 @@ mod gpt_tests {
             identify_filesystem_signature(&[0_u8; 2048]),
             "unknown / unsupported signature"
         );
+    }
+
+    #[test]
+    fn fat32_probe_rejects_signature_only_and_accepts_plausible_bpb() {
+        let mut boot = vec![0_u8; 2048];
+        boot[82..90].copy_from_slice(b"FAT32   ");
+        boot[510..512].copy_from_slice(&[0x55, 0xaa]);
+        assert!(validate_fat32_boot_sector(&boot, 512, 10_000).is_err());
+
+        boot[11..13].copy_from_slice(&512_u16.to_le_bytes());
+        boot[13] = 8;
+        boot[14..16].copy_from_slice(&32_u16.to_le_bytes());
+        boot[16] = 2;
+        boot[17..19].copy_from_slice(&0_u16.to_le_bytes());
+        boot[19..21].copy_from_slice(&0_u16.to_le_bytes());
+        boot[22..24].copy_from_slice(&0_u16.to_le_bytes());
+        boot[32..36].copy_from_slice(&8_000_u32.to_le_bytes());
+        boot[36..40].copy_from_slice(&100_u32.to_le_bytes());
+        boot[44..48].copy_from_slice(&2_u32.to_le_bytes());
+        boot[48..50].copy_from_slice(&1_u16.to_le_bytes());
+        boot[50..52].copy_from_slice(&6_u16.to_le_bytes());
+        assert!(validate_fat32_boot_sector(&boot, 512, 10_000).is_ok());
+        assert!(validate_fat32_boot_sector(&boot, 4096, 10_000).is_err());
+        assert!(validate_fat32_boot_sector(&boot, 512, 100).is_err());
     }
 
     #[test]
