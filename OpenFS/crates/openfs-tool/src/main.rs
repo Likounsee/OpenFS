@@ -2080,6 +2080,9 @@ mod tests {
             device.write_blocks(0, &contents).unwrap();
             device.flush().unwrap();
             let expected = super::crc32_ieee(&contents);
+            // Release ImageDevice's exclusive lock before opening the same fixture
+            // through the read-only scan path. Windows enforces the byte-range lock.
+            drop(device);
             let (actual, bytes) = super::scan_read_only_device(&path, 512, 19).unwrap();
             assert_eq!(actual, expected);
             assert_eq!(bytes, 512 * 19);
