@@ -1869,6 +1869,7 @@ fn diagnose_raw_gpt(
             println!("GPT partition table state: EMPTY");
             println!("No filesystem can be associated through GPT because no partition entries exist.");
             println!("An empty GPT does not prove that the device contains no recoverable data.");
+            probe_unpartitioned_filesystem_candidates(&mut device, block_size, block_count)?;
         }
         (Some(primary), Some(backup)) if primary == backup => {
             println!("Primary/backup partition semantics: MATCH");
@@ -2037,10 +2038,71 @@ fn identify_filesystem_signature(bytes: &[u8]) -> &'static str {
     if boot_signature && bytes.get(3..11) == Some(b"EXFAT   ") {
         return "exFAT";
     }
+    if boot_signature && bytes.get(54..62) == Some(b"FAT12   ") {
+        return "FAT12";
+    }
+    if boot_signature && bytes.get(54..62) == Some(b"FAT16   ") {
+        return "FAT16";
+    }
+    if boot_signature && bytes.get(82..90) == Some(b"FAT32   ") {
+        return "FAT32";
+    }
     if bytes.get(1080..1082) == Some(&[0x53, 0xef]) {
         return "ext2/3/4";
     }
     "unknown / unsupported signature"
+}
+
+/// Build a small, deterministic set of plausible volume-start offsets.
+/// This is deliberately not a whole-device scan: only the first/last 16 MiB
+/// and the GPT first-usable LBA are sampled, at MiB boundaries.
+fn unpartitioned_probe_lbas(block_size: u32, block_count: u64) -> Vec<u64> {
+    if block_size == 0 || block_count < 3 {
+        return Vec::new();
+    }
+    let blocks_per_mib = (1024 * 1024_u64).div_ceil(u64::from(block_size));
+    let mut candidates = vec![34_u64];
+    for mib in [1_u64, 2, 4, 8, 16] {
+        let offset = blocks_per_mib.saturating_mul(mib);
+        candidates.push(offset);
+        if let Some(tail) = block_count.checked_sub(offset) {
+            candidates.push(tail);
+        }
+    }
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates.retain(|lba| *lba >= 2 && *lba < block_count - 1);
+    candidates
+}
+
+/// Sample at most eleven 2-KiB regions from an empty-GPT device, read-only.
+/// A match is only a signature candidate, never proof of a recoverable volume.
+fn probe_unpartitioned_filesystem_candidates(
+    device: &mut ReadOnlyRawDevice,
+    block_size: u32,
+    block_count: u64,
+) -> Result<(), Box<dyn StdError>> {
+    let candidates = unpartitioned_probe_lbas(block_size, block_count);
+    println!("Bounded unpartitioned-space signature probe:");
+    println!("  Sampling {} candidate LBAs (not a full-device scan)", candidates.len());
+    let blocks_to_read = 2048_u64.div_ceil(u64::from(block_size)).max(1);
+    let buffer_len = usize::try_from(blocks_to_read * u64::from(block_size))?;
+    let mut buffer = vec![0_u8; buffer_len];
+    let mut matches = 0_usize;
+    for lba in &candidates {
+        buffer.fill(0);
+        device.read_blocks(*lba, &mut buffer)?;
+        let signature = identify_filesystem_signature(&buffer);
+        if signature != "unknown / unsupported signature" {
+            matches += 1;
+            println!("  Candidate at LBA {lba}: {signature} (unverified signature)");
+        }
+    }
+    if matches == 0 {
+        println!("  No recognized filesystem signatures at sampled offsets.");
+    }
+    println!("  This bounded probe can miss volumes at other offsets and may produce false positives.");
+    Ok(())
 }
 
 fn inspect_raw_gpt(
@@ -3093,7 +3155,7 @@ mod checksum_tests {
 mod gpt_tests {
     use super::{
         crc32_ieee, identify_filesystem_signature, read_u32_le, read_u64_le,
-        validate_gpt_partitions, validate_protective_mbr,
+        unpartitioned_probe_lbas, validate_gpt_partitions, validate_protective_mbr,
     };
 
     fn protective_mbr(block_count: u64) -> Vec<u8> {
@@ -3193,6 +3255,23 @@ mod gpt_tests {
             identify_filesystem_signature(&[0_u8; 2048]),
             "unknown / unsupported signature"
         );
+    }
+
+    #[test]
+    fn unpartitioned_probe_offsets_are_bounded_deduplicated_and_in_range() {
+        let offsets = unpartitioned_probe_lbas(512, 240_253_440);
+        assert!(offsets.contains(&34));
+        assert!(offsets.contains(&2048));
+        assert!(offsets.contains(&(240_253_440 - 2048)));
+        assert!(offsets.iter().all(|lba| *lba >= 2 && *lba < 240_253_439));
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(offsets.len() <= 11);
+    }
+
+    #[test]
+    fn unpartitioned_probe_rejects_invalid_geometry() {
+        assert!(unpartitioned_probe_lbas(0, 100).is_empty());
+        assert!(unpartitioned_probe_lbas(512, 2).is_empty());
     }
 
     #[test]
