@@ -1993,8 +1993,54 @@ fn diagnose_gpt_copy(
     }
     for (index, first, last, name) in &partitions {
         println!("    Partition {index}: LBA {first}..={last}, name={name:?}");
+        match probe_partition_filesystem(device, block_size, *first, *last) {
+            Ok(signature) => println!(
+                "      Filesystem signature: {signature} (signature probe only; not an integrity check)"
+            ),
+            Err(error) => println!("      Filesystem signature probe: FAILED ({error})"),
+        }
     }
     Ok((partitions, entries.to_vec(), header[56..72].try_into()?, first_usable, last_usable))
+}
+
+/// Read at most the first 2 KiB of a validated GPT partition, without writing.
+fn probe_partition_filesystem(
+    device: &mut ReadOnlyRawDevice,
+    block_size: u32,
+    first_lba: u64,
+    last_lba: u64,
+) -> Result<&'static str, Box<dyn StdError>> {
+    let partition_blocks = last_lba
+        .checked_sub(first_lba)
+        .and_then(|length| length.checked_add(1))
+        .ok_or("invalid partition range during filesystem probe")?;
+    let required_bytes = 2048_u64;
+    let required_blocks = required_bytes
+        .checked_add(u64::from(block_size) - 1)
+        .ok_or("filesystem probe block count overflow")?
+        / u64::from(block_size);
+    let blocks_to_read = partition_blocks.min(required_blocks);
+    let buffer_bytes = blocks_to_read
+        .checked_mul(u64::from(block_size))
+        .ok_or("filesystem probe buffer size overflow")?;
+    let mut buffer = vec![0_u8; usize::try_from(buffer_bytes)?];
+    device.read_blocks(first_lba, &mut buffer)?;
+    Ok(identify_filesystem_signature(&buffer))
+}
+
+/// Identify a few well-known on-disk signatures; this is not full filesystem validation.
+fn identify_filesystem_signature(bytes: &[u8]) -> &'static str {
+    let boot_signature = bytes.get(510..512) == Some(&[0x55, 0xaa]);
+    if boot_signature && bytes.get(3..11) == Some(b"NTFS    ") {
+        return "NTFS";
+    }
+    if boot_signature && bytes.get(3..11) == Some(b"EXFAT   ") {
+        return "exFAT";
+    }
+    if bytes.get(1080..1082) == Some(&[0x53, 0xef]) {
+        return "ext2/3/4";
+    }
+    "unknown / unsupported signature"
 }
 
 fn inspect_raw_gpt(
@@ -3125,6 +3171,28 @@ mod gpt_tests {
         let mut mbr = protective_mbr(4096);
         mbr[462 + 4] = 0x07;
         assert!(validate_protective_mbr(&mbr, 4096).is_err());
+    }
+
+    #[test]
+    fn recognizes_ntfs_exfat_and_ext_superblock_signatures() {
+        let mut ntfs = vec![0_u8; 2048];
+        ntfs[3..11].copy_from_slice(b"NTFS    ");
+        ntfs[510..512].copy_from_slice(&[0x55, 0xaa]);
+        assert_eq!(identify_filesystem_signature(&ntfs), "NTFS");
+
+        let mut exfat = vec![0_u8; 2048];
+        exfat[3..11].copy_from_slice(b"EXFAT   ");
+        exfat[510..512].copy_from_slice(&[0x55, 0xaa]);
+        assert_eq!(identify_filesystem_signature(&exfat), "exFAT");
+
+        let mut ext = vec![0_u8; 2048];
+        ext[1080..1082].copy_from_slice(&[0x53, 0xef]);
+        assert_eq!(identify_filesystem_signature(&ext), "ext2/3/4");
+
+        assert_eq!(
+            identify_filesystem_signature(&[0_u8; 2048]),
+            "unknown / unsupported signature"
+        );
     }
 
     #[test]
