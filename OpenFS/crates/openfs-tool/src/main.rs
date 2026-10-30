@@ -2843,4 +2843,118 @@ mod gpt_tests {
         assert!(validate_gpt_partitions(&unused, 1, 128, 34, 400).is_err());
         assert!(validate_gpt_partitions(&[], 1, 128, 34, 400).is_err());
     }
+
+    fn valid_gpt_image(label: &str) -> std::path::PathBuf {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        const BLOCK_SIZE: usize = 512;
+        const BLOCK_COUNT: usize = 100;
+        const ENTRY_BYTES: usize = 4 * 128;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "openfs-gpt-{label}-{}-{nonce}.img",
+            std::process::id()
+        ));
+
+        let mut image = vec![0_u8; BLOCK_SIZE * BLOCK_COUNT];
+        let mbr = protective_mbr(BLOCK_COUNT as u64);
+        image[..BLOCK_SIZE].copy_from_slice(&mbr);
+
+        let mut entries = vec![0_u8; ENTRY_BYTES];
+        entries[..128].copy_from_slice(&partition_entry(1, 3, 10));
+        let entries_crc = crc32_ieee(&entries);
+        image[2 * BLOCK_SIZE..2 * BLOCK_SIZE + ENTRY_BYTES].copy_from_slice(&entries);
+        image[98 * BLOCK_SIZE..98 * BLOCK_SIZE + ENTRY_BYTES].copy_from_slice(&entries);
+
+        for (header_lba, alternate_lba, entries_lba) in [(1_usize, 99_u64, 2_u64), (99, 1, 98)] {
+            let start = header_lba * BLOCK_SIZE;
+            let header = &mut image[start..start + BLOCK_SIZE];
+            header[..8].copy_from_slice(b"EFI PART");
+            header[8..12].copy_from_slice(&0x0001_0000_u32.to_le_bytes());
+            header[12..16].copy_from_slice(&92_u32.to_le_bytes());
+            header[24..32].copy_from_slice(&(header_lba as u64).to_le_bytes());
+            header[32..40].copy_from_slice(&alternate_lba.to_le_bytes());
+            header[40..48].copy_from_slice(&3_u64.to_le_bytes());
+            header[48..56].copy_from_slice(&97_u64.to_le_bytes());
+            header[56..72].copy_from_slice(&[0x5A; 16]);
+            header[72..80].copy_from_slice(&entries_lba.to_le_bytes());
+            header[80..84].copy_from_slice(&4_u32.to_le_bytes());
+            header[84..88].copy_from_slice(&128_u32.to_le_bytes());
+            header[88..92].copy_from_slice(&entries_crc.to_le_bytes());
+            let header_crc = crc32_ieee(&header[..92]);
+            header[16..20].copy_from_slice(&header_crc.to_le_bytes());
+        }
+
+        fs::write(&path, image).unwrap();
+        path
+    }
+
+    #[test]
+    fn inspect_accepts_consistent_primary_and_backup_gpt_without_writing() {
+        use std::fs;
+
+        let path = valid_gpt_image("valid");
+        let before = fs::read(&path).unwrap();
+        assert!(super::inspect_raw_gpt(&path, 512, 100).is_ok());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "GPT inspection must never modify the source device or image"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn inspect_rejects_primary_header_crc_corruption() {
+        use std::fs;
+
+        let path = valid_gpt_image("primary-header-crc");
+        let mut image = fs::read(&path).unwrap();
+        image[512 + 40] ^= 0x01;
+        fs::write(&path, image).unwrap();
+
+        assert!(super::inspect_raw_gpt(&path, 512, 100)
+            .unwrap_err()
+            .to_string()
+            .contains("primary GPT header CRC mismatch"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn inspect_rejects_backup_partition_array_corruption() {
+        use std::fs;
+
+        let path = valid_gpt_image("backup-array");
+        let mut image = fs::read(&path).unwrap();
+        image[98 * 512 + 17] ^= 0x80;
+        fs::write(&path, image).unwrap();
+
+        assert!(super::inspect_raw_gpt(&path, 512, 100)
+            .unwrap_err()
+            .to_string()
+            .contains("backup GPT partition-entry array is corrupt"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn inspect_rejects_backup_header_crc_corruption() {
+        use std::fs;
+
+        let path = valid_gpt_image("backup-header-crc");
+        let mut image = fs::read(&path).unwrap();
+        image[99 * 512 + 48] ^= 0x01;
+        fs::write(&path, image).unwrap();
+
+        assert!(super::inspect_raw_gpt(&path, 512, 100)
+            .unwrap_err()
+            .to_string()
+            .contains("backup GPT header CRC mismatch"));
+        fs::remove_file(path).unwrap();
+    }
+
 }
