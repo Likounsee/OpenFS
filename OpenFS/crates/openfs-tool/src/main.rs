@@ -1911,6 +1911,7 @@ fn diagnose_gpt_copy(
     header_lba: u64,
     label: &str,
 ) -> Result<(Vec<GptPartition>, Vec<u8>, [u8; 16], u64, u64), Box<dyn StdError>> {
+    println!("{label} GPT copy details:");
     let mut header = vec![0_u8; block_size as usize];
     device.read_blocks(header_lba, &mut header)?;
     if header.get(0..8) != Some(b"EFI PART") {
