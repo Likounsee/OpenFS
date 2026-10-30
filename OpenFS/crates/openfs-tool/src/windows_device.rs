@@ -6,6 +6,7 @@
 
 use std::error::Error as StdError;
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PhysicalDisk {
     index: u32,
@@ -20,6 +21,7 @@ struct PhysicalDisk {
     is_system: bool,
 }
 
+#[cfg(any(windows, test))]
 impl PhysicalDisk {
     fn is_usb_transport(&self) -> bool {
         self.bus_type.eq_ignore_ascii_case("USB")
@@ -27,6 +29,7 @@ impl PhysicalDisk {
     }
 }
 
+#[cfg(any(windows, test))]
 fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
     let mut disks = Vec::new();
     for (line_index, line) in output.lines().enumerate() {
@@ -96,6 +99,7 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
     Ok(disks)
 }
 
+#[cfg(any(windows, test))]
 fn parse_bool(value: &str) -> Option<bool> {
     if value.eq_ignore_ascii_case("true") {
         Some(true)
@@ -180,6 +184,7 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
     Err("list-devices currently requires Windows (Get-Disk and Win32_DiskDrive via CIM)".into())
 }
 
+#[cfg(windows)]
 fn nonempty(value: &str) -> &str {
     if value.is_empty() {
         "(not reported)"
@@ -190,7 +195,7 @@ fn nonempty(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_inventory, PhysicalDisk};
+    use super::parse_inventory;
 
     fn row(index: u32, bus: &str, pnp: &str, boot: &str, system: &str) -> String {
         format!(
@@ -286,19 +291,4 @@ mod tests {
         assert_eq!(super::parse_bool("yes"), None);
     }
 
-    #[allow(dead_code)]
-    fn _type_checks_physical_disk_fields() {
-        let _ = PhysicalDisk {
-            index: 0,
-            model: String::new(),
-            serial_number: String::new(),
-            size_bytes: 1,
-            bus_type: String::new(),
-            logical_sector_size: 512,
-            unique_id: String::new(),
-            pnp_device_id: String::new(),
-            is_boot: false,
-            is_system: false,
-        };
-    }
 }
