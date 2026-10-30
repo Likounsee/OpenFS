@@ -2,6 +2,7 @@
 
 use fs2::FileExt;
 use std::fs::{File, OpenOptions};
+#[cfg(not(windows))]
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
