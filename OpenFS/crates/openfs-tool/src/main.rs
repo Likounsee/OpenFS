@@ -1817,7 +1817,14 @@ fn diagnose_raw_gpt(
     println!("Read-only MBR/GPT diagnostic");
     println!("Device: {}", path.display());
     println!("Capacity: {} bytes", u64::from(block_size) * block_count);
-    println!("MBR signature: {}", if mbr.get(510..512) == Some(&[0x55, 0xaa]) { "0x55AA (present)" } else { "INVALID / MISSING" });
+    println!(
+        "MBR signature: {}",
+        if mbr.get(510..512) == Some(&[0x55, 0xaa]) {
+            "0x55AA (present)"
+        } else {
+            "INVALID / MISSING"
+        }
+    );
     for index in 0..4 {
         let offset = 446 + index * 16;
         let entry = &mbr[offset..offset + 16];
@@ -1827,7 +1834,11 @@ fn diagnose_raw_gpt(
         if partition_type != 0 || entry[0] != 0 || start_lba != 0 || sectors != 0 {
             println!(
                 "MBR entry {}: boot=0x{:02x}, type=0x{:02x}, start_lba={}, sectors={}",
-                index + 1, entry[0], partition_type, start_lba, sectors
+                index + 1,
+                entry[0],
+                partition_type,
+                start_lba,
+                sectors
             );
             if partition_type == 0xEE {
                 let expected = (block_count - 1).min(u64::from(u32::MAX)) as u32;
@@ -1835,7 +1846,11 @@ fn diagnose_raw_gpt(
                     "  Protective coverage: observed={} sectors, expected={} sectors ({})",
                     sectors,
                     expected,
-                    if sectors == expected { "OK" } else { "MISMATCH" }
+                    if sectors == expected {
+                        "OK"
+                    } else {
+                        "MISMATCH"
+                    }
                 );
             }
         }
@@ -1865,9 +1880,13 @@ fn diagnose_raw_gpt(
     }
     match (primary_report, backup_report) {
         (Some(primary), Some(backup)) if primary == backup && primary.0.is_empty() => {
-            println!("Primary/backup partition semantics: MATCH (both copies contain no partitions)");
+            println!(
+                "Primary/backup partition semantics: MATCH (both copies contain no partitions)"
+            );
             println!("GPT partition table state: EMPTY");
-            println!("No filesystem can be associated through GPT because no partition entries exist.");
+            println!(
+                "No filesystem can be associated through GPT because no partition entries exist."
+            );
             println!("An empty GPT does not prove that the device contains no recoverable data.");
             probe_unpartitioned_filesystem_candidates(&mut device, block_size, block_count)?;
         }
@@ -1932,12 +1951,20 @@ fn diagnose_gpt_copy(
     println!("  Usable LBA range: {first_usable}..={last_usable}");
     println!("  Disk GUID: {:02x?}", &header[56..72]);
     println!("  Entry array: LBA={entries_lba}, count={entry_count}, entry_size={entry_size}");
-    println!("  Header CRC: stored={stored_header_crc:08x}, computed={computed_header_crc:08x} ({})",
-        if stored_header_crc == computed_header_crc { "OK" } else { "MISMATCH" });
+    println!(
+        "  Header CRC: stored={stored_header_crc:08x}, computed={computed_header_crc:08x} ({})",
+        if stored_header_crc == computed_header_crc {
+            "OK"
+        } else {
+            "MISMATCH"
+        }
+    );
 
     let expected_alternate = if header_lba == 1 { block_count - 1 } else { 1 };
     if current_lba != header_lba || alternate_lba != expected_alternate {
-        return Err("header current/alternate LBA fields do not match the physical copy locations".into());
+        return Err(
+            "header current/alternate LBA fields do not match the physical copy locations".into(),
+        );
     }
     if first_usable < 2 || first_usable > last_usable || last_usable >= block_count - 1 {
         return Err("usable LBA range is outside the device or invalid".into());
@@ -1955,7 +1982,8 @@ fn diagnose_gpt_copy(
         .checked_add(u64::from(block_size) - 1)
         .ok_or("partition-entry block count overflow")?
         / u64::from(block_size);
-    let entries_end = entries_lba.checked_add(entries_blocks)
+    let entries_end = entries_lba
+        .checked_add(entries_blocks)
         .ok_or("partition-entry range overflow")?;
     if entries_lba == 0 || entries_end > block_count {
         return Err("partition-entry array lies outside the device".into());
@@ -1963,11 +1991,15 @@ fn diagnose_gpt_copy(
     if (header_lba == 1 && (entries_lba < 2 || entries_end > first_usable))
         || (header_lba != 1 && (entries_lba <= last_usable || entries_end != header_lba))
     {
-        return Err("partition-entry array overlaps usable space or is outside its expected GPT region".into());
+        return Err(
+            "partition-entry array overlaps usable space or is outside its expected GPT region"
+                .into(),
+        );
     }
     let padded_bytes = usize::try_from(
-        entries_blocks.checked_mul(u64::from(block_size))
-            .ok_or("padded partition-entry byte length overflow")?
+        entries_blocks
+            .checked_mul(u64::from(block_size))
+            .ok_or("padded partition-entry byte length overflow")?,
     )?;
     let mut entries = vec![0_u8; padded_bytes];
     device.read_blocks(entries_lba, &mut entries)?;
@@ -1983,10 +2015,12 @@ fn diagnose_gpt_copy(
         return Err("partition-entry array CRC mismatch".into());
     }
 
-    let partitions = validate_gpt_partitions(
-        entries, entry_count, entry_size, first_usable, last_usable
-    )?;
-    println!("  Semantic partition entries: {} populated, valid", partitions.len());
+    let partitions =
+        validate_gpt_partitions(entries, entry_count, entry_size, first_usable, last_usable)?;
+    println!(
+        "  Semantic partition entries: {} populated, valid",
+        partitions.len()
+    );
     if partitions.is_empty() {
         println!("  GPT partition table state: EMPTY (all partition entries are unused)");
     } else {
@@ -2001,7 +2035,13 @@ fn diagnose_gpt_copy(
             Err(error) => println!("      Filesystem signature probe: FAILED ({error})"),
         }
     }
-    Ok((partitions, entries.to_vec(), header[56..72].try_into()?, first_usable, last_usable))
+    Ok((
+        partitions,
+        entries.to_vec(),
+        header[56..72].try_into()?,
+        first_usable,
+        last_usable,
+    ))
 }
 
 /// Read at most the first 2 KiB of a validated GPT partition, without writing.
@@ -2084,7 +2124,10 @@ fn probe_unpartitioned_filesystem_candidates(
 ) -> Result<(), Box<dyn StdError>> {
     let candidates = unpartitioned_probe_lbas(block_size, block_count);
     println!("Bounded unpartitioned-space signature probe:");
-    println!("  Sampling {} candidate LBAs (not a full-device scan)", candidates.len());
+    println!(
+        "  Sampling {} candidate LBAs (not a full-device scan)",
+        candidates.len()
+    );
     let blocks_to_read = 2048_u64.div_ceil(u64::from(block_size)).max(1);
     let buffer_len = usize::try_from(blocks_to_read * u64::from(block_size))?;
     let mut buffer = vec![0_u8; buffer_len];
@@ -2101,7 +2144,9 @@ fn probe_unpartitioned_filesystem_candidates(
     if matches == 0 {
         println!("  No recognized filesystem signatures at sampled offsets.");
     }
-    println!("  This bounded probe can miss volumes at other offsets and may produce false positives.");
+    println!(
+        "  This bounded probe can miss volumes at other offsets and may produce false positives."
+    );
     Ok(())
 }
 
@@ -2154,7 +2199,11 @@ fn inspect_raw_gpt_json(
     println!("  \"last_usable_lba\": {},", report.last_usable_lba);
     println!("  \"partitions\": [");
     for (position, (index, first, last, name)) in report.partitions.iter().enumerate() {
-        let comma = if position + 1 == report.partitions.len() { "" } else { "," };
+        let comma = if position + 1 == report.partitions.len() {
+            ""
+        } else {
+            ","
+        };
         println!(
             "    {{\"index\": {index}, \"first_lba\": {first}, \"last_lba\": {last}, \"name\": \"{}\"}}{comma}",
             json_escape(name)
@@ -2256,7 +2305,9 @@ fn validate_gpt_partitions(
         let entry = &entries[start..start + entry_size as usize];
         if entry[..16].iter().all(|byte| *byte == 0) {
             if entry.iter().any(|byte| *byte != 0) {
-                return Err(format!("unused GPT entry {} contains non-zero data", index + 1).into());
+                return Err(
+                    format!("unused GPT entry {} contains non-zero data", index + 1).into(),
+                );
             }
             continue;
         }
@@ -2265,13 +2316,17 @@ fn validate_gpt_partitions(
         }
         let unique_guid: [u8; 16] = entry[16..32].try_into()?;
         if !partition_guids.insert(unique_guid) {
-            return Err(format!("GPT partition entry {} duplicates a unique GUID", index + 1).into());
+            return Err(
+                format!("GPT partition entry {} duplicates a unique GUID", index + 1).into(),
+            );
         }
 
         let first = u64::from_le_bytes(entry[32..40].try_into()?);
         let last = u64::from_le_bytes(entry[40..48].try_into()?);
         if first > last || first < first_usable || last > last_usable {
-            return Err(format!("GPT partition entry {} has an invalid LBA range", index + 1).into());
+            return Err(
+                format!("GPT partition entry {} has an invalid LBA range", index + 1).into(),
+            );
         }
         let name = decode_gpt_name(&entry[56..entry.len().min(128)]);
         ranges.push((first, last, index + 1));
@@ -2281,10 +2336,7 @@ fn validate_gpt_partitions(
     ranges.sort_unstable_by_key(|range| range.0);
     for pair in ranges.windows(2) {
         if pair[1].0 <= pair[0].1 {
-            return Err(format!(
-                "GPT partitions {} and {} overlap",
-                pair[0].2, pair[1].2
-            ).into());
+            return Err(format!("GPT partitions {} and {} overlap", pair[0].2, pair[1].2).into());
         }
     }
     Ok(partitions)
@@ -3329,10 +3381,7 @@ mod gpt_tests {
         valid_gpt_image_with_block_size(label, 512)
     }
 
-    fn valid_gpt_image_with_block_size(
-        label: &str,
-        block_size: usize,
-    ) -> std::path::PathBuf {
+    fn valid_gpt_image_with_block_size(label: &str, block_size: usize) -> std::path::PathBuf {
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3404,7 +3453,10 @@ mod gpt_tests {
     fn json_escape_handles_quotes_slashes_and_control_characters() {
         assert_eq!(super::json_escape("quote\""), "quote\\\"");
         assert_eq!(super::json_escape("slash\\"), "slash\\\\");
-        assert_eq!(super::json_escape("line\nnext\tend\r"), "line\\nnext\\tend\\r");
+        assert_eq!(
+            super::json_escape("line\nnext\tend\r"),
+            "line\\nnext\\tend\\r"
+        );
         assert_eq!(super::json_escape("\u{0001}"), "\\u0001");
     }
 
@@ -3486,7 +3538,6 @@ mod gpt_tests {
         fs::remove_file(path).unwrap();
     }
 
-
     #[test]
     fn gpt_copy_diagnostics_are_independent_of_an_invalid_protective_mbr() {
         use std::fs;
@@ -3509,5 +3560,4 @@ mod gpt_tests {
 
         fs::remove_file(path).unwrap();
     }
-
 }
