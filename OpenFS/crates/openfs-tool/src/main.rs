@@ -2269,10 +2269,9 @@ fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn S
             .into());
         }
         if start_lba != 1 {
-            return Err(format!(
-                "protective MBR entry starts at LBA {start_lba}; expected LBA 1"
-            )
-            .into());
+            return Err(
+                format!("protective MBR entry starts at LBA {start_lba}; expected LBA 1").into(),
+            );
         }
         if sector_count != expected_sectors {
             return Err(format!(
@@ -3288,11 +3287,15 @@ mod gpt_tests {
         overclaimed[446 + 12..446 + 16].copy_from_slice(&u32::MAX.to_le_bytes());
         let error = validate_protective_mbr(&overclaimed, 240_253_440).unwrap_err();
         assert!(
-            error.to_string().contains("observed 4294967295 sectors, expected 240253439"),
+            error
+                .to_string()
+                .contains("observed 4294967295 sectors, expected 240253439"),
             "under-limit saturation must report the exact mismatch: {error}"
         );
         assert!(
-            error.to_string().contains("device exceeds the 32-bit LBA range"),
+            error
+                .to_string()
+                .contains("device exceeds the 32-bit LBA range"),
             "diagnostic must explain when 0xFFFFFFFF is valid: {error}"
         );
 
