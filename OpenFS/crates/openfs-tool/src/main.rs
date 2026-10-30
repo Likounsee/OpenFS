@@ -1864,6 +1864,12 @@ fn diagnose_raw_gpt(
         }
     }
     match (primary_report, backup_report) {
+        (Some(primary), Some(backup)) if primary == backup && primary.0.is_empty() => {
+            println!("Primary/backup partition semantics: MATCH (both copies contain no partitions)");
+            println!("GPT partition table state: EMPTY");
+            println!("No filesystem can be associated through GPT because no partition entries exist.");
+            println!("An empty GPT does not prove that the device contains no recoverable data.");
+        }
         (Some(primary), Some(backup)) if primary == backup => {
             println!("Primary/backup partition semantics: MATCH");
         }
@@ -1980,6 +1986,11 @@ fn diagnose_gpt_copy(
         entries, entry_count, entry_size, first_usable, last_usable
     )?;
     println!("  Semantic partition entries: {} populated, valid", partitions.len());
+    if partitions.is_empty() {
+        println!("  GPT partition table state: EMPTY (all partition entries are unused)");
+    } else {
+        println!("  GPT partition table state: POPULATED");
+    }
     for (index, first, last, name) in &partitions {
         println!("    Partition {index}: LBA {first}..={last}, name={name:?}");
     }
@@ -3114,6 +3125,13 @@ mod gpt_tests {
         let mut mbr = protective_mbr(4096);
         mbr[462 + 4] = 0x07;
         assert!(validate_protective_mbr(&mbr, 4096).is_err());
+    }
+
+    #[test]
+    fn accepts_a_well_formed_empty_gpt_partition_array() {
+        let entries = vec![0_u8; 128 * 128];
+        let partitions = validate_gpt_partitions(&entries, 128, 128, 34, 400).unwrap();
+        assert!(partitions.is_empty());
     }
 
     #[test]
