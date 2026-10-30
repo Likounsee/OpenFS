@@ -2261,8 +2261,24 @@ fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<(), Box<dyn S
         protective_entries += 1;
         let start_lba = u32::from_le_bytes(entry[8..12].try_into()?);
         let sector_count = u32::from_le_bytes(entry[12..16].try_into()?);
-        if entry[0] != 0 || start_lba != 1 || sector_count != expected_sectors {
-            return Err("protective MBR entry has an invalid boot flag or coverage".into());
+        if entry[0] != 0 {
+            return Err(format!(
+                "protective MBR entry has invalid boot indicator 0x{:02x}; expected 0x00",
+                entry[0]
+            )
+            .into());
+        }
+        if start_lba != 1 {
+            return Err(format!(
+                "protective MBR entry starts at LBA {start_lba}; expected LBA 1"
+            )
+            .into());
+        }
+        if sector_count != expected_sectors {
+            return Err(format!(
+                "protective MBR coverage mismatch: observed {sector_count} sectors, expected {expected_sectors} for {block_count} logical blocks (0xFFFFFFFF saturation is valid only when the device exceeds the 32-bit LBA range)"
+            )
+            .into());
         }
     }
     if protective_entries != 1 {
@@ -3270,7 +3286,15 @@ mod gpt_tests {
 
         let mut overclaimed = under_limit.clone();
         overclaimed[446 + 12..446 + 16].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(validate_protective_mbr(&overclaimed, 240_253_440).is_err());
+        let error = validate_protective_mbr(&overclaimed, 240_253_440).unwrap_err();
+        assert!(
+            error.to_string().contains("observed 4294967295 sectors, expected 240253439"),
+            "under-limit saturation must report the exact mismatch: {error}"
+        );
+        assert!(
+            error.to_string().contains("device exceeds the 32-bit LBA range"),
+            "diagnostic must explain when 0xFFFFFFFF is valid: {error}"
+        );
 
         let above_limit = protective_mbr(u64::from(u32::MAX) + 100);
         assert!(validate_protective_mbr(&above_limit, u64::from(u32::MAX) + 100).is_ok());
