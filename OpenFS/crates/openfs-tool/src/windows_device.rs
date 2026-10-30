@@ -1,7 +1,8 @@
 //! Read-only physical disk inventory for the Windows host.
 //!
-//! This module only asks Windows for device metadata through CIM/WMI. It does not
-//! open physical-drive handles, lock volumes, read sectors, or issue disk writes.
+//! Windows Storage cmdlets provide the authoritative bus type (including UASP
+//! devices presented through a SCSI interface). CIM supplies the matching PnP ID.
+//! This module never opens physical-drive handles or issues disk I/O.
 
 use std::error::Error as StdError;
 
@@ -11,13 +12,17 @@ struct PhysicalDisk {
     model: String,
     serial_number: String,
     size_bytes: u64,
-    interface_type: String,
+    bus_type: String,
+    logical_sector_size: u32,
+    unique_id: String,
     pnp_device_id: String,
+    is_boot: bool,
+    is_system: bool,
 }
 
 impl PhysicalDisk {
     fn is_usb_transport(&self) -> bool {
-        self.interface_type.eq_ignore_ascii_case("USB")
+        self.bus_type.eq_ignore_ascii_case("USB")
             || self.pnp_device_id.to_ascii_uppercase().contains("USB")
     }
 }
@@ -30,9 +35,9 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
         }
 
         let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() != 6 {
+        if fields.len() != 10 {
             return Err(format!(
-                "invalid Windows disk inventory row {}: expected 6 tab-separated fields, got {}",
+                "invalid Windows disk inventory row {}: expected 10 tab-separated fields, got {}",
                 line_index + 1,
                 fields.len()
             ));
@@ -44,9 +49,28 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
         let size_bytes = fields[3].parse::<u64>().map_err(|_| {
             format!("invalid disk capacity in Windows inventory row {}", line_index + 1)
         })?;
+        let logical_sector_size = fields[5].parse::<u32>().map_err(|_| {
+            format!(
+                "invalid logical sector size in Windows inventory row {}",
+                line_index + 1
+            )
+        })?;
+        let is_boot = parse_bool(fields[8]).ok_or_else(|| {
+            format!("invalid boot-disk flag in Windows inventory row {}", line_index + 1)
+        })?;
+        let is_system = parse_bool(fields[9]).ok_or_else(|| {
+            format!("invalid system-disk flag in Windows inventory row {}", line_index + 1)
+        })?;
+
         if size_bytes == 0 {
             return Err(format!(
                 "zero-sized physical disk reported in Windows inventory row {}",
+                line_index + 1
+            ));
+        }
+        if logical_sector_size == 0 {
+            return Err(format!(
+                "zero logical sector size reported in Windows inventory row {}",
                 line_index + 1
             ));
         }
@@ -59,8 +83,12 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
             model: fields[1].trim().to_owned(),
             serial_number: fields[2].trim().to_owned(),
             size_bytes,
-            interface_type: fields[4].trim().to_owned(),
-            pnp_device_id: fields[5].trim().to_owned(),
+            bus_type: fields[4].trim().to_owned(),
+            logical_sector_size,
+            unique_id: fields[6].trim().to_owned(),
+            pnp_device_id: fields[7].trim().to_owned(),
+            is_boot,
+            is_system,
         });
     }
 
@@ -68,27 +96,44 @@ fn parse_inventory(output: &str) -> Result<Vec<PhysicalDisk>, String> {
     Ok(disks)
 }
 
+fn parse_bool(value: &str) -> Option<bool> {
+    if value.eq_ignore_ascii_case("true") {
+        Some(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 #[cfg(windows)]
 pub fn list_devices() -> Result<(), Box<dyn StdError>> {
     use std::process::Command;
 
     // Static PowerShell script: no user-provided text is interpolated or executed.
-    // CIM returns one row per Win32_DiskDrive; tabs/newlines in text fields are
-    // normalized before crossing the process boundary.
+    // Get-Disk supplies BusType/geometry; Win32_DiskDrive supplies the PnP identity.
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
-$disks = @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Sort-Object -Property Index)
+$pnpByIndex = @{}
+Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | ForEach-Object {
+    $pnpByIndex[[int]$_.Index] = [string]$_.PNPDeviceID
+}
+$disks = @(Get-Disk -ErrorAction Stop | Sort-Object -Property Number)
 foreach ($disk in $disks) {
     $values = @(
-        [string]$disk.Index,
-        [string]$disk.Model,
+        [string]$disk.Number,
+        [string]$disk.FriendlyName,
         [string]$disk.SerialNumber,
         [string]$disk.Size,
-        [string]$disk.InterfaceType,
-        [string]$disk.PNPDeviceID
+        [string]$disk.BusType,
+        [string]$disk.LogicalSectorSize,
+        [string]$disk.UniqueId,
+        [string]$pnpByIndex[[int]$disk.Number],
+        [string]$disk.IsBoot,
+        [string]$disk.IsSystem
     )
     $safeValues = @($values | ForEach-Object { [regex]::Replace($_, '[\t\r\n]', ' ') })
-    [Console]::Out.WriteLine([string]::Join([char]9, [string[]]$safeValues))
+    [Console]::Out.WriteLine([string]::Join([string][char]9, [string[]]$safeValues))
 }
 "#;
 
@@ -97,7 +142,7 @@ foreach ($disk in $disks) {
         .output()?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Windows CIM disk enumeration failed: {}", detail.trim()).into());
+        return Err(format!("Windows disk enumeration failed: {}", detail.trim()).into());
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -105,7 +150,7 @@ foreach ($disk in $disks) {
 
     println!("Windows physical disk inventory (metadata only; no disk access or writes).");
     if disks.is_empty() {
-        println!("No physical disks were returned by Win32_DiskDrive.");
+        println!("No physical disks were returned by Get-Disk.");
         return Ok(());
     }
 
@@ -114,11 +159,15 @@ foreach ($disk in $disks) {
         println!("  Model: {}", nonempty(&disk.model));
         println!("  Serial: {}", nonempty(&disk.serial_number));
         println!("  Capacity: {} bytes", disk.size_bytes);
-        println!("  Interface: {}", nonempty(&disk.interface_type));
+        println!("  Bus type: {}", nonempty(&disk.bus_type));
+        println!("  Logical sector size: {} bytes", disk.logical_sector_size);
+        println!("  Unique ID: {}", nonempty(&disk.unique_id));
         println!(
             "  USB transport: {}",
-            if disk.is_usb_transport() { "yes" } else { "not identified as USB" }
+            if disk.is_usb_transport() { "yes" } else { "no" }
         );
+        println!("  Boot disk: {}", disk.is_boot);
+        println!("  System disk: {}", disk.is_system);
         println!("  PnP ID: {}", nonempty(&disk.pnp_device_id));
     }
     println!("Disk numbers can change after reconnecting; re-identify model, serial and capacity.");
@@ -128,7 +177,7 @@ foreach ($disk in $disks) {
 
 #[cfg(not(windows))]
 pub fn list_devices() -> Result<(), Box<dyn StdError>> {
-    Err("list-devices currently requires Windows (Win32_DiskDrive via CIM)".into())
+    Err("list-devices currently requires Windows (Get-Disk and Win32_DiskDrive via CIM)".into())
 }
 
 fn nonempty(value: &str) -> &str {
@@ -143,26 +192,40 @@ fn nonempty(value: &str) -> &str {
 mod tests {
     use super::{parse_inventory, PhysicalDisk};
 
+    fn row(index: u32, bus: &str, pnp: &str, boot: &str, system: &str) -> String {
+        format!(
+            "{index}\tTest disk\tSERIAL-{index}\t123009761280\t{bus}\t512\tUNIQUE-{index}\t{pnp}\t{boot}\t{system}"
+        )
+    }
+
     #[test]
     fn parses_and_sorts_multiple_physical_disks() {
-        let disks = parse_inventory(
-            "2\tSanDisk 3.2Gen1\t03020915081126092611\t123009761280\tUSB\tUSBSTOR\\\\DISK&VEN_SANDISK\n0\tNVMe Drive\tNVME-SERIAL\t1024209543168\tSCSI\tSCSI\\\\DISK\n",
-        )
-        .unwrap();
+        let output = format!(
+            "{}\n{}\n",
+            row(2, "USB", r"USBSTOR\DISK&VEN_SANDISK", "False", "False"),
+            row(0, "NVMe", r"SCSI\DISK&VEN_NVME", "True", "True")
+        );
+        let disks = parse_inventory(&output).unwrap();
 
         assert_eq!(disks.len(), 2);
         assert_eq!(disks[0].index, 0);
+        assert!(disks[0].is_boot && disks[0].is_system);
         assert_eq!(disks[1].index, 2);
         assert_eq!(disks[1].size_bytes, 123_009_761_280);
+        assert_eq!(disks[1].logical_sector_size, 512);
         assert!(disks[1].is_usb_transport());
         assert!(!disks[0].is_usb_transport());
     }
 
     #[test]
-    fn identifies_usb_from_pnp_id_when_interface_is_not_usb() {
-        let disks = parse_inventory(
-            "3\tUSB Attached SCSI\tSERIAL\t64000000\tSCSI\tUSB\\\\VID_0781&PID_5581\n",
-        )
+    fn identifies_uasp_usb_from_pnp_id_even_when_bus_is_scsi() {
+        let disks = parse_inventory(&row(
+            3,
+            "SCSI",
+            r"USB\VID_0781&PID_5581",
+            "False",
+            "False",
+        ))
         .unwrap();
         assert!(disks[0].is_usb_transport());
     }
@@ -170,15 +233,21 @@ mod tests {
     #[test]
     fn rejects_malformed_rows_and_invalid_numbers() {
         assert!(parse_inventory("1\ttoo-few-fields").is_err());
-        assert!(parse_inventory("x\tModel\tSerial\t1024\tUSB\tUSBSTOR").is_err());
-        assert!(parse_inventory("1\tModel\tSerial\tNaN\tUSB\tUSBSTOR").is_err());
-        assert!(parse_inventory("1\tModel\tSerial\t0\tUSB\tUSBSTOR").is_err());
+        assert!(parse_inventory("x\tModel\tSerial\t1024\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(parse_inventory("1\tModel\tSerial\tNaN\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(parse_inventory("1\tModel\tSerial\t0\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(parse_inventory("1\tModel\tSerial\t1024\tUSB\t0\tID\tPNP\tFalse\tFalse").is_err());
     }
 
     #[test]
-    fn rejects_duplicate_disk_indices() {
-        let output = "1\tDisk A\tA\t1024\tUSB\tUSBSTOR\n1\tDisk B\tB\t2048\tUSB\tUSBSTOR\n";
-        assert!(parse_inventory(output).is_err());
+    fn rejects_duplicate_disk_indices_and_invalid_safety_flags() {
+        let duplicate = format!(
+            "{}\n{}\n",
+            row(1, "USB", "USBSTOR", "False", "False"),
+            row(1, "USB", "USBSTOR", "False", "False")
+        );
+        assert!(parse_inventory(&duplicate).is_err());
+        assert!(parse_inventory(&row(0, "USB", "USBSTOR", "unknown", "False")).is_err());
     }
 
     #[test]
@@ -188,21 +257,48 @@ mod tests {
     }
 
     #[test]
-    fn usb_classification_uses_interface_or_pnp_identity() {
-        let via_interface = PhysicalDisk {
+    fn usb_classification_uses_bus_type_or_pnp_identity() {
+        let via_bus = parse_inventory(&row(0, "USB", "", "False", "False")).unwrap();
+        let via_pnp = parse_inventory(&row(1, "SCSI", r"USBSTOR\DISK", "False", "False")).unwrap();
+        assert!(via_bus[0].is_usb_transport());
+        assert!(via_pnp[0].is_usb_transport());
+    }
+
+    #[test]
+    fn empty_optional_identity_fields_are_preserved_as_empty() {
+        let disks = parse_inventory(&row(0, "USB", "", "False", "False")).unwrap();
+        assert_eq!(disks[0].serial_number, "SERIAL-0");
+        assert_eq!(disks[0].unique_id, "UNIQUE-0");
+        assert_eq!(disks[0].pnp_device_id, "");
+    }
+
+    #[test]
+    fn safety_metadata_is_available_for_target_review() {
+        let disks = parse_inventory(&row(0, "USB", "USBSTOR", "True", "False")).unwrap();
+        assert!(disks[0].is_boot);
+        assert!(!disks[0].is_system);
+    }
+
+    #[test]
+    fn boolean_parser_is_case_insensitive_and_strict() {
+        assert_eq!(super::parse_bool("TRUE"), Some(true));
+        assert_eq!(super::parse_bool("false"), Some(false));
+        assert_eq!(super::parse_bool("yes"), None);
+    }
+
+    #[allow(dead_code)]
+    fn _type_checks_physical_disk_fields() {
+        let _ = PhysicalDisk {
             index: 0,
-            model: "USB disk".into(),
+            model: String::new(),
             serial_number: String::new(),
-            size_bytes: 1024,
-            interface_type: "usb".into(),
+            size_bytes: 1,
+            bus_type: String::new(),
+            logical_sector_size: 512,
+            unique_id: String::new(),
             pnp_device_id: String::new(),
+            is_boot: false,
+            is_system: false,
         };
-        let via_pnp = PhysicalDisk {
-            interface_type: "SCSI".into(),
-            pnp_device_id: r"USBSTOR\DISK&VEN_TEST".into(),
-            ..via_interface.clone()
-        };
-        assert!(via_interface.is_usb_transport());
-        assert!(via_pnp.is_usb_transport());
     }
 }
