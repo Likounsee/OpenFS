@@ -2999,6 +2999,31 @@ mod gpt_tests {
     }
 
     #[test]
+    fn inspect_report_contains_validated_device_geometry_and_partitions() {
+        let path = valid_gpt_image("report");
+        let report = super::inspect_raw_gpt_report(&path, 512, 100).unwrap();
+        assert_eq!(report.block_size, 512);
+        assert_eq!(report.block_count, 100);
+        assert_eq!(report.capacity_bytes, 51_200);
+        assert_eq!(report.backup_header_lba, 99);
+        assert_eq!(report.first_usable_lba, 3);
+        assert_eq!(report.last_usable_lba, 97);
+        assert_eq!(report.partitions.len(), 1);
+        assert_eq!(report.partitions[0].0, 1);
+        assert_eq!(report.partitions[0].1, 3);
+        assert_eq!(report.partitions[0].2, 10);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn json_escape_handles_quotes_slashes_and_control_characters() {
+        assert_eq!(
+            super::json_escape("disk\\"name\nline\tend\r\u{0001}"),
+            "disk\\\\"name\\nline\\tend\\r\\u0001"
+        );
+    }
+
+    #[test]
     fn inspect_accepts_consistent_primary_and_backup_gpt_without_writing() {
         use std::fs;
 
