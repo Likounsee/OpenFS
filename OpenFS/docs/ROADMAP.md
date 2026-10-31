@@ -1,3 +1,12 @@
+### Complément — validation du chemin bloc brut et géométrie Dokany
+
+- Commit `a9e76b149a22c95338cc2d0c0cae44e79f8e36f0` puis correction `709e15412f8c888d7fa8359b665a26ec7ac2638b` : ajout d'un test d'intégration sur fichier temporaire utilisant réellement `RawDevice` : formatage, initialisation de la racine, création/écriture, flush/unmount, réouverture et comparaison exacte des octets relus.
+- Commit `e5a7a2091f6c3270648c5b3a8d47ad6614ac2bd8` : l'adaptateur Dokany reçoit désormais séparément le secteur logique matériel et le bloc d'allocation OpenFS; le chemin USB ne présente plus automatiquement 4096 octets comme secteur matériel quand Windows annonce 512.
+- Ce test valide le backend brut sur un fichier régulier de test, pas un vrai contrôleur USB. Le formatage physique et le montage Dokany restent en attente de validation Windows réelle.
+- CI : le run push de la branche `OpenFS` a été créé pour le SHA `9516e05b38940fdb7325354a9ef20e6c1a7f0c9a`, mais les commits suivants ont annulé ce run; le run du dernier SHA doit être vérifié séparément.
+
+---
+
 ### Reprise de session — 2026-10-31 (premier chemin de formatage/montage USB brut)
 
 - Le backend `RawDevice` existait déjà, mais l'adaptateur Dokany était limité à `ImageDevice`. Le commit `542f99f6c34b8fda67a468b9d62bab4e6daf0298` généralise le handler Dokany à tout `BlockDevice` et ajoute le chemin de montage d'un disque USB physique déjà formaté OpenFS.
