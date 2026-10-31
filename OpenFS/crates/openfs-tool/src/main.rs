@@ -2114,6 +2114,10 @@ fn validate_fat32_boot_sector(
     if u32::from(bytes_per_sector) != device_block_size {
         return Err("BPB sector size differs from device logical sector size");
     }
+    if bytes.len() < usize::from(bytes_per_sector) {
+        return Err("boot-sector buffer is shorter than the BPB sector size");
+    }
+
     let sectors_per_cluster = bytes[13];
     if sectors_per_cluster == 0 || !sectors_per_cluster.is_power_of_two() {
         return Err("sectors-per-cluster is not a non-zero power of two");
@@ -2122,20 +2126,37 @@ fn validate_fat32_boot_sector(
     let fat_count = bytes[16];
     let root_entries = u16::from_le_bytes([bytes[17], bytes[18]]);
     let total_sectors_16 = u16::from_le_bytes([bytes[19], bytes[20]]);
+    let media = bytes[21];
     let fat_size_16 = u16::from_le_bytes([bytes[22], bytes[23]]);
     let total_sectors_32 = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
     let fat_size_32 = u32::from_le_bytes(bytes[36..40].try_into().unwrap());
+    let ext_flags = u16::from_le_bytes([bytes[40], bytes[41]]);
+    let fs_version = u16::from_le_bytes([bytes[42], bytes[43]]);
     let root_cluster = u32::from_le_bytes(bytes[44..48].try_into().unwrap());
     let fsinfo_sector = u16::from_le_bytes([bytes[48], bytes[49]]);
     let backup_boot_sector = u16::from_le_bytes([bytes[50], bytes[51]]);
+
     if reserved_sectors == 0 || !matches!(fat_count, 1 | 2) {
         return Err("invalid reserved-sector or FAT-count field");
     }
     if root_entries != 0 || total_sectors_16 != 0 || fat_size_16 != 0 {
         return Err("FAT32 legacy BPB fields are inconsistent");
     }
-    if total_sectors_32 == 0 || fat_size_32 == 0 || root_cluster < 2 {
-        return Err("FAT32 total sectors, FAT size, or root cluster is invalid");
+    if total_sectors_32 == 0 || fat_size_32 == 0 {
+        return Err("FAT32 total sectors or FAT size is zero");
+    }
+    if !matches!(media, 0xf0 | 0xf8..=0xff) {
+        return Err("FAT32 media descriptor is invalid");
+    }
+    if fs_version != 0 {
+        return Err("unsupported FAT32 filesystem version");
+    }
+    // Bits 4..6 and 8..15 are reserved. When mirroring is disabled, bits 0..3
+    // select the active FAT and must name an existing copy.
+    if ext_flags & 0xff70 != 0
+        || (ext_flags & 0x0080 != 0 && u32::from(ext_flags & 0x000f) >= u32::from(fat_count))
+    {
+        return Err("FAT32 extended flags contain reserved bits or an invalid active FAT");
     }
     if fsinfo_sector != 0xffff && fsinfo_sector >= reserved_sectors {
         return Err("FSInfo sector lies outside reserved region");
@@ -2143,7 +2164,38 @@ fn validate_fat32_boot_sector(
     if backup_boot_sector != 0xffff && backup_boot_sector >= reserved_sectors {
         return Err("backup boot sector lies outside reserved region");
     }
-    let volume_bytes = u64::from(total_sectors_32)
+
+    let fat_area_sectors = u64::from(fat_count)
+        .checked_mul(u64::from(fat_size_32))
+        .ok_or("FAT32 FAT-area size overflows")?;
+    let first_data_sector = u64::from(reserved_sectors)
+        .checked_add(fat_area_sectors)
+        .ok_or("FAT32 first data sector overflows")?;
+    let total_sectors = u64::from(total_sectors_32);
+    if first_data_sector >= total_sectors {
+        return Err("FAT32 metadata consumes the entire volume");
+    }
+    let data_sectors = total_sectors - first_data_sector;
+    let cluster_count = data_sectors / u64::from(sectors_per_cluster);
+
+    // FAT32 is identified by its data-cluster count, not by the text label or
+    // the BPB field layout alone. Also keep cluster IDs below the reserved range.
+    if !(65_525..=0x0fff_ffee).contains(&cluster_count) {
+        return Err("data-cluster count is outside the FAT32 range");
+    }
+    if u64::from(root_cluster) < 2 || u64::from(root_cluster) > cluster_count + 1 {
+        return Err("FAT32 root cluster lies outside the data-cluster range");
+    }
+
+    let fat_bytes = u64::from(fat_size_32)
+        .checked_mul(u64::from(bytes_per_sector))
+        .ok_or("FAT32 FAT byte length overflows")?;
+    let fat_entries = fat_bytes / 4;
+    if fat_entries < cluster_count + 2 {
+        return Err("FAT32 allocation table cannot address every data cluster");
+    }
+
+    let volume_bytes = total_sectors
         .checked_mul(u64::from(bytes_per_sector))
         .ok_or("FAT32 volume byte length overflows")?;
     let available_bytes = remaining_device_blocks
@@ -3410,28 +3462,98 @@ mod gpt_tests {
         );
     }
 
-    #[test]
-    fn fat32_probe_rejects_signature_only_and_accepts_plausible_bpb() {
+    fn plausible_fat32_boot_sector() -> Vec<u8> {
         let mut boot = vec![0_u8; 2048];
         boot[82..90].copy_from_slice(b"FAT32   ");
         boot[510..512].copy_from_slice(&[0x55, 0xaa]);
-        assert!(validate_fat32_boot_sector(&boot, 512, 10_000).is_err());
-
         boot[11..13].copy_from_slice(&512_u16.to_le_bytes());
         boot[13] = 8;
         boot[14..16].copy_from_slice(&32_u16.to_le_bytes());
         boot[16] = 2;
-        boot[17..19].copy_from_slice(&0_u16.to_le_bytes());
-        boot[19..21].copy_from_slice(&0_u16.to_le_bytes());
-        boot[22..24].copy_from_slice(&0_u16.to_le_bytes());
-        boot[32..36].copy_from_slice(&8_000_u32.to_le_bytes());
-        boot[36..40].copy_from_slice(&100_u32.to_le_bytes());
+        boot[21] = 0xf8;
+        boot[32..36].copy_from_slice(&600_000_u32.to_le_bytes());
+        boot[36..40].copy_from_slice(&6_000_u32.to_le_bytes());
         boot[44..48].copy_from_slice(&2_u32.to_le_bytes());
         boot[48..50].copy_from_slice(&1_u16.to_le_bytes());
         boot[50..52].copy_from_slice(&6_u16.to_le_bytes());
-        assert!(validate_fat32_boot_sector(&boot, 512, 10_000).is_ok());
-        assert!(validate_fat32_boot_sector(&boot, 4096, 10_000).is_err());
+        boot
+    }
+
+    #[test]
+    fn fat32_probe_rejects_signature_only_and_accepts_spec_sized_bpb() {
+        let mut boot = plausible_fat32_boot_sector();
+        boot[11..13].fill(0);
+        assert!(validate_fat32_boot_sector(&boot, 512, 700_000).is_err());
+
+        boot = plausible_fat32_boot_sector();
+        assert!(validate_fat32_boot_sector(&boot, 512, 700_000).is_ok());
+        assert!(validate_fat32_boot_sector(&boot, 4096, 700_000).is_err());
         assert!(validate_fat32_boot_sector(&boot, 512, 100).is_err());
+    }
+
+    #[test]
+    fn fat32_probe_rejects_non_fat32_cluster_count_and_undersized_fat() {
+        let mut boot = plausible_fat32_boot_sector();
+        boot[32..36].copy_from_slice(&8_000_u32.to_le_bytes());
+        boot[36..40].copy_from_slice(&100_u32.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 10_000),
+            Err("data-cluster count is outside the FAT32 range")
+        );
+
+        boot = plausible_fat32_boot_sector();
+        boot[36..40].copy_from_slice(&100_u32.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 700_000),
+            Err("FAT32 allocation table cannot address every data cluster")
+        );
+    }
+
+    #[test]
+    fn fat32_probe_rejects_invalid_root_cluster_media_and_version() {
+        let mut boot = plausible_fat32_boot_sector();
+        boot[44..48].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 700_000),
+            Err("FAT32 root cluster lies outside the data-cluster range")
+        );
+
+        boot = plausible_fat32_boot_sector();
+        boot[21] = 0xf7;
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 700_000),
+            Err("FAT32 media descriptor is invalid")
+        );
+
+        boot = plausible_fat32_boot_sector();
+        boot[42..44].copy_from_slice(&1_u16.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 700_000),
+            Err("unsupported FAT32 filesystem version")
+        );
+    }
+
+    #[test]
+    fn fat32_probe_validates_active_fat_and_boot_sector_buffer_length() {
+        let mut boot = plausible_fat32_boot_sector();
+        boot[40..42].copy_from_slice(&0x0081_u16.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 512, 700_000),
+            Err("FAT32 extended flags contain reserved bits or an invalid active FAT")
+        );
+
+        boot = plausible_fat32_boot_sector();
+        assert_eq!(
+            validate_fat32_boot_sector(&boot[..512], 4096, 700_000),
+            Err("BPB sector size differs from device logical sector size")
+        );
+
+        boot = plausible_fat32_boot_sector();
+        boot[11..13].copy_from_slice(&4096_u16.to_le_bytes());
+        assert_eq!(
+            validate_fat32_boot_sector(&boot, 4096, 700_000),
+            Err("boot-sector buffer is shorter than the BPB sector size")
+        );
     }
 
     #[test]
