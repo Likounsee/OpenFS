@@ -1269,3 +1269,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Les pages sont relues et les bits candidats revérifiés avant toute écriture de nettoyage. Après résultat de commit indéterminé, le volume est rouvert et chaque bit demandé est contrôlé : lot entièrement alloué = succès, aucun bit alloué = erreur initiale, état mixte = corruption.
 - Test ajouté : allocation traversant une frontière de bitmap avec bloc de 4096 octets, vérification de chaque bit puis réouverture de l'image. Test non exécuté dans cette session. Inventaire lexical recalculé pour le fichier allocateur : 1269 déclarations sur 18 fichiers Rust.
 - Le curseur next-fit reste respecté, y compris au passage d'un segment au suivant et lors du retour circulaire. Progression globale maintenue à 73 % en attente de tests et CI exacte-SHA.
+
+### Extents contigus multi-bitmap (2026-10-31)
+
+- Commits `9193b86491ae0fd5d8151e40975fbe4a1d935e19`, `ec680b16285426bb73775e1b89297dc9eadc8a52` et correctifs associés : la recherche, l'allocation et la libération d'un extent contigu peuvent traverser plusieurs pages bitmap. Le scanner conserve les runs libres entre pages adjacentes, mais réinitialise le run dès qu'il rencontre des bits alloués.
+- Allocation et libération construisent l'ensemble des images bitmap, vérifient la plage complète et la capacité redo, puis publient toutes les pages dans une transaction unique. La récupération après erreur rouvre le volume et distingue plage entièrement allouée/libre, état antérieur et état mixte.
+- Test image ajouté : quatre blocs libres traversant la frontière bitmap, vérification qu'un run de cinq blocs n'est pas faussement détecté, allocation, réouverture, libération et nouvelle réouverture. Test non exécuté; compilation, rustfmt, Clippy et CI restent non vérifiés.
+- Inventaire lexical : 1270 déclarations sur 18 fichiers Rust. Complétion globale maintenue à 73 % en attente de validation automatique et de tests de panne multi-page.
