@@ -10903,6 +10903,11 @@ mod tests {
             assert_eq!(&full[..4096], &vec![0xA5; 4096]);
             assert!(full[4096..8192].iter().all(|byte| *byte == 0));
             assert_eq!(&full[8192..], &vec![0x5A; 3808]);
+            let hole_to_extent = volume
+                .read_file_range(&mut device, &namespace, &maps, ObjectId(2), 4096, 8192)
+                .unwrap();
+            assert!(hole_to_extent[..4096].iter().all(|byte| *byte == 0));
+            assert_eq!(&hole_to_extent[4096..], &vec![0x5A; 4096]);
             assert_eq!(
                 volume
                     .read_path_range(&mut device, &namespace, &maps, "/sparse.bin", 4094, 6)
