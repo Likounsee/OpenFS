@@ -8636,14 +8636,30 @@ impl<D: BlockDevice> VolumeSession<D> {
 mod tests {
     use super::{
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
-        format_volume, open_volume, persist_inventory_hint, read_superblock, VolumeLayout,
-        CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET, MAGIC, VERSION,
+        format_volume, open_volume, owned_ranges_contain, persist_inventory_hint,
+        read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET,
+        MAGIC, VERSION,
     };
     use crate::{Extent, ExtentMap, JournalCheckpoint};
     use openfs_block::{BlockDevice, FaultInjectingDevice, ImageDevice, IoOperation, RawDevice};
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn owned_range_lookup_handles_gaps_and_half_open_boundaries() {
+        let ranges = [(10, 15), (20, 24), (30, 31)];
+        assert!(!owned_ranges_contain(&ranges, 9));
+        assert!(owned_ranges_contain(&ranges, 10));
+        assert!(owned_ranges_contain(&ranges, 14));
+        assert!(!owned_ranges_contain(&ranges, 15));
+        assert!(!owned_ranges_contain(&ranges, 19));
+        assert!(owned_ranges_contain(&ranges, 20));
+        assert!(owned_ranges_contain(&ranges, 23));
+        assert!(!owned_ranges_contain(&ranges, 24));
+        assert!(owned_ranges_contain(&ranges, 30));
+        assert!(!owned_ranges_contain(&ranges, 31));
+    }
 
     fn snapshot_image_bytes(device: &mut ImageDevice) -> Vec<u8> {
         let length = usize::try_from(
