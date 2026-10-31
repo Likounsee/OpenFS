@@ -1,3 +1,12 @@
+### Reprise de session — 2026-10-31 (atomicité des décisions create Windows)
+
+- Commit `87b0729a3b75ac51118a50899e481ae3be82a757` : le callback Dokany `create_file` conserve maintenant le verrou de session pendant la recherche du chemin et l'opération qui en découle (création ou troncature). Deux ouvertures concurrentes ne peuvent donc plus toutes deux observer un chemin absent puis tenter de le créer à partir d'un état devenu obsolète.
+- Ce changement ferme une course TOCTOU dans l'adaptateur Windows; il ne prétend pas encore gérer les handles ouverts par identité d'objet ni le remplacement atomique d'un fichier existant.
+- Validation : code modifié sur la branche `OpenFS`; compilation Windows, tests et CI du nouveau SHA non exécutés/confirmés ici. Les pourcentages restent inchangés jusqu'à validation.
+- Prochaine cible : tester le cycle réel Dokany sur Windows, renforcer le suivi des handles et définir un remplacement transactionnel sûr avant d'activer `replace_if_existing`.
+
+---
+
 ### Reprise de session — 2026-10-31 (images immédiatement montables)
 
 - Branche : `OpenFS` uniquement.
