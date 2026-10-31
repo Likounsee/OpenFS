@@ -1341,3 +1341,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical régénéré depuis les 18 fichiers Rust : 1 277 déclarations (commit `50862b88135712b4155c376feb42ad6ad1fb66cd`).
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+### Insertion d'extents en place (2026-10-31)
+
+- Commit `db98cd39d592e2a35a83a7e7c2c4d50b3ede3a75` : `insert_coalescing()` ne reconstruit plus un vecteur complet pour insérer un extent. Après vérification des chevauchements physiques et logiques, elle fusionne directement le voisin précédent, le suivant, les deux, ou réserve une seule entrée et insère à l'index calculé.
+- Commit `9dd059c35526bc2f90bd98dd70b35228a8b2c669` : le pré-calcul arithmétique a été resserré pour ne vérifier que les additions réellement nécessaires à une fusion, et propage explicitement les erreurs de bornes logiques.
+- Commit `970fece154f95e3345b37aad6c0563acb06257ae` : test des trois chemins d'insertion en place (fusion précédente, fusion suivante, insertion indépendante); le test existant couvre déjà la fusion des deux voisins et les erreurs sans mutation.
+- Inventaire régénéré sur les 18 fichiers Rust : 1 278 déclarations (commit `328fadc01c3c59b274131c552db072c5a3dafe3d`).
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
