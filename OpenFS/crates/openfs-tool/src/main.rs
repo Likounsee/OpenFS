@@ -2702,6 +2702,10 @@ fn format_usb_device(
         block_size,
         size_bytes / u64::from(block_size),
     )?;
+    let confirmed = windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+    if confirmed != (size_bytes, logical_sector_size) {
+        return Err("USB disk identity or geometry changed while opening it; refusing to format".into());
+    }
     // This intentionally overwrites the complete selected physical disk, including
     // partition tables and every existing partition. The caller had to type the
     // destructive confirmation and pass the exact Windows UniqueId above.
