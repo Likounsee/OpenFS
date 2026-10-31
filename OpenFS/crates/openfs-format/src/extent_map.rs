@@ -1043,6 +1043,34 @@ mod tests {
     }
 
     #[test]
+    fn large_fully_coalescing_batch_keeps_one_extent() {
+        let mut map = ExtentMap::new(vec![Extent {
+            logical_start: 0,
+            physical_start: 10_000,
+            block_count: 1,
+        }])
+        .unwrap();
+        let incoming: Vec<Extent> = (1..4096_u64)
+            .map(|index| Extent {
+                logical_start: index,
+                physical_start: 10_000 + index,
+                block_count: 1,
+            })
+            .collect();
+
+        map.push_coalescing_batch(incoming).unwrap();
+
+        assert_eq!(
+            map.extents(),
+            &[Extent {
+                logical_start: 0,
+                physical_start: 10_000,
+                block_count: 4096,
+            }]
+        );
+    }
+
+    #[test]
     fn batch_extent_append_rejects_logical_overlaps_atomically() {
         let mut map = sample();
         let before = map.clone();
