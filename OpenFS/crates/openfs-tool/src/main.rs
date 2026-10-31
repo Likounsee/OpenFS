@@ -36,19 +36,33 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let image = args.next().ok_or("missing image path")?;
             let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() { return Err("too many arguments".into()); }
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
             #[cfg(windows)]
-            { windows_mount::mount_image(Path::new(&image), &mount_point, block_size) }
+            {
+                windows_mount::mount_image(Path::new(&image), &mount_point, block_size)
+            }
             #[cfg(not(windows))]
-            { let _ = (image, mount_point, block_size); Err("mount is currently supported only on Windows through Dokany".into()) }
+            {
+                let _ = (image, mount_point, block_size);
+                Err("mount is currently supported only on Windows through Dokany".into())
+            }
         }
         Some("unmount") => {
             let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
-            if args.next().is_some() { return Err("too many arguments".into()); }
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
             #[cfg(windows)]
-            { windows_mount::unmount_drive(&mount_point) }
+            {
+                windows_mount::unmount_drive(&mount_point)
+            }
             #[cfg(not(windows))]
-            { let _ = mount_point; Err("unmount is currently supported only on Windows through Dokany".into()) }
+            {
+                let _ = mount_point;
+                Err("unmount is currently supported only on Windows through Dokany".into())
+            }
         }
         Some("list-devices") => {
             if args.next().is_some() {
