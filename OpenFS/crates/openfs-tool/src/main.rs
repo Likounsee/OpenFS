@@ -11,7 +11,9 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openfs_block::{BlockDevice, ImageDevice, RawDevice, ReadOnlyRawDevice};
+use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
+#[cfg(windows)]
+use openfs_block::RawDevice;
 use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
 
 mod windows_device;
@@ -2703,7 +2705,10 @@ fn format_usb_device(
     // This intentionally overwrites the complete selected physical disk, including
     // partition tables and every existing partition. The caller had to type the
     // destructive confirmation and pass the exact Windows UniqueId above.
-    format_volume(&mut device, *b"openfs-usb-v1!!!", 0)?;
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let mut volume_uuid = timestamp.to_le_bytes();
+    volume_uuid[8..12].copy_from_slice(&disk_index.to_le_bytes());
+    format_volume(&mut device, volume_uuid, 0)?;
     let mut volume = open_volume(&mut device)?;
     volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
     device.flush()?;
