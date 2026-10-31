@@ -205,6 +205,74 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
     Err("list-devices currently requires Windows (Get-Disk and Win32_DiskDrive via CIM)".into())
 }
 
+/// Verify a disk's identity and safety state immediately before opening it read/write.
+///
+/// The disk must be USB-attached, explicitly offline in Windows, writable, and neither
+/// the boot nor system disk. The caller must supply the exact UniqueId printed by
+/// `list-devices`; the disk index alone is not a stable identity.
+#[cfg(windows)]
+pub fn verify_offline_usb_disk(
+    index: u32,
+    expected_unique_id: &str,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    use std::process::Command;
+
+    if expected_unique_id.trim().is_empty() {
+        return Err("an exact non-empty disk UniqueId is required".into());
+    }
+
+    // Static script: all user-provided values are passed as environment data, never
+    // interpolated into PowerShell source.
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$disk = Get-Disk -Number ([int]$env:OPENFS_DISK_INDEX) -ErrorAction Stop
+if ([string]$disk.UniqueId -cne [string]$env:OPENFS_DISK_UNIQUE_ID) {
+    throw 'disk UniqueId changed; re-run list-devices and verify the target'
+}
+$pnp = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+    Where-Object { [int]$_.Index -eq [int]$disk.Number } |
+    Select-Object -First 1
+$isUsb = ([string]$disk.BusType -eq 'USB') -or ([string]$pnp.PNPDeviceID -match '(^|\)USB')
+if (-not $isUsb) { throw 'target disk is not identified as USB transport' }
+if ($disk.IsBoot -or $disk.IsSystem) { throw 'refusing to open a boot or system disk' }
+if (-not $disk.IsOffline) { throw 'target USB disk must first be set Offline in Windows Disk Management' }
+if ($disk.IsReadOnly) { throw 'target USB disk is read-only' }
+if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
+    throw 'Windows reported invalid disk geometry'
+}
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
+        .output()?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("USB disk safety check failed: {}", detail.trim()).into());
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    let fields: Vec<&str> = stdout.trim().split('\t').collect();
+    if fields.len() != 2 {
+        return Err("Windows returned malformed USB disk geometry".into());
+    }
+    let size_bytes = fields[0].parse::<u64>()?;
+    let logical_sector_size = fields[1].parse::<u32>()?;
+    if size_bytes == 0 || logical_sector_size == 0 {
+        return Err("Windows returned zero-sized USB disk geometry".into());
+    }
+    Ok((size_bytes, logical_sector_size))
+}
+
+#[cfg(not(windows))]
+pub fn verify_offline_usb_disk(
+    _index: u32,
+    _expected_unique_id: &str,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    Err("raw USB disk mounting currently requires Windows".into())
+}
+
 #[cfg(windows)]
 fn nonempty(value: &str) -> &str {
     if value.is_empty() {
