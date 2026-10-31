@@ -265,7 +265,13 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
 "#;
 
     let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
         .env("OPENFS_DISK_INDEX", index.to_string())
         .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
         .output()?;
