@@ -561,7 +561,7 @@ source_file,line,symbol_kind,symbol,declaration,status,analysis_note
 "OpenFS/crates/openfs-format/src/lib.rs","124","function","get_u32","fn get_u32(bytes: &[u8], offset: usize) -> u32 {","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-format/src/lib.rs","133","function","get_u64","fn get_u64(bytes: &[u8], offset: usize) -> u64 {","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-format/src/lib.rs","147","function","crc32c","pub(crate) fn crc32c(bytes: &[u8]) -> u32 {","Indexed","Lexical index; declaration and line detected, behavior not validated."
-"OpenFS/crates/openfs-format/src/lib.rs","204","function","superblock_encoding_matches_stable_golden_bytes","fn superblock_encoding_matches_stable_golden_bytes() {","Indexed","Lexical index; declaration and line detected, behavior not validated."
+"OpenFS/crates/openfs-format/src/lib.rs","205","function","superblock_encoding_matches_stable_golden_bytes","fn superblock_encoding_matches_stable_golden_bytes() {","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-format/src/metadata.rs","10","const","METADATA_RECORD_SIZE","pub const METADATA_RECORD_SIZE: usize = 80;","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-format/src/metadata.rs","11","const","MAGIC","const MAGIC: &[u8; 8] = b""OFSMETA\0"";","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-format/src/metadata.rs","12","const","VERSION","const VERSION: u16 = 1;","Indexed","Lexical index; declaration and line detected, behavior not validated."
