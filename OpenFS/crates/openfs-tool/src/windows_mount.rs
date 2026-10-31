@@ -35,6 +35,7 @@ type FileHandle = ObjectId;
 struct OpenFsHandler<D: BlockDevice> {
     session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
+    deferred_error: Mutex<Option<String>>,
 }
 
 impl<D: BlockDevice> OpenFsHandler<D> {
@@ -42,7 +43,28 @@ impl<D: BlockDevice> OpenFsHandler<D> {
         Self {
             session: Mutex::new(session),
             total_bytes,
+            deferred_error: Mutex::new(None),
         }
+    }
+
+    fn record_deferred_error(&self, error: String) {
+        match self.deferred_error.lock() {
+            Ok(mut pending) => match pending.as_mut() {
+                Some(existing) => {
+                    existing.push_str("; ");
+                    existing.push_str(&error);
+                }
+                None => *pending = Some(error),
+            },
+            Err(_) => eprintln!("OpenFS: unable to record deferred cleanup error: {error}"),
+        }
+    }
+
+    fn take_deferred_error(&self) -> Result<Option<String>, &'static str> {
+        self.deferred_error
+            .lock()
+            .map(|mut pending| pending.take())
+            .map_err(|_| "OpenFS deferred-error lock was poisoned")
     }
 
     fn with_path<T>(
@@ -214,27 +236,30 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) {
-        if !info.delete_on_close() {
-            return;
-        }
-
-        // Resolve stable identity, unlink and flush under one session lock. This
-        // prevents a concurrent rename from making a cached path stale.
+        // Dokan calls Cleanup when the last handle for this file object closes.
+        // Flush ordinary closes too, not only delete-on-close, so completed file
+        // copies are pushed to the device before Explorer releases the handle.
+        // Keep delete + flush under one lock to serialize them with writes/renames.
         let result = self
             .session
             .lock()
             .map_err(|_| "OpenFS session lock was poisoned".to_owned())
             .and_then(|mut session| {
-                let path = session
-                    .path_for_object(*context)
-                    .map_err(|error| error.to_string())?;
+                if info.delete_on_close() {
+                    let path = session
+                        .path_for_object(*context)
+                        .map_err(|error| error.to_string())?;
+                    session
+                        .remove(&path)
+                        .map_err(|error| format!("delete-on-close for '{path}' failed: {error}"))?;
+                }
                 session
-                    .remove(&path)
-                    .and_then(|()| session.flush())
-                    .map_err(|error| format!("delete-on-close for '{path}' failed: {error}"))
+                    .flush()
+                    .map_err(|error| format!("flush during handle cleanup failed: {error}"))
             });
         if let Err(error) = result {
             eprintln!("OpenFS: {error}");
+            self.record_deferred_error(error);
         }
     }
 
@@ -559,14 +584,21 @@ fn mount_device<D: BlockDevice + Send + 'static>(
         .allocation_unit_size(block_size)
         .flags(MountFlags::CURRENT_SESSION | MountFlags::ENABLE_FCB_GARBAGE_COLLECTION);
 
-    let result = drive.mount(&handler);
+    // Drive::mount blocks until the Dokan volume is unmounted. Always attempt
+    // the final flush, even if the mount loop reports an error.
+    let mount_result = drive.mount(&handler);
     let flush_result = handler
         .session
         .lock()
         .map_err(|_| "OpenFS session lock was poisoned")?
         .flush();
-    result?;
+    let deferred_error = handler.take_deferred_error()?;
+
+    mount_result?;
     flush_result?;
+    if let Some(error) = deferred_error {
+        return Err(format!("one or more file-handle cleanup operations failed: {error}").into());
+    }
     println!("OpenFS volume unmounted cleanly.");
     Ok(())
 }
