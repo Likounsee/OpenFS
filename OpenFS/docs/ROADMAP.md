@@ -1367,3 +1367,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `fa7b2b3b13895a30f690ef7c259fc10e9424547a` : `ExtentMap::validate_file_size()` ne parcourt plus tous les extents. Comme l'invariant de la carte garantit un ordre logique croissant sans chevauchement, le dernier extent possède nécessairement la plus grande fin logique; une seule vérification suffit donc, y compris pour les fichiers clairsemés.
 - Les cas de taille partielle, de trous sparse, de fichier vide et de dépassement restent couverts par les tests existants de `extent_map.rs`; aucun test local n'a été exécuté dans cette session. CI exacte-SHA en attente.
 - Progression globale maintenue à 73 % jusqu'à validation automatisée.
+
+### Inventaire de propriété des fichiers par plages coalescées (2026-10-31)
+
+- Commit `c532b551c921598f3f665fd5160f2eac24c11df1` : remplacement de l'inventaire propriétaire `Vec<u64>` par un inventaire de plages physiques `(début, fin exclusive)`. Les grands extents contigus ne sont plus développés en un numéro par bloc pendant la comparaison des anciennes et nouvelles propriétés d'un namespace.
+- Les plages sont triées, les adjacences fusionnées et tout chevauchement rejeté avant comparaison. La recherche d'appartenance d'un bloc utilise une dichotomie (`partition_point`), et la liste des blocs explicitement libérés continue d'être contrôlée contre l'ancien namespace et le nouveau.
+- Commit `38386458a9d986bcee350fa88f129163e81988bb` : test des bornes demi-ouvertes et des trous de l'index de plages. Commit `8f4f4451003a94d5b69834ec3e2059606e965a91` : test de normalisation, fusion de plages adjacentes et rejet d'alias physiques.
+- Inventaire lexical régénéré : `INVENTAIRE_SYMBOLES.csv`, 1 283 déclarations sur les 18 fichiers Rust (commit `5f2988243b9f6105fa98cf43c7a4d707848c103a`).
+- Tests Rust, rustfmt, Clippy et CI exacte-SHA non exécutés/confirmés dans cette session. Progression globale maintenue à 73 % jusqu'à validation automatisée et intégration Windows.
