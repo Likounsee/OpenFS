@@ -206,8 +206,9 @@ impl OpenHandleState {
             .and_then(|opens| opens.iter().find(|open| open.handle_id == handle.handle_id))
             .ok_or("unknown or closed OpenFS handle")?;
         let generic_access = match requested_access {
-            FILE_READ_DATA | FILE_READ_ATTRIBUTES => {
-                GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED
+            FILE_READ_DATA => GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED,
+            FILE_READ_ATTRIBUTES => {
+                GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL | MAXIMUM_ALLOWED
             }
             FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES => {
                 GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED
@@ -922,8 +923,10 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 mod tests {
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
-        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_ATTRIBUTES,
-        FILE_WRITE_DATA, GENERIC_READ, GENERIC_WRITE, MAXIMUM_ALLOWED, SHARE_DELETE,
+        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+        FILE_WRITE_ATTRIBUTES,
+        FILE_WRITE_DATA, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE, MAXIMUM_ALLOWED,
+        SHARE_DELETE,
         SHARE_READ, SHARE_WRITE,
     };
     use openfs_format::ObjectId;
@@ -960,6 +963,20 @@ mod tests {
         assert!(state.allows_access(write_only, FILE_WRITE_DATA).unwrap());
         assert!(state.allows_access(write_only, FILE_APPEND_DATA).unwrap());
         assert!(!state.close(write_only, false).unwrap());
+    }
+
+    #[test]
+    fn generic_execute_grants_metadata_access_without_file_data_read() {
+        let state = OpenHandleState::default();
+        let object = ObjectId(410);
+        let execute_only = state
+            .register(object, GENERIC_EXECUTE, SHARE_READ | SHARE_WRITE)
+            .unwrap();
+        assert!(state
+            .allows_access(execute_only, FILE_READ_ATTRIBUTES)
+            .unwrap());
+        assert!(!state.allows_access(execute_only, FILE_READ_DATA).unwrap());
+        assert!(!state.close(execute_only, false).unwrap());
     }
 
     #[test]
