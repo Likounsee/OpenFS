@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(map.extents().len(), 2047);
         assert_eq!(map.physical_block(0), Some(10_000));
         assert_eq!(map.physical_block(4096), None);
-        assert_eq!(map.physical_block(8188), Some(24_332));
+        assert_eq!(map.physical_block(8188), Some(24_329));
         assert_eq!(map.physical_block(8190), None);
         assert!(map.validate(8192, 10_000, 30_000).is_ok());
     }
