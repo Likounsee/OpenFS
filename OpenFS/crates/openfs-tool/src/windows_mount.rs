@@ -93,6 +93,7 @@ fn access_categories(desired_access: u32) -> u8 {
 #[derive(Debug, Clone, Copy)]
 struct OpenHandleRecord {
     handle_id: u64,
+    desired_access: u32,
     access: u8,
     share_access: u32,
 }
@@ -153,6 +154,7 @@ impl OpenHandleState {
             .or_default()
             .push(OpenHandleRecord {
                 handle_id,
+                desired_access,
                 access,
                 share_access,
             });
@@ -187,6 +189,29 @@ impl OpenHandleState {
         }
         Ok(!inner.handles.contains_key(&handle.object_id)
             && inner.delete_pending.contains(&handle.object_id))
+    }
+
+    fn allows_access(
+        &self,
+        handle: FileHandle,
+        requested_access: u32,
+    ) -> Result<bool, &'static str> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
+        let record = inner
+            .handles
+            .get(&handle.object_id)
+            .and_then(|opens| opens.iter().find(|open| open.handle_id == handle.handle_id))
+            .ok_or("unknown or closed OpenFS handle")?;
+        let generic_access = match requested_access {
+            FILE_READ_DATA => GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED,
+            FILE_WRITE_DATA | FILE_APPEND_DATA => GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED,
+            DELETE => GENERIC_ALL | MAXIMUM_ALLOWED,
+            _ => 0,
+        };
+        Ok(record.desired_access & (requested_access | generic_access) != 0)
     }
 
     fn is_open(&self, object_id: ObjectId) -> Result<bool, &'static str> {
@@ -270,6 +295,18 @@ impl<D: BlockDevice> OpenFsHandler<D> {
                 }
                 _ => OperationError::Win32(ERROR_GEN_FAILURE),
             })
+    }
+
+    fn require_handle_access(
+        &self,
+        handle: FileHandle,
+        requested_access: u32,
+    ) -> Result<(), OperationError> {
+        match self.open_handles.allows_access(handle, requested_access) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(OperationError::Win32(ERROR_ACCESS_DENIED)),
+            Err(_) => Err(OperationError::Win32(ERROR_GEN_FAILURE)),
+        }
     }
 
     fn has_open_handle(&self, object_id: ObjectId) -> Result<bool, OperationError> {
@@ -512,6 +549,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         if offset < 0 {
             return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
         }
+        self.require_handle_access(*context, FILE_READ_DATA)?;
         let bytes = self.with_path(context, |session, path| {
             session.read_file_range(path, offset as u64, buffer.len())
         })?;
@@ -527,6 +565,12 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<u32, OperationError> {
+        let required_access = if info.write_to_eof() {
+            FILE_APPEND_DATA
+        } else {
+            FILE_WRITE_DATA
+        };
+        self.require_handle_access(*context, required_access)?;
         let written = self.with_path(context, |session, path| {
             let write_offset = if info.write_to_eof() {
                 session.stat(path)?.size
@@ -627,6 +671,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
+        self.require_handle_access(*context, DELETE)?;
         self.with_path(context, |session, path| {
             let record = session.stat(path)?;
             if record.kind != ObjectKind::File {
@@ -642,6 +687,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
+        self.require_handle_access(*context, DELETE)?;
         let mut session = self
             .session
             .lock()
@@ -671,6 +717,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
+        self.require_handle_access(*context, DELETE)?;
         let new_path = path_from_windows(new_file_name)?;
         let (new_parent, new_name) = split_parent(&new_path)?;
         let mut session = self
@@ -715,6 +762,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         if offset < 0 {
             return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
         }
+        self.require_handle_access(*context, FILE_WRITE_DATA)?;
         self.with_path(context, |session, path| {
             session.set_file_len(path, offset as u64)
         })
@@ -882,6 +930,23 @@ mod tests {
             access_categories(MAXIMUM_ALLOWED),
             ACCESS_READ | ACCESS_WRITE | ACCESS_DELETE
         );
+    }
+
+    #[test]
+    fn operation_access_is_checked_against_the_exact_open_handle() {
+        let state = OpenHandleState::default();
+        let object = ObjectId(41);
+        let read_only = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        assert!(state.allows_access(read_only, FILE_READ_DATA).unwrap());
+        assert!(!state.allows_access(read_only, FILE_WRITE_DATA).unwrap());
+        assert!(!state.allows_access(read_only, DELETE).unwrap());
+        assert!(!state.close(read_only, false).unwrap());
+
+        let write_only = state.register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        assert!(!state.allows_access(write_only, FILE_READ_DATA).unwrap());
+        assert!(state.allows_access(write_only, FILE_WRITE_DATA).unwrap());
+        assert!(state.allows_access(write_only, FILE_APPEND_DATA).unwrap());
+        assert!(!state.close(write_only, false).unwrap());
     }
 
     #[test]
