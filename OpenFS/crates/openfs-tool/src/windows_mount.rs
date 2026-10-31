@@ -238,12 +238,34 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
         info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) {
-        if info.delete_on_close() {
-            if let Ok(path) = self.path_for(context) {
-                if let Ok(mut session) = self.session.lock() {
-                    let _ = session.remove(&path);
-                }
+        if !info.delete_on_close() {
+            return;
+        }
+
+        // Dokany's cleanup callback cannot return an OperationError. Do not hide
+        // a failed durable unlink: report the exact path and filesystem error so
+        // the user can recover instead of assuming the file was deleted.
+        let path = match self.path_for(context) {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("OpenFS: unable to resolve delete-on-close path: {error:?}");
+                return;
             }
+        };
+        let result = self
+            .session
+            .lock()
+            .map_err(|_| "OpenFS session lock was poisoned".to_owned())
+            .and_then(|mut session| session.remove(&path).map_err(|error| error.to_string()))
+            .and_then(|()| {
+                self.session
+                    .lock()
+                    .map_err(|_| "OpenFS session lock was poisoned".to_owned())?
+                    .flush()
+                    .map_err(|error| error.to_string())
+            });
+        if let Err(error) = result {
+            eprintln!("OpenFS: delete-on-close failed for '{path}': {error}");
         }
     }
 
