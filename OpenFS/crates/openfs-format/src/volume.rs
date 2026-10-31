@@ -282,6 +282,9 @@ pub struct OpenedVolume {
     // Some(None) means checked and absent; Some(Some(...)) is the validated locator.
     inventory_descriptor_cache: Option<Option<(u64, PersistentInventoryDescriptor)>>,
     inventory_descriptor_hint: Option<u64>,
+    // Volatile next-fit cursor. It is deliberately not persisted: reopening starts
+    // from the first data block and reconstructs a valid allocator state from the bitmap.
+    allocation_hint: u64,
 }
 
 impl OpenedVolume {
@@ -340,7 +343,21 @@ impl OpenedVolume {
         // block-sized Vec for each candidate creates avoidable allocator pressure.
         let mut existing =
             try_zeroed_block(block_size, "unable to allocate candidate block buffer")?;
-        for bitmap_index in first_bitmap..=last_bitmap {
+        // Next-fit scans from the last successful allocation and wraps once.
+        // This avoids repeatedly walking a long allocated prefix on nearly-full volumes.
+        let scan_start = self
+            .allocation_hint
+            .clamp(self.volume.layout.data_start, self.volume.layout.backup_superblock);
+        for (scan_start, scan_end) in [
+            (scan_start, self.volume.layout.backup_superblock),
+            (self.volume.layout.data_start, scan_start),
+        ] {
+            if scan_start >= scan_end {
+                continue;
+            }
+            let first_scan_bitmap = scan_start / bits_per_block;
+            let last_scan_bitmap = (scan_end - 1) / bits_per_block;
+            for bitmap_index in first_scan_bitmap..=last_scan_bitmap {
             let bitmap_block = self
                 .volume
                 .layout
@@ -352,8 +369,8 @@ impl OpenedVolume {
             let bitmap_base = bitmap_index
                 .checked_mul(bits_per_block)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let first_block = bitmap_base.max(self.volume.layout.data_start);
-            let end_block = self.volume.layout.backup_superblock.min(
+            let data_first = bitmap_base.max(self.volume.layout.data_start);
+            let data_end = self.volume.layout.backup_superblock.min(
                 bitmap_base
                     .checked_add(bits_per_block)
                     .ok_or(Error::ArithmeticOverflow)?,
@@ -361,9 +378,14 @@ impl OpenedVolume {
             crate::allocator_extents::validate_bitmap_reserved_bits(
                 &bitmap,
                 bitmap_base,
-                first_block,
-                end_block,
+                data_first,
+                data_end,
             )?;
+            let first_block = data_first.max(scan_start);
+            let end_block = data_end.min(scan_end);
+            if first_block >= end_block {
+                continue;
+            }
             let local_start = first_block - bitmap_base;
             let local_end = end_block - bitmap_base;
             let first_byte =
@@ -438,7 +460,13 @@ impl OpenedVolume {
                         return Err(error);
                     }
                 }
+                self.allocation_hint = if block + 1 >= self.volume.layout.backup_superblock {
+                    self.volume.layout.data_start
+                } else {
+                    block + 1
+                };
                 return Ok(block);
+            }
             }
         }
         Err(Error::InvalidInput("volume has no free data blocks"))
@@ -8055,6 +8083,7 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
         format_version: version,
         inventory_descriptor_cache: None,
         inventory_descriptor_hint,
+        allocation_hint: layout.data_start,
     })
 }
 
@@ -13451,6 +13480,39 @@ mod tests {
                 fs::remove_file(path).unwrap();
             }
         }
+    }
+
+    #[test]
+    fn canonical_allocator_next_fit_skips_freed_prefix_until_wrap_and_resets_on_reopen() {
+        let path = image_path("allocator-next-fit");
+        let first;
+        let second;
+        let third;
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            first = volume.allocate_block(&mut device).unwrap();
+            second = volume.allocate_block(&mut device).unwrap();
+            third = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(second, first + 1);
+            assert_eq!(third, second + 1);
+
+            volume.free_block(&mut device, first).unwrap();
+            let after_cursor = volume.allocate_block(&mut device).unwrap();
+            assert_eq!(after_cursor, third + 1);
+            assert!(volume.is_data_block_allocated(&mut device, first).unwrap() == false);
+            assert!(volume.is_data_block_allocated(&mut device, after_cursor).unwrap());
+        }
+        {
+            let mut device = ImageDevice::open(&path, 4096, 512).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
+            // The volatile cursor is intentionally reset on reopen; the bitmap remains
+            // authoritative, so the lowest free data block is reusable immediately.
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
+            assert!(volume.is_data_block_allocated(&mut device, second).unwrap());
+            assert!(volume.is_data_block_allocated(&mut device, third).unwrap());
+        }
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
