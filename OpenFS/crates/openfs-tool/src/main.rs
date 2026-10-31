@@ -3536,7 +3536,7 @@ mod gpt_tests {
     #[test]
     fn fat32_probe_validates_active_fat_and_boot_sector_buffer_length() {
         let mut boot = plausible_fat32_boot_sector();
-        boot[40..42].copy_from_slice(&0x0081_u16.to_le_bytes());
+        boot[40..42].copy_from_slice(&0x0082_u16.to_le_bytes());
         assert_eq!(
             validate_fat32_boot_sector(&boot, 512, 700_000),
             Err("FAT32 extended flags contain reserved bits or an invalid active FAT")
