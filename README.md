@@ -231,7 +231,7 @@ Read the [architecture guide](OpenFS/docs/ARCHITECTURE.md) and [development guid
 
 ## Roadmap
 
-Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **71%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, Windows mount lifecycle and handle semantics, Linux mounting, complete durable namespace/file semantics, and safe physical-device support. The Windows adapter must be validated on a real Windows + Dokany machine before being treated as usable for anything beyond disposable test data.
+Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **73%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, Windows mount lifecycle and handle semantics, Linux mounting, complete durable namespace/file semantics, and safe physical-device support. The Windows adapter must be validated on a real Windows + Dokany machine before being treated as usable for anything beyond disposable test data.
 
 ## License
 
