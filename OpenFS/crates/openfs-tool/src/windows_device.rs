@@ -210,6 +210,27 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
 /// The disk must be USB-attached, explicitly offline in Windows, writable, and neither
 /// the boot nor system disk. The caller must supply the exact UniqueId printed by
 /// `list-devices`; the disk index alone is not a stable identity.
+#[cfg(any(windows, test))]
+fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
+    let fields: Vec<&str> = output.trim().split('\t').collect();
+    if fields.len() != 2 {
+        return Err("Windows returned malformed USB disk geometry".to_owned());
+    }
+    let size_bytes = fields[0]
+        .parse::<u64>()
+        .map_err(|_| "Windows returned an invalid USB disk capacity".to_owned())?;
+    let logical_sector_size = fields[1]
+        .parse::<u32>()
+        .map_err(|_| "Windows returned an invalid USB logical sector size".to_owned())?;
+    if size_bytes == 0 || logical_sector_size == 0 {
+        return Err("Windows returned zero-sized USB disk geometry".to_owned());
+    }
+    if !matches!(logical_sector_size, 512 | 1024 | 2048 | 4096) {
+        return Err("Windows reported an unsupported USB logical sector size".to_owned());
+    }
+    Ok((size_bytes, logical_sector_size))
+}
+
 #[cfg(windows)]
 pub fn verify_offline_usb_disk(
     index: u32,
@@ -253,16 +274,8 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
         return Err(format!("USB disk safety check failed: {}", detail.trim()).into());
     }
     let stdout = String::from_utf8(output.stdout)?;
-    let fields: Vec<&str> = stdout.trim().split('\t').collect();
-    if fields.len() != 2 {
-        return Err("Windows returned malformed USB disk geometry".into());
-    }
-    let size_bytes = fields[0].parse::<u64>()?;
-    let logical_sector_size = fields[1].parse::<u32>()?;
-    if size_bytes == 0 || logical_sector_size == 0 {
-        return Err("Windows returned zero-sized USB disk geometry".into());
-    }
-    Ok((size_bytes, logical_sector_size))
+    parse_verified_geometry(&stdout)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
 #[cfg(not(windows))]
@@ -374,5 +387,28 @@ mod tests {
         assert_eq!(super::parse_bool("TRUE"), Some(true));
         assert_eq!(super::parse_bool("false"), Some(false));
         assert_eq!(super::parse_bool("yes"), None);
+    }
+
+    #[test]
+    fn verified_usb_geometry_parser_accepts_supported_sector_sizes() {
+        assert_eq!(
+            super::parse_verified_geometry("64000000000\t512\n").unwrap(),
+            (64_000_000_000, 512)
+        );
+        assert_eq!(
+            super::parse_verified_geometry("64000000000\t4096").unwrap(),
+            (64_000_000_000, 4096)
+        );
+    }
+
+    #[test]
+    fn verified_usb_geometry_parser_rejects_ambiguous_or_unsupported_values() {
+        assert!(super::parse_verified_geometry("").is_err());
+        assert!(super::parse_verified_geometry("64000000000").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t512\textra").is_err());
+        assert!(super::parse_verified_geometry("0\t512").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t0").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t520").is_err());
+        assert!(super::parse_verified_geometry("unknown\t512").is_err());
     }
 }
