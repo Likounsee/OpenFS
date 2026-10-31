@@ -597,36 +597,40 @@ impl ExtentMap {
             return Ok(Vec::new());
         }
 
-        let capacity = self
+        // Binary-search both boundaries so memory and work scale with the affected
+        // extents, not with a potentially huge untouched prefix or suffix.
+        let first_candidate = if overlaps_previous {
+            insertion - 1
+        } else {
+            insertion
+        };
+        let end_candidate = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_end);
+        let affected_count = end_candidate.saturating_sub(first_candidate);
+        let retained_count = self
             .extents
             .len()
-            .checked_add(1)
+            .checked_sub(affected_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let retained_capacity = retained_count
+            .checked_add(2)
             .ok_or(Error::ArithmeticOverflow)?;
         let mut kept = Vec::new();
-        kept.try_reserve_exact(capacity)
+        kept.try_reserve_exact(retained_capacity)
             .map_err(|_| Error::AllocationFailed("unable to reserve retained extent ranges"))?;
         let mut removed = Vec::new();
         removed
-            .try_reserve_exact(self.extents.len())
+            .try_reserve_exact(affected_count)
             .map_err(|_| Error::AllocationFailed("unable to reserve removed extent ranges"))?;
-        // Logical extents are sorted and non-overlapping. Begin at the only extent
-        // that might cross the start boundary instead of scanning the untouched prefix.
-        let first_candidate = insertion.saturating_sub(1);
         kept.extend_from_slice(&self.extents[..first_candidate]);
 
-        // Slice before iterating: skipping the prefix on the full iterator would
-        // still walk untouched extents and erase the benefit of the binary search.
-        for (offset, extent) in self.extents[first_candidate..].iter().copied().enumerate() {
-            let index = first_candidate + offset;
-            if extent.logical_start >= logical_end {
-                // The remainder lies wholly after the removed range; preserve it as-is.
-                kept.extend_from_slice(&self.extents[index..]);
-                break;
-            }
+        for extent in self.extents[first_candidate..end_candidate].iter().copied() {
             let extent_end = extent.logical_end()?;
             let overlap_start = extent.logical_start.max(logical_start);
             let overlap_end = extent_end.min(logical_end);
             if overlap_start >= overlap_end {
+                // The only possible non-overlap is an extent ending before the range.
                 kept.push(extent);
                 continue;
             }
@@ -656,8 +660,11 @@ impl ExtentMap {
                 });
             }
         }
-        let validated = Self::new(kept)?;
-        self.extents = validated.extents;
+
+        // Preserve the untouched suffix with one bulk copy. Splitting extents cannot
+        // introduce physical aliases, and the logical order is maintained by construction.
+        kept.extend_from_slice(&self.extents[end_candidate..]);
+        self.extents = kept;
         Ok(removed)
     }
 
