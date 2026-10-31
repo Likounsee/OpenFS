@@ -103,26 +103,42 @@ The example creates a 1 GiB image. OpenFS supports block sizes of 4096, 8192, 16
 
 This path writes directly to the **entire physical USB disk**, not to a partition or image file. It destroys its partition table and every existing partition. Use a spare USB stick with nothing important on it. Run PowerShell as Administrator.
 
-1. Run `cargo run -p openfs-tool -- list-devices` and identify the USB disk by model, capacity, serial and exact `Unique ID`. Never rely on the disk number alone.
-2. Open Windows Disk Management (`diskmgmt.msc`), identify that same USB disk, and set the disk **Offline**. OpenFS refuses an online disk, a non-USB disk, a read-only disk, or a boot/system disk.
-3. From the repository root, run the following, replacing the index and UniqueId with the exact values reported by Windows:
+1. Build the CLI and identify the USB disk:
 
 ```powershell
 cd .\OpenFS
-cargo run -p openfs-tool -- format-usb 2 "EXACT-UNIQUE-ID-FROM-LIST-DEVICES" ERASE-ALL-DATA 4096
+cargo build --release -p openfs-tool
+.\target\release\openfs.exe list-devices
+Get-Disk | Format-Table Number, FriendlyName, SerialNumber, UniqueId, BusType, Size, IsOffline, IsBoot, IsSystem
 ```
 
-The literal `ERASE-ALL-DATA` confirmation is mandatory. Formatting initializes OpenFS's persistent root directory. The disk remains offline.
+2. Copy the exact `UniqueId` and disk number. Never rely on the disk number alone. The helper refuses non-USB, read-only, boot and system disks.
 
-4. Mount the formatted disk as a drive letter:
+3. **Destructive format:** from the repository root, run the following with the real values shown on your PC. It erases the whole selected disk:
 
 ```powershell
-cargo run -p openfs-tool -- mount-usb 2 "EXACT-UNIQUE-ID-FROM-LIST-DEVICES" O: 4096
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Format -OpenFsExe .\OpenFS\target\release\openfs.exe -DiskNumber 2 -UniqueId "EXACT-UNIQUE-ID-FROM-WINDOWS" -MountPoint O: -ConfirmEraseAllData ERASE-ALL-DATA
 ```
 
-Open `O:\` in Explorer and try creating/copying/editing disposable test files. In a second terminal, run `cargo run -p openfs-tool -- unmount O:`. The mount process must finish its flush before you disconnect the stick. Reconnect/remount using the same identity check; never let Windows initialize or format the raw OpenFS disk.
+The helper verifies the exact identity and takes the disk offline before calling `format-usb`. The literal `ERASE-ALL-DATA` confirmation is mandatory. Formatting initializes OpenFS's persistent root directory.
 
-**Important limitations:** the raw USB route is newly wired and has not yet been validated against real USB controller/driver combinations or power-loss scenarios. Do not use it for important data. The Windows disk-offline check is a safety gate, not a substitute for a verified backup. If the disk index or UniqueId changes, stop and rerun `list-devices`; do not guess.
+4. **Mount:** in the first elevated PowerShell window, run:
+
+```powershell
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Mount -OpenFsExe .\OpenFS\target\release\openfs.exe -DiskNumber 2 -UniqueId "EXACT-UNIQUE-ID-FROM-WINDOWS" -MountPoint O:
+```
+
+Keep this window open. The drive `O:\\` should appear in Explorer; use only disposable test files.
+
+5. **Unmount:** in a second elevated PowerShell window, run:
+
+```powershell
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Unmount -OpenFsExe .\OpenFS\target\release\openfs.exe -MountPoint O:
+```
+
+Wait for the mount window to finish its final flush and exit before disconnecting the stick. The mount helper restores the disk's previous online/offline state when the mount process ends.
+
+**Important limitations:** this raw USB route is implemented but has not yet been validated against real USB controller/driver combinations or power-loss scenarios. Do not use it for important data. If the disk index or UniqueId changes, stop and rerun the inventory; do not guess. See [USB testing and operating guide](OpenFS/docs/USB_TESTING.md).
 
 ### Mount the image as a Windows drive (experimental)
 
@@ -141,7 +157,7 @@ The `create-image` command formats the image **and initializes its persistent ro
 cargo run -p openfs-tool -- unmount O:
 ```
 
-After the mount process exits, the image can be mounted again; its files should remain. Keep a backup and use disposable test data only. This adapter currently mounts **image files**, not raw SSDs/USB drives; Linux mounting and production-grade Windows handle/replace semantics are still incomplete.
+After the mount process exits, the image can be mounted again; its files should remain. Keep a backup and use disposable test data only. The adapter also has an initial raw USB-disk path; Linux mounting and production-grade Windows handle/replace semantics are still incomplete.
 ### Create a namespace and work with a file
 
 ```sh
@@ -215,7 +231,7 @@ Read the [architecture guide](OpenFS/docs/ARCHITECTURE.md) and [development guid
 
 ## Roadmap
 
-Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **60%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, Windows mount lifecycle and handle semantics, Linux mounting, complete durable namespace/file semantics, and safe physical-device support. The Windows adapter must be validated on a real Windows + Dokany machine before being treated as usable for anything beyond disposable test data.
+Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **71%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, Windows mount lifecycle and handle semantics, Linux mounting, complete durable namespace/file semantics, and safe physical-device support. The Windows adapter must be validated on a real Windows + Dokany machine before being treated as usable for anything beyond disposable test data.
 
 ## License
 
