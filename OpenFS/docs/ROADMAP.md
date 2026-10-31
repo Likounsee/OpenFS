@@ -1,3 +1,12 @@
+### Complément — ouverture des PhysicalDrive Windows
+
+- Commits `f0b297b330efda020e5071b4b199c2832e65a922` et `12d08571852ec4f3dd03217361da842dc6c36eb5` : le backend `RawDevice` ne tente plus de prendre un verrou de fichier byte-range sur `\\\\.\\PhysicalDriveN`. Un handle PhysicalDrive est un handle de périphérique et Windows ne garantit pas que `LockFileEx` y soit pris en charge; cet appel pouvait donc faire échouer l'ouverture avant même les E/S. Les fichiers image et les nœuds bloc ordinaires conservent le verrou exclusif. Le chemin PhysicalDrive s'appuie sur le disque Offline, l'identité UniqueId exacte et le contrôle USB Windows déjà requis.
+- Ajout d'un test Windows de classification du chemin PhysicalDrive (insensible à la casse, refus d'un chemin de partition et d'un fichier ordinaire). Ce test sera exécuté seulement par la CI Windows.
+- Inventaire lexical régénéré après cette modification : 18 fichiers Rust, 1212 déclarations, commit `ffb685fddde08fc58abd455dec865d7996bec92a`.
+- Ce changement supprime une incompatibilité potentielle de l'API de verrouillage, mais ne prouve toujours pas que l'ouverture brute, les écritures et Dokany fonctionnent sur chaque clé USB réelle. CI exacte-SHA et essai matériel restent à confirmer.
+
+---
+
 ### Reprise de session — 2026-10-31 (handles Dokany stables et cohérence des renommages)
 
 - Commits `c158b6fb847609704a27990db964562fda807ae5` et `84ec576f51a8f0f5eb93e3de7178215a670e727e` : ajout de la résolution du chemin courant depuis un `ObjectId` persistant, puis remplacement des chemins mémorisés dans les contextes Dokany par l'identité stable de l'objet. Un handle déjà ouvert peut donc retrouver le fichier après un renommage/déplacement au lieu de continuer à viser l'ancien chemin.
