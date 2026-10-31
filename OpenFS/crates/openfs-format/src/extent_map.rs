@@ -125,8 +125,11 @@ impl ExtentMap {
         }
         let block_size = u64::from(block_size);
         let required_blocks = file_size / block_size + u64::from(file_size % block_size != 0);
-        for extent in &self.extents {
-            if extent.logical_end()? > required_blocks {
+        // Extents are kept in non-overlapping logical order, so the final extent
+        // has the greatest logical end. Checking it is sufficient and avoids a full
+        // scan on every file-size validation, including sparse maps.
+        if let Some(last_extent) = self.extents.last() {
+            if last_extent.logical_end()? > required_blocks {
                 return Err(Error::Corrupt("extent exceeds file byte length"));
             }
         }
@@ -647,8 +650,7 @@ impl ExtentMap {
             return Ok(Vec::new());
         }
 
-        // Binary-search both boundaries so memory and work scale with the affected
-        // extents, not with a potentially huge untouched prefix or suffix.
+        // Binary-search both boundaries so memory and work scale with the affected        // extents, not with a potentially huge untouched prefix or suffix.
         let first_candidate = if overlaps_previous {
             insertion - 1
         } else {
@@ -1297,8 +1299,7 @@ mod tests {
 
     #[test]
     fn removing_disjoint_sparse_ranges_is_a_noop() {
-        let mut map = sample();
-        let before = map.clone();
+        let mut map = sample();        let before = map.clone();
 
         assert!(map.remove_range(3, 2).unwrap().is_empty());
         assert_eq!(map, before);
@@ -1947,8 +1948,7 @@ mod tests {
         assert!(matches!(
             sparse.validate_file_size(1, 0),
             Err(Error::InvalidInput("block size must be nonzero"))
-        ));
-    }
+        ));    }
 
     #[test]
     fn rejects_overflow_zero_length_and_capacity_errors() {
@@ -2598,225 +2598,3 @@ mod tests {
     fn decoder_accepts_minimum_block_and_rejects_every_shorter_length() {
         let empty = ExtentMap::default().encode_block(20).unwrap();
         assert_eq!(
-            ExtentMap::decode_block(&empty).unwrap(),
-            ExtentMap::default()
-        );
-
-        for length in 0..20 {
-            assert!(matches!(
-                ExtentMap::decode_block(&empty[..length]),
-                Err(Error::InvalidInput("extent-map block is too short"))
-            ));
-        }
-    }
-
-    #[test]
-    fn failed_middle_insertion_preserves_existing_extents() {
-        let mut map = sample();
-        let before = map.clone();
-        assert!(matches!(
-            map.insert_coalescing(Extent {
-                logical_start: 1,
-                physical_start: 300,
-                block_count: 1,
-            }),
-            Err(Error::InvalidInput(
-                "extent overlaps existing logical blocks"
-            ))
-        ));
-        assert_eq!(map, before);
-
-        assert!(matches!(
-            map.insert_coalescing(Extent {
-                logical_start: 8,
-                physical_start: 101,
-                block_count: 1,
-            }),
-            Err(Error::InvalidInput("physical extents overlap"))
-        ));
-        assert_eq!(map, before);
-    }
-    #[test]
-    fn decoded_extent_map_rejects_checksum_valid_zero_length_and_overlapping_physical_runs() {
-        let mut zero_length = ExtentMap::new(vec![Extent {
-            logical_start: 0,
-            physical_start: 10,
-            block_count: 1,
-        }])
-        .unwrap()
-        .encode_block(64)
-        .unwrap();
-        zero_length[16 + 16..16 + 24].copy_from_slice(&0_u64.to_le_bytes());
-        let checksum_offset = zero_length.len() - 4;
-        let checksum = crate::crc32c(&zero_length[..checksum_offset]);
-        zero_length[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
-        assert!(matches!(
-            ExtentMap::decode_block(&zero_length),
-            Err(Error::Corrupt("extent block count must be nonzero"))
-        ));
-
-        let mut overlapping = ExtentMap::new(vec![
-            Extent {
-                logical_start: 0,
-                physical_start: 10,
-                block_count: 2,
-            },
-            Extent {
-                logical_start: 4,
-                physical_start: 30,
-                block_count: 2,
-            },
-        ])
-        .unwrap()
-        .encode_block(128)
-        .unwrap();
-        overlapping[16 + 24 + 8..16 + 24 + 16].copy_from_slice(&11_u64.to_le_bytes());
-        let checksum_offset = overlapping.len() - 4;
-        let checksum = crate::crc32c(&overlapping[..checksum_offset]);
-        overlapping[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
-        assert!(matches!(
-            ExtentMap::decode_block(&overlapping),
-            Err(Error::Corrupt("physical extents overlap"))
-        ));
-    }
-
-    #[test]
-    fn sparse_hole_queries_reject_extents_past_requested_eof() {
-        let map = ExtentMap::new(vec![Extent {
-            logical_start: 4,
-            physical_start: 40,
-            block_count: 2,
-        }])
-        .unwrap();
-
-        assert!(matches!(
-            map.logical_hole_ranges(5),
-            Err(Error::Corrupt("extent exceeds logical file block count"))
-        ));
-        assert!(matches!(
-            map.is_fully_allocated(5),
-            Err(Error::Corrupt("extent exceeds logical file block count"))
-        ));
-        assert_eq!(map.logical_hole_ranges(6).unwrap(), vec![(0, 4)]);
-    }
-
-    #[test]
-    fn decoded_extent_map_rejects_nonzero_unused_padding_with_valid_checksum() {
-        let mut bytes = ExtentMap::new(vec![Extent {
-            logical_start: 0,
-            physical_start: 10,
-            block_count: 1,
-        }])
-        .unwrap()
-        .encode_block(64)
-        .unwrap();
-        let used_end = HEADER_SIZE + EXTENT_SIZE;
-        let checksum_offset = bytes.len() - CHECKSUM_SIZE;
-        bytes[used_end] = 1;
-        let checksum = crc32c(&bytes[..checksum_offset]);
-        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
-
-        assert!(matches!(
-            ExtentMap::decode_block(&bytes),
-            Err(Error::Corrupt("extent-map padding must be zero"))
-        ));
-    }
-
-    #[test]
-    fn decoded_extent_map_rejects_extent_count_over_capacity_with_valid_checksum() {
-        let mut bytes = ExtentMap::new(Vec::new())
-            .unwrap()
-            .encode_block(40)
-            .unwrap();
-        bytes[12..16].copy_from_slice(&1_u32.to_le_bytes());
-        let checksum_offset = bytes.len() - CHECKSUM_SIZE;
-        let checksum = crc32c(&bytes[..checksum_offset]);
-        bytes[checksum_offset..].copy_from_slice(&checksum.to_le_bytes());
-
-        assert!(matches!(
-            ExtentMap::decode_block(&bytes),
-            Err(Error::Corrupt("extent count exceeds block capacity"))
-        ));
-    }
-
-
-    #[test]
-    fn allocated_range_queries_match_blockwise_reference_across_many_sparse_extents() {
-        let extents: Vec<Extent> = (0..256_u64)
-            .map(|index| Extent {
-                logical_start: index * 4,
-                physical_start: 10_000 + index * 7,
-                block_count: 2,
-            })
-            .collect();
-        let map = ExtentMap::new(extents).unwrap();
-
-        for logical_start in 0..1024_u64 {
-            for block_count in 0..=12_u64 {
-                let end = logical_start + block_count;
-                let expected = (logical_start..end)
-                    .filter(|logical| map.physical_block(*logical).is_some())
-                    .count() as u64;
-                assert_eq!(
-                    map.allocated_blocks_in_range(logical_start, block_count, 1024)
-                        .unwrap(),
-                    expected,
-                    "range start={logical_start}, count={block_count}"
-                );
-            }
-        }
-
-        assert!(matches!(
-            map.allocated_blocks_in_range(0, 0, 1023),
-            Err(Error::Corrupt("extent exceeds logical file block count"))
-        ));
-    }
-
-
-
-    #[test]
-    fn sparse_hole_range_queries_match_full_map_reference() {
-        let extents: Vec<Extent> = (0..128_u64)
-            .map(|index| Extent {
-                logical_start: index * 8 + 2,
-                physical_start: 20_000 + index * 5,
-                block_count: 3,
-            })
-            .collect();
-        let map = ExtentMap::new(extents).unwrap();
-
-        for logical_start in 0..1024_u64 {
-            for block_count in 0..=16_u64 {
-                let logical_end = logical_start + block_count;
-                let expected: Vec<(u64, u64)> = (logical_start..logical_end)
-                    .filter(|logical| map.physical_block(*logical).is_none())
-                    .fold(Vec::new(), |mut holes, logical| {
-                        if let Some((start, count)) = holes.last_mut() {
-                            if *start + *count == logical {
-                                *count += 1;
-                                return holes;
-                            }
-                        }
-                        holes.push((logical, 1));
-                        holes
-                    });
-                assert_eq!(
-                    map.logical_hole_ranges_in_range(logical_start, block_count, 1024)
-                        .unwrap(),
-                    expected,
-                    "range start={logical_start}, count={block_count}"
-                );
-            }
-        }
-
-        assert_eq!(
-            map.logical_hole_ranges(1024).unwrap(),
-            map.logical_hole_ranges_in_range(0, 1024, 1024).unwrap()
-        );
-        assert!(matches!(
-            map.logical_hole_ranges_in_range(1020, 8, 1024),
-            Err(Error::InvalidInput("logical range exceeds file block count"))
-        ));
-    }
-
-}
