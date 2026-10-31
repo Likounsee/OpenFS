@@ -3928,65 +3928,63 @@ impl OpenedVolume {
             batch_bytes,
             "unable to allocate file range read scratch buffer",
         )?;
-        let mut logical = first_logical;
-        while logical <= last_logical {
-            let Some(physical_start) = map.and_then(|value| value.physical_block(logical)) else {
-                // Unmapped logical blocks remain zero-filled (sparse-file semantics).
-                logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
-                continue;
-            };
-
-            let mut run_blocks = 1_u64;
-            while run_blocks < batch_blocks {
-                let next_logical = logical
-                    .checked_add(run_blocks)
+        if let Some(extent_map) = map {
+            // Walk only extents intersecting this request. The previous block-by-block
+            // lookup performed a binary search for every block, even inside a single
+            // contiguous extent. This is O(log E + K + R), where K is the number of
+            // intersecting extents and R the number of bounded device-read batches.
+            let end_index = extent_map
+                .extents()
+                .partition_point(|extent| extent.logical_start <= last_logical);
+            let first_index = end_index.saturating_sub(1);
+            for extent in &extent_map.extents()[first_index..end_index] {
+                let extent_end = extent
+                    .logical_start
+                    .checked_add(extent.block_count)
                     .ok_or(Error::ArithmeticOverflow)?;
-                if next_logical > last_logical {
-                    break;
+                let mut logical = first_logical.max(extent.logical_start);
+                let logical_end = last_logical
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    .min(extent_end);
+                while logical < logical_end {
+                    let run_blocks = (logical_end - logical).min(batch_blocks);
+                    let physical_start = extent
+                        .physical_start
+                        .checked_add(logical - extent.logical_start)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let run_start = logical
+                        .checked_mul(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let run_end = logical
+                        .checked_add(run_blocks)
+                        .and_then(|block| block.checked_mul(block_size))
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let copy_start = offset.max(run_start);
+                    let copy_end = end.min(run_end);
+                    let run_bytes = usize::try_from(
+                        run_blocks
+                            .checked_mul(block_size)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    )
+                    .map_err(|_| Error::ArithmeticOverflow)?;
+                    // Reuse one bounded scratch buffer for every contiguous run.
+                    device.read_blocks(physical_start, &mut block_buffer[..run_bytes])?;
+                    let source_start = usize::try_from(copy_start - run_start)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let source_end = usize::try_from(copy_end - run_start)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let destination_start = usize::try_from(copy_start - offset)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let destination_end = usize::try_from(copy_end - offset)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    output[destination_start..destination_end]
+                        .copy_from_slice(&block_buffer[source_start..source_end]);
+                    logical = logical
+                        .checked_add(run_blocks)
+                        .ok_or(Error::ArithmeticOverflow)?;
                 }
-                let expected_physical = physical_start
-                    .checked_add(run_blocks)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                if map.and_then(|value| value.physical_block(next_logical))
-                    != Some(expected_physical)
-                {
-                    break;
-                }
-                run_blocks += 1;
             }
-
-            let run_start = logical
-                .checked_mul(block_size)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let run_end = logical
-                .checked_add(run_blocks)
-                .and_then(|block| block.checked_mul(block_size))
-                .ok_or(Error::ArithmeticOverflow)?;
-            let copy_start = offset.max(run_start);
-            let copy_end = end.min(run_end);
-            let run_bytes = usize::try_from(
-                run_blocks
-                    .checked_mul(block_size)
-                    .ok_or(Error::ArithmeticOverflow)?,
-            )
-            .map_err(|_| Error::ArithmeticOverflow)?;
-            // The scratch buffer is sized for at least one block and reused for
-            // every contiguous run, including unaligned first and last blocks.
-            device.read_blocks(physical_start, &mut block_buffer[..run_bytes])?;
-            let source_start =
-                usize::try_from(copy_start - run_start).map_err(|_| Error::ArithmeticOverflow)?;
-            let source_end =
-                usize::try_from(copy_end - run_start).map_err(|_| Error::ArithmeticOverflow)?;
-            let destination_start =
-                usize::try_from(copy_start - offset).map_err(|_| Error::ArithmeticOverflow)?;
-            let destination_end =
-                usize::try_from(copy_end - offset).map_err(|_| Error::ArithmeticOverflow)?;
-            output[destination_start..destination_end]
-                .copy_from_slice(&block_buffer[source_start..source_end]);
-
-            logical = logical
-                .checked_add(run_blocks)
-                .ok_or(Error::ArithmeticOverflow)?;
         }
         Ok(output)
     }
