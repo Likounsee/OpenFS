@@ -284,7 +284,7 @@ pub struct OpenedVolume {
     inventory_descriptor_hint: Option<u64>,
     // Volatile next-fit cursor. It is deliberately not persisted: reopening starts
     // from the first data block and reconstructs a valid allocator state from the bitmap.
-    allocation_hint: u64,
+    pub(crate) allocation_hint: u64,
 }
 
 impl OpenedVolume {
