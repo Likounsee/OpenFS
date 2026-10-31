@@ -1203,3 +1203,16 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `2cbc00d45e6509709f2061455fe7a42fe340d8b8` : inventaire lexical resynchronisé, 1 235 déclarations sur 18 fichiers Rust.
 - Progression de périmètre estimée : P0 100 %, P1 81 %, P2 83 %, P3 5 %, global 73 %. Cette hausse reflète le renforcement réel du cycle de vie des handles, pas une validation de CI ou du matériel.
 - Compilation, rustfmt, Clippy, tests et CI exacte-SHA restent à confirmer. Aucun essai USB physique n'a été effectué.
+
+
+### Règles de partage Windows par handle Dokany (2026-10-31)
+
+- Commit `05586ef04af77bf61ad99b8fffebac4686d8fa96` : le contexte Dokany est devenu propre à chaque ouverture (`ObjectId` + identifiant de handle). Le registre conserve les droits demandés et le masque de partage de chaque handle au lieu d'un simple compteur par objet.
+- Les ouvertures sont contrôlées dans les deux sens pour les catégories lecture, écriture et suppression : les droits du nouveau handle doivent être autorisés par chaque ancien masque de partage, et le nouveau masque doit autoriser les droits de chaque handle déjà ouvert. Les incompatibilités sont traduites en `ERROR_SHARING_VIOLATION`.
+- Le chemin `CREATE_ALWAYS` / `TRUNCATE_EXISTING` réserve désormais un handle compatible avant de tronquer un fichier existant; si la troncature échoue, l'enregistrement du handle est annulé. Les bits de partage inconnus sont rejetés avant toute mutation du namespace; une création est nettoyée si l'enregistrement du handle échoue.
+- Commits `9c86b3bc6b04afb0cc480adaa95e929e6d0a0764`, `1682ad8c394ba9e0ca0a510e2dfe697dcccbd78b`, `2093d5307ca02538a524ce68255bd0366ca5c736` : adaptation des callbacks pour utiliser l'identité objet contenue dans le contexte par ouverture.
+- Commit `a84a871f58cfdd74f0bdd3f7d5b53643dfddec85` : validation anticipée des bits de partage et rollback défensif d'une création si la réservation du handle échoue.
+- Commit `465fc4a4644eb99c9aeaba97c3c447c1e24ec05b` : inventaire lexical actualisé à 1 260 déclarations sur 18 fichiers Rust.
+- 12 tests unitaires sont présents pour les catégories d'accès, les lecteurs compatibles, les conflits dans les deux directions, le partage DELETE, la fermeture d'un handle exact, la suppression différée, la concurrence et les bits inconnus. Ils n'ont pas été exécutés dans cet environnement; aucune réussite de compilation, rustfmt, Clippy ou CI n'est revendiquée.
+- Limites restantes : les droits individuels ne sont pas encore vérifiés à chaque callback de lecture/écriture/troncature; les mappings Windows de tous les droits spéciaux et les règles d'ACL restent à auditer. Aucun test Dokany sur Windows réel ni sur clé USB physique n'a été réalisé.
+- Progression globale conservée à 73 % : ce lot ferme une lacune importante de partage, mais la validation et l'application des droits par opération restent ouvertes.
