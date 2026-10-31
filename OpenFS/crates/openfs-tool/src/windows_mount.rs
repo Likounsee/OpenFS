@@ -14,7 +14,7 @@ use dokan::{
 };
 use openfs_block::{BlockDevice, ImageDevice, RawDevice};
 use openfs_core::Error as CoreError;
-use openfs_format::{ObjectKind, VolumeSession};
+use openfs_format::{ObjectId, ObjectKind, VolumeSession};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
     ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
