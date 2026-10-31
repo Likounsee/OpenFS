@@ -16954,7 +16954,10 @@ mod tests {
         {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
-            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"openfs mount");
+            assert_eq!(
+                mounted.read_file("/docs/final.txt").unwrap(),
+                b"openfs mount"
+            );
             assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 12);
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
