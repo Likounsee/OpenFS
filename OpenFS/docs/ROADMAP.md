@@ -1228,3 +1228,5 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `32a0cebefd325902579110366cbc272980a5ff29` : inventaire lexical synchronisé à 1264 déclarations sur 18 fichiers Rust.
 - Les mappings des droits spéciaux, les ACL et la sémantique complète des répertoires restent à auditer. Tests, compilation, rustfmt, Clippy et CI Windows restent non confirmés; aucun test Dokany ou USB réel n'a été réalisé.
 - Progression globale conservée à 73 % en attendant les validations et l'audit des droits spéciaux.
+
+- Commit `5ae5b19bf75cd5d0c76aaab9e0c74b1f9f8d1bb6` : le callback Dokany `flush_file_buffers` exige maintenant un handle disposant d'un accès écriture; les demandes de flush via un handle lecture seule sont refusées. L'inventaire a été synchronisé dans `45f7a6f66b52cd160659e0bba4d4504a1f4b3487` (1 264 déclarations). Cette modification et les 13 tests restent à valider par compilation/CI Windows.
