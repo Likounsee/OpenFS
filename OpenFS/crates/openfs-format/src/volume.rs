@@ -326,14 +326,6 @@ impl OpenedVolume {
         self.validate_device(device)?;
         let block_size = self.volume.block_size as usize;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let first_bitmap = self.volume.layout.data_start / bits_per_block;
-        let last_data_block = self
-            .volume
-            .layout
-            .backup_superblock
-            .checked_sub(1)
-            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
-        let last_bitmap = last_data_block / bits_per_block;
         // Bitmap pages are read sequentially; reuse one page buffer rather than
         // allocating a fresh block-sized Vec for every page in a large volume.
         let mut bitmap =
@@ -13500,7 +13492,7 @@ mod tests {
             volume.free_block(&mut device, first).unwrap();
             let after_cursor = volume.allocate_block(&mut device).unwrap();
             assert_eq!(after_cursor, third + 1);
-            assert!(volume.is_data_block_allocated(&mut device, first).unwrap() == false);
+            assert!(!volume.is_data_block_allocated(&mut device, first).unwrap());
             assert!(volume.is_data_block_allocated(&mut device, after_cursor).unwrap());
         }
         {
