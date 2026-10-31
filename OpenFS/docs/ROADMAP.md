@@ -1292,3 +1292,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical synchronisé à 1271 déclarations sur 18 fichiers Rust (commit `6d5d5587ab8c2be4b03fb8c593807874462dbb3c`).
 - Progression globale maintenue à 73 % jusqu'à exécution effective des tests et validation CI.
 
+### Matrice de pannes du remplacement de fichiers (2026-10-31)
+
+- Commit `c7645b698ca444ab99073b0285069cdad32aa85c` : ajout d'un test qui injecte des erreurs après différents nombres d'écritures et de flushs pendant le remplacement du contenu d'un fichier multi-blocs.
+- Après chaque tentative, l'image est rouverte depuis le disque. Le test exige que le fichier corresponde intégralement à l'ancien contenu ou au nouveau, puis contrôle la cohérence de l'inventaire persistant et du bitmap pour détecter des extents perdus, libérés trop tôt ou encore référencés incorrectement.
+- Le scénario complète les tests de troncature et de remplacement nominal. Il est ajouté mais non exécuté dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA restent à confirmer.
+- Inventaire lexical mis à jour dans le commit `a572263a567d4d857f17ebacbdc215a97b591fd7`. La progression globale reste à 73 % jusqu'à exécution et validation des scénarios.
+
