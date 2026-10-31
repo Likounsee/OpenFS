@@ -321,8 +321,10 @@ impl ExtentMap {
             .copied();
         let next = self.extents.get(position).copied();
 
-        if previous.is_some_and(|item| item.logical_end().is_ok_and(|end| end > extent.logical_start))
-            || next.is_some_and(|item| extent.logical_end().is_ok_and(|end| end > item.logical_start))
+        let extent_logical_end = extent.logical_end()?;
+        let previous_end = previous.map(Extent::logical_end).transpose()?;
+        if previous_end.is_some_and(|end| end > extent.logical_start)
+            || next.is_some_and(|item| extent_logical_end > item.logical_start)
         {
             return Err(Error::InvalidInput(
                 "extent overlaps existing logical blocks",
@@ -330,27 +332,31 @@ impl ExtentMap {
         }
 
         let previous_adjacent = if let Some(item) = previous {
-            item.logical_end()? == extent.logical_start
+            previous_end == Some(extent.logical_start)
                 && item.physical_end()? == extent.physical_start
         } else {
             false
         };
         let next_adjacent = if let Some(item) = next {
-            physical_end == item.physical_start
-                && extent.logical_end()? == item.logical_start
+            extent_logical_end == item.logical_start
+                && physical_end == item.physical_start
         } else {
             false
         };
 
-        // Calculate every possible merged length before mutation. Once this preflight
+        // Calculate every required merged length before mutation. Once this preflight
         // succeeds, the in-place update cannot fail or leave a partially changed map.
-        let merged_with_previous = previous
-            .map(|item| {
-                item.block_count
+        let merged_with_previous = if previous_adjacent {
+            Some(
+                previous
+                    .ok_or(Error::ArithmeticOverflow)?
+                    .block_count
                     .checked_add(extent.block_count)
-                    .ok_or(Error::ArithmeticOverflow)
-            })
-            .transpose()?;
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+        } else {
+            None
+        };
         let merged_with_both = if previous_adjacent && next_adjacent {
             Some(
                 merged_with_previous
