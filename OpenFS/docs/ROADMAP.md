@@ -1384,3 +1384,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Les tests existants couvrent les lots contigus, les entrées dupliquées, les états mixtes, ainsi que la libération après allocation traversant une frontière de pages bitmap. Ils n'ont pas été exécutés dans cette session.
 - Inventaire lexical recalculé sur les 18 fichiers Rust : 1 284 déclarations, commit `e1967fd1637ff7f5536ca938b5f43f3d5a74a044`. La première exécution CI a révélé que les lignes de `extent_map.rs` n'étaient pas à jour après un changement antérieur; les 115 déclarations de ce fichier ont été recalculées.
 - Compilation, tests Rust, rustfmt, Clippy et CI exacte-SHA restent non vérifiés. Progression globale maintenue à 73 %.
+
+### Validation CI et formatage Rust (2026-10-31)
+
+- La première CI du lot a bien détecté deux problèmes de qualité : l'inventaire lexical n'était pas entièrement synchronisé (les déclarations et numéros de ligne de `extent_map.rs` étaient obsolètes), puis le contrôle rustfmt a révélé des écarts de formatage dans huit modules Rust.
+- Les 8 modules ont été reformattés à partir des diffs rustfmt fournis par le runner : `openfs-block/src/lib.rs`, `allocator_extents.rs`, `extent_map.rs`, `journal_engine.rs`, `volume.rs`, `openfs-tool/src/main.rs`, `windows_device.rs` et `windows_mount.rs`.
+- L'inventaire lexical a été recalculé pour ces fichiers et le total vérifié par le script CI est de 1 284 déclarations sur 18 fichiers Rust (commit `4693686ad27c9961d01716b250f0bfdda5a4001c`).
+- La CI du commit de correction doit encore confirmer le passage de rustfmt, des tests workspace et de Clippy; aucune réussite n'est anticipée avant le résultat du runner.
+- Progression globale maintenue à 73 %.
