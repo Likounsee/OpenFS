@@ -594,8 +594,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         &'b self,
         _file_name: &U16CStr,
         _info: &OperationInfo<'a, 'b, Self>,
-        _context: &'a Self::Context,
+        context: &'a Self::Context,
     ) -> Result<(), OperationError> {
+        self.require_handle_access(*context, FILE_WRITE_DATA)?;
         self.session
             .lock()
             .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
