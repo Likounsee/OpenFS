@@ -1255,3 +1255,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le curseur n'est pas une source de vérité persistante : le bitmap journalisé reste autoritaire et le curseur est réinitialisé à `data_start` à la réouverture. Les blocs libérés avant le curseur restent récupérables au tour suivant et immédiatement après réouverture.
 - Test de régression ajouté pour vérifier la progression, le retour circulaire après réouverture et l'état du bitmap. Test non exécuté dans cet environnement; compilation, rustfmt, Clippy et CI restent à confirmer.
 - Progression globale conservée à 73 % : optimisation ciblée de parcours, sans preuve de benchmark ni validation CI.
+
+### Allocations groupées et curseur next-fit (2026-10-31)
+
+- Commits `264f0529791cf0cbcdee49188a2fe1498233ab14` et `00739cc74ee6b23401c0815abd13f5c2a31a98a0` : les allocations atomiques multi-blocs suivent désormais le curseur volatil de l'allocateur simple. Le scan est divisé en deux plages non chevauchantes (`cursor..fin`, puis `début..cursor`), y compris lorsque le curseur se trouve au milieu d'une page bitmap.
+- Le curseur avance après le dernier bloc attribué, y compris lorsque le journal signale une erreur mais que la récupération confirme que tous les bits ont été validés. Une sélection partiellement présente après récupération reste une corruption, jamais une allocation réussie.
+- Test de régression ajouté pour vérifier que l'allocation groupée évite un bloc libéré avant le curseur et que la réouverture réinitialise celui-ci. L'inventaire lexical est synchronisé à 1268 déclarations sur 18 fichiers Rust (commit `96b5872cd5f266e7fdd5a63e54025e74cdee7479`).
+- Test, compilation, rustfmt, Clippy et CI non exécutés/confirmés dans cette passe. Progression globale maintenue à 73 %.
