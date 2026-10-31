@@ -130,12 +130,12 @@ impl OpenHandleState {
         }
         if let Some(existing) = inner.handles.get(&object_id) {
             for open in existing {
-                let new_access_denied =
-                    (access & ACCESS_READ != 0 && open.share_access & SHARE_READ == 0)
+                let new_access_denied = (access & ACCESS_READ != 0
+                    && open.share_access & SHARE_READ == 0)
                     || (access & ACCESS_WRITE != 0 && open.share_access & SHARE_WRITE == 0)
                     || (access & ACCESS_DELETE != 0 && open.share_access & SHARE_DELETE == 0);
-                let existing_access_denied =
-                    (open.access & ACCESS_READ != 0 && share_access & SHARE_READ == 0)
+                let existing_access_denied = (open.access & ACCESS_READ != 0
+                    && share_access & SHARE_READ == 0)
                     || (open.access & ACCESS_WRITE != 0 && share_access & SHARE_WRITE == 0)
                     || (open.access & ACCESS_DELETE != 0 && share_access & SHARE_DELETE == 0);
                 if new_access_denied || existing_access_denied {
@@ -158,7 +158,10 @@ impl OpenHandleState {
                 access,
                 share_access,
             });
-        Ok(FileHandle { object_id, handle_id })
+        Ok(FileHandle {
+            object_id,
+            handle_id,
+        })
     }
 
     fn close(&self, handle: FileHandle, delete_on_close: bool) -> Result<bool, &'static str> {
@@ -207,9 +210,7 @@ impl OpenHandleState {
             .ok_or("unknown or closed OpenFS handle")?;
         let generic_access = match requested_access {
             FILE_READ_DATA => GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED,
-            FILE_READ_ATTRIBUTES => {
-                GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL | MAXIMUM_ALLOWED
-            }
+            FILE_READ_ATTRIBUTES => GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL | MAXIMUM_ALLOWED,
             FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES => {
                 GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED
             }
@@ -291,9 +292,7 @@ impl<D: BlockDevice> OpenFsHandler<D> {
         self.open_handles
             .register(object_id, desired_access, share_access)
             .map_err(|error| match error {
-                "Windows file sharing violation" => {
-                    OperationError::Win32(ERROR_SHARING_VIOLATION)
-                }
+                "Windows file sharing violation" => OperationError::Win32(ERROR_SHARING_VIOLATION),
                 "object is pending deletion" => OperationError::Win32(ERROR_ACCESS_DENIED),
                 "unsupported Windows share-access flags" => {
                     OperationError::Win32(ERROR_INVALID_PARAMETER)
@@ -333,7 +332,6 @@ impl<D: BlockDevice> OpenFsHandler<D> {
             .stat(path)
             .map_err(map_core_error)
     }
-
 }
 
 fn map_core_error(error: CoreError) -> OperationError {
@@ -540,7 +538,6 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             eprintln!("OpenFS: {error}");
             self.deferred_error.record(error);
         }
-
     }
 
     fn read_file(
@@ -845,21 +842,27 @@ pub fn mount_usb_device(
         ).into());
     }
     if size_bytes % u64::from(block_size) != 0 {
-        return Err("USB disk capacity is not a whole multiple of the selected OpenFS block size".into());
+        return Err(
+            "USB disk capacity is not a whole multiple of the selected OpenFS block size".into(),
+        );
     }
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
-    let device = RawDevice::open(
-        &device_path,
-        block_size,
-        size_bytes / u64::from(block_size),
-    )?;
+    let device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck after opening the handle so a disk-index change during the
     // preflight/open window cannot silently redirect the mount to another disk.
     let confirmed = super::windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
-        return Err("USB disk identity or geometry changed while opening it; refusing to mount".into());
+        return Err(
+            "USB disk identity or geometry changed while opening it; refusing to mount".into(),
+        );
     }
-    mount_device(device, size_bytes, mount_point, block_size, logical_sector_size)
+    mount_device(
+        device,
+        size_bytes,
+        mount_point,
+        block_size,
+        logical_sector_size,
+    )
 }
 
 fn mount_device<D: BlockDevice + Send + 'static>(
@@ -924,17 +927,21 @@ mod tests {
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
         ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
-        FILE_WRITE_ATTRIBUTES,
-        FILE_WRITE_DATA, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE, MAXIMUM_ALLOWED,
-        SHARE_DELETE,
-        SHARE_READ, SHARE_WRITE,
+        FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE,
+        MAXIMUM_ALLOWED, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
     };
     use openfs_format::ObjectId;
 
     #[test]
     fn desired_access_is_grouped_into_windows_share_categories() {
-        assert_eq!(access_categories(FILE_READ_DATA | GENERIC_READ), ACCESS_READ);
-        assert_eq!(access_categories(FILE_WRITE_DATA | GENERIC_WRITE), ACCESS_WRITE);
+        assert_eq!(
+            access_categories(FILE_READ_DATA | GENERIC_READ),
+            ACCESS_READ
+        );
+        assert_eq!(
+            access_categories(FILE_WRITE_DATA | GENERIC_WRITE),
+            ACCESS_WRITE
+        );
         assert_eq!(access_categories(DELETE), ACCESS_DELETE);
         assert_eq!(access_categories(FILE_APPEND_DATA), ACCESS_WRITE);
         assert_eq!(
@@ -953,7 +960,9 @@ mod tests {
         assert!(state.allows_access(read_only, FILE_READ_DATA).unwrap());
         assert!(!state.allows_access(read_only, FILE_WRITE_DATA).unwrap());
         assert!(!state.allows_access(read_only, DELETE).unwrap());
-        assert!(!state.allows_access(read_only, FILE_WRITE_ATTRIBUTES).unwrap());
+        assert!(!state
+            .allows_access(read_only, FILE_WRITE_ATTRIBUTES)
+            .unwrap());
         assert!(!state.close(read_only, false).unwrap());
 
         let write_only = state
@@ -1030,14 +1039,14 @@ mod tests {
     fn closing_one_handle_preserves_other_handle_share_constraints() {
         let state = OpenHandleState::default();
         let object = ObjectId(46);
-        let first = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        let first = state
+            .register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE)
+            .unwrap();
         let second = state
             .register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE)
             .unwrap();
         assert!(!state.close(first, false).unwrap());
-        assert!(state
-            .register(object, FILE_READ_DATA, SHARE_READ)
-            .is_err());
+        assert!(state.register(object, FILE_READ_DATA, SHARE_READ).is_err());
         assert!(!state.close(second, false).unwrap());
     }
 
@@ -1093,9 +1102,7 @@ mod tests {
                 scope.spawn(move || {
                     barrier.wait();
                     for _ in 0..256 {
-                        let handle = state
-                            .register(object, FILE_READ_DATA, SHARE_READ)
-                            .unwrap();
+                        let handle = state.register(object, FILE_READ_DATA, SHARE_READ).unwrap();
                         assert!(!state.close(handle, false).unwrap());
                     }
                 });
