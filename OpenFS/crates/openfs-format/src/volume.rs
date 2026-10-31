@@ -16871,4 +16871,79 @@ mod tests {
         }
         fs::remove_file(path).unwrap();
     }
+    #[test]
+    fn volume_session_supports_file_lifecycle_and_clean_unmount_remount() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        let path = image_path("volume-session-lifecycle");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(mounted.block_size(), 4096);
+            assert_eq!(mounted.uuid(), *b"openfs-test-0001");
+
+            mounted
+                .create_directory("/", ObjectId(2), "docs")
+                .unwrap();
+            mounted
+                .create_file("/docs", ObjectId(3), "draft.txt")
+                .unwrap();
+            mounted
+                .write_file("/docs/draft.txt", b"OpenFS mounted session data")
+                .unwrap();
+            assert_eq!(
+                mounted.read_file("/docs/draft.txt").unwrap(),
+                b"OpenFS mounted session data"
+            );
+
+            mounted
+                .rename("/docs/draft.txt", "/docs", "final.txt")
+                .unwrap();
+            mounted.set_file_len("/docs/final.txt", 12).unwrap();
+            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS moun");
+
+            let entries = mounted.read_directory("/docs", None, 16).unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].name, "final.txt");
+
+            let device = mounted.unmount().unwrap();
+            drop(device);
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS moun");
+            assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 12);
+            mounted.remove("/docs/final.txt").unwrap();
+            mounted.remove("/docs").unwrap();
+            let device = mounted.unmount().unwrap();
+            drop(device);
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert!(matches!(
+                mounted.stat("/docs"),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(mounted.read_directory("/", None, 16).unwrap().is_empty());
+            let device = mounted.unmount().unwrap();
+            drop(device);
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
 }
