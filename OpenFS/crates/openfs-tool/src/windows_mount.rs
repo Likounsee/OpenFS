@@ -18,8 +18,8 @@ use openfs_core::Error as CoreError;
 use openfs_format::{ObjectId, ObjectKind, VolumeSession};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
-    ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_ACCESS_DENIED, ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
+    ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS,
+    ERROR_FILE_NOT_FOUND, ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
 };
 use winapi::um::fileapi::{
     CREATE_ALWAYS, CREATE_NEW, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
@@ -59,12 +59,29 @@ const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
 
 fn access_categories(desired_access: u32) -> u8 {
     let mut result = 0;
-    if desired_access & (GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL | MAXIMUM_ALLOWED
-        | FILE_READ_DATA | FILE_READ_EA | FILE_READ_ATTRIBUTES | FILE_EXECUTE) != 0 {
+    if desired_access
+        & (GENERIC_READ
+            | GENERIC_EXECUTE
+            | GENERIC_ALL
+            | MAXIMUM_ALLOWED
+            | FILE_READ_DATA
+            | FILE_READ_EA
+            | FILE_READ_ATTRIBUTES
+            | FILE_EXECUTE)
+        != 0
+    {
         result |= ACCESS_READ;
     }
-    if desired_access & (GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED
-        | FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES) != 0 {
+    if desired_access
+        & (GENERIC_WRITE
+            | GENERIC_ALL
+            | MAXIMUM_ALLOWED
+            | FILE_WRITE_DATA
+            | FILE_APPEND_DATA
+            | FILE_WRITE_EA
+            | FILE_WRITE_ATTRIBUTES)
+        != 0
+    {
         result |= ACCESS_WRITE;
     }
     if desired_access & (DELETE | GENERIC_ALL | MAXIMUM_ALLOWED) != 0 {
@@ -93,14 +110,19 @@ struct OpenHandleInner {
 }
 
 impl OpenHandleState {
-    fn register(&self, object_id: ObjectId, desired_access: u32, share_access: u32)
-        -> Result<FileHandle, &'static str>
-    {
+    fn register(
+        &self,
+        object_id: ObjectId,
+        desired_access: u32,
+        share_access: u32,
+    ) -> Result<FileHandle, &'static str> {
         if share_access & !SHARE_VALID_MASK != 0 {
             return Err("unsupported Windows share-access flags");
         }
         let access = access_categories(desired_access);
-        let mut inner = self.inner.lock()
+        let mut inner = self
+            .inner
+            .lock()
             .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
         if inner.delete_pending.contains(&object_id) {
             return Err("object is pending deletion");
@@ -120,17 +142,27 @@ impl OpenHandleState {
                 }
             }
         }
-        let handle_id = inner.next_handle_id.checked_add(1)
+        let handle_id = inner
+            .next_handle_id
+            .checked_add(1)
             .ok_or("OpenFS handle identifier overflow")?;
         inner.next_handle_id = handle_id;
-        inner.handles.entry(object_id).or_default().push(OpenHandleRecord {
-            handle_id, access, share_access,
-        });
+        inner
+            .handles
+            .entry(object_id)
+            .or_default()
+            .push(OpenHandleRecord {
+                handle_id,
+                access,
+                share_access,
+            });
         Ok(FileHandle { object_id, handle_id })
     }
 
     fn close(&self, handle: FileHandle, delete_on_close: bool) -> Result<bool, &'static str> {
-        let mut inner = self.inner.lock()
+        let mut inner = self
+            .inner
+            .lock()
             .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
         let Some(opens) = inner.handles.get(&handle.object_id) else {
             return Err("cannot close an object without a registered open handle");
@@ -141,9 +173,13 @@ impl OpenHandleState {
         if delete_on_close {
             inner.delete_pending.insert(handle.object_id);
         }
-        let opens = inner.handles.get_mut(&handle.object_id)
+        let opens = inner
+            .handles
+            .get_mut(&handle.object_id)
             .expect("validated handle entry remains present");
-        let index = opens.iter().position(|open| open.handle_id == handle.handle_id)
+        let index = opens
+            .iter()
+            .position(|open| open.handle_id == handle.handle_id)
             .expect("validated handle remains present");
         opens.remove(index);
         if opens.is_empty() {
@@ -154,21 +190,30 @@ impl OpenHandleState {
     }
 
     fn is_open(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.inner.lock()
-            .map(|inner| inner.handles.get(&object_id).is_some_and(|opens| !opens.is_empty()))
+        self.inner
+            .lock()
+            .map(|inner| {
+                inner
+                    .handles
+                    .get(&object_id)
+                    .is_some_and(|opens| !opens.is_empty())
+            })
             .map_err(|_| "OpenFS open-handle state lock was poisoned")
     }
 
     fn is_delete_pending(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.inner.lock()
+        self.inner
+            .lock()
             .map(|inner| inner.delete_pending.contains(&object_id))
             .map_err(|_| "OpenFS open-handle state lock was poisoned")
     }
 
     fn complete_delete(&self, object_id: ObjectId) -> Result<(), &'static str> {
-        self.inner.lock()
+        self.inner
+            .lock()
             .map_err(|_| "OpenFS open-handle state lock was poisoned")?
-            .delete_pending.remove(&object_id);
+            .delete_pending
+            .remove(&object_id);
         Ok(())
     }
 }
@@ -208,16 +253,23 @@ impl<D: BlockDevice> OpenFsHandler<D> {
     }
 
     fn register_open_handle(
-        &self, object_id: ObjectId, desired_access: u32, share_access: u32,
+        &self,
+        object_id: ObjectId,
+        desired_access: u32,
+        share_access: u32,
     ) -> Result<FileHandle, OperationError> {
-        self.open_handles.register(object_id, desired_access, share_access).map_err(|error| {
-            match error {
-                "Windows file sharing violation" => OperationError::Win32(ERROR_SHARING_VIOLATION),
+        self.open_handles
+            .register(object_id, desired_access, share_access)
+            .map_err(|error| match error {
+                "Windows file sharing violation" => {
+                    OperationError::Win32(ERROR_SHARING_VIOLATION)
+                }
                 "object is pending deletion" => OperationError::Win32(ERROR_ACCESS_DENIED),
-                "unsupported Windows share-access flags" => OperationError::Win32(ERROR_INVALID_PARAMETER),
+                "unsupported Windows share-access flags" => {
+                    OperationError::Win32(ERROR_INVALID_PARAMETER)
+                }
                 _ => OperationError::Win32(ERROR_GEN_FAILURE),
-            }
-        })
+            })
     }
 
     fn has_open_handle(&self, object_id: ObjectId) -> Result<bool, OperationError> {
@@ -826,7 +878,10 @@ mod tests {
         assert_eq!(access_categories(FILE_WRITE_DATA | GENERIC_WRITE), ACCESS_WRITE);
         assert_eq!(access_categories(DELETE), ACCESS_DELETE);
         assert_eq!(access_categories(FILE_APPEND_DATA), ACCESS_WRITE);
-        assert_eq!(access_categories(MAXIMUM_ALLOWED), ACCESS_READ | ACCESS_WRITE | ACCESS_DELETE);
+        assert_eq!(
+            access_categories(MAXIMUM_ALLOWED),
+            ACCESS_READ | ACCESS_WRITE | ACCESS_DELETE
+        );
     }
 
     #[test]
@@ -844,7 +899,9 @@ mod tests {
         let state = OpenHandleState::default();
         let object = ObjectId(43);
         let first = state.register(object, FILE_READ_DATA, SHARE_READ).unwrap();
-        assert!(state.register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE).is_err());
+        assert!(state
+            .register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE)
+            .is_err());
         assert!(!state.close(first, false).unwrap());
     }
 
@@ -852,7 +909,9 @@ mod tests {
     fn new_share_mask_must_allow_every_existing_access_category() {
         let state = OpenHandleState::default();
         let object = ObjectId(44);
-        let first = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        let first = state
+            .register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE)
+            .unwrap();
         assert!(state.register(object, FILE_WRITE_DATA, SHARE_WRITE).is_err());
         assert!(!state.close(first, false).unwrap());
     }
@@ -881,8 +940,20 @@ mod tests {
     fn delete_on_close_waits_for_last_exact_handle_and_blocks_new_opens() {
         let state = OpenHandleState::default();
         let object = ObjectId(47);
-        let first = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE | SHARE_DELETE).unwrap();
-        let second = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE | SHARE_DELETE).unwrap();
+        let first = state
+            .register(
+                object,
+                FILE_READ_DATA,
+                SHARE_READ | SHARE_WRITE | SHARE_DELETE,
+            )
+            .unwrap();
+        let second = state
+            .register(
+                object,
+                FILE_READ_DATA,
+                SHARE_READ | SHARE_WRITE | SHARE_DELETE,
+            )
+            .unwrap();
         assert!(!state.close(first, true).unwrap());
         assert!(state.is_open(object).unwrap());
         assert!(state.is_delete_pending(object).unwrap());
@@ -932,7 +1003,10 @@ mod tests {
     fn unknown_or_already_closed_handle_is_rejected() {
         let state = OpenHandleState::default();
         let object = ObjectId(100);
-        let fake = super::FileHandle { object_id: object, handle_id: 99 };
+        let fake = super::FileHandle {
+            object_id: object,
+            handle_id: 99,
+        };
         assert!(state.close(fake, true).is_err());
         let handle = state.register(object, 0, 0).unwrap();
         assert!(!state.close(handle, false).unwrap());
@@ -950,7 +1024,10 @@ mod tests {
         let latch = DeferredErrorLatch::default();
         latch.record("first flush failed".to_owned());
         latch.record("delete-on-close failed".to_owned());
-        assert_eq!(latch.take().unwrap().as_deref(), Some("first flush failed; delete-on-close failed"));
+        assert_eq!(
+            latch.take().unwrap().as_deref(),
+            Some("first flush failed; delete-on-close failed")
+        );
         assert_eq!(latch.take().unwrap(), None);
     }
 }
