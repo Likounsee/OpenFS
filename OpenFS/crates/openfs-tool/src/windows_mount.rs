@@ -15,7 +15,7 @@ use dokan::{
 use openfs_block::ImageDevice;
 use openfs_core::Error as CoreError;
 use openfs_format::{ObjectKind, VolumeSession};
-use widestring::{U16CString, U16CStr};
+use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
     ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
     ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER,
@@ -61,7 +61,10 @@ impl OpenFsHandler {
             .map_err(map_core_error)
     }
 
-    fn list_directory(&self, path: &str) -> Result<Vec<openfs_format::DirectoryEntry>, OperationError> {
+    fn list_directory(
+        &self,
+        path: &str,
+    ) -> Result<Vec<openfs_format::DirectoryEntry>, OperationError> {
         let mut session = self
             .session
             .lock()
@@ -200,9 +203,13 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                     .lock()
                     .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
                 if wants_directory {
-                    session.create_directory_auto(parent, name).map_err(map_core_error)?;
+                    session
+                        .create_directory_auto(parent, name)
+                        .map_err(map_core_error)?;
                 } else {
-                    session.create_file_auto(parent, name).map_err(map_core_error)?;
+                    session
+                        .create_file_auto(parent, name)
+                        .map_err(map_core_error)?;
                 }
                 (wants_directory, true)
             }
@@ -323,7 +330,9 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                 creation_time: epoch,
                 last_access_time: epoch,
                 last_write_time: epoch,
-                file_size: self.stat(&format!("{}/{}", path.trim_end_matches('/'), entry.name))?.size,
+                file_size: self
+                    .stat(&format!("{}/{}", path.trim_end_matches('/'), entry.name))?
+                    .size,
                 file_name,
             };
             fill_find_data(&data)?;
