@@ -8165,13 +8165,20 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
 pub struct VolumeSession<D: BlockDevice> {
     device: D,
     opened: OpenedVolume,
+    next_object_id: u128,
 }
 
 impl<D: BlockDevice> VolumeSession<D> {
     /// Open a volume session and complete journal recovery before exposing file APIs.
     pub fn open(mut device: D) -> Result<Self> {
         let opened = open_volume(&mut device)?;
-        Ok(Self { device, opened })
+        let mut session = Self {
+            device,
+            opened,
+            next_object_id: 1,
+        };
+        session.next_object_id = session.discover_next_object_id()?;
+        Ok(session)
     }
 
     /// Return the validated filesystem block size.
@@ -8235,6 +8242,69 @@ impl<D: BlockDevice> VolumeSession<D> {
             length,
             writer,
         )
+    }
+
+    /// Create a regular file using an ID allocated uniquely within this open session.
+    ///
+    /// IDs are initialized above the maximum ID in the mounted namespace and then
+    /// advanced monotonically. A remount rescans the namespace before allocating again.
+    pub fn create_file_auto(&mut self, parent_path: &str, name: &str) -> Result<ObjectId> {
+        let object_id = self.allocate_object_id()?;
+        self.create_file(parent_path, object_id, name)
+    }
+
+    /// Create a directory using an ID allocated uniquely within this open session.
+    pub fn create_directory_auto(&mut self, parent_path: &str, name: &str) -> Result<ObjectId> {
+        let object_id = self.allocate_object_id()?;
+        self.create_directory(parent_path, object_id, name)
+    }
+
+    fn allocate_object_id(&mut self) -> Result<ObjectId> {
+        let object_id = ObjectId::new(self.next_object_id)?;
+        self.next_object_id = self
+            .next_object_id
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Ok(object_id)
+    }
+
+    fn discover_next_object_id(&mut self) -> Result<u128> {
+        use std::collections::{HashSet, VecDeque};
+
+        const PAGE_SIZE: usize = 1024;
+        let root = self.stat("/")?;
+        let mut maximum = root.id.0;
+        let mut pending = VecDeque::from([("/".to_owned(), root.id.0)]);
+        let mut visited_directories = HashSet::from([root.id.0]);
+
+        while let Some((directory_path, _directory_id)) = pending.pop_front() {
+            let mut after_name: Option<String> = None;
+            loop {
+                let entries = self.read_directory(&directory_path, after_name.as_deref(), PAGE_SIZE)?;
+                if entries.is_empty() {
+                    break;
+                }
+                for entry in &entries {
+                    maximum = maximum.max(entry.object_id);
+                    if entry.kind == ObjectKind::Directory
+                        && visited_directories.insert(entry.object_id)
+                    {
+                        let child_path = if directory_path == "/" {
+                            format!("/{name}", name = entry.name)
+                        } else {
+                            format!("{directory_path}/{name}", name = entry.name)
+                        };
+                        pending.push_back((child_path, entry.object_id));
+                    }
+                }
+                if entries.len() < PAGE_SIZE {
+                    break;
+                }
+                after_name = entries.last().map(|entry| entry.name.clone());
+            }
+        }
+
+        maximum.checked_add(1).ok_or(Error::ArithmeticOverflow)
     }
 
     /// Create an empty regular file beneath an existing directory.
@@ -16911,6 +16981,13 @@ mod tests {
             mounted
                 .create_file("/docs", ObjectId(3), "draft.txt")
                 .unwrap();
+            let auto_directory = mounted.create_directory_auto("/", "auto").unwrap();
+            let auto_file = mounted.create_file_auto("/auto", "generated.txt").unwrap();
+            assert!(auto_directory.0 > auto_file.0.saturating_sub(1));
+            assert_eq!(mounted.stat("/auto").unwrap().id, auto_directory);
+            assert_eq!(mounted.stat("/auto/generated.txt").unwrap().id, auto_file);
+            mounted.remove("/auto/generated.txt").unwrap();
+            mounted.remove("/auto").unwrap();
             mounted
                 .write_file("/docs/draft.txt", b"OpenFS mounted session data")
                 .unwrap();
