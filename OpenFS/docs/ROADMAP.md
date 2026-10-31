@@ -1334,3 +1334,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire régénéré depuis les 18 fichiers Rust de la branche : 1 276 déclarations (commit `a495a3f5e8286db931a9c75cdfc37c739c4983fb`).
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+### Réservation mémoire proportionnelle aux extents non fusionnés (2026-10-31)
+
+- Commit `056dd0b5f6e0139f2eb1cdf6436188e5f0706663` : `push_coalescing_batch()` effectue un pré-calcul de la fusion pour réserver uniquement les nouveaux extents qui resteront distincts, plutôt que `incoming.len()`. Les additions de tailles fusionnées sont vérifiées avant la mutation; le passage d'écriture n'effectue ensuite que des fusions déjà prévalidées et des ajouts couverts par la réservation.
+- Commit `8d5799bb8261b4730923010fcd82ba0d0c59bc02` : test ajouté pour fusionner 4 096 extents logiquement et physiquement contigus en un seul extent final.
+- Inventaire lexical régénéré depuis les 18 fichiers Rust : 1 277 déclarations (commit `50862b88135712b4155c376feb42ad6ad1fb66cd`).
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
