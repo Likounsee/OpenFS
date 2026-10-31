@@ -313,6 +313,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         create_options: u32,
         _info: &mut OperationInfo<'a, 'b, Self>,
     ) -> Result<CreateFileInfo<Self::Context>, OperationError> {
+        if share_access & !SHARE_VALID_MASK != 0 {
+            return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
+        }
         let path = path_from_windows(file_name)?;
         if path == "/" {
             let record = self.stat("/")?;
@@ -383,7 +386,19 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
 
         let handle = match registered_handle {
             Some(handle) => handle,
-            None => self.register_open_handle(object_id, desired_access, share_access)?,
+            None => match self.register_open_handle(object_id, desired_access, share_access) {
+                Ok(handle) => handle,
+                Err(error) => {
+                    if new_file_created {
+                        if let Err(cleanup_error) = session.remove(&path) {
+                            self.deferred_error.record(format!(
+                                "rollback of newly created '{path}' after handle registration failure failed: {cleanup_error}"
+                            ));
+                        }
+                    }
+                    return Err(error);
+                }
+            },
         };
         Ok(CreateFileInfo {
             context: handle,
