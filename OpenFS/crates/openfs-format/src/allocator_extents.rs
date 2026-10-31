@@ -1,7 +1,7 @@
 //! Atomic contiguous allocation helpers for volumes.
 //!
-//! The current on-disk journal can atomically update one bitmap block per transaction.
-//! Extents are therefore deliberately constrained to a single bitmap segment.
+//! The bounded journal can atomically update multiple bitmap pages in one transaction.
+//! Extent length is limited by the journal's redo capacity, not by one bitmap segment.
 
 use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
@@ -2937,6 +2937,67 @@ mod allocation_bitmap_report_tests {
             assert!(!volume
                 .is_data_block_allocated(&mut device, start + 3)
                 .unwrap());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn contiguous_allocation_crosses_bitmap_page_boundary_atomically() {
+        let path = image_path("contiguous-cross-bitmap");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 33_000).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            let bits_per_page = u64::from(layout.block_size) * 8;
+            let boundary = bits_per_page;
+            let extent_start = boundary - 2;
+            let extent_end = extent_start + 4;
+            assert!(layout.data_start < extent_start);
+            assert!(extent_end < layout.backup_superblock);
+
+            // Make every usable block unavailable except for a four-block run that
+            // straddles the bitmap-page boundary. This isolates the scanner behavior.
+            for index in 0..2_u64 {
+                let base = index * bits_per_page;
+                let start = layout.data_start.max(base);
+                let end = layout.backup_superblock.min(base + bits_per_page);
+                let bitmap_block = layout.bitmap_start + index;
+                let mut bitmap = vec![0_u8; layout.block_size as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                set_bitmap_range(&mut bitmap, start - base, end - base, true).unwrap();
+                let overlap_start = extent_start.max(start);
+                let overlap_end = extent_end.min(end);
+                if overlap_start < overlap_end {
+                    set_bitmap_range(
+                        &mut bitmap,
+                        overlap_start - base,
+                        overlap_end - base,
+                        false,
+                    )
+                    .unwrap();
+                }
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+            }
+            device.flush().unwrap();
+
+            assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 4).unwrap(),
+                Some(extent_start),
+                "free-run search must continue across adjacent bitmap pages"
+            );
+            assert_eq!(
+                volume.allocate_contiguous_blocks(&mut device, 4).unwrap(),
+                extent_start
+            );
+            for block in extent_start..extent_end {
+                assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
+            }
+
+            drop(volume);
+            let mut reopened = crate::volume::open_volume(&mut device).unwrap();
+            for block in extent_start..extent_end {
+                assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+            }
         }
         fs::remove_file(path).unwrap();
     }
