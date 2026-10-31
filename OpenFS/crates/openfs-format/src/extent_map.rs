@@ -421,23 +421,13 @@ impl ExtentMap {
         data_start: u64,
         data_end: u64,
     ) -> Result<Vec<u64>> {
-        self.validate(logical_block_count, data_start, data_end)?;
+        let ranges =
+            self.validate_and_collect_physical_ranges(Some(logical_block_count), Some((data_start, data_end)))?;
         let block_count =
             usize::try_from(self.allocated_blocks()?).map_err(|_| Error::ArithmeticOverflow)?;
 
-        // Logical extent order does not imply physical order. Sort the much smaller
-        // extent list, then expand already ordered, non-overlapping runs. Sorting every
-        // physical block individually makes inventory construction unnecessarily
-        // expensive for large, highly fragmented files.
-        let mut ranges: Vec<(u64, u64)> = Vec::new();
-        ranges
-            .try_reserve_exact(self.extents.len())
-            .map_err(|_| Error::AllocationFailed("unable to reserve physical inventory ranges"))?;
-        for extent in &self.extents {
-            ranges.push((extent.physical_start, extent.physical_end()?));
-        }
-        ranges.sort_unstable();
-
+        // Validation already sorted and checked the extent runs. Reuse that ordered,
+        // coalesced representation rather than allocating and sorting a second range list.
         let mut blocks: Vec<u64> = Vec::new();
         blocks
             .try_reserve_exact(block_count)
@@ -623,30 +613,10 @@ impl ExtentMap {
         data_start: u64,
         data_end: u64,
     ) -> Result<Vec<(u64, u64)>> {
-        self.validate(logical_block_count, data_start, data_end)?;
-        let mut ranges: Vec<(u64, u64)> = Vec::new();
-        ranges
-            .try_reserve_exact(self.extents.len())
-            .map_err(|_| Error::AllocationFailed("unable to reserve physical extent ranges"))?;
-        for extent in &self.extents {
-            ranges.push((extent.physical_start, extent.physical_end()?));
-        }
-        ranges.sort_unstable();
-
-        // Compact the sorted ranges in place. Keeping the output in the same buffer
-        // avoids a second allocation on every ownership/fragmentation inspection.
-        let mut write = 0_usize;
-        for read in 0..ranges.len() {
-            let (start, end) = ranges[read];
-            if write > 0 && ranges[write - 1].1 == start {
-                ranges[write - 1].1 = end;
-            } else {
-                ranges[write] = (start, end);
-                write += 1;
-            }
-        }
-        ranges.truncate(write);
-        Ok(ranges)
+        self.validate_and_collect_physical_ranges(
+            Some(logical_block_count),
+            Some((data_start, data_end)),
+        )
     }
 
     /// Remove a logical block range and return the physical runs that became unreferenced.
@@ -766,23 +736,11 @@ impl ExtentMap {
     /// Validate logical ordering and ensure physical extents are inside the data region.
     /// data_end is exclusive. Physical extents must not alias one another.
     pub fn validate(&self, logical_block_count: u64, data_start: u64, data_end: u64) -> Result<()> {
-        if data_start >= data_end {
-            return Err(Error::InvalidInput("data region is empty or inverted"));
-        }
-        self.validate_ordering()?;
-        for extent in &self.extents {
-            if extent.logical_end()? > logical_block_count {
-                return Err(Error::Corrupt("extent exceeds logical file length"));
-            }
-            let physical_end = extent.physical_end()?;
-            if extent.physical_start < data_start || physical_end > data_end {
-                return Err(Error::Corrupt("extent lies outside the data region"));
-            }
-        }
-        // validate_ordering() already checks physical overlap. Keep this method
-        // focused on volume-specific logical and physical bounds rather than
-        // allocating and sorting a second copy of the same physical ranges.
-        Ok(())
+        self.validate_and_collect_physical_ranges(
+            Some(logical_block_count),
+            Some((data_start, data_end)),
+        )
+        .map(|_| ())
     }
 
     /// Encode this map into one complete filesystem block with zeroed padding and CRC32C.
@@ -874,35 +832,70 @@ impl ExtentMap {
     }
 
     fn validate_ordering(&self) -> Result<()> {
-        let mut previous_end = 0_u64;
-        // Zero or one extent cannot physically overlap itself. Avoid a temporary
-        // allocation for the common empty/small-file case.
-        if self.extents.len() <= 1 {
-            if let Some(extent) = self.extents.first().copied() {
-                validate_extent(extent)?;
+        self.validate_and_collect_physical_ranges(None, None)
+            .map(|_| ())
+    }
+
+    /// Validate extent ordering and optionally volume bounds while collecting the
+    /// physical runs. Consumers that need sorted ranges reuse this result, avoiding
+    /// the previous validate-then-sort-again double allocation and O(E log E) pass.
+    fn validate_and_collect_physical_ranges(
+        &self,
+        logical_block_count: Option<u64>,
+        data_bounds: Option<(u64, u64)>,
+    ) -> Result<Vec<(u64, u64)>> {
+        if let Some((data_start, data_end)) = data_bounds {
+            if data_start >= data_end {
+                return Err(Error::InvalidInput("data region is empty or inverted"));
             }
-            return Ok(());
         }
 
-        let mut physical = Vec::new();
-        physical
+        let mut previous_logical_end = 0_u64;
+        let mut ranges = Vec::new();
+        ranges
             .try_reserve_exact(self.extents.len())
             .map_err(|_| Error::AllocationFailed("unable to reserve extent validation ranges"))?;
+
         for (index, extent) in self.extents.iter().copied().enumerate() {
             validate_extent(extent)?;
-            if index > 0 && extent.logical_start < previous_end {
+            if index > 0 && extent.logical_start < previous_logical_end {
                 return Err(Error::InvalidInput(
                     "logical extents overlap or are unordered",
                 ));
             }
-            previous_end = extent.logical_end()?;
-            physical.push((extent.physical_start, extent.physical_end()?));
+            previous_logical_end = extent.logical_end()?;
+
+            if logical_block_count.is_some_and(|limit| previous_logical_end > limit) {
+                return Err(Error::Corrupt("extent exceeds logical file length"));
+            }
+            let physical_end = extent.physical_end()?;
+            if let Some((data_start, data_end)) = data_bounds {
+                if extent.physical_start < data_start || physical_end > data_end {
+                    return Err(Error::Corrupt("extent lies outside the data region"));
+                }
+            }
+            ranges.push((extent.physical_start, physical_end));
         }
-        physical.sort_unstable();
-        if physical.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+
+        ranges.sort_unstable();
+        if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
             return Err(Error::InvalidInput("physical extents overlap"));
         }
-        Ok(())
+
+        // Merge adjacent physical runs in place. This keeps output allocation bounded
+        // by the input extent count and is directly reusable by block inventory callers.
+        let mut write = 0_usize;
+        for read in 0..ranges.len() {
+            let (start, end) = ranges[read];
+            if write > 0 && ranges[write - 1].1 == start {
+                ranges[write - 1].1 = end;
+            } else {
+                ranges[write] = (start, end);
+                write += 1;
+            }
+        }
+        ranges.truncate(write);
+        Ok(ranges)
     }
 }
 
