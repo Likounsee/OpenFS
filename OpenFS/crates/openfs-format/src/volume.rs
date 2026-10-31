@@ -8214,6 +8214,29 @@ impl<D: BlockDevice> VolumeSession<D> {
             .read_persistent_path_range(&mut self.device, path, 0, length)
     }
 
+    /// Read a bounded range of a regular file without loading the entire file.
+    pub fn read_file_range(&mut self, path: &str, offset: u64, length: usize) -> Result<Vec<u8>> {
+        self.opened
+            .read_persistent_path_range(&mut self.device, path, offset, length)
+    }
+
+    /// Stream a bounded file range to a writer using block-sized working memory.
+    pub fn stream_file_range_to_writer<W: std::io::Write>(
+        &mut self,
+        path: &str,
+        offset: u64,
+        length: u64,
+        writer: &mut W,
+    ) -> Result<u64> {
+        self.opened.stream_persistent_path_range_to_writer(
+            &mut self.device,
+            path,
+            offset,
+            length,
+            writer,
+        )
+    }
+
     /// Create an empty regular file beneath an existing directory.
     ///
     /// Object identifiers are supplied by the adapter so it can use its chosen
@@ -8247,6 +8270,12 @@ impl<D: BlockDevice> VolumeSession<D> {
     pub fn write_file(&mut self, path: &str, contents: &[u8]) -> Result<()> {
         self.opened
             .write_persistent_file_contents(&mut self.device, path, contents)
+    }
+
+    /// Write a byte range at an explicit file offset.
+    pub fn write_file_range(&mut self, path: &str, offset: u64, contents: &[u8]) -> Result<()> {
+        self.opened
+            .write_persistent_path_range(&mut self.device, path, offset, contents)
     }
 
     /// Change the logical length of an existing regular file.
@@ -16889,6 +16918,21 @@ mod tests {
                 mounted.read_file("/docs/draft.txt").unwrap(),
                 b"OpenFS mounted session data"
             );
+            assert_eq!(
+                mounted.read_file_range("/docs/draft.txt", 7, 7).unwrap(),
+                b"mounted"
+            );
+            let mut streamed = Vec::new();
+            assert_eq!(
+                mounted
+                    .stream_file_range_to_writer("/docs/draft.txt", 7, 7, &mut streamed)
+                    .unwrap(),
+                7
+            );
+            assert_eq!(streamed, b"mounted");
+            mounted
+                .write_file_range("/docs/draft.txt", 0, b"openfs")
+                .unwrap();
 
             mounted
                 .rename("/docs/draft.txt", "/docs", "final.txt")
@@ -16896,7 +16940,7 @@ mod tests {
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
-                b"OpenFS mount"
+                b"openfs mount"
             );
 
             let entries = mounted.read_directory("/docs", None, 16).unwrap();
@@ -16910,7 +16954,7 @@ mod tests {
         {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
-            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS mount");
+            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"openfs mount");
             assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 12);
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
