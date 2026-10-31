@@ -8157,6 +8157,145 @@ fn validate_bitmap<D: BlockDevice>(device: &mut D, layout: &VolumeLayout) -> Res
     Ok(())
 }
 
+/// An opened OpenFS volume session for host-side adapters.
+///
+/// This owns both the block device and the recovered writable volume handle. It is
+/// the portable lifecycle boundary intended for future OS mount adapters; it does
+/// not itself register a drive letter, mount point, or kernel filesystem driver.
+pub struct VolumeSession<D: BlockDevice> {
+    device: D,
+    opened: OpenedVolume,
+}
+
+impl<D: BlockDevice> VolumeSession<D> {
+    /// Open a volume session and complete journal recovery before exposing file APIs.
+    pub fn open(mut device: D) -> Result<Self> {
+        let opened = open_volume(&mut device)?;
+        Ok(Self { device, opened })
+    }
+
+    /// Return the validated filesystem block size.
+    pub fn block_size(&self) -> u32 {
+        self.opened.volume.block_size
+    }
+
+    /// Return the validated filesystem identity.
+    pub fn uuid(&self) -> [u8; 16] {
+        self.opened.volume.uuid
+    }
+
+    /// Look up persistent metadata by path.
+    pub fn stat(&mut self, path: &str) -> Result<MetadataRecord> {
+        self.opened.stat_persistent_path(&mut self.device, path)
+    }
+
+    /// List one lexical page of a persistent directory.
+    pub fn read_directory(
+        &mut self,
+        path: &str,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        self.opened
+            .list_persistent_directory(&mut self.device, path, after_name, limit)
+    }
+
+    /// Read a complete regular file into memory.
+    ///
+    /// Large-file adapters should use the lower-level streaming APIs instead of
+    /// materializing an unbounded file in one allocation.
+    pub fn read_file(&mut self, path: &str) -> Result<Vec<u8>> {
+        let record = self.stat(path)?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        let length = usize::try_from(record.size).map_err(|_| Error::ArithmeticOverflow)?;
+        self.opened
+            .read_persistent_path_range(&mut self.device, path, 0, length)
+    }
+
+    /// Create an empty regular file beneath an existing directory.
+    ///
+    /// Object identifiers are supplied by the adapter so it can use its chosen
+    /// stable-ID policy and handle collisions explicitly.
+    pub fn create_file(
+        &mut self,
+        parent_path: &str,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        self.opened.create_persistent_file_at_path(
+            &mut self.device,
+            parent_path,
+            object_id,
+            name,
+        )
+    }
+
+    /// Create an empty directory beneath an existing directory.
+    pub fn create_directory(
+        &mut self,
+        parent_path: &str,
+        object_id: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId> {
+        self.opened.create_persistent_directory_at_path(
+            &mut self.device,
+            parent_path,
+            object_id,
+            name,
+        )
+    }
+
+    /// Replace the contents of an existing regular file.
+    pub fn write_file(&mut self, path: &str, contents: &[u8]) -> Result<()> {
+        self.opened
+            .write_persistent_file_contents(&mut self.device, path, contents)
+    }
+
+    /// Change the logical length of an existing regular file.
+    pub fn set_file_len(&mut self, path: &str, length: u64) -> Result<()> {
+        self.opened
+            .truncate_persistent_path(&mut self.device, path, length)
+    }
+
+    /// Rename or move a file/directory to another existing directory.
+    pub fn rename(
+        &mut self,
+        path: &str,
+        new_parent_path: &str,
+        new_name: &str,
+    ) -> Result<()> {
+        self.opened.rename_persistent_path(
+            &mut self.device,
+            path,
+            new_parent_path,
+            new_name,
+        )
+    }
+
+    /// Remove a file or an empty directory.
+    pub fn remove(&mut self, path: &str) -> Result<()> {
+        self.opened
+            .remove_persistent_path(&mut self.device, path)
+    }
+
+    /// Report the number of currently free data blocks.
+    pub fn free_data_blocks(&mut self) -> Result<u64> {
+        self.opened.free_data_block_count(&mut self.device)
+    }
+
+    /// Flush pending host writes and return the underlying device to the caller.
+    ///
+    /// The caller must stop dispatching filesystem requests before invoking this
+    /// method. A successful return means the block-device flush completed; it does
+    /// not claim that physical hardware honored a power-loss durability guarantee.
+    pub fn unmount(mut self) -> Result<D> {
+        self.device.flush()?;
+        Ok(self.device)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
