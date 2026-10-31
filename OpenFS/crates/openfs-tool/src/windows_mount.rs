@@ -174,11 +174,14 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
         let wants_directory = (create_options & 0x0000_0001) != 0;
         // Only a genuine missing path permits CREATE_* to publish a new entry.
         // Corruption and I/O failures must never be mistaken for absence.
-        let existing = self
+        // Keep lookup and the resulting create/truncate under one session lock.
+        // Otherwise two concurrent CREATE_NEW/OPEN_ALWAYS callbacks can both observe
+        // a missing path before either publishes it (a filesystem-level TOCTOU race).
+        let mut session = self
             .session
             .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .stat(&path);
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let existing = session.stat(&path);
         let (is_dir, new_file_created) = match existing {
             Ok(record) => {
                 if create_disposition == CREATE_NEW {
@@ -191,11 +194,7 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                     if wants_directory {
                         return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                     }
-                    self.session
-                        .lock()
-                        .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-                        .set_file_len(&path, 0)
-                        .map_err(map_core_error)?;
+                    session.set_file_len(&path, 0).map_err(map_core_error)?;
                 }
                 (wants_directory, false)
             }
@@ -207,10 +206,6 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                     return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                 }
                 let (parent, name) = split_parent(&path)?;
-                let mut session = self
-                    .session
-                    .lock()
-                    .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
                 if wants_directory {
                     session
                         .create_directory_auto(parent, name)
