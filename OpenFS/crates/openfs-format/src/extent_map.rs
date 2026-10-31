@@ -424,12 +424,27 @@ impl ExtentMap {
         self.validate(logical_block_count, data_start, data_end)?;
         let block_count =
             usize::try_from(self.allocated_blocks()?).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Logical extent order does not imply physical order. Sort the much smaller
+        // extent list, then expand already ordered, non-overlapping runs. Sorting every
+        // physical block individually makes inventory construction unnecessarily
+        // expensive for large, highly fragmented files.
+        let mut ranges: Vec<(u64, u64)> = Vec::new();
+        ranges
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve physical inventory ranges"))?;
+        for extent in &self.extents {
+            ranges.push((extent.physical_start, extent.physical_end()?));
+        }
+        ranges.sort_unstable();
+
         let mut blocks: Vec<u64> = Vec::new();
         blocks
             .try_reserve_exact(block_count)
             .map_err(|_| Error::AllocationFailed("unable to reserve physical block inventory"))?;
-        blocks.extend(self.physical_blocks());
-        blocks.sort_unstable();
+        for (start, end) in ranges {
+            blocks.extend(start..end);
+        }
         Ok(blocks)
     }
 
