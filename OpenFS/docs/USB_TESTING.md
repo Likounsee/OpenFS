@@ -7,7 +7,7 @@ Le dépôt possède maintenant un premier chemin de montage physique Windows, en
 - `format-usb` initialise un volume OpenFS sur **tout le disque physique** sélectionné. Cette opération détruit la table de partitions et toutes les données présentes sur la clé.
 - `mount-usb` ouvre un disque USB déjà hors ligne, vérifie son `UniqueId` exact, son transport USB, son état boot/system et sa géométrie, puis monte le volume avec Dokany.
 - `unmount` demande à Dokany de démonter le lecteur. Le processus de montage attend la fin du démontage, effectue un flush final et retourne les erreurs de fermeture différées.
-- `scripts/mount-openfs-usb.ps1` automatise le passage hors ligne puis la restauration de l'état initial du disque. Il ne formate jamais.
+- `scripts/mount-openfs-usb.ps1` automatise le passage hors ligne puis la restauration de l'état initial du disque. Son mode `Format` exige une confirmation destructive distincte; son mode `Mount` n'écrit pas le formatage.
 
 **Limite majeure :** le chemin est implémenté mais n'a pas encore été validé sur une vraie clé USB dans cette session. La persistance sur matériel, le retrait à chaud, les coupures d'alimentation et la compatibilité réelle avec toutes les applications Windows restent à tester. Le statut CI du commit courant doit être vérifié séparément; aucune réussite n'est présumée.
 
@@ -50,10 +50,10 @@ Note le numéro du disque et copie son `UniqueId` exact. Débranche les autres d
 Dans un PowerShell administrateur :
 
 ```powershell
-.\OpenFS\target\release\openfs.exe format-usb 3 "UNIQUE-ID-EXACT" ERASE-ALL-DATA
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Format -OpenFsExe .\OpenFS\target\release\openfs.exe -DiskNumber 3 -UniqueId "UNIQUE-ID-EXACT" -MountPoint O: -ConfirmEraseAllData ERASE-ALL-DATA
 ```
 
-Remplace `3` et `UNIQUE-ID-EXACT` par les valeurs réellement affichées sur ton PC. Ne copie pas l'exemple tel quel. Le texte `ERASE-ALL-DATA` est une confirmation obligatoire, pas une protection contre une mauvaise sélection du disque.
+Remplace `3` et `UNIQUE-ID-EXACT` par les valeurs réellement affichées sur ton PC. Ne copie pas l'exemple tel quel. Le script revérifie le disque USB, son identifiant exact et les indicateurs boot/system, le met hors ligne pour le formatage, puis restaure son état online initial. `ERASE-ALL-DATA` est une confirmation obligatoire, pas une protection contre une mauvaise sélection du disque.
 
 ## 4. Monter la clé comme un lecteur Windows
 
@@ -65,7 +65,7 @@ Dans un PowerShell administrateur, remplace le numéro, l'identifiant et la lett
 
 La fenêtre reste occupée pendant que le volume est monté. Le lecteur `O:\` doit apparaître dans l'Explorateur Windows. Tu peux y créer, copier, déplacer et supprimer des fichiers comme sur un lecteur expérimental classique.
 
-Le script vérifie de nouveau l'identité du disque, refuse les disques non-USB, boot/system ou read-only, le met hors ligne avant l'ouverture brute, puis lance `mount-usb`. Il ne lance aucun formatage.
+Le script vérifie de nouveau l'identité du disque, refuse les disques non-USB, boot/system ou read-only, le met hors ligne avant l'ouverture brute, puis lance `mount-usb`. Le formatage n'est effectué que par le mode `Format` avec la confirmation destructive explicite.
 
 ## 5. Démonter proprement
 
