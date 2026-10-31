@@ -2229,6 +2229,29 @@ mod tests {
     }
 
     #[test]
+    fn validated_inventory_reuses_coalesced_physical_runs_for_fragmented_logical_maps() {
+        let extents: Vec<Extent> = (0..1_024_u64)
+            .map(|logical| Extent {
+                logical_start: logical * 2,
+                physical_start: 2_000 + (1_023 - logical),
+                block_count: 1,
+            })
+            .collect();
+        let map = ExtentMap::new(extents).unwrap();
+
+        let ranges = map.validated_physical_ranges(2_047, 1_000, 4_000).unwrap();
+        assert_eq!(ranges, vec![(2_000, 3_024)]);
+
+        let inventory = map
+            .validated_physical_block_inventory(2_047, 1_000, 4_000)
+            .unwrap();
+        assert_eq!(inventory.len(), 1_024);
+        assert_eq!(inventory.first(), Some(&2_000));
+        assert_eq!(inventory.last(), Some(&3_023));
+        assert!(inventory.windows(2).all(|pair| pair[0] + 1 == pair[1]));
+    }
+
+    #[test]
     fn byte_capacity_helpers_report_overflow_instead_of_wrapping() {
         let map = ExtentMap::new(vec![Extent {
             logical_start: 0,
