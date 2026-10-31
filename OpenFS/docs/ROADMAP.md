@@ -1283,3 +1283,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Les contrôles de propriété persistante et de protection des descripteurs couvrent toute la liste avant modification. En cas de résultat de commit incertain, le volume est rouvert et chaque bloc demandé est vérifié : tous libres = succès, aucun libre = erreur initiale, état mixte = corruption.
 - Le test de régression multi-bitmap vérifie maintenant aussi la libération de la liste allouée, puis la persistance de cette libération après réouverture. Le comptage de pages est fondé sur les pages réellement touchées, pas sur l'intervalle physique entre le premier et le dernier bloc.
 - Inventaire lexical synchronisé : 1270 déclarations sur 18 fichiers Rust. Tests, compilation, rustfmt, Clippy et CI exacte-SHA restent à exécuter/confirmer. Progression globale maintenue à 73 %.
+
+### Matrice de pannes de troncature persistante (2026-10-31)
+
+- Commit `e503977bef819b13ebc7f2c78db960fdf206ee22` : ajout d'un test image qui injecte des erreurs après chaque nombre croissant d'écritures et de flushs pendant une troncature multi-blocs.
+- Après chaque interruption simulée, le test rouvre le volume et exige une génération complète : soit l'ancien fichier et son contenu, soit la nouvelle longueur avec le préfixe exact. Il vérifie également la cohérence entre l'inventaire persistant et le bitmap, afin de détecter les extents orphelins ou les références libérées trop tôt.
+- Le test couvre les frontières logicielles d'E/S; il ne simule pas une coupure électrique physique. Il est ajouté mais non exécuté dans cette session; aucune compilation ou réussite CI n'est revendiquée.
+- Inventaire lexical synchronisé à 1271 déclarations sur 18 fichiers Rust (commit `6d5d5587ab8c2be4b03fb8c593807874462dbb3c`).
+- Progression globale maintenue à 73 % jusqu'à exécution effective des tests et validation CI.
+
