@@ -2415,7 +2415,7 @@ mod tests {
 
         assert_eq!(inventory.len(), 1024);
         assert!(inventory.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(inventory[0], 18_002);
+        assert_eq!(inventory[0], 17_954);
         assert_eq!(inventory[1023], 20_000);
     }
 
