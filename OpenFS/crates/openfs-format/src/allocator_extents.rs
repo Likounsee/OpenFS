@@ -845,9 +845,9 @@ impl OpenedVolume {
     ) -> Result<Option<u64>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > bits_per_block {
+        if count == 0 || count > self.journal.max_update_count(device)? as u64 * bits_per_block {
             return Err(Error::InvalidInput(
-                "contiguous extent length must fit within one bitmap block",
+                "contiguous extent length exceeds the journal's atomic bitmap capacity",
             ));
         }
         let layout = self.volume.layout;
@@ -862,6 +862,11 @@ impl OpenedVolume {
             self.volume.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
+        // Keep the current free run across bitmap boundaries: the bitmap pages are
+        // metadata segmentation, not gaps in the physical data region.
+        let mut run_start = layout.data_start;
+        let mut run_len = 0_u64;
+        let mut previous_free = None;
         for index in first_bitmap..=last_bitmap {
             let bitmap_block = layout
                 .bitmap_start
@@ -884,9 +889,6 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            let mut run_start = start;
-            let mut run_len = 0_u64;
-            let mut previous_free = None;
             // Ignore bitmap bytes outside this segment's usable data range.
             // Enumerating the slice avoids repeatedly walking the whole prefix.
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
@@ -960,103 +962,135 @@ impl OpenedVolume {
     ) -> Result<u64> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > bits_per_block {
+        let layout = self.volume.layout;
+        let max_updates = self.journal.max_update_count(device)?;
+        let max_blocks = u64::try_from(max_updates)
+            .map_err(|_| Error::ArithmeticOverflow)?
+            .checked_mul(bits_per_block)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if count == 0 || count > max_blocks || count > layout.data_blocks() {
             return Err(Error::InvalidInput(
-                "contiguous extent length must fit within one bitmap block",
+                "contiguous extent length exceeds the journal's atomic bitmap capacity",
             ));
         }
-        // The free-run scan and bitmap commit are separate operations. If another
-        // allocator claims the run in between, search again instead of treating a
-        // normal reservation race as filesystem corruption.
+
+        // Selection and reservation are separate because the bitmap is authoritative.
+        // Re-read every touched page immediately before scrubbing and committing.
         'retry: for attempt in 0..3 {
             let start = self
                 .find_contiguous_free_blocks(device, count)?
                 .ok_or(Error::InvalidInput("no contiguous free data extent"))?;
             let end = start.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
-            if start / bits_per_block != (end - 1) / bits_per_block {
-                return Err(Error::Corrupt(
-                    "contiguous allocation crosses an allocation bitmap segment",
-                ));
+            if start < layout.data_start || end > layout.backup_superblock {
+                return Err(Error::Corrupt("contiguous allocator selected blocks outside data region"));
             }
-            let bitmap_index = start / bits_per_block;
-            let bitmap_block = self
-                .volume
-                .layout
-                .bitmap_start
-                .checked_add(bitmap_index)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let base = bitmap_index
-                .checked_mul(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let mut bitmap = try_zeroed_buffer(
-                self.volume.block_size as usize,
-                "allocation failed while preparing allocator bitmap",
-            )?;
-            device.read_blocks(bitmap_block, &mut bitmap)?;
-            let segment_start = self.volume.layout.data_start.max(base);
-            let segment_end = self.volume.layout.backup_superblock.min(
-                base.checked_add(bits_per_block)
-                    .ok_or(Error::ArithmeticOverflow)?,
-            );
-            validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-            // Recheck the reservation after the free-run scan. This also protects
-            // against stale allocator views before any block contents are touched.
-            if !bitmap_range_matches(&bitmap, start - base, end - base, false)? {
-                if attempt < 2 {
-                    continue 'retry;
-                }
+            let first_index = start / bits_per_block;
+            let last_index = (end - 1) / bits_per_block;
+            let page_count = usize::try_from(last_index - first_index + 1)
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            if page_count > max_updates {
                 return Err(Error::InvalidInput(
-                    "contiguous extent changed repeatedly; retry allocation",
+                    "contiguous extent exceeds the journal's atomic bitmap-update capacity",
                 ));
             }
-            // Validate the entire reservation before touching block contents. If the bitmap
-            // changed since the free-run scan, fail without clearing a block that is now owned.
+            let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
+            pages.try_reserve_exact(page_count).map_err(|_| {
+                Error::AllocationFailed("unable to reserve contiguous allocation bitmap pages")
+            })?;
+            for index in first_index..=last_index {
+                let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+                let bitmap_block = layout.bitmap_start.checked_add(index)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                let mut image = try_zeroed_buffer(
+                    self.volume.block_size as usize,
+                    "allocation failed while preparing contiguous bitmap pages",
+                )?;
+                device.read_blocks(bitmap_block, &mut image)?;
+                let segment_start = layout.data_start.max(base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(&image, base, segment_start, segment_end)?;
+                let local_start = start.max(segment_start) - base;
+                let local_end = end.min(segment_end) - base;
+                if !bitmap_range_matches(&image, local_start, local_end, false)? {
+                    if attempt < 2 {
+                        continue 'retry;
+                    }
+                    return Err(Error::InvalidInput(
+                        "contiguous extent changed repeatedly; retry allocation",
+                    ));
+                }
+                set_bitmap_range(&mut image, local_start, local_end, true)?;
+                pages.push((bitmap_block, base, image));
+            }
+
+            // The complete redo set is preflighted before any data-block contents are
+            // scrubbed, so a journal-capacity rejection has no side effects.
+            let mut redo = Vec::new();
+            redo.try_reserve_exact(pages.len()).map_err(|_| {
+                Error::AllocationFailed("unable to reserve contiguous allocation redo images")
+            })?;
+            for (bitmap_block, _, image) in &pages {
+                redo.push(RedoUpdate {
+                    target_block: *bitmap_block,
+                    contents: image.clone(),
+                });
+            }
+            self.journal.required_record_count(device, redo.len())?;
             clear_stale_descriptor_magic_range(device, self.volume.block_size, start, end)?;
-            // Mark the already-validated range with the same masks in one pass per
-            // bitmap byte, avoiding per-block division and modulo operations.
-            set_bitmap_range(&mut bitmap, start - base, end - base, true)?;
-            if let Err(error) = self.journal.commit(
-                device,
-                &[RedoUpdate {
-                    target_block: bitmap_block,
-                    contents: bitmap,
-                }],
-            ) {
-                // Resolve an indeterminate COMMIT before returning a retryable error.
+
+            if let Err(error) = self.journal.commit(device, &redo) {
                 *self = crate::volume::open_volume(device).map_err(|_| {
                     Error::Corrupt(
                         "contiguous allocation failed and journal recovery could not be completed",
                     )
                 })?;
-                let mut recovered_bitmap = try_zeroed_buffer(
+                let mut recovered = try_zeroed_buffer(
                     self.volume.block_size as usize,
                     "allocation failed while verifying recovered contiguous allocation",
                 )?;
-                device
-                    .read_blocks(bitmap_block, &mut recovered_bitmap)
-                    .map_err(|_| {
-                        Error::Corrupt(
-                            "contiguous allocation recovery could not verify bitmap state",
-                        )
+                let mut allocated_count = 0_u64;
+                for (bitmap_block, base, _) in &pages {
+                    device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
+                        Error::Corrupt("contiguous allocation recovery could not read a bitmap page")
                     })?;
-                validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
-                    .map_err(|_| {
-                        Error::Corrupt("contiguous allocation recovery found an invalid bitmap")
-                    })?;
-                let allocated =
-                    bitmap_range_matches(&recovered_bitmap, start - base, end - base, true)?;
-                if allocated {
+                    let segment_start = layout.data_start.max(*base);
+                    let segment_end = layout.backup_superblock.min(
+                        base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
+                        .map_err(|_| Error::Corrupt("contiguous allocation recovery found invalid bitmap"))?;
+                    let local_start = start.max(segment_start) - *base;
+                    let local_end = end.min(segment_end) - *base;
+                    for block in local_start..local_end {
+                        let byte = usize::try_from(block / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                        if recovered[byte] & (1_u8 << (block % 8)) != 0 {
+                            allocated_count = allocated_count.checked_add(1)
+                                .ok_or(Error::ArithmeticOverflow)?;
+                        }
+                    }
+                }
+                if allocated_count == count {
+                    self.allocation_hint = if end >= layout.backup_superblock {
+                        layout.data_start
+                    } else {
+                        end
+                    };
                     return Ok(start);
                 }
-                let free =
-                    bitmap_range_matches(&recovered_bitmap, start - base, end - base, false)?;
-                if free {
+                if allocated_count == 0 {
                     return Err(error);
                 }
                 return Err(Error::Corrupt(
                     "contiguous allocation recovery left a mixed bitmap state",
                 ));
             }
+            self.allocation_hint = if end >= layout.backup_superblock {
+                layout.data_start
+            } else {
+                end
+            };
             return Ok(start);
         }
         Err(Error::InvalidInput(
