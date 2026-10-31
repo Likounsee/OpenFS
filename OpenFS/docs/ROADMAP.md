@@ -1364,6 +1364,6 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 ### Validation rapide de la taille logique des extents (2026-10-31)
 
-- Commit `14ab79b222c1876795bd16344db7c9fe7803a2a6` : `ExtentMap::validate_file_size()` ne parcourt plus tous les extents. Comme l'invariant de la carte garantit un ordre logique croissant sans chevauchement, le dernier extent possède nécessairement la plus grande fin logique; une seule vérification suffit donc, y compris pour les fichiers clairsemés.
+- Commit `fa7b2b3b13895a30f690ef7c259fc10e9424547a` : `ExtentMap::validate_file_size()` ne parcourt plus tous les extents. Comme l'invariant de la carte garantit un ordre logique croissant sans chevauchement, le dernier extent possède nécessairement la plus grande fin logique; une seule vérification suffit donc, y compris pour les fichiers clairsemés.
 - Les cas de taille partielle, de trous sparse, de fichier vide et de dépassement restent couverts par les tests existants de `extent_map.rs`; aucun test local n'a été exécuté dans cette session. CI exacte-SHA en attente.
 - Progression globale maintenue à 73 % jusqu'à validation automatisée.
