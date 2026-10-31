@@ -30,8 +30,7 @@ use winapi::um::winnt::{
 
 type FileHandle = ObjectId;
 
-/// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
-/// the session is serialized and open handles retain stable on-disk object IDs.
+/// Collects callback failures that Dokan cleanup cannot return to Windows.
 #[derive(Default)]
 struct DeferredErrorLatch {
     message: Mutex<Option<String>>,
@@ -59,6 +58,8 @@ impl DeferredErrorLatch {
     }
 }
 
+/// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
+/// the session is serialized and open handles retain stable on-disk object IDs.
 struct OpenFsHandler<D: BlockDevice> {
     session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
