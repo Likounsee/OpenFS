@@ -2867,9 +2867,26 @@ mod tests {
             let device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
                 .unwrap();
             let mut session = VolumeSession::open(device).unwrap();
-            session.create_file_auto("/", "usb-roundtrip.txt").unwrap();
+            let object_id = session
+                .create_file_auto("/", "usb-roundtrip.txt")
+                .unwrap();
+            assert_eq!(
+                session.path_for_object(object_id).unwrap(),
+                "/usb-roundtrip.txt"
+            );
             session
                 .write_file("/usb-roundtrip.txt", b"raw block device persistence")
+                .unwrap();
+            session
+                .rename("/usb-roundtrip.txt", "/", "renamed-on-open.txt")
+                .unwrap();
+            // Open handles retain object identity, so their path follows a rename.
+            assert_eq!(
+                session.path_for_object(object_id).unwrap(),
+                "/renamed-on-open.txt"
+            );
+            session
+                .write_file("/renamed-on-open.txt", b"raw block device persistence")
                 .unwrap();
             let device = session.unmount().unwrap();
             drop(device);
@@ -2880,7 +2897,7 @@ mod tests {
                 .unwrap();
             let mut session = VolumeSession::open(device).unwrap();
             assert_eq!(
-                session.read_file("/usb-roundtrip.txt").unwrap(),
+                session.read_file("/renamed-on-open.txt").unwrap(),
                 b"raw block device persistence"
             );
             let device = session.unmount().unwrap();
