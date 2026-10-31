@@ -1326,3 +1326,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 - Correctif d'inventaire : le script officiel `OpenFS/scripts/generate_symbol_inventory.py` a été reproduit sur les 18 fichiers Rust sources récupérés de la branche, et le CSV complet a été régénéré au commit `354f2e70b54b225003843d0fc7cdf7ec70e53193`. Le compte exact est **1 275 déclarations** (et non 1 274); les lignes de `volume.rs` sont recalculées à partir du contenu actuel.
 
+### Suppression localisée des extents (2026-10-31)
+
+- Commit `10d5d26383dd361c44daab059b2b1f232b4fc6ca` : `ExtentMap::remove_range()` calcule maintenant par dichotomie les bornes des extents affectés, réserve le résultat retiré en fonction du seul nombre d'extents touchés, et copie les préfixe/suffixe intacts par tranches. La reconstruction ne retrie plus toute la carte ni ne revalide inutilement les extents physiques inchangés : les invariants sont préservés par découpage d'extents existants.
+- Test ajouté : suppression d'un seul extent au milieu d'une carte de 2 048 extents, vérification des blocs avant/après, du trou libéré et de la validité de la carte.
+- Commit `5af0ed1bfa1c07292e880e676e1736f71cc9c819` : correction de l'adresse physique attendue dans ce nouveau test.
+- Inventaire régénéré depuis les 18 fichiers Rust de la branche : 1 276 déclarations (commit `a495a3f5e8286db931a9c75cdfc37c739c4983fb`).
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
