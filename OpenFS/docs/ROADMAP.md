@@ -1378,9 +1378,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 ### Libération groupée des blocs par plages bitmap (2026-10-31)
 
-- Commit `1dfbd126864f65780fe3613cbc6836254aad9b90` : `free_blocks_sorted()` réutilise désormais la dernière page bitmap chargée, car la liste validée est strictement croissante. La recherche d'une page passe d'une recherche linéaire parmi les pages déjà chargées à un accès direct sur la dernière page; le coût de parcours ne dépend plus du produit du nombre de blocs et du nombre de pages touchées.
+- Commit `275a1315a3b8e3e05f19eb4d8a90d8787370b067` (correction de structure après le commit fonctionnel `1dfbd126864f65780fe3613cbc6836254aad9b90`) : `free_blocks_sorted()` réutilise désormais la dernière page bitmap chargée, car la liste validée est strictement croissante. La recherche d'une page passe d'une recherche linéaire parmi les pages déjà chargées à un accès direct sur la dernière page; le coût de parcours ne dépend plus du produit du nombre de blocs et du nombre de pages touchées.
 - Les blocs consécutifs d'une même page sont validés et libérés en une seule plage bitmap, plutôt qu'en opérations unitaires. Le chemin de récupération après erreur du journal utilise `partition_point` pour ne vérifier que les blocs appartenant à la page relue.
 - Les protections restent en place : validation préalable de toute la liste, rejet des doublons et blocs déjà libres, capacité redo vérifiée avant commit, contrôle des blocs réservés/descripteurs, et vérification de l'état récupéré après échec.
 - Les tests existants couvrent les lots contigus, les entrées dupliquées, les états mixtes, ainsi que la libération après allocation traversant une frontière de pages bitmap. Ils n'ont pas été exécutés dans cette session.
-- Inventaire lexical recalculé sur les 18 fichiers Rust : 1 283 déclarations, commit `e7836ea7236d1fe83b9d1394a6c1c9192489bcaf`.
+- Inventaire lexical recalculé sur les 18 fichiers Rust : 1 283 déclarations, commit `079e75e5f8bb98917fd77e43d5599f203b98eade`.
 - Compilation, tests Rust, rustfmt, Clippy et CI exacte-SHA restent non vérifiés. Progression globale maintenue à 73 %.
