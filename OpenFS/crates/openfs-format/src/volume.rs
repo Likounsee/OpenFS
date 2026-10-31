@@ -1895,6 +1895,146 @@ impl OpenedVolume {
         self.remove_persistent_object_from_namespace(device, namespace, object_id)
     }
 
+    /// Atomically replace an existing regular file with another regular file.
+    ///
+    /// The replacement namespace is staged in memory and published once. The old
+    /// destination's extents are reclaimed only after the new inventory is discoverable,
+    /// so a crash exposes either the old destination or the new source at that name.
+    /// If the destination does not exist, this behaves as an ordinary rename.
+    pub fn replace_persistent_file_at_path<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        source_path: &str,
+        new_parent_path: &str,
+        new_name: &str,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent replacement requires a published inventory",
+            ));
+        };
+        let source_id = namespace.resolve_path(source_path)?;
+        let source_record = namespace
+            .object(source_id)
+            .ok_or(Error::Corrupt("replacement source metadata is missing"))?;
+        if source_record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput(
+                "replacement source must be a regular file",
+            ));
+        }
+        let new_parent_id = namespace.resolve_path(new_parent_path)?;
+        let Some(destination_entry) = namespace.lookup(new_parent_id, new_name).cloned() else {
+            return self.rename_persistent_object_from_namespace(
+                device,
+                namespace,
+                source_id,
+                new_parent_id,
+                new_name,
+            );
+        };
+        let destination_id = ObjectId::new(destination_entry.object_id)?;
+        if destination_id == source_id {
+            return Ok(());
+        }
+        let destination_record = namespace
+            .object(destination_id)
+            .cloned()
+            .ok_or(Error::Corrupt("replacement destination metadata is missing"))?;
+        if destination_record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput(
+                "replacement destination must be a regular file",
+            ));
+        }
+        if destination_record.extent_root_block.is_none() && destination_record.size != 0 {
+            return Err(Error::Corrupt(
+                "non-empty replacement destination is missing its extent-map root",
+            ));
+        }
+
+        let source_old_path = namespace.path_of(source_id)?;
+        let mut reclaim_blocks = Vec::new();
+        if let Some(root_block) = destination_record.extent_root_block {
+            let maps = self.read_namespace_extent_maps(device, &namespace)?;
+            let map = maps
+                .get(&destination_id)
+                .ok_or(Error::Corrupt("replacement destination extent map is missing"))?;
+            let data_blocks = map.extents().iter().try_fold(0_u64, |count, extent| {
+                count
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)
+            })?;
+            let capacity = usize::try_from(
+                data_blocks.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            )
+            .map_err(|_| Error::ArithmeticOverflow)?;
+            reclaim_blocks.try_reserve_exact(capacity).map_err(|_| {
+                Error::AllocationFailed("unable to reserve replacement block inventory")
+            })?;
+            for extent in map.extents() {
+                for delta in 0..extent.block_count {
+                    reclaim_blocks.push(
+                        extent
+                            .physical_start
+                            .checked_add(delta)
+                            .ok_or(Error::ArithmeticOverflow)?,
+                    );
+                }
+            }
+            reclaim_blocks.push(root_block);
+        }
+
+        // Both namespace changes are made against one reconstructed snapshot. No
+        // destination data is freed until this combined namespace is durably published.
+        namespace.remove(destination_id)?;
+        namespace.rename(source_id, new_parent_id, new_name)?;
+
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+            device,
+            &namespace,
+            &reclaim_blocks,
+        ) {
+            match self.reconstruct_discovered_namespace(device) {
+                Ok(Some((_, active)))
+                    if active.object(destination_id).is_none()
+                        && active.object(source_id).is_some_and(|record| {
+                            record.parent_id == new_parent_id.0
+                                && active
+                                    .lookup(new_parent_id, new_name)
+                                    .is_some_and(|entry| entry.object_id == source_id.0)
+                        }) =>
+                {
+                    self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
+                        .map_err(|_| {
+                            Error::Corrupt(
+                                "replacement committed but destination blocks could not be reclaimed",
+                            )
+                        })?;
+                    return Ok(());
+                }
+                Ok(Some((_, active)))
+                    if active.object(destination_id).is_some()
+                        && active.resolve_path(&source_old_path).ok() == Some(source_id) =>
+                {
+                    return Err(error);
+                }
+                _ => {
+                    return Err(Error::Corrupt(
+                        "replacement publication outcome is uncertain; preserve the image and recover before further writes",
+                    ));
+                }
+            }
+        }
+
+        self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
+            .map_err(|_| {
+                Error::Corrupt(
+                    "replacement committed but destination blocks could not be reclaimed",
+                )
+            })?;
+        Ok(())
+    }
+
     /// Rename or move an object using paths for both its current and destination parent.
     pub fn rename_persistent_path<D: BlockDevice>(
         &mut self,
@@ -8407,6 +8547,21 @@ impl<D: BlockDevice> VolumeSession<D> {
     pub fn rename(&mut self, path: &str, new_parent_path: &str, new_name: &str) -> Result<()> {
         self.opened
             .rename_persistent_path(&mut self.device, path, new_parent_path, new_name)
+    }
+
+    /// Replace an existing regular file, or rename when the destination is absent.
+    pub fn replace_file(
+        &mut self,
+        source_path: &str,
+        new_parent_path: &str,
+        new_name: &str,
+    ) -> Result<()> {
+        self.opened.replace_persistent_file_at_path(
+            &mut self.device,
+            source_path,
+            new_parent_path,
+            new_name,
+        )
     }
 
     /// Remove a file or an empty directory.
