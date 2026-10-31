@@ -1356,3 +1356,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical régénéré sur 18 fichiers Rust : 1 279 déclarations (commit `8a88535b7ced81a23403ff83dc05e8ae79a825b0`).
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+### Réutilisation des plages physiques validées (2026-10-31)
+
+- Commits `2faca8fb0e833623f6fd4dd652af1b7df6453f55` et `4c93761de1f4bb4f5aa13790771879e523699602` : ajout d'un chemin commun qui valide les extents, trie leurs plages physiques une seule fois et les compacte en place. `validated_physical_ranges()` et `validated_physical_block_inventory()` réutilisent directement ce résultat; l'inventaire ne relance plus un second tri après la validation.
+- La validation ordinaire conserve son chemin court sans allocation pour les cartes de zéro ou un extent. Les contrôles de bornes logiques/physiques et de chevauchements physiques restent actifs.
+- Commit `ac3d92d750f95d7e0c3af4ad7da4ca4c89dea37d` : test ajouté sur 1 024 extents en ordre logique fragmenté mais contigus dans l'espace physique; il vérifie la plage coalescée et l'inventaire ascendant complet.
+- Inventaire lexical conservé et recalé sur les lignes actuelles : 1 280 déclarations sur 18 fichiers Rust (commit `24dbd49eafe39c00fb77d867a6c0f2df0fc08b7c`).
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
