@@ -1262,3 +1262,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le curseur avance après le dernier bloc attribué, y compris lorsque le journal signale une erreur mais que la récupération confirme que tous les bits ont été validés. Une sélection partiellement présente après récupération reste une corruption, jamais une allocation réussie.
 - Test de régression ajouté pour vérifier que l'allocation groupée évite un bloc libéré avant le curseur et que la réouverture réinitialise celui-ci. L'inventaire lexical est synchronisé à 1268 déclarations sur 18 fichiers Rust (commit `96b5872cd5f266e7fdd5a63e54025e74cdee7479`).
 - Test, compilation, rustfmt, Clippy et CI non exécutés/confirmés dans cette passe. Progression globale maintenue à 73 %.
+
+### Allocation groupée atomique multi-bitmap (2026-10-31)
+
+- Commit `2966ed577c66f8cfe6a46d729e95300cf9829e3f` : `allocate_blocks` peut maintenant sélectionner des blocs libres sur plusieurs segments bitmap et publier toutes les pages touchées dans une transaction redo unique. Le nombre de pages est borné par `PersistentJournal::max_update_count`; un lot qui dépasse la capacité est refusé avant le nettoyage des blocs candidats.
+- Les pages sont relues et les bits candidats revérifiés avant toute écriture de nettoyage. Après résultat de commit indéterminé, le volume est rouvert et chaque bit demandé est contrôlé : lot entièrement alloué = succès, aucun bit alloué = erreur initiale, état mixte = corruption.
+- Test ajouté : allocation traversant une frontière de bitmap avec bloc de 4096 octets, vérification de chaque bit puis réouverture de l'image. Test non exécuté dans cette session. Inventaire lexical recalculé pour le fichier allocateur : 1269 déclarations sur 18 fichiers Rust.
+- Le curseur next-fit reste respecté, y compris au passage d'un segment au suivant et lors du retour circulaire. Progression globale maintenue à 73 % en attente de tests et CI exacte-SHA.
