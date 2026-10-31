@@ -3933,10 +3933,13 @@ impl OpenedVolume {
             // lookup performed a binary search for every block, even inside a single
             // contiguous extent. This is O(log E + K + R), where K is the number of
             // intersecting extents and R the number of bounded device-read batches.
+            let first_index = extent_map
+                .extents()
+                .partition_point(|extent| extent.logical_start <= first_logical)
+                .saturating_sub(1);
             let end_index = extent_map
                 .extents()
                 .partition_point(|extent| extent.logical_start <= last_logical);
-            let first_index = end_index.saturating_sub(1);
             for extent in &extent_map.extents()[first_index..end_index] {
                 let extent_end = extent
                     .logical_start
