@@ -1105,10 +1105,18 @@ mod tests {
         use super::is_windows_physical_drive_path;
         use std::path::Path;
 
-        assert!(is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive0")));
-        assert!(is_windows_physical_drive_path(Path::new(r"\\.\physicaldrive12")));
-        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive0\Partition1")));
-        assert!(!is_windows_physical_drive_path(Path::new(r"C:\\openfs.img")));
+        assert!(is_windows_physical_drive_path(Path::new(
+            r"\\.\PhysicalDrive0"
+        )));
+        assert!(is_windows_physical_drive_path(Path::new(
+            r"\\.\physicaldrive12"
+        )));
+        assert!(!is_windows_physical_drive_path(Path::new(
+            r"\\.\PhysicalDrive0\Partition1"
+        )));
+        assert!(!is_windows_physical_drive_path(Path::new(
+            r"C:\\openfs.img"
+        )));
     }
 
     #[test]
