@@ -15,6 +15,8 @@ use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
 
 mod windows_device;
+#[cfg(windows)]
+mod windows_mount;
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -30,6 +32,24 @@ fn main() {
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("mount") => {
+            let image = args.next().ok_or("missing image path")?;
+            let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
+            let block_size = parse_block_size(args.next())?;
+            if args.next().is_some() { return Err("too many arguments".into()); }
+            #[cfg(windows)]
+            { windows_mount::mount_image(Path::new(&image), &mount_point, block_size) }
+            #[cfg(not(windows))]
+            { let _ = (image, mount_point, block_size); Err("mount is currently supported only on Windows through Dokany".into()) }
+        }
+        Some("unmount") => {
+            let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
+            if args.next().is_some() { return Err("too many arguments".into()); }
+            #[cfg(windows)]
+            { windows_mount::unmount_drive(&mount_point) }
+            #[cfg(not(windows))]
+            { let _ = mount_point; Err("unmount is currently supported only on Windows through Dokany".into()) }
+        }
         Some("list-devices") => {
             if args.next().is_some() {
                 return Err("list-devices does not accept arguments".into());
