@@ -11,10 +11,12 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(windows)]
 use openfs_block::RawDevice;
-use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
+use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
+use openfs_format::{
+    check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession,
+};
 
 mod windows_device;
 #[cfg(windows)]
@@ -67,11 +69,16 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
         }
         Some("format-usb") => {
-            let disk_index = args.next().ok_or("missing USB disk index")?.parse::<u32>()?;
+            let disk_index = args
+                .next()
+                .ok_or("missing USB disk index")?
+                .parse::<u32>()?;
             let unique_id = args.next().ok_or("missing exact USB disk UniqueId")?;
             let confirmation = args.next().ok_or("missing ERASE-ALL-DATA confirmation")?;
             if confirmation != "ERASE-ALL-DATA" {
-                return Err("refusing to format USB disk: type ERASE-ALL-DATA exactly to confirm".into());
+                return Err(
+                    "refusing to format USB disk: type ERASE-ALL-DATA exactly to confirm".into(),
+                );
             }
             let block_size = parse_block_size(args.next())?;
             if args.next().is_some() {
@@ -88,7 +95,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
         }
         Some("mount-usb") => {
-            let disk_index = args.next().ok_or("missing USB disk index")?.parse::<u32>()?;
+            let disk_index = args
+                .next()
+                .ok_or("missing USB disk index")?
+                .parse::<u32>()?;
             let unique_id = args.next().ok_or("missing exact USB disk UniqueId")?;
             let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
             let block_size = parse_block_size(args.next())?;
@@ -2693,18 +2703,18 @@ fn format_usb_device(
         ).into());
     }
     if size_bytes % u64::from(block_size) != 0 {
-        return Err("USB disk capacity is not a whole multiple of the selected OpenFS block size".into());
+        return Err(
+            "USB disk capacity is not a whole multiple of the selected OpenFS block size".into(),
+        );
     }
 
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
-    let mut device = RawDevice::open(
-        &device_path,
-        block_size,
-        size_bytes / u64::from(block_size),
-    )?;
+    let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     let confirmed = windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
-        return Err("USB disk identity or geometry changed while opening it; refusing to format".into());
+        return Err(
+            "USB disk identity or geometry changed while opening it; refusing to format".into(),
+        );
     }
     // This intentionally overwrites the complete selected physical disk, including
     // partition tables and every existing partition. The caller had to type the
@@ -2725,7 +2735,9 @@ fn format_usb_device(
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs list-devices  (read-only physical disk inventory; Windows only)");
-    eprintln!("  openfs create-image <path> <size-MiB>  (formats and initializes a mount-ready image)");
+    eprintln!(
+        "  openfs create-image <path> <size-MiB>  (formats and initializes a mount-ready image)"
+    );
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
     eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
     eprintln!("  openfs format-usb <disk-index> <exact-UniqueId> ERASE-ALL-DATA [block-size]  (destructive; Windows; disk must be offline)");
@@ -2779,9 +2791,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE,
-    };
+    use super::{audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
@@ -2853,23 +2863,24 @@ mod tests {
         }
 
         {
-            let mut device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
-                .unwrap();
+            let mut device =
+                RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE)).unwrap();
             format_volume(&mut device, *b"openfs-raw-test!", 0).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             volume
-                .initialize_persistent_namespace(&mut device, openfs_format::ObjectId::new(1).unwrap())
+                .initialize_persistent_namespace(
+                    &mut device,
+                    openfs_format::ObjectId::new(1).unwrap(),
+                )
                 .unwrap();
             device.flush().unwrap();
         }
 
         {
-            let device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
-                .unwrap();
+            let device =
+                RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE)).unwrap();
             let mut session = VolumeSession::open(device).unwrap();
-            let object_id = session
-                .create_file_auto("/", "usb-roundtrip.txt")
-                .unwrap();
+            let object_id = session.create_file_auto("/", "usb-roundtrip.txt").unwrap();
             assert_eq!(
                 session.path_for_object(object_id).unwrap(),
                 "/usb-roundtrip.txt"
@@ -2893,8 +2904,8 @@ mod tests {
         }
 
         {
-            let device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
-                .unwrap();
+            let device =
+                RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE)).unwrap();
             let mut session = VolumeSession::open(device).unwrap();
             assert_eq!(
                 session.read_file("/renamed-on-open.txt").unwrap(),
