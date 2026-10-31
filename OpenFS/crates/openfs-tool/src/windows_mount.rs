@@ -31,7 +31,7 @@ use winapi::um::winnt::{
 type FileHandle = ObjectId;
 
 /// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
-/// the session is serialized while per-open path state is independently guarded.
+/// the session is serialized and open handles retain stable on-disk object IDs.
 struct OpenFsHandler<D: BlockDevice> {
     session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
@@ -144,7 +144,6 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
     ) -> Result<CreateFileInfo<Self::Context>, OperationError> {
         let path = path_from_windows(file_name)?;
         if path == "/" {
-            self.stat("/")?;
             let record = self.stat("/")?;
             return Ok(CreateFileInfo {
                 context: record.id,
