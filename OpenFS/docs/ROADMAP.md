@@ -1171,3 +1171,15 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 - Commit `a7275ac3b0572975dbbd917199ec3ad0b6906482` : la confirmation `ERASE-ALL-DATA` est maintenant contrôlée avant toute transition de l'état Online/Offline; le helper ne change donc pas l'état du disque si la confirmation manque.
 - Commit `76284c88f12cc1bb920c62dddf8be6eb05f591f8` : README synchronisé avec le vrai flux USB; suppression de deux instructions obsolètes qui disaient encore que le CLI ne montait pas de disque physique ou que l'intégration était uniquement image.
+
+
+### Remplacement atomique de fichiers dans le montage Windows (2026-10-31)
+
+- Commit `a0f28ae9615abb7723c7515cbecd0775832670a2` : ajout de `replace_persistent_file_at_path` dans `openfs-format`. Le moteur reconstruit le namespace, vérifie que source et destination sont des fichiers réguliers, retire la destination dans la vue en mémoire, déplace la source, puis publie le nouvel inventaire une seule fois. Les extents de l'ancien fichier ne sont libérés qu'après publication; si le résultat du commit est ambigu, la récupération redécouvre l'ancien ou le nouvel état avant de décider.
+- Commit `9a878df3f900a4b5072c07e942194bb95d9370a6` : `move_file(replace_if_existing=true)` utilise maintenant cette primitive au lieu de refuser systématiquement le remplacement.
+- Commit `41b6be24494f107bb743082de7e8f3d4461309a1` : suivi des handles Dokany ouverts par `ObjectId`; un remplacement est refusé avec une erreur de partage si la destination est encore ouverte, pour ne pas invalider un contexte vivant.
+- Commit `f2d5f84eb47b8bd9d970725a3e5063e730fd56dc` : test image-backed ajouté pour remplacer un fichier non vide, préserver un fichier indépendant, refuser une destination répertoire sans modifier un seul octet, puis rouvrir l'image et vérifier la persistance et l'inventaire.
+- Documentation architecture et README actualisés par les commits `180fddaab5e12c6786969e4396586bc833c2f432` et `4d3d410462ae0446c0eb3ac666057ed0931881bb`.
+- Limites : le test a été écrit mais n'a pas été exécuté ici; les tests d'injection de panne au moment précis de la publication et du reclaim restent à ajouter. Les règles Windows complètes de partage, suppression différée, ACL et timestamps restent incomplètes. Aucun essai sur une clé USB physique n'a été réalisé.
+- Validation : compilation Rust, `cargo fmt`, Clippy, tests et CI sur le SHA final non confirmés; un statut GitHub vide n'est pas une CI verte.
+- Estimation de périmètre : P0 100 %, P1 81 %, P2 81 %, P3 5 %, global 72 %. Le point ajouté correspond à la nouvelle primitive de remplacement et à son raccordement Dokany; ce n'est pas un pourcentage de tests validés.
