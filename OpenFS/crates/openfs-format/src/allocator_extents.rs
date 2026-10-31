@@ -862,7 +862,7 @@ impl OpenedVolume {
         Ok(())
     }
 
-    /// Find the first free contiguous extent wholly contained in one bitmap block.
+    /// Find the first free contiguous extent, including runs crossing bitmap pages.
     /// Returns its first data block, or None if no extent of this size exists.
     pub fn find_contiguous_free_blocks<D: BlockDevice>(
         &self,
