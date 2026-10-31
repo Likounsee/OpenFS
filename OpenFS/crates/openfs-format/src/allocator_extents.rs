@@ -3019,6 +3019,11 @@ mod allocation_bitmap_report_tests {
                 "free-run search must continue across adjacent bitmap pages"
             );
             assert_eq!(
+                volume.find_contiguous_free_blocks(&mut device, 5).unwrap(),
+                None,
+                "a run must not bridge allocated blocks at a bitmap-page boundary"
+            );
+            assert_eq!(
                 volume.allocate_contiguous_blocks(&mut device, 4).unwrap(),
                 extent_start
             );
