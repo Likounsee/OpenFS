@@ -3345,6 +3345,40 @@ mod allocation_bitmap_report_tests {
         }
     } 
     #[test]
+    fn batch_allocator_commits_across_bitmap_segments_atomically() {
+        let path = image_path("batch-cross-bitmap-segments");
+        {
+            // 512-byte blocks give 4096 allocation bits per bitmap page, keeping
+            // this cross-page regression image small while exercising real geometry.
+            let mut device = ImageDevice::create(&path, 512, 5000).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let data_start = volume.volume.layout.data_start;
+            let boundary = data_start + 512 * 8;
+            assert!(boundary + 4 < volume.volume.layout.backup_superblock);
+            volume.allocation_hint = boundary - 2;
+
+            let allocated = volume.allocate_blocks(&mut device, 4).unwrap();
+            assert_eq!(
+                allocated,
+                vec![boundary - 2, boundary - 1, boundary, boundary + 1],
+                "one batch must continue across the bitmap-page boundary"
+            );
+            for block in &allocated {
+                assert!(volume.is_data_block_allocated(&mut device, *block).unwrap());
+            }
+
+            drop(volume);
+            let mut reopened = crate::volume::open_volume(&mut device).unwrap();
+            for block in &allocated {
+                assert!(reopened.is_data_block_allocated(&mut device, *block).unwrap());
+            }
+            let next = reopened.allocate_blocks(&mut device, 1).unwrap();
+            assert_eq!(next, vec![data_start]);
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn batch_allocator_uses_next_fit_cursor_and_resets_on_reopen() {
         let path = image_path("batch-next-fit");
         {
