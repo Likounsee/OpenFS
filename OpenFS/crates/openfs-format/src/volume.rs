@@ -8765,6 +8765,105 @@ mod tests {
     }
 
     #[test]
+    fn persistent_file_replacement_is_published_once_and_survives_reopen() {
+        use crate::ObjectId;
+
+        let path = image_path("persistent-file-replacement");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "source.bin")
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(3), "target.bin")
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(4), "keep.bin")
+                .unwrap();
+            volume
+                .create_persistent_directory_at_path(&mut device, "/", ObjectId(5), "blocked")
+                .unwrap();
+
+            let source = b"new contents survive atomic replacement";
+            let old_target = b"old destination contents must be retired";
+            let keep = b"unrelated file remains unchanged";
+            volume
+                .write_persistent_file_contents(&mut device, "/source.bin", source)
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/target.bin", old_target)
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/keep.bin", keep)
+                .unwrap();
+
+            let before_rejected_replace = snapshot_image_bytes(&mut device);
+            assert!(volume
+                .replace_persistent_file_at_path(&mut device, "/source.bin", "/", "blocked")
+                .is_err());
+            assert_eq!(
+                snapshot_image_bytes(&mut device),
+                before_rejected_replace,
+                "replacing a directory must be rejected without changing any image byte"
+            );
+
+            volume
+                .replace_persistent_file_at_path(&mut device, "/source.bin", "/", "target.bin")
+                .unwrap();
+            assert!(volume
+                .read_persistent_path_range(&mut device, "/source.bin", 0, source.len())
+                .is_err());
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/target.bin", 0, source.len())
+                    .unwrap(),
+                source
+            );
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/keep.bin", 0, keep.len())
+                    .unwrap(),
+                keep
+            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            assert!(volume
+                .read_persistent_path_range(&mut device, "/source.bin", 0, 64)
+                .is_err());
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/target.bin", 0, 128)
+                    .unwrap(),
+                b"new contents survive atomic replacement"
+            );
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/keep.bin", 0, 128)
+                    .unwrap(),
+                b"unrelated file remains unchanged"
+            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn discovery_fails_closed_on_corrupt_allocated_descriptor() {
         use crate::{MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor};
 
