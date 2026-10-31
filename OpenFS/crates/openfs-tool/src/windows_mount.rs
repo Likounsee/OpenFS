@@ -579,7 +579,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             .lock()
             .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
         let path = session
-            .path_for_object(*context)
+            .path_for_object(context.object_id)
             .map_err(map_core_error)?;
         let record = session.stat(&path).map_err(map_core_error)?;
         if record.kind != ObjectKind::Directory {
