@@ -736,11 +736,20 @@ impl ExtentMap {
     /// Validate logical ordering and ensure physical extents are inside the data region.
     /// data_end is exclusive. Physical extents must not alias one another.
     pub fn validate(&self, logical_block_count: u64, data_start: u64, data_end: u64) -> Result<()> {
-        self.validate_and_collect_physical_ranges(
-            Some(logical_block_count),
-            Some((data_start, data_end)),
-        )
-        .map(|_| ())
+        if data_start >= data_end {
+            return Err(Error::InvalidInput("data region is empty or inverted"));
+        }
+        self.validate_ordering()?;
+        for extent in &self.extents {
+            if extent.logical_end()? > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file length"));
+            }
+            let physical_end = extent.physical_end()?;
+            if extent.physical_start < data_start || physical_end > data_end {
+                return Err(Error::Corrupt("extent lies outside the data region"));
+            }
+        }
+        Ok(())
     }
 
     /// Encode this map into one complete filesystem block with zeroed padding and CRC32C.
@@ -832,8 +841,35 @@ impl ExtentMap {
     }
 
     fn validate_ordering(&self) -> Result<()> {
-        self.validate_and_collect_physical_ranges(None, None)
-            .map(|_| ())
+        let mut previous_end = 0_u64;
+        // Zero or one extent cannot physically overlap itself. Avoid a temporary
+        // allocation for the common empty/small-file case.
+        if self.extents.len() <= 1 {
+            if let Some(extent) = self.extents.first().copied() {
+                validate_extent(extent)?;
+            }
+            return Ok(());
+        }
+
+        let mut physical = Vec::new();
+        physical
+            .try_reserve_exact(self.extents.len())
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent validation ranges"))?;
+        for (index, extent) in self.extents.iter().copied().enumerate() {
+            validate_extent(extent)?;
+            if index > 0 && extent.logical_start < previous_end {
+                return Err(Error::InvalidInput(
+                    "logical extents overlap or are unordered",
+                ));
+            }
+            previous_end = extent.logical_end()?;
+            physical.push((extent.physical_start, extent.physical_end()?));
+        }
+        physical.sort_unstable();
+        if physical.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+            return Err(Error::InvalidInput("physical extents overlap"));
+        }
+        Ok(())
     }
 
     /// Validate extent ordering and optionally volume bounds while collecting the
