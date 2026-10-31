@@ -3348,12 +3348,12 @@ mod allocation_bitmap_report_tests {
     fn batch_allocator_commits_across_bitmap_segments_atomically() {
         let path = image_path("batch-cross-bitmap-segments");
         {
-            // 512-byte blocks give 4096 allocation bits per bitmap page, keeping
-            // this cross-page regression image small while exercising real geometry.
-            let mut device = ImageDevice::create(&path, 512, 5000).unwrap();
+            // The format's minimum block size is 4096 bytes, giving 32768
+            // allocation bits per bitmap page. The image is sparse on disk.
+            let mut device = ImageDevice::create(&path, 4096, 33_000).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let data_start = volume.volume.layout.data_start;
-            let boundary = data_start + 512 * 8;
+            let boundary = data_start + 4096 * 8;
             assert!(boundary + 4 < volume.volume.layout.backup_superblock);
             volume.allocation_hint = boundary - 2;
 
