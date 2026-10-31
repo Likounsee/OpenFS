@@ -5,7 +5,7 @@
 
 use std::error::Error as StdError;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use dokan::{
@@ -28,7 +28,7 @@ use winapi::um::winnt::{
     FILE_CASE_SENSITIVE_SEARCH, FILE_UNICODE_ON_DISK,
 };
 
-type FileHandle = Arc<Mutex<String>>;
+type FileHandle = ObjectId;
 
 /// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
 /// the session is serialized while per-open path state is independently guarded.
@@ -45,11 +45,19 @@ impl<D: BlockDevice> OpenFsHandler<D> {
         }
     }
 
-    fn path_for(&self, context: &FileHandle) -> Result<String, OperationError> {
-        context
+    fn with_path<T>(
+        &self,
+        context: &FileHandle,
+        operation: impl FnOnce(&mut VolumeSession<D>, &str) -> openfs_core::Result<T>,
+    ) -> Result<T, OperationError> {
+        let mut session = self
+            .session
             .lock()
-            .map(|path| path.clone())
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let path = session
+            .path_for_object(*context)
+            .map_err(map_core_error)?;
+        operation(&mut session, &path).map_err(map_core_error)
     }
 
     fn stat(&self, path: &str) -> Result<openfs_format::MetadataRecord, OperationError> {
@@ -60,32 +68,6 @@ impl<D: BlockDevice> OpenFsHandler<D> {
             .map_err(map_core_error)
     }
 
-    fn list_directory(
-        &self,
-        path: &str,
-    ) -> Result<Vec<openfs_format::DirectoryEntry>, OperationError> {
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
-        let mut entries = Vec::new();
-        let mut marker: Option<String> = None;
-        loop {
-            let page = session
-                .read_directory(path, marker.as_deref(), 256)
-                .map_err(map_core_error)?;
-            if page.is_empty() {
-                break;
-            }
-            marker = page.last().map(|entry| entry.name.clone());
-            let page_len = page.len();
-            entries.extend(page);
-            if page_len < 256 {
-                break;
-            }
-        }
-        Ok(entries)
-    }
 }
 
 fn map_core_error(error: CoreError) -> OperationError {
@@ -163,8 +145,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         let path = path_from_windows(file_name)?;
         if path == "/" {
             self.stat("/")?;
+            let record = self.stat("/")?;
             return Ok(CreateFileInfo {
-                context: Arc::new(Mutex::new(path)),
+                context: record.id,
                 is_dir: true,
                 new_file_created: false,
             });
@@ -181,7 +164,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             .lock()
             .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
         let existing = session.stat(&path);
-        let (is_dir, new_file_created) = match existing {
+        let (is_dir, new_file_created, object_id) = match existing {
             Ok(record) => {
                 if create_disposition == CREATE_NEW {
                     return Err(OperationError::Win32(ERROR_FILE_EXISTS));
@@ -195,7 +178,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                     }
                     session.set_file_len(&path, 0).map_err(map_core_error)?;
                 }
-                (wants_directory, false)
+                (wants_directory, false, record.id)
             }
             Err(CoreError::InvalidInput("path component does not exist")) => {
                 if create_disposition == OPEN_EXISTING || create_disposition == TRUNCATE_EXISTING {
@@ -205,22 +188,22 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                     return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                 }
                 let (parent, name) = split_parent(&path)?;
-                if wants_directory {
+                let object_id = if wants_directory {
                     session
                         .create_directory_auto(parent, name)
-                        .map_err(map_core_error)?;
+                        .map_err(map_core_error)?
                 } else {
                     session
                         .create_file_auto(parent, name)
-                        .map_err(map_core_error)?;
-                }
-                (wants_directory, true)
+                        .map_err(map_core_error)?
+                };
+                (wants_directory, true, object_id)
             }
             Err(error) => return Err(map_core_error(error)),
         };
 
         Ok(CreateFileInfo {
-            context: Arc::new(Mutex::new(path)),
+            context: object_id,
             is_dir,
             new_file_created,
         })
@@ -236,28 +219,23 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             return;
         }
 
-        // Dokany's cleanup callback cannot return an OperationError. Do not hide
-        // a failed durable unlink: report the exact path and filesystem error so
-        // the user can recover instead of assuming the file was deleted.
-        let path = match self.path_for(context) {
-            Ok(path) => path,
-            Err(error) => {
-                eprintln!("OpenFS: unable to resolve delete-on-close path: {error:?}");
-                return;
-            }
-        };
+        // Resolve stable identity, unlink and flush under one session lock. This
+        // prevents a concurrent rename from making a cached path stale.
         let result = self
             .session
             .lock()
             .map_err(|_| "OpenFS session lock was poisoned".to_owned())
             .and_then(|mut session| {
+                let path = session
+                    .path_for_object(*context)
+                    .map_err(|error| error.to_string())?;
                 session
                     .remove(&path)
                     .and_then(|()| session.flush())
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| format!("delete-on-close for '{path}' failed: {error}"))
             });
         if let Err(error) = result {
-            eprintln!("OpenFS: delete-on-close failed for '{path}': {error}");
+            eprintln!("OpenFS: {error}");
         }
     }
 
@@ -272,13 +250,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         if offset < 0 {
             return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
         }
-        let path = self.path_for(context)?;
-        let bytes = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .read_file_range(&path, offset as u64, buffer.len())
-            .map_err(map_core_error)?;
+        let bytes = self.with_path(context, |session, path| {
+            session.read_file_range(path, offset as u64, buffer.len())
+        })?;
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len() as u32)
     }
@@ -291,23 +265,19 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<u32, OperationError> {
-        let path = self.path_for(context)?;
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
-        let write_offset = if info.write_to_eof() {
-            session.stat(&path).map_err(map_core_error)?.size
-        } else {
-            if offset < 0 {
-                return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
-            }
-            offset as u64
-        };
-        session
-            .write_file_range(&path, write_offset, buffer)
-            .map_err(map_core_error)?;
-        Ok(buffer.len() as u32)
+        let written = self.with_path(context, |session, path| {
+            let write_offset = if info.write_to_eof() {
+                session.stat(path)?.size
+            } else {
+                if offset < 0 {
+                    return Err(CoreError::InvalidInput("negative write offset"));
+                }
+                offset as u64
+            };
+            session.write_file_range(path, write_offset, buffer)?;
+            Ok(buffer.len())
+        })?;
+        Ok(written as u32)
     }
 
     fn flush_file_buffers(
@@ -329,8 +299,8 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<FileInfo, OperationError> {
-        let path = self.path_for(context)?;
-        self.stat(&path).map(|record| make_file_info(&record))
+        self.with_path(context, |session, path| session.stat(path))
+            .map(|record| make_file_info(&record))
     }
 
     fn find_files(
@@ -340,8 +310,35 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
-        let path = self.path_for(context)?;
-        for entry in self.list_directory(&path)? {
+        let entries = self.with_path(context, |session, path| {
+            let mut entries = Vec::new();
+            let mut marker: Option<String> = None;
+            loop {
+                let page = session.read_directory(path, marker.as_deref(), 256)?;
+                if page.is_empty() {
+                    break;
+                }
+                marker = page.last().map(|entry| entry.name.clone());
+                let page_len = page.len();
+                entries.extend(page);
+                if page_len < 256 {
+                    break;
+                }
+            }
+            let mut rows = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let child_path = if path == "/" {
+                    format!("/{}", entry.name)
+                } else {
+                    format!("{}/{}", path, entry.name)
+                };
+                let record = session.stat(&child_path)?;
+                rows.push((entry, record.size));
+            }
+            Ok(rows)
+        })?;
+
+        for (entry, file_size) in entries {
             let file_name = U16CString::from_str(&entry.name)
                 .map_err(|_| OperationError::Win32(ERROR_INVALID_PARAMETER))?;
             let epoch = SystemTime::UNIX_EPOCH;
@@ -354,9 +351,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 creation_time: epoch,
                 last_access_time: epoch,
                 last_write_time: epoch,
-                file_size: self
-                    .stat(&format!("{}/{}", path.trim_end_matches('/'), entry.name))?
-                    .size,
+                file_size,
                 file_name,
             };
             fill_find_data(&data)?;
@@ -370,12 +365,13 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
-        let path = self.path_for(context)?;
-        let record = self.stat(&path)?;
-        if record.kind != ObjectKind::File {
-            return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
-        }
-        Ok(())
+        self.with_path(context, |session, path| {
+            let record = session.stat(path)?;
+            if record.kind != ObjectKind::File {
+                return Err(CoreError::InvalidInput("path is not a regular file"));
+            }
+            Ok(())
+        })
     }
 
     fn delete_directory(
@@ -384,12 +380,22 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
-        let path = self.path_for(context)?;
-        let record = self.stat(&path)?;
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let path = session
+            .path_for_object(*context)
+            .map_err(map_core_error)?;
+        let record = session.stat(&path).map_err(map_core_error)?;
         if record.kind != ObjectKind::Directory {
             return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
         }
-        if !self.list_directory(&path)?.is_empty() {
+        if !session
+            .read_directory(&path, None, 1)
+            .map_err(map_core_error)?
+            .is_empty()
+        {
             return Err(OperationError::Win32(ERROR_DIR_NOT_EMPTY));
         }
         Ok(())
@@ -403,32 +409,30 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
-        let old_path = self.path_for(context)?;
         let new_path = path_from_windows(new_file_name)?;
-        let destination = self
+        let (new_parent, new_name) = split_parent(&new_path)?;
+        let mut session = self
             .session
             .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .stat(&new_path);
-        match destination {
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let old_path = session
+            .path_for_object(*context)
+            .map_err(map_core_error)?;
+        match session.stat(&new_path) {
+            Ok(_) if !replace_if_existing => {
+                return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
+            }
             Ok(_) => {
-                if !replace_if_existing {
-                    return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
-                }
+                // Replacement needs a transactional replace primitive. Never
+                // emulate it as delete-then-rename and risk losing the old file.
                 return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
             }
             Err(CoreError::InvalidInput("path component does not exist")) => {}
             Err(error) => return Err(map_core_error(error)),
         }
-        let (new_parent, new_name) = split_parent(&new_path)?;
-        self.session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
+        session
             .rename(&old_path, new_parent, new_name)
             .map_err(map_core_error)?;
-        *context
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))? = new_path;
         Ok(())
     }
 
@@ -442,12 +446,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         if offset < 0 {
             return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
         }
-        let path = self.path_for(context)?;
-        self.session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .set_file_len(&path, offset as u64)
-            .map_err(map_core_error)
+        self.with_path(context, |session, path| {
+            session.set_file_len(path, offset as u64)
+        })
     }
 
     fn get_disk_free_space(
