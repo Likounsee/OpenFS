@@ -2855,7 +2855,7 @@ mod tests {
         {
             let mut device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
                 .unwrap();
-            format_volume(&mut device, *b"openfs-raw-test", 0).unwrap();
+            format_volume(&mut device, *b"openfs-raw-test!", 0).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             volume
                 .initialize_persistent_namespace(&mut device, openfs_format::ObjectId::new(1).unwrap())
