@@ -1183,3 +1183,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Limites : le test a été écrit mais n'a pas été exécuté ici; les tests d'injection de panne au moment précis de la publication et du reclaim restent à ajouter. Les règles Windows complètes de partage, suppression différée, ACL et timestamps restent incomplètes. Aucun essai sur une clé USB physique n'a été réalisé.
 - Validation : compilation Rust, `cargo fmt`, Clippy, tests et CI sur le SHA final non confirmés; un statut GitHub vide n'est pas une CI verte.
 - Estimation de périmètre : P0 100 %, P1 81 %, P2 81 %, P3 5 %, global 72 %. Le point ajouté correspond à la nouvelle primitive de remplacement et à son raccordement Dokany; ce n'est pas un pourcentage de tests validés.
+
+
+- Commit `43c0c6bc3a60d77f84417891ce77c03da9088c8d` : le suivi des handles est maintenant utilisé aussi pour la suppression différée. `delete-on-close` marque l'objet pending, bloque les nouvelles ouvertures, puis ne retire le fichier qu'après la fermeture du dernier handle suivi. Deux tests Windows unitaires couvrent fermeture normale et fermeture différée; ils ne sont pas exécutés ici.
+- Commit `6dc6945bb05a9424faf53ac86c6508d0f59a0ce0` : architecture actualisée sur le cycle de vie des handles. Commit `712495f518f1e6eb8bb3aac2a87224ec7268354a` : README clarifie que les masques Windows de partage lecture/écriture/suppression ne sont pas encore appliqués.
+- Commit `f78bd9eceeb6d4033928c2cd513179b2b1cfdef4` : inventaire lexical resynchronisé, 1 232 déclarations sur 18 fichiers Rust. Il s'agit d'un index de symboles, pas d'une preuve de compilation.
+- Progression de périmètre : P0 100 %, P1 81 %, P2 82 %, P3 5 %, global estimé 72 %. La phase P2 gagne un point pour le remplacement et la suppression différée; le global arrondi reste 72 %.
+- Tests, compilation, rustfmt, Clippy, CI et essais USB physiques restent non confirmés dans cette session. Aucune donnée importante ne doit être confiée au volume expérimental.
