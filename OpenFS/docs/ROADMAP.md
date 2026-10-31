@@ -1190,3 +1190,6 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `f78bd9eceeb6d4033928c2cd513179b2b1cfdef4` : inventaire lexical resynchronisé, 1 232 déclarations sur 18 fichiers Rust. Il s'agit d'un index de symboles, pas d'une preuve de compilation.
 - Progression de périmètre : P0 100 %, P1 81 %, P2 82 %, P3 5 %, global estimé 72 %. La phase P2 gagne un point pour le remplacement et la suppression différée; le global arrondi reste 72 %.
 - Tests, compilation, rustfmt, Clippy, CI et essais USB physiques restent non confirmés dans cette session. Aucune donnée importante ne doit être confiée au volume expérimental.
+
+- Commit `a56d5e5d2f5ffd1d13bb8d165df919b00836a0a9` : correction de l'ordre de verrouillage dans l'état des handles. L'enregistrement et la fermeture prennent désormais les verrous dans le même ordre (`counts` puis `delete_pending`), y compris pour éviter un interblocage avec les ouvertures de la racine.
+- Commit `7878d37feb50ee42781dcb8501085f07ccc8e1ae` : index lexical resynchronisé après cette correction; 1 232 déclarations indexées.
