@@ -16983,7 +16983,7 @@ mod tests {
                 .unwrap();
             let auto_directory = mounted.create_directory_auto("/", "auto").unwrap();
             let auto_file = mounted.create_file_auto("/auto", "generated.txt").unwrap();
-            assert!(auto_directory.0 > auto_file.0.saturating_sub(1));
+            assert_eq!(auto_file.0, auto_directory.0 + 1);
             assert_eq!(mounted.stat("/auto").unwrap().id, auto_directory);
             assert_eq!(mounted.stat("/auto/generated.txt").unwrap().id, auto_file);
             mounted.remove("/auto/generated.txt").unwrap();
