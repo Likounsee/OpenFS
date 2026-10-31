@@ -8186,6 +8186,16 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.volume.block_size
     }
 
+    /// Return the total number of addressable blocks in the mounted volume.
+    pub fn total_blocks(&self) -> u64 {
+        self.device.block_count()
+    }
+
+    /// Flush all pending filesystem writes without ending the mounted session.
+    pub fn flush(&mut self) -> Result<()> {
+        self.device.flush()
+    }
+
     /// Return the validated filesystem identity.
     pub fn uuid(&self) -> [u8; 16] {
         self.opened.volume.uuid
@@ -8389,7 +8399,7 @@ impl<D: BlockDevice> VolumeSession<D> {
     /// method. A successful return means the block-device flush completed; it does
     /// not claim that physical hardware honored a power-loss durability guarantee.
     pub fn unmount(mut self) -> Result<D> {
-        self.device.flush()?;
+        self.flush()?;
         Ok(self.device)
     }
 }
