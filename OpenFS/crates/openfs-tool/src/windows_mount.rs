@@ -18,7 +18,7 @@ use openfs_format::{ObjectKind, VolumeSession};
 use widestring::{U16CString, U16CStr};
 use winapi::shared::winerror::{
     ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_PATH_NOT_FOUND,
+    ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER,
 };
 use winapi::um::fileapi::{
     CREATE_ALWAYS, CREATE_NEW, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
@@ -157,7 +157,7 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
     ) -> Result<CreateFileInfo<Self::Context>, OperationError> {
         let path = path_from_windows(file_name)?;
         if path == "/" {
-            let record = self.stat("/")?;
+            self.stat("/")?;
             return Ok(CreateFileInfo {
                 context: Arc::new(Mutex::new(path)),
                 is_dir: true,
