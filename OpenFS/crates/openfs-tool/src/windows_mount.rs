@@ -499,9 +499,7 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
         mount_point.to_owned()
     };
     let mount_point = U16CString::from_str(&mount_text)?;
-    dokan::init();
     let result = dokan::unmount(&mount_point);
-    dokan::shutdown();
     if !result {
         return Err(format!("Dokan could not unmount {mount_text}").into());
     }
