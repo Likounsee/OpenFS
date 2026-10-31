@@ -1158,3 +1158,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Limites de ce lot : aucun secteur physique n'a été lu ou écrit; le script n'a pas été exécuté sur une machine Windows dans cet environnement. Aucune écriture de formatage n'est activée.
 - Validation GitHub : le statut combiné consulté pour le HEAD antérieur renvoyait zéro statut; cela ne prouve pas une réussite. Les commandes Rust/CI n'ont pas été exécutées ici et restent à vérifier pour le nouveau HEAD.
 - Pourcentages conservés : global 71 % selon l'estimation documentée précédemment; tests matériels réels 0 % validé; pile USB/stockage physique partiellement implémentée (backend raw générique existant, détection/géométrie/CLI USB manquants); système de fichiers image avancé mais validation exacte du HEAD en attente.
+
+
+### Flux d'utilisation USB Windows — formatage contrôlé, montage et démontage (2026-10-31)
+
+- Commit `f3b85b8067fa651336bd244c3d4018873ffba3a0` : ajout de `scripts/mount-openfs-usb.ps1`. Le helper vérifie l'élévation administrateur, le `UniqueId` exact, le bus USB, les indicateurs boot/system et l'état read-only; il passe le disque hors ligne avant l'ouverture brute et restaure l'état initial après la fin du processus de montage.
+- Commit `d27212085b10c99fed201f68ad50b428a98cea68` : ajout d'un mode `Format` distinct, uniquement avec la confirmation littérale `ERASE-ALL-DATA`. Le formatage reste explicitement destructif et n'est jamais lancé par le mode `Mount`.
+- Commit `a29daf59eb644631c2db33fec208398db1179429` et `c028e42a3d43a14cbebe976cd477260ec41dc3f0` : documentation du vrai flux CLI existant (`format-usb`, `mount-usb`, `unmount`) et du protocole à deux fenêtres PowerShell pour laisser le processus de montage effectuer son flush final avant de remettre le disque en ligne.
+- Ce lot améliore le parcours d'utilisation et les garde-fous; il n'ajoute pas de nouveau moteur de stockage ni de nouvelle garantie de crash-consistency. Le montage USB, le formatage raw et l'usage Explorer restent non validés sur matériel réel dans cet environnement. Le helper PowerShell n'a pas été exécuté ici.
+- CI, compilation Rust et tests ne sont pas déclarés verts sur la seule base de ces commits. Les essais physiques requis restent : formatage d'une clé dédiée, copie/lecture/renommage/suppression via Explorer, démontage/remontage avec comparaison de contenu, puis essais de retrait à chaud séparés et non destructifs.
+- Estimations inchangées : P0 100 %, P1 81 %, P2 80 %, P3 5 %, global 71 %. Le travail de ce lot est un meilleur chemin opératoire, pas une hausse de fonctionnalité du noyau.
