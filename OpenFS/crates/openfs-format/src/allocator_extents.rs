@@ -189,7 +189,7 @@ pub struct FreeExtent {
 /// Read-only fragmentation summary for free space in the data region.
 ///
 /// A free extent is a consecutive run of free data blocks within one bitmap segment,
-/// matching the current allocator's single-bitmap-block transaction limit.
+/// intentionally split at bitmap boundaries for bounded read-only reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FreeExtentStats {
     pub free_extent_count: u64,
@@ -1133,8 +1133,8 @@ impl OpenedVolume {
 
     /// Return every currently free data block in ascending block-number order.
     ///
-    /// This is a read-only allocator inventory, not a promise that all listed blocks can be
-    /// allocated together: each journaled batch must fit within one bitmap segment.
+    /// This is a read-only allocator inventory, not a reservation. Journaled batches may
+    /// span bitmap segments when all touched pages fit in one atomic redo transaction.
     pub fn free_data_block_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<u64>> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
@@ -1207,8 +1207,8 @@ impl OpenedVolume {
     /// Return free contiguous runs in ascending order, split at bitmap-segment boundaries.
     ///
     /// This read-only inventory is suitable for placement decisions and diagnostics. Returned
-    /// extents are snapshots only; they are not reservations, and the current journal limits
-    /// atomic allocation to a single bitmap segment.
+    /// extents are snapshots only; they are not reservations. Allocation can span adjacent
+    /// bitmap segments when the complete redo set fits in the journal.
     pub fn free_extent_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<FreeExtent>> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
@@ -1575,9 +1575,10 @@ impl OpenedVolume {
 
     /// Measure free-space fragmentation without modifying the volume.
     ///
-    /// Extents are counted independently per bitmap segment because allocation transactions
-    /// cannot currently update multiple bitmap home blocks atomically. Reserved and padding
-    /// bits are validated during the same bitmap pass, avoiding a separate full-volume scan.
+    /// Extents are counted independently per bitmap segment so the report remains bounded
+    /// and stable at bitmap-page boundaries, even though allocation transactions can now
+    /// update multiple bitmap home blocks atomically. Reserved and padding bits are validated
+    /// during the same bitmap pass, avoiding a separate full-volume scan.
     pub fn free_extent_stats<D: BlockDevice>(&self, device: &mut D) -> Result<FreeExtentStats> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
