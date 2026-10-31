@@ -455,9 +455,10 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
             }
             Ok(_) => {
-                // Replacement needs a transactional replace primitive. Never
-                // emulate it as delete-then-rename and risk losing the old file.
-                return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
+                session
+                    .replace_file(&old_path, new_parent, new_name)
+                    .map_err(map_core_error)?;
+                return Ok(());
             }
             Err(CoreError::InvalidInput("path component does not exist")) => {}
             Err(error) => return Err(map_core_error(error)),
