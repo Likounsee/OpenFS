@@ -101,9 +101,10 @@ The example creates a 1 GiB image. OpenFS supports block sizes of 4096, 8192, 16
 
 ### Mount the image as a Windows drive (experimental)
 
-This currently requires Windows and an installed, working [Dokany](https://dokany.com/) driver/runtime. Build the workspace on Windows, then run the following from `OpenFS/\` in PowerShell:
+This currently requires Windows and an installed, working [Dokany](https://dokany.com/) driver/runtime. Build the workspace on Windows, then run the following from the repository root in PowerShell:
 
 ```powershell
+cd .\OpenFS
 cargo build --workspace
 cargo run -p openfs-tool -- create-image .\openfs.img 1024
 cargo run -p openfs-tool -- mount .\openfs.img O: 4096
