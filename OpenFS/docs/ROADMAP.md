@@ -1238,3 +1238,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Test ajouté pour vérifier explicitement les deux côtés de cette distinction. Le module Windows contient maintenant 14 tests unitaires écrits; aucun n'est déclaré exécuté dans cet environnement.
 - Inventaire régénéré à 1265 déclarations lexicales sur 18 fichiers Rust (commit `5b999e73efb7ffc7c2fe5ab2e5ebac70a6ad928d`). Architecture et README actualisés.
 - Validation compilation, rustfmt, Clippy, CI Windows et essai Dokany réel toujours non confirmés. Progression globale conservée à 73 % : correction ciblée, sans prétendre avoir validé le montage.
+
+
+### Injection exhaustive des erreurs d'E/S du journal (2026-10-31)
+
+- Commit `6844d3f9f23a142b2a12e8fe361624e04471ed60` : ajout d'un test qui mesure la séquence complète d'E/S d'une transaction, puis injecte une panne à chaque frontière de lecture, écriture ou flush. Après chaque panne, le test rouvre le journal et vérifie que le bloc maison correspond intégralement soit à l'ancienne image, soit à l'image redo complète; il contrôle aussi la cohérence du checkpoint, l'idempotence d'une seconde récupération et le refus de réutiliser un writer empoisonné.
+- Le test s'appuie sur le périphérique mémoire et le wrapper `FailAt` déjà présents. Il ne simule pas les comportements physiques de tous les contrôleurs ou supports USB et n'est pas encore exécuté ici.
+- Inventaire lexical synchronisé : 1266 déclarations sur 18 fichiers Rust (commit `dd31e09dd409ba55d018a6369e699539f1dee925`).
+- Les tests du journal couvrent maintenant aussi la matrice de pannes à chaque opération. Compilation, tests, Clippy, rustfmt et CI restent à confirmer avant de compter ce travail comme validé.
+- Progression globale conservée à 73 % en attendant exécution effective et couverture des opérations multi-blocs.
