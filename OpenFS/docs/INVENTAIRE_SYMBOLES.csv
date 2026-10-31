@@ -1198,4 +1198,4 @@ source_file,line,symbol_kind,symbol,declaration,status,analysis_note
 "OpenFS/crates/openfs-tool/src/windows_mount.rs","420","function","get_disk_free_space","fn get_disk_free_space(","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-tool/src/windows_mount.rs","439","function","get_volume_information","fn get_volume_information(","Indexed","Lexical index; declaration and line detected, behavior not validated."
 "OpenFS/crates/openfs-tool/src/windows_mount.rs","460","function","mount_image","pub fn mount_image(","Indexed","Lexical index; declaration and line detected, behavior not validated."
-"OpenFS/crates/openfs-tool/src/windows_mount.rs","497","function","unmount_drive","pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {","Indexed","Lexical index; declaration and line detected, behavior not validated."
+"OpenFS/crates/openfs-tool/src/windows_mount.rs","495","function","unmount_drive","pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {","Indexed","Lexical index; declaration and line detected, behavior not validated."
