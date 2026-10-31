@@ -12,7 +12,7 @@ openfs-tool ──> openfs-format ──> openfs-block ──> openfs-core
 - **`openfs-core`** — shared error types and checked block-range primitives.
 - **`openfs-block`** — bounded block-device interface, regular-file image backend, explicit flush contract and deterministic I/O fault injection.
 - **`openfs-format`** — versioned volume layout, superblock validation, allocation bitmap, journal/checkpoints, codecs, extent maps, namespace reconstruction, persistent file APIs and consistency reports.
-- **`openfs-tool`** — host-side image CLI plus a Windows Dokany mount adapter. Physical-device formatting remains disabled; the current mount target is a regular image file.
+- **`openfs-tool`** — host-side image CLI, Windows disk inventory/safety checks, destructive offline-USB formatting, and a generic Windows Dokany mount adapter for images or raw block devices.
 
 There is one active volume implementation in `crates/openfs-format/src/volume.rs`. Version-specific layout calculations are kept within this implementation; do not create parallel format-generation implementations.
 
@@ -43,15 +43,15 @@ There is one active volume implementation in `crates/openfs-format/src/volume.rs
 6. Use fallible allocations for disk-sized staging data wherever possible; allocation failure must return an error before publication.
 7. Historical OpenFS C images are not implicitly compatible. Reject them unless a separately reviewed converter is implemented.
 8. Image-backed fault injection and host flush calls do not prove physical-media durability.
-9. Formatting is destructive. Keep the CLI image-only until device discovery, exclusive access and recovery gates are satisfied.
+9. Formatting is destructive. Physical-device writes require an exact device identity, a USB transport check, Windows offline state, boot/system exclusion, and an explicit typed confirmation.
 
 ## Current limits
 
 `openfs-format` exposes a portable `VolumeSession<D>` lifecycle boundary. It owns a block device, opens the volume with journal recovery, and offers path-based stat/list/read/create/write/truncate/rename/remove operations plus an explicit flush-and-return `unmount`.
 
-On Windows, `openfs-tool` includes a Dokany adapter that maps file creation, directory listing, ranged reads/writes, truncation, rename, and flush callbacks to `VolumeSession<ImageDevice>`. The `mount` command attaches an existing image to a drive letter and `unmount` requests its removal. This is an image-backed user-mode mount, not a raw physical-disk filesystem driver. Linux mount integration is not implemented.
+On Windows, `openfs-tool` includes a generic Dokany adapter that maps file creation, directory listing, ranged reads/writes, truncation, rename, and flush callbacks to `VolumeSession<D>`. The `mount` command attaches an image; `mount-usb` opens a whole physical USB disk through `RawDevice` and attaches its already formatted OpenFS volume. `format-usb` formats the whole selected disk after exact UniqueId, USB transport, offline, writable, and boot/system checks plus a typed destructive confirmation. Linux mount integration is not implemented.
 
-`create-image` now formats the image and initializes its persistent root namespace so a newly created image can be opened by `VolumeSession` and mounted immediately. The image remains a regular host file; it is not a physical USB/SSD partition. The adapter and namespace lifecycle still need stronger Windows delete/rename semantics, open-handle tracking, reliable unmount/error reporting, and automated end-to-end tests that exercise a real Dokany mount.
+`create-image` formats the image and initializes its persistent root namespace. The initial raw USB workflow targets the entire offline physical disk (not a partition): it overwrites existing partition metadata and data, then initializes the same OpenFS namespace. It has not yet been validated across real USB controllers, sector geometries, Dokany installations, or power-loss scenarios. The adapter and namespace lifecycle still need stronger Windows delete/rename semantics, open-handle tracking, reliable unmount/error reporting, and automated end-to-end tests.
 
 The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and physical-device integration remain incomplete.
 
