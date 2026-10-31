@@ -583,10 +583,15 @@ impl OpenedVolume {
             return Err(Error::InvalidInput("batch free contains a non-data block"));
         }
 
-        let first_index = sorted[0] / bits_per_block;
-        let last_index = sorted[sorted.len() - 1] / bits_per_block;
-        let page_count = usize::try_from(last_index - first_index + 1)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let mut page_count = 1usize;
+        let mut previous_index = sorted[0] / bits_per_block;
+        for &block in sorted.iter().skip(1) {
+            let index = block / bits_per_block;
+            if index != previous_index {
+                page_count = page_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                previous_index = index;
+            }
+        }
         let max_updates = self.journal.max_update_count(device)?;
         if page_count > max_updates {
             return Err(Error::InvalidInput(
@@ -3499,6 +3504,16 @@ mod allocation_bitmap_report_tests {
             }
             let next = reopened.allocate_blocks(&mut device, 1).unwrap();
             assert_eq!(next, vec![data_start]);
+
+            reopened.free_blocks(&mut device, &allocated).unwrap();
+            for block in &allocated {
+                assert!(!reopened.is_data_block_allocated(&mut device, *block).unwrap());
+            }
+            drop(reopened);
+            let reopened = crate::volume::open_volume(&mut device).unwrap();
+            for block in &allocated {
+                assert!(!reopened.is_data_block_allocated(&mut device, *block).unwrap());
+            }
         }
         fs::remove_file(path).unwrap();
     }
