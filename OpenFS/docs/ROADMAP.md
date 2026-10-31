@@ -1,3 +1,11 @@
+### Complément — garanties de verrouillage RawDevice
+
+- Commit `0aa050e1ad896681f56813d23a777ddd1640a5e3` : commentaire API de `RawDevice` corrigé pour distinguer les verrous des fichiers/nœuds bloc et le chemin Windows PhysicalDrive, qui ne prend pas de verrou byte-range. Le garde-fou du chemin USB est le précontrôle Windows exact-UniqueId + USB + disque Offline; cela ne bloque pas les logiciels externes qui ignorent ce contrôle.
+- Commit `3d7f2b9602161943fd63e0fe553d0f0167842a22` : inventaire lexical recalculé après ce changement de lignes (18 fichiers Rust, 1217 déclarations).
+- La vérification CI pour le SHA courant n'est pas disponible via l'interface GitHub consultée dans cette session; aucun résultat vert n'est revendiqué.
+
+---
+
 ### Reprise de session — 2026-10-31 (flush sur fermeture et erreurs différées)
 
 - Commit `ee72c0c9e80dc713663b48880297077ed48fac6b` : le callback Dokany `cleanup` effectue désormais un flush pour toute fermeture de handle, et pas uniquement lors de `delete_on_close`. La suppression différée et son flush restent sérialisés sous le verrou de session.
