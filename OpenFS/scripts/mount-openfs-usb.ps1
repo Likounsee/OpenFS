@@ -58,6 +58,10 @@ if ($Action -eq "Unmount") {
     return
 }
 
+if ($Action -eq "Format" -and $ConfirmEraseAllData -cne "ERASE-ALL-DATA") {
+    throw "Formatting erases the entire USB disk. Pass -ConfirmEraseAllData ERASE-ALL-DATA exactly to continue."
+}
+
 if (-not $PSBoundParameters.ContainsKey("DiskNumber") -or $DiskNumber -lt 0) {
     throw "DiskNumber must identify the dedicated USB disk."
 }
@@ -95,9 +99,6 @@ try {
     }
 
     if ($Action -eq "Format") {
-        if ($ConfirmEraseAllData -cne "ERASE-ALL-DATA") {
-            throw "Formatting erases the entire USB disk. Pass -ConfirmEraseAllData ERASE-ALL-DATA exactly to continue."
-        }
         Write-Warning "ERASING ALL DATA AND PARTITIONS on USB disk $DiskNumber ($UniqueId)."
         & $exePath format-usb $DiskNumber $UniqueId ERASE-ALL-DATA
         if ($LASTEXITCODE -ne 0) {
