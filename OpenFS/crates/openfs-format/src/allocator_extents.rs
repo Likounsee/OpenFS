@@ -934,6 +934,13 @@ impl OpenedVolume {
                     (1_u8 << valid_bits) - 1
                 };
                 let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                if free_bits == 0 {
+                    // An allocated byte is a real gap. Reset the carried run so a
+                    // later bitmap page cannot accidentally join across this gap.
+                    run_len = 0;
+                    previous_free = None;
+                    continue;
+                }
                 // A fully free byte is an eight-block run. Consume it in one step
                 // rather than enumerating each bit on the common contiguous-space path.
                 if free_bits == u8::MAX {
@@ -3023,6 +3030,17 @@ mod allocation_bitmap_report_tests {
             let mut reopened = crate::volume::open_volume(&mut device).unwrap();
             for block in extent_start..extent_end {
                 assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+            }
+            reopened
+                .free_contiguous_blocks(&mut device, extent_start, 4)
+                .unwrap();
+            for block in extent_start..extent_end {
+                assert!(!reopened.is_data_block_allocated(&mut device, block).unwrap());
+            }
+            drop(reopened);
+            let reopened = crate::volume::open_volume(&mut device).unwrap();
+            for block in extent_start..extent_end {
+                assert!(!reopened.is_data_block_allocated(&mut device, block).unwrap());
             }
         }
         fs::remove_file(path).unwrap();
