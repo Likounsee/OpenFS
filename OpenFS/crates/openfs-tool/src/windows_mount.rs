@@ -497,7 +497,7 @@ pub fn mount_image(
 ) -> Result<(), Box<dyn StdError>> {
     let image_bytes = std::fs::metadata(image_path)?.len();
     let device = ImageDevice::open(image_path, block_size)?;
-    mount_device(device, image_bytes, mount_point, block_size)
+    mount_device(device, image_bytes, mount_point, block_size, block_size)
 }
 
 /// Mount an already formatted whole-disk OpenFS volume from an offline USB disk.
@@ -533,7 +533,7 @@ pub fn mount_usb_device(
     if confirmed != (size_bytes, logical_sector_size) {
         return Err("USB disk identity or geometry changed while opening it; refusing to mount".into());
     }
-    mount_device(device, size_bytes, mount_point, block_size)
+    mount_device(device, size_bytes, mount_point, block_size, logical_sector_size)
 }
 
 fn mount_device<D: BlockDevice + Send + 'static>(
@@ -541,6 +541,7 @@ fn mount_device<D: BlockDevice + Send + 'static>(
     total_bytes: u64,
     mount_point: &str,
     block_size: u32,
+    sector_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
     let session = VolumeSession::open(device)?;
     let handler = OpenFsHandler::new(session, total_bytes);
@@ -554,7 +555,7 @@ fn mount_device<D: BlockDevice + Send + 'static>(
     let mut drive = dokan::Drive::new();
     drive
         .mount_point(&mount_point)
-        .sector_size(block_size)
+        .sector_size(sector_size)
         .allocation_unit_size(block_size)
         .flags(MountFlags::CURRENT_SESSION | MountFlags::ENABLE_FCB_GARBAGE_COLLECTION);
 
