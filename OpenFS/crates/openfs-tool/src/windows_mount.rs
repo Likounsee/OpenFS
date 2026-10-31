@@ -3,6 +3,7 @@
 //! Dokany is an optional host integration: OpenFS remains the on-disk filesystem.
 //! This module maps Windows file operations to the portable VolumeSession API.
 
+use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::path::Path;
 use std::sync::Mutex;
@@ -18,7 +19,7 @@ use openfs_format::{ObjectId, ObjectKind, VolumeSession};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
     ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER,
+    ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
 };
 use winapi::um::fileapi::{
     CREATE_ALWAYS, CREATE_NEW, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
@@ -64,6 +65,7 @@ struct OpenFsHandler<D: BlockDevice> {
     session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
     deferred_error: DeferredErrorLatch,
+    open_handles: Mutex<HashMap<ObjectId, usize>>,
 }
 
 impl<D: BlockDevice> OpenFsHandler<D> {
@@ -72,6 +74,7 @@ impl<D: BlockDevice> OpenFsHandler<D> {
             session: Mutex::new(session),
             total_bytes,
             deferred_error: DeferredErrorLatch::default(),
+            open_handles: Mutex::new(HashMap::new()),
         }
     }
 
@@ -88,6 +91,44 @@ impl<D: BlockDevice> OpenFsHandler<D> {
             .path_for_object(*context)
             .map_err(map_core_error)?;
         operation(&mut session, &path).map_err(map_core_error)
+    }
+
+    fn register_open_handle(&self, object_id: ObjectId) -> Result<(), OperationError> {
+        let mut handles = self
+            .open_handles
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let count = handles.entry(object_id).or_insert(0);
+        *count = count
+            .checked_add(1)
+            .ok_or(OperationError::Win32(ERROR_GEN_FAILURE))?;
+        Ok(())
+    }
+
+    fn unregister_open_handle(&self, object_id: ObjectId) {
+        match self.open_handles.lock() {
+            Ok(mut handles) => {
+                let remove = match handles.get_mut(&object_id) {
+                    Some(count) if *count > 1 => {
+                        *count -= 1;
+                        false
+                    }
+                    Some(_) => true,
+                    None => false,
+                };
+                if remove {
+                    handles.remove(&object_id);
+                }
+            }
+            Err(_) => eprintln!("OpenFS: unable to release open-handle accounting lock"),
+        }
+    }
+
+    fn has_open_handle(&self, object_id: ObjectId) -> Result<bool, OperationError> {
+        self.open_handles
+            .lock()
+            .map(|handles| handles.get(&object_id).copied().unwrap_or(0) != 0)
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
     }
 
     fn stat(&self, path: &str) -> Result<openfs_format::MetadataRecord, OperationError> {
@@ -175,6 +216,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         let path = path_from_windows(file_name)?;
         if path == "/" {
             let record = self.stat("/")?;
+            self.register_open_handle(record.id)?;
             return Ok(CreateFileInfo {
                 context: record.id,
                 is_dir: true,
@@ -231,6 +273,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             Err(error) => return Err(map_core_error(error)),
         };
 
+        self.register_open_handle(object_id)?;
         Ok(CreateFileInfo {
             context: object_id,
             is_dir,
@@ -269,6 +312,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             eprintln!("OpenFS: {error}");
             self.deferred_error.record(error);
         }
+        self.unregister_open_handle(*context);
     }
 
     fn read_file(
@@ -454,7 +498,10 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             Ok(_) if !replace_if_existing => {
                 return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
             }
-            Ok(_) => {
+            Ok(destination) => {
+                if destination.id != *context && self.has_open_handle(destination.id)? {
+                    return Err(OperationError::Win32(ERROR_SHARING_VIOLATION));
+                }
                 session
                     .replace_file(&old_path, new_parent, new_name)
                     .map_err(map_core_error)?;
