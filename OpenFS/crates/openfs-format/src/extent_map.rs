@@ -389,25 +389,56 @@ impl ExtentMap {
     /// callers can use the result when validating persisted metadata before mutating data.
     /// The output is proportional to the number of holes, not the file's logical size.
     pub fn logical_hole_ranges(&self, logical_block_count: u64) -> Result<Vec<(u64, u64)>> {
-        self.validate_ordering()?;
-        let mut holes = Vec::new();
-        holes
-            .try_reserve_exact(self.extents.len().saturating_add(1))
-            .map_err(|_| Error::AllocationFailed("unable to reserve sparse-hole ranges"))?;
+        self.logical_hole_ranges_in_range(0, logical_block_count, logical_block_count)
+    }
 
-        let mut cursor = 0_u64;
-        for extent in &self.extents {
-            let end = extent.logical_end()?;
-            if end > logical_block_count {
+    /// Return sparse holes intersecting a requested logical range.
+    ///
+    /// Uses the ordered extent index to avoid scanning the unaffected prefix and suffix.
+    /// Returned pairs are clipped to the requested half-open range and remain ordered.
+    pub fn logical_hole_ranges_in_range(
+        &self,
+        logical_start: u64,
+        block_count: u64,
+        logical_block_count: u64,
+    ) -> Result<Vec<(u64, u64)>> {
+        let logical_end = logical_start
+            .checked_add(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if logical_end > logical_block_count {
+            return Err(Error::InvalidInput(
+                "logical range exceeds file block count",
+            ));
+        }
+        if let Some(last) = self.extents.last() {
+            if last.logical_end()? > logical_block_count {
                 return Err(Error::Corrupt("extent exceeds logical file block count"));
             }
-            if extent.logical_start > cursor {
-                holes.push((cursor, extent.logical_start - cursor));
-            }
-            cursor = end;
         }
-        if cursor < logical_block_count {
-            holes.push((cursor, logical_block_count - cursor));
+
+        let end_index = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_end);
+        let first_index = end_index.saturating_sub(1);
+        let mut holes = Vec::new();
+        holes
+            .try_reserve_exact(end_index.saturating_sub(first_index).saturating_add(1))
+            .map_err(|_| Error::AllocationFailed("unable to reserve sparse-hole ranges"))?;
+
+        let mut cursor = logical_start;
+        for extent in &self.extents[first_index..end_index] {
+            let extent_end = extent.logical_end()?;
+            if extent_end <= cursor {
+                continue;
+            }
+            let allocated_start = extent.logical_start.max(logical_start);
+            if allocated_start > cursor {
+                holes.push((cursor, allocated_start - cursor));
+            }
+            cursor = cursor.max(extent_end.min(logical_end));
+        }
+        if cursor < logical_end {
+            holes.push((cursor, logical_end - cursor));
         }
         Ok(holes)
     }
@@ -2470,6 +2501,53 @@ mod tests {
         assert!(matches!(
             map.allocated_blocks_in_range(0, 0, 1023),
             Err(Error::Corrupt("extent exceeds logical file block count"))
+        ));
+    }
+
+
+
+    #[test]
+    fn sparse_hole_range_queries_match_full_map_reference() {
+        let extents: Vec<Extent> = (0..128_u64)
+            .map(|index| Extent {
+                logical_start: index * 8 + 2,
+                physical_start: 20_000 + index * 5,
+                block_count: 3,
+            })
+            .collect();
+        let map = ExtentMap::new(extents).unwrap();
+
+        for logical_start in 0..1024_u64 {
+            for block_count in 0..=16_u64 {
+                let logical_end = logical_start + block_count;
+                let expected: Vec<(u64, u64)> = (logical_start..logical_end)
+                    .filter(|logical| map.physical_block(*logical).is_none())
+                    .fold(Vec::new(), |mut holes, logical| {
+                        if let Some((start, count)) = holes.last_mut() {
+                            if *start + *count == logical {
+                                *count += 1;
+                                return holes;
+                            }
+                        }
+                        holes.push((logical, 1));
+                        holes
+                    });
+                assert_eq!(
+                    map.logical_hole_ranges_in_range(logical_start, block_count, 1024)
+                        .unwrap(),
+                    expected,
+                    "range start={logical_start}, count={block_count}"
+                );
+            }
+        }
+
+        assert_eq!(
+            map.logical_hole_ranges(1024).unwrap(),
+            map.logical_hole_ranges_in_range(0, 1024, 1024).unwrap()
+        );
+        assert!(matches!(
+            map.logical_hole_ranges_in_range(1020, 8, 1024),
+            Err(Error::InvalidInput("logical range exceeds file block count"))
         ));
     }
 
