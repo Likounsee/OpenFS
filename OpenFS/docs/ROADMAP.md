@@ -1218,3 +1218,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Progression globale conservée à 73 % : ce lot ferme une lacune importante de partage, mais la validation et l'application des droits par opération restent ouvertes.
 
 - Complément commit `dde9912c9de355ef7c3b5e3035aee238d2229da4` : `MAXIMUM_ALLOWED` est traité de façon conservative comme une demande lecture + écriture + suppression afin de ne pas accorder une ouverture concurrente sur la base d'un masque d'accès inconnu. Le test de classification correspondant est ajouté; il reste à exécuter.
+
+
+### Vérification des droits demandés par handle Dokany (2026-10-31)
+
+- Commit `3434aa2237d5912aa774026b37e631b0fb458bf7` : les enregistrements de handles conservent désormais le masque d'accès demandé en plus des catégories utilisées pour le partage.
+- Commit `d5018e2aef8654984f5c6a45fd11ab9c15dbdd9f` : les callbacks de lecture, écriture, append, énumération de répertoire, lecture des attributs, troncature, suppression et renommage vérifient le droit associé au handle précis. Les refus renvoient `ERROR_ACCESS_DENIED`; `GENERIC_READ`, `GENERIC_WRITE`, `GENERIC_ALL` et `MAXIMUM_ALLOWED` sont pris en compte pour les droits correspondants.
+- Test ajouté : un handle lecture seule ne peut pas écrire/supprimer ni modifier les attributs; un handle écriture seule ne reçoit pas implicitement le droit de lecture. Le total est maintenant de 13 tests unitaires dans le module Windows.
+- Commit `32a0cebefd325902579110366cbc272980a5ff29` : inventaire lexical synchronisé à 1264 déclarations sur 18 fichiers Rust.
+- Les mappings des droits spéciaux, les ACL et la sémantique complète des répertoires restent à auditer. Tests, compilation, rustfmt, Clippy et CI Windows restent non confirmés; aucun test Dokany ou USB réel n'a été réalisé.
+- Progression globale conservée à 73 % en attendant les validations et l'audit des droits spéciaux.
