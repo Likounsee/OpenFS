@@ -1349,3 +1349,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire régénéré sur les 18 fichiers Rust : 1 278 déclarations (commit `328fadc01c3c59b274131c552db072c5a3dafe3d`).
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+### Inventaire physique des blocs fragmentés (2026-10-31)
+
+- Commit `541e05e8c2a90922d44c8aeabedd98bb2df28f5c` : `validated_physical_block_inventory()` trie désormais les intervalles d'extents physiques avant leur expansion en numéros de blocs. Le tri passe ainsi d'un coût proportionnel au nombre de blocs alloués à un tri proportionnel au nombre d'extents, suivi d'une expansion linéaire. Les contrôles de bornes et d'alias physiques restent effectués avant la construction de l'inventaire.
+- Commits `344ba8e5c4c689c2746e4a21a9c831a9777a8b16` et `f7f7d3e81bb18700eed172917442665ae9b6c229` : test ajouté pour un fichier de 1 024 extents fragmentés dont l'ordre physique diffère de l'ordre logique; vérification de la taille, du tri strict et des bornes attendues.
+- Inventaire lexical régénéré sur 18 fichiers Rust : 1 279 déclarations (commit `8a88535b7ced81a23403ff83dc05e8ae79a825b0`).
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
