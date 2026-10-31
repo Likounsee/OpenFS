@@ -1656,6 +1656,24 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved path has no metadata record"))
     }
 
+    /// Resolve the current path of a persistent object identifier.
+    ///
+    /// Object IDs remain stable across rename/move operations. OS adapters should
+    /// retain this identity in open handles and resolve its current path for each
+    /// operation instead of caching a path that becomes stale after a rename.
+    pub fn path_for_persistent_object<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<String> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        namespace.path_of(object_id)
+    }
+
     /// List one page of a persistent directory by its absolute or relative path.
     ///
     /// Entries are returned in lexical name order. The exclusive `after_name` cursor
@@ -8204,6 +8222,14 @@ impl<D: BlockDevice> VolumeSession<D> {
     /// Look up persistent metadata by path.
     pub fn stat(&mut self, path: &str) -> Result<MetadataRecord> {
         self.opened.stat_persistent_path(&mut self.device, path)
+    }
+
+    /// Resolve the current path of an open object handle.
+    ///
+    /// The stable object ID survives rename/move operations, unlike a cached path.
+    pub fn path_for_object(&mut self, object_id: ObjectId) -> Result<String> {
+        self.opened
+            .path_for_persistent_object(&mut self.device, object_id)
     }
 
     /// List one lexical page of a persistent directory.
