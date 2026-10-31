@@ -12,7 +12,7 @@ use dokan::{
     CreateFileInfo, DiskSpaceInfo, FileInfo, FileSystemHandler, FindData, MountFlags,
     OperationError, OperationInfo, VolumeInfo,
 };
-use openfs_block::ImageDevice;
+use openfs_block::{BlockDevice, ImageDevice, RawDevice};
 use openfs_core::Error as CoreError;
 use openfs_format::{ObjectKind, VolumeSession};
 use widestring::{U16CStr, U16CString};
@@ -28,18 +28,17 @@ use winapi::um::winnt::{
     FILE_CASE_SENSITIVE_SEARCH, FILE_UNICODE_ON_DISK,
 };
 
-type Session = VolumeSession<ImageDevice>;
 type FileHandle = Arc<Mutex<String>>;
 
 /// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
 /// the session is serialized while per-open path state is independently guarded.
-struct OpenFsHandler {
-    session: Mutex<Session>,
+struct OpenFsHandler<D: BlockDevice> {
+    session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
 }
 
-impl OpenFsHandler {
-    fn new(session: Session, total_bytes: u64) -> Self {
+impl<D: BlockDevice> OpenFsHandler<D> {
+    fn new(session: VolumeSession<D>, total_bytes: u64) -> Self {
         Self {
             session: Mutex::new(session),
             total_bytes,
@@ -147,7 +146,7 @@ fn make_file_info(record: &openfs_format::MetadataRecord) -> FileInfo {
     }
 }
 
-impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
+impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for OpenFsHandler<D> {
     type Context = FileHandle;
 
     fn create_file(
@@ -498,8 +497,47 @@ pub fn mount_image(
 ) -> Result<(), Box<dyn StdError>> {
     let image_bytes = std::fs::metadata(image_path)?.len();
     let device = ImageDevice::open(image_path, block_size)?;
+    mount_device(device, image_bytes, mount_point, block_size)
+}
+
+/// Mount an already formatted whole-disk OpenFS volume from an offline USB disk.
+///
+/// The caller must have verified the disk identity and that Windows has taken it
+/// offline. The device is opened read/write because journal recovery and file
+/// operations may write to it.
+pub fn mount_usb_device(
+    disk_index: u32,
+    unique_id: &str,
+    mount_point: &str,
+    block_size: u32,
+) -> Result<(), Box<dyn StdError>> {
+    let (size_bytes, logical_sector_size) =
+        super::windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+    if block_size < logical_sector_size || block_size % logical_sector_size != 0 {
+        return Err(format!(
+            "OpenFS block size {block_size} must be a multiple of the USB disk logical sector size {logical_sector_size}"
+        ).into());
+    }
+    if size_bytes % u64::from(block_size) != 0 {
+        return Err("USB disk capacity is not a whole multiple of the selected OpenFS block size".into());
+    }
+    let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
+    let device = RawDevice::open(
+        &device_path,
+        block_size,
+        size_bytes / u64::from(block_size),
+    )?;
+    mount_device(device, size_bytes, mount_point, block_size)
+}
+
+fn mount_device<D: BlockDevice + Send + 'static>(
+    device: D,
+    total_bytes: u64,
+    mount_point: &str,
+    block_size: u32,
+) -> Result<(), Box<dyn StdError>> {
     let session = VolumeSession::open(device)?;
-    let handler = OpenFsHandler::new(session, image_bytes);
+    let handler = OpenFsHandler::new(session, total_bytes);
 
     let mount_text = if mount_point.ends_with(':') {
         format!("{mount_point}\\")
