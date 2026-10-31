@@ -729,10 +729,10 @@ impl OpenedVolume {
         Ok(())
     }
 
-    /// Free a contiguous data extent atomically with one bitmap journal update.
+    /// Free a contiguous data extent atomically across every touched bitmap page.
     ///
-    /// The entire range must be allocated, contained in the data region, and represented
-    /// by one bitmap block. Invalid ranges are rejected before the bitmap is journaled.
+    /// The entire range must be allocated and contained in the data region. Invalid
+    /// ranges and journal-capacity overflow are rejected before the bitmap is committed.
     pub fn free_contiguous_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -987,7 +987,7 @@ impl OpenedVolume {
     }
 
     /// Atomically allocate a contiguous extent and return its first data block.
-    /// The extent must fit within one bitmap block to fit the bounded canonical journal.
+    /// The extent may span bitmap pages up to the journal's bounded redo capacity.
     pub fn allocate_contiguous_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
