@@ -3,7 +3,7 @@
 //! Dokany is an optional host integration: OpenFS remains the on-disk filesystem.
 //! This module maps Windows file operations to the portable VolumeSession API.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error as StdError;
 use std::path::Path;
 use std::sync::Mutex;
@@ -19,7 +19,7 @@ use openfs_format::{ObjectId, ObjectKind, VolumeSession};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
     ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
+    ERROR_ACCESS_DENIED, ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
 };
 use winapi::um::fileapi::{
     CREATE_ALWAYS, CREATE_NEW, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
@@ -59,13 +59,90 @@ impl DeferredErrorLatch {
     }
 }
 
+/// Tracks independent Dokany opens by stable object ID. Delete-on-close is
+/// deferred until the final open object is cleaned up, so other live handles do
+/// not suddenly lose their namespace target.
+#[derive(Default)]
+struct OpenHandleState {
+    counts: Mutex<HashMap<ObjectId, usize>>,
+    delete_pending: Mutex<HashSet<ObjectId>>,
+}
+
+impl OpenHandleState {
+    fn register(&self, object_id: ObjectId) -> Result<(), &'static str> {
+        if self.is_delete_pending(object_id)? {
+            return Err("object is pending deletion");
+        }
+        let mut counts = self
+            .counts
+            .lock()
+            .map_err(|_| "OpenFS open-handle lock was poisoned")?;
+        let count = counts.entry(object_id).or_insert(0);
+        *count = count.checked_add(1).ok_or("OpenFS open-handle count overflow")?;
+        Ok(())
+    }
+
+    /// Release one open and return true when a pending deletion can now run.
+    fn close(&self, object_id: ObjectId, delete_on_close: bool) -> Result<bool, &'static str> {
+        let mut counts = self
+            .counts
+            .lock()
+            .map_err(|_| "OpenFS open-handle lock was poisoned")?;
+        if delete_on_close {
+            self.delete_pending
+                .lock()
+                .map_err(|_| "OpenFS delete-pending lock was poisoned")?
+                .insert(object_id);
+        }
+        let remove = match counts.get_mut(&object_id) {
+            Some(count) if *count > 1 => {
+                *count -= 1;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if remove {
+            counts.remove(&object_id);
+        }
+        let no_open_handles = !counts.contains_key(&object_id);
+        drop(counts);
+        if !no_open_handles {
+            return Ok(false);
+        }
+        self.is_delete_pending(object_id)
+    }
+
+    fn is_open(&self, object_id: ObjectId) -> Result<bool, &'static str> {
+        self.counts
+            .lock()
+            .map(|counts| counts.get(&object_id).copied().unwrap_or(0) != 0)
+            .map_err(|_| "OpenFS open-handle lock was poisoned")
+    }
+
+    fn is_delete_pending(&self, object_id: ObjectId) -> Result<bool, &'static str> {
+        self.delete_pending
+            .lock()
+            .map(|pending| pending.contains(&object_id))
+            .map_err(|_| "OpenFS delete-pending lock was poisoned")
+    }
+
+    fn complete_delete(&self, object_id: ObjectId) -> Result<(), &'static str> {
+        self.delete_pending
+            .lock()
+            .map_err(|_| "OpenFS delete-pending lock was poisoned")?
+            .remove(&object_id);
+        Ok(())
+    }
+}
+
 /// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
 /// the session is serialized and open handles retain stable on-disk object IDs.
 struct OpenFsHandler<D: BlockDevice> {
     session: Mutex<VolumeSession<D>>,
     total_bytes: u64,
     deferred_error: DeferredErrorLatch,
-    open_handles: Mutex<HashMap<ObjectId, usize>>,
+    open_handles: OpenHandleState,
 }
 
 impl<D: BlockDevice> OpenFsHandler<D> {
@@ -74,7 +151,7 @@ impl<D: BlockDevice> OpenFsHandler<D> {
             session: Mutex::new(session),
             total_bytes,
             deferred_error: DeferredErrorLatch::default(),
-            open_handles: Mutex::new(HashMap::new()),
+            open_handles: OpenHandleState::default(),
         }
     }
 
@@ -94,40 +171,20 @@ impl<D: BlockDevice> OpenFsHandler<D> {
     }
 
     fn register_open_handle(&self, object_id: ObjectId) -> Result<(), OperationError> {
-        let mut handles = self
-            .open_handles
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
-        let count = handles.entry(object_id).or_insert(0);
-        *count = count
-            .checked_add(1)
-            .ok_or(OperationError::Win32(ERROR_GEN_FAILURE))?;
-        Ok(())
-    }
-
-    fn unregister_open_handle(&self, object_id: ObjectId) {
-        match self.open_handles.lock() {
-            Ok(mut handles) => {
-                let remove = match handles.get_mut(&object_id) {
-                    Some(count) if *count > 1 => {
-                        *count -= 1;
-                        false
-                    }
-                    Some(_) => true,
-                    None => false,
-                };
-                if remove {
-                    handles.remove(&object_id);
-                }
-            }
-            Err(_) => eprintln!("OpenFS: unable to release open-handle accounting lock"),
-        }
+        self.open_handles
+            .register(object_id)
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
     }
 
     fn has_open_handle(&self, object_id: ObjectId) -> Result<bool, OperationError> {
         self.open_handles
-            .lock()
-            .map(|handles| handles.get(&object_id).copied().unwrap_or(0) != 0)
+            .is_open(object_id)
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
+    }
+
+    fn is_delete_pending(&self, object_id: ObjectId) -> Result<bool, OperationError> {
+        self.open_handles
+            .is_delete_pending(object_id)
             .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
     }
 
@@ -237,6 +294,9 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         let existing = session.stat(&path);
         let (is_dir, new_file_created, object_id) = match existing {
             Ok(record) => {
+                if self.is_delete_pending(record.id)? {
+                    return Err(OperationError::Win32(ERROR_ACCESS_DENIED));
+                }
                 if create_disposition == CREATE_NEW {
                     return Err(OperationError::Win32(ERROR_FILE_EXISTS));
                 }
@@ -296,13 +356,20 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             .lock()
             .map_err(|_| "OpenFS session lock was poisoned".to_owned())
             .and_then(|mut session| {
-                if info.delete_on_close() {
+                let should_delete = self
+                    .open_handles
+                    .close(*context, info.delete_on_close())
+                    .map_err(str::to_owned)?;
+                if should_delete {
                     let path = session
                         .path_for_object(*context)
                         .map_err(|error| error.to_string())?;
                     session
                         .remove(&path)
                         .map_err(|error| format!("delete-on-close for '{path}' failed: {error}"))?;
+                    self.open_handles
+                        .complete_delete(*context)
+                        .map_err(str::to_owned)?;
                 }
                 session
                     .flush()
@@ -312,7 +379,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             eprintln!("OpenFS: {error}");
             self.deferred_error.record(error);
         }
-        self.unregister_open_handle(*context);
+
     }
 
     fn read_file(
@@ -499,7 +566,10 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
             }
             Ok(destination) => {
-                if destination.id != *context && self.has_open_handle(destination.id)? {
+                if destination.id != *context
+                    && (self.has_open_handle(destination.id)?
+                        || self.is_delete_pending(destination.id)?)
+                {
                     return Err(OperationError::Win32(ERROR_SHARING_VIOLATION));
                 }
                 session
@@ -676,7 +746,37 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 
 #[cfg(test)]
 mod tests {
-    use super::DeferredErrorLatch;
+    use super::{DeferredErrorLatch, OpenHandleState};
+    use openfs_format::ObjectId;
+
+    #[test]
+    fn delete_on_close_waits_for_every_open_handle() {
+        let state = OpenHandleState::default();
+        let object = ObjectId(42);
+        state.register(object).unwrap();
+        state.register(object).unwrap();
+
+        assert!(!state.close(object, true).unwrap());
+        assert!(state.is_open(object).unwrap());
+        assert!(state.is_delete_pending(object).unwrap());
+        assert!(state.register(object).is_err());
+
+        assert!(state.close(object, false).unwrap());
+        assert!(!state.is_open(object).unwrap());
+        assert!(state.is_delete_pending(object).unwrap());
+        state.complete_delete(object).unwrap();
+        assert!(!state.is_delete_pending(object).unwrap());
+    }
+
+    #[test]
+    fn ordinary_close_does_not_mark_object_for_deletion() {
+        let state = OpenHandleState::default();
+        let object = ObjectId(7);
+        state.register(object).unwrap();
+        assert!(!state.close(object, false).unwrap());
+        assert!(!state.is_open(object).unwrap());
+        assert!(!state.is_delete_pending(object).unwrap());
+    }
 
     #[test]
     fn deferred_error_latch_retains_all_cleanup_failures_until_taken() {
