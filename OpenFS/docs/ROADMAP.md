@@ -1168,3 +1168,6 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Ce lot améliore le parcours d'utilisation et les garde-fous; il n'ajoute pas de nouveau moteur de stockage ni de nouvelle garantie de crash-consistency. Le montage USB, le formatage raw et l'usage Explorer restent non validés sur matériel réel dans cet environnement. Le helper PowerShell n'a pas été exécuté ici.
 - CI, compilation Rust et tests ne sont pas déclarés verts sur la seule base de ces commits. Les essais physiques requis restent : formatage d'une clé dédiée, copie/lecture/renommage/suppression via Explorer, démontage/remontage avec comparaison de contenu, puis essais de retrait à chaud séparés et non destructifs.
 - Estimations inchangées : P0 100 %, P1 81 %, P2 80 %, P3 5 %, global 71 %. Le travail de ce lot est un meilleur chemin opératoire, pas une hausse de fonctionnalité du noyau.
+
+- Commit `a7275ac3b0572975dbbd917199ec3ad0b6906482` : la confirmation `ERASE-ALL-DATA` est maintenant contrôlée avant toute transition de l'état Online/Offline; le helper ne change donc pas l'état du disque si la confirmation manque.
+- Commit `76284c88f12cc1bb920c62dddf8be6eb05f591f8` : README synchronisé avec le vrai flux USB; suppression de deux instructions obsolètes qui disaient encore que le CLI ne montait pas de disque physique ou que l'intégration était uniquement image.
