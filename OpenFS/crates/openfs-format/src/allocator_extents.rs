@@ -630,15 +630,17 @@ impl OpenedVolume {
         pages.try_reserve_exact(page_count).map_err(|_| {
             Error::AllocationFailed("unable to reserve batch free bitmap pages")
         })?;
-        for &block in sorted {
+        // Sorted input visits bitmap pages in ascending order. Reuse the last
+        // page instead of searching every previously loaded page for every block.
+        let mut cursor = 0usize;
+        while cursor < sorted.len() {
+            let block = sorted[cursor];
             let index = block / bits_per_block;
             let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
             let bitmap_block = layout.bitmap_start.checked_add(index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let position = if let Some(position) =
-                pages.iter().position(|page| page.0 == bitmap_block)
-            {
-                position
+            let position = if pages.last().is_some_and(|page| page.0 == bitmap_block) {
+                pages.len() - 1
             } else {
                 let mut image = try_zeroed_buffer(
                     self.volume.block_size as usize,
@@ -653,13 +655,28 @@ impl OpenedVolume {
                 pages.push((bitmap_block, base, image));
                 pages.len() - 1
             };
-            let local = block - base;
-            if !bitmap_range_matches(&pages[position].2, local, local + 1, true)? {
+
+            // Coalesce adjacent blocks from the same bitmap page into one range
+            // operation, reducing repeated per-block mask work for large frees.
+            let mut run_end = cursor + 1;
+            while run_end < sorted.len()
+                && sorted[run_end - 1].checked_add(1) == Some(sorted[run_end])
+                && sorted[run_end] / bits_per_block == index
+            {
+                run_end += 1;
+            }
+            let local_start = block - base;
+            let local_end = sorted[run_end - 1]
+                .checked_sub(base)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(Error::ArithmeticOverflow)?;
+            if !bitmap_range_matches(&pages[position].2, local_start, local_end, true)? {
                 return Err(Error::InvalidInput(
                     "batch free contains an already-free block",
                 ));
             }
-            set_bitmap_range(&mut pages[position].2, local, local + 1, false)?;
+            set_bitmap_range(&mut pages[position].2, local_start, local_end, false)?;
+            cursor = run_end;
         }
 
         let mut redo = Vec::new();
@@ -692,15 +709,16 @@ impl OpenedVolume {
                 );
                 validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
                     .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
-                for &block in sorted {
-                    if block / bits_per_block != *base / bits_per_block {
-                        continue;
-                    }
+                let page_index = *base / bits_per_block;
+                let first = sorted.partition_point(|block| *block / bits_per_block < page_index);
+                let end = sorted.partition_point(|block| *block / bits_per_block <= page_index);
+                for &block in &sorted[first..end] {
                     let local = block - *base;
                     let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
                     if recovered[byte] & (1_u8 << (local % 8)) == 0 {
                         free_count = free_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
                     }
+                }
                 }
             }
             if free_count == sorted.len() {
