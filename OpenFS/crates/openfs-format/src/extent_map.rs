@@ -248,18 +248,43 @@ impl ExtentMap {
             return Err(Error::InvalidInput("physical extents overlap"));
         }
 
+        // Count only runs that will remain distinct. A fully coalescing import
+        // should not reserve one extra slot per incoming extent.
+        let mut append_count = 0_usize;
+        let mut tail = self.extents.last().copied();
+        for extent in &incoming {
+            if let Some(last) = tail {
+                if last.logical_end()? == extent.logical_start
+                    && last.physical_end()? == extent.physical_start
+                {
+                    let merged_count = last
+                        .block_count
+                        .checked_add(extent.block_count)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    tail = Some(Extent {
+                        logical_start: last.logical_start,
+                        physical_start: last.physical_start,
+                        block_count: merged_count,
+                    });
+                    continue;
+                }
+            }
+            append_count = append_count
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            tail = Some(*extent);
+        }
+
         self.extents
-            .try_reserve(incoming.len())
+            .try_reserve(append_count)
             .map_err(|_| Error::AllocationFailed("unable to reserve extent-map batch"))?;
         for extent in incoming {
             if let Some(last) = self.extents.last_mut() {
                 if last.logical_end()? == extent.logical_start
                     && last.physical_end()? == extent.physical_start
                 {
-                    last.block_count = last
-                        .block_count
-                        .checked_add(extent.block_count)
-                        .ok_or(Error::ArithmeticOverflow)?;
+                    // The merge arithmetic was checked in the preflight pass above.
+                    last.block_count += extent.block_count;
                     continue;
                 }
             }
