@@ -2399,6 +2399,27 @@ mod tests {
         assert!(map.encode_block(44).is_ok());
     }
     #[test]
+    fn large_fragmented_inventory_sorts_extent_runs_before_expansion() {
+        let extents: Vec<Extent> = (0..1024_u64)
+            .map(|index| Extent {
+                logical_start: index * 2,
+                physical_start: 20_000 - index * 2,
+                block_count: 1,
+            })
+            .collect();
+        let map = ExtentMap::new(extents).unwrap();
+
+        let inventory = map
+            .validated_physical_block_inventory(2047, 1, 20_001)
+            .unwrap();
+
+        assert_eq!(inventory.len(), 1024);
+        assert!(inventory.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(inventory[0], 18_002);
+        assert_eq!(inventory[1023], 20_000);
+    }
+
+    #[test]
     fn validated_inventory_count_matches_inventory_length() {
         let map = sample();
         assert_eq!(
