@@ -11,7 +11,7 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
+use openfs_block::{BlockDevice, ImageDevice, RawDevice, ReadOnlyRawDevice};
 use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
 
 mod windows_device;
@@ -62,6 +62,45 @@ fn run() -> Result<(), Box<dyn StdError>> {
             {
                 let _ = mount_point;
                 Err("unmount is currently supported only on Windows through Dokany".into())
+            }
+        }
+        Some("format-usb") => {
+            let disk_index = args.next().ok_or("missing USB disk index")?.parse::<u32>()?;
+            let unique_id = args.next().ok_or("missing exact USB disk UniqueId")?;
+            let confirmation = args.next().ok_or("missing ERASE-ALL-DATA confirmation")?;
+            if confirmation != "ERASE-ALL-DATA" {
+                return Err("refusing to format USB disk: type ERASE-ALL-DATA exactly to confirm".into());
+            }
+            let block_size = parse_block_size(args.next())?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            #[cfg(windows)]
+            {
+                format_usb_device(disk_index, &unique_id, block_size)
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = (disk_index, unique_id, block_size);
+                Err("format-usb currently requires Windows".into())
+            }
+        }
+        Some("mount-usb") => {
+            let disk_index = args.next().ok_or("missing USB disk index")?.parse::<u32>()?;
+            let unique_id = args.next().ok_or("missing exact USB disk UniqueId")?;
+            let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
+            let block_size = parse_block_size(args.next())?;
+            if args.next().is_some() {
+                return Err("too many arguments".into());
+            }
+            #[cfg(windows)]
+            {
+                windows_mount::mount_usb_device(disk_index, &unique_id, &mount_point, block_size)
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = (disk_index, unique_id, mount_point, block_size);
+                Err("mount-usb currently requires Windows + Dokany".into())
             }
         }
         Some("list-devices") => {
@@ -2638,12 +2677,50 @@ fn probe_read_only_device(
     Ok(())
 }
 
+#[cfg(windows)]
+fn format_usb_device(
+    disk_index: u32,
+    unique_id: &str,
+    block_size: u32,
+) -> Result<(), Box<dyn StdError>> {
+    let (size_bytes, logical_sector_size) =
+        windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+    if block_size < logical_sector_size || block_size % logical_sector_size != 0 {
+        return Err(format!(
+            "OpenFS block size {block_size} must be a multiple of the USB disk logical sector size {logical_sector_size}"
+        ).into());
+    }
+    if size_bytes % u64::from(block_size) != 0 {
+        return Err("USB disk capacity is not a whole multiple of the selected OpenFS block size".into());
+    }
+
+    let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
+    let mut device = RawDevice::open(
+        &device_path,
+        block_size,
+        size_bytes / u64::from(block_size),
+    )?;
+    // This intentionally overwrites the complete selected physical disk, including
+    // partition tables and every existing partition. The caller had to type the
+    // destructive confirmation and pass the exact Windows UniqueId above.
+    format_volume(&mut device, *b"openfs-usb-v1!!!", 0)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
+    device.flush()?;
+    println!("OpenFS USB volume formatted and initialized.");
+    println!("All previous data and partition metadata on this USB disk have been erased.");
+    println!("Keep the disk offline; use mount-usb with the same disk index and exact UniqueId.");
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs list-devices  (read-only physical disk inventory; Windows only)");
     eprintln!("  openfs create-image <path> <size-MiB>  (formats and initializes a mount-ready image)");
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
     eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
+    eprintln!("  openfs format-usb <disk-index> <exact-UniqueId> ERASE-ALL-DATA [block-size]  (destructive; Windows; disk must be offline)");
+    eprintln!("  openfs mount-usb <disk-index> <exact-UniqueId> <drive-letter> [block-size]  (Windows + Dokany; disk must be offline)");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
