@@ -2641,7 +2641,9 @@ fn probe_read_only_device(
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs list-devices  (read-only physical disk inventory; Windows only)");
-    eprintln!("  openfs create-image <path> <size-MiB>");
+    eprintln!("  openfs create-image <path> <size-MiB>  (formats and initializes a mount-ready image)");
+    eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
+    eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
