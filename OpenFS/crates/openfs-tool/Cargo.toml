@@ -10,6 +10,7 @@ name = "openfs"
 path = "src/main.rs"
 
 [dependencies]
+openfs-core = { path = "../openfs-core" }
 openfs-block = { path = "../openfs-block" }
 openfs-format = { path = "../openfs-format" }
 
@@ -18,3 +19,8 @@ openfs-core = { path = "../openfs-core" }
 
 [lints]
 workspace = true
+
+[target.'cfg(windows)'.dependencies]
+dokan = "0.2"
+widestring = "0.4"
+winapi = { version = "0.3", features = ["fileapi", "winerror", "winnt"] }
