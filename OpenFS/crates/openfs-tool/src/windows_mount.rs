@@ -169,7 +169,13 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
         }
 
         let wants_directory = (create_options & 0x0000_0001) != 0;
-        let existing = self.stat(&path);
+        // Only a genuine missing path permits CREATE_* to publish a new entry.
+        // Corruption and I/O failures must never be mistaken for absence.
+        let existing = self
+            .session
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
+            .stat(&path);
         let (is_dir, new_file_created) = match existing {
             Ok(record) => {
                 if create_disposition == CREATE_NEW {
@@ -190,7 +196,7 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                 }
                 (wants_directory, false)
             }
-            Err(_) => {
+            Err(CoreError::InvalidInput("path component does not exist")) => {
                 if create_disposition == OPEN_EXISTING || create_disposition == TRUNCATE_EXISTING {
                     return Err(OperationError::Win32(ERROR_FILE_NOT_FOUND));
                 }
@@ -213,6 +219,7 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
                 }
                 (wants_directory, true)
             }
+            Err(error) => return Err(map_core_error(error)),
         };
 
         Ok(CreateFileInfo {
@@ -381,11 +388,20 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
     ) -> Result<(), OperationError> {
         let old_path = self.path_for(context)?;
         let new_path = path_from_windows(new_file_name)?;
-        if self.stat(&new_path).is_ok() {
-            if !replace_if_existing {
-                return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
+        let destination = self
+            .session
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
+            .stat(&new_path);
+        match destination {
+            Ok(_) => {
+                if !replace_if_existing {
+                    return Err(OperationError::Win32(ERROR_ALREADY_EXISTS));
+                }
+                return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
             }
-            return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
+            Err(CoreError::InvalidInput("path component does not exist")) => {}
+            Err(error) => return Err(map_core_error(error)),
         }
         let (new_parent, new_name) = split_parent(&new_path)?;
         self.session
