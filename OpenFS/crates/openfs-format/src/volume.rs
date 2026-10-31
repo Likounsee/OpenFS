@@ -8319,7 +8319,10 @@ impl<D: BlockDevice> VolumeSession<D> {
         name: &str,
     ) -> Result<ObjectId> {
         self.next_object_id = self.next_object_id.max(
-            object_id.0.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            object_id
+                .0
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         self.opened
             .create_persistent_file_at_path(&mut self.device, parent_path, object_id, name)
@@ -8333,7 +8336,10 @@ impl<D: BlockDevice> VolumeSession<D> {
         name: &str,
     ) -> Result<ObjectId> {
         self.next_object_id = self.next_object_id.max(
-            object_id.0.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+            object_id
+                .0
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?,
         );
         self.opened.create_persistent_directory_at_path(
             &mut self.device,
