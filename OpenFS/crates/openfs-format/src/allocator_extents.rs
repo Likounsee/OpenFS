@@ -582,64 +582,22 @@ impl OpenedVolume {
         {
             return Err(Error::InvalidInput("batch free contains a non-data block"));
         }
-        let bitmap_index = sorted[0] / bits_per_block;
-        if sorted
-            .iter()
-            .any(|block| *block / bits_per_block != bitmap_index)
-        {
+
+        let first_index = sorted[0] / bits_per_block;
+        let last_index = sorted[sorted.len() - 1] / bits_per_block;
+        let page_count = usize::try_from(last_index - first_index + 1)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        let max_updates = self.journal.max_update_count(device)?;
+        if page_count > max_updates {
             return Err(Error::InvalidInput(
-                "batch free blocks must belong to one bitmap segment",
+                "batch free exceeds the journal's atomic bitmap-update capacity",
             ));
         }
-        let bitmap_block = layout
-            .bitmap_start
-            .checked_add(bitmap_index)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let base = bitmap_index
-            .checked_mul(bits_per_block)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(
-            self.volume.block_size as usize,
-            "allocation failed while preparing allocator bitmap",
-        )?;
-        device.read_blocks(bitmap_block, &mut bitmap)?;
-        let segment_start = layout.data_start.max(base);
-        let segment_end = layout.backup_superblock.min(
-            base.checked_add(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?,
-        );
-        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        // Validate contiguous runs a byte at a time. Sparse entries still
-        // require run discovery, but long file extents no longer perform one
-        // division, modulo and bit-mask check per block.
-        let mut run_start = sorted[0];
-        let mut previous = sorted[0];
-        for &block in sorted.iter().skip(1) {
-            if previous.checked_add(1) == Some(block) {
-                previous = block;
-                continue;
-            }
-            if !bitmap_range_matches(&bitmap, run_start - base, previous - base + 1, true)? {
-                return Err(Error::InvalidInput(
-                    "batch free contains an already-free block",
-                ));
-            }
-            run_start = block;
-            previous = block;
-        }
-        if !bitmap_range_matches(
-            &bitmap,
-            run_start - base,
-            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
-            true,
-        )? {
-            return Err(Error::InvalidInput(
-                "batch free contains an already-free block",
-            ));
-        }
+
+        // Validate ownership and descriptor protection for the complete request
+        // before preparing any redo image. Sorted input lets us check descriptor
+        // signatures by contiguous runs instead of issuing one read per block.
         self.ensure_inventory_blocks_releasable(device, sorted)?;
-        // The sorted list lets us check descriptor protection by contiguous runs,
-        // avoiding one device read per block even for sparse batches.
         let mut run_start = sorted[0];
         let mut previous = sorted[0];
         for &block in sorted.iter().skip(1) {
@@ -647,84 +605,106 @@ impl OpenedVolume {
                 previous = block;
                 continue;
             }
-            let run_end = previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
             crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
                 device,
                 run_start,
-                run_end,
+                previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
                 self.volume.block_size,
             )?;
             run_start = block;
             previous = block;
         }
-        let run_end = previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
             device,
             run_start,
-            run_end,
+            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
             self.volume.block_size,
         )?;
-        // Clear contiguous runs byte-wise; sparse blocks still cost O(n), but
-        // long extents avoid repeating division, modulo and mask construction per block.
-        let mut run_start = sorted[0];
-        let mut previous = sorted[0];
-        for &block in sorted.iter().skip(1) {
-            if previous.checked_add(1) == Some(block) {
-                previous = block;
-                continue;
+
+        let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
+        pages.try_reserve_exact(page_count).map_err(|_| {
+            Error::AllocationFailed("unable to reserve batch free bitmap pages")
+        })?;
+        for &block in sorted {
+            let index = block / bits_per_block;
+            let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_block = layout.bitmap_start.checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let position = if let Some(position) =
+                pages.iter().position(|page| page.0 == bitmap_block)
+            {
+                position
+            } else {
+                let mut image = try_zeroed_buffer(
+                    self.volume.block_size as usize,
+                    "allocation failed while preparing batch free bitmap",
+                )?;
+                device.read_blocks(bitmap_block, &mut image)?;
+                let segment_start = layout.data_start.max(base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(&image, base, segment_start, segment_end)?;
+                pages.push((bitmap_block, base, image));
+                pages.len() - 1
+            };
+            let local = block - base;
+            if !bitmap_range_matches(&pages[position].2, local, local + 1, true)? {
+                return Err(Error::InvalidInput(
+                    "batch free contains an already-free block",
+                ));
             }
-            set_bitmap_range(&mut bitmap, run_start - base, previous - base + 1, false)?;
-            run_start = block;
-            previous = block;
+            set_bitmap_range(&mut pages[position].2, local, local + 1, false)?;
         }
-        set_bitmap_range(
-            &mut bitmap,
-            run_start - base,
-            previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
-            false,
-        )?;
-        if let Err(error) = self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        ) {
-            // Batch free is used by truncate, delete and replacement paths. If the
-            // journal reports an error after a durable COMMIT, returning the error
-            // unchanged could make those callers retry an already-completed release.
+
+        let mut redo = Vec::new();
+        redo.try_reserve_exact(pages.len()).map_err(|_| {
+            Error::AllocationFailed("unable to reserve batch free redo images")
+        })?;
+        for (bitmap_block, _, image) in &pages {
+            redo.push(RedoUpdate {
+                target_block: *bitmap_block,
+                contents: image.clone(),
+            });
+        }
+        self.journal.required_record_count(device, redo.len())?;
+        if let Err(error) = self.journal.commit(device, &redo) {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("batch free failed and journal recovery could not be completed")
             })?;
-            let mut recovered_bitmap = try_zeroed_buffer(
+            let mut recovered = try_zeroed_buffer(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered batch free",
             )?;
-            device
-                .read_blocks(bitmap_block, &mut recovered_bitmap)
-                .map_err(|_| Error::Corrupt("batch free recovery could not verify bitmap state"))?;
-            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
-                .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
             let mut free_count = 0usize;
-            let mut allocated_count = 0usize;
-            for &block in sorted {
-                let local = block - base;
-                let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                if recovered_bitmap[byte] & (1_u8 << (local % 8)) == 0 {
-                    free_count += 1;
-                } else {
-                    allocated_count += 1;
+            for (bitmap_block, base, _) in &pages {
+                device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
+                    Error::Corrupt("batch free recovery could not read a bitmap page")
+                })?;
+                let segment_start = layout.data_start.max(*base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
+                    .map_err(|_| Error::Corrupt("batch free recovery found an invalid bitmap"))?;
+                for &block in sorted {
+                    if block / bits_per_block != *base / bits_per_block {
+                        continue;
+                    }
+                    let local = block - *base;
+                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                    if recovered[byte] & (1_u8 << (local % 8)) == 0 {
+                        free_count = free_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                    }
                 }
             }
             if free_count == sorted.len() {
                 return Ok(());
             }
-            if allocated_count == sorted.len() {
+            if free_count == 0 {
                 return Err(error);
             }
-            return Err(Error::Corrupt(
-                "batch free recovery left a mixed bitmap state",
-            ));
+            return Err(Error::Corrupt("batch free recovery left a mixed bitmap state"));
         }
         Ok(())
     }
