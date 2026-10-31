@@ -16910,7 +16910,7 @@ mod tests {
                 .rename("/docs/draft.txt", "/docs", "final.txt")
                 .unwrap();
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
-            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS moun");
+            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS mount");
 
             let entries = mounted.read_directory("/docs", None, 16).unwrap();
             assert_eq!(entries.len(), 1);
@@ -16923,7 +16923,7 @@ mod tests {
         {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
-            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS moun");
+            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS mount");
             assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 12);
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
