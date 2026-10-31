@@ -1,3 +1,15 @@
+### Reprise de session — 2026-10-31 (handles Dokany stables et cohérence des renommages)
+
+- Commits `c158b6fb847609704a27990db964562fda807ae5` et `84ec576f51a8f0f5eb93e3de7178215a670e727e` : ajout de la résolution du chemin courant depuis un `ObjectId` persistant, puis remplacement des chemins mémorisés dans les contextes Dokany par l'identité stable de l'objet. Un handle déjà ouvert peut donc retrouver le fichier après un renommage/déplacement au lieu de continuer à viser l'ancien chemin.
+- Les callbacks de lecture, écriture, informations, extension/troncature, énumération, suppression et delete-on-close résolvent désormais l'identité et exécutent l'opération sous le même verrou de session. Le renommage vérifie la destination et publie le déplacement sous ce même verrou : la fenêtre TOCTOU entre vérification et mutation est supprimée.
+- Le remplacement d'un fichier destination existant reste volontairement refusé : il faut une primitive de remplacement transactionnelle, pas un delete-then-rename qui risquerait de perdre la destination.
+- Commit `d4ee302f2dd096a163599a0e38ad459a99125ddd` : le test de persistance via `RawDevice` vérifie maintenant que le chemin d'un objet suit son renommage, que l'écriture après renommage fonctionne, puis que le nouveau chemin et les octets survivent au démontage/réouverture.
+- Le run CI `41221924691` sur l'ancien SHA `cb05c3cdbcb7895f930db8cb5d6bb1995612c3f3` a échoué sur la première étape d'inventaire lexical : le CSV n'avait pas été régénéré après les ajouts USB. Le fichier a été recalculé par le même algorithme que `scripts/generate_symbol_inventory.py` (18 fichiers Rust, 1210 déclarations) dans `4c1f38fc0f50019687809f4b0968dadaafc290c1`. La CI du nouveau SHA doit encore être vérifiée; aucun test Rust, rustfmt ou Clippy n'est déclaré réussi à ce stade.
+- Aucun essai Dokany sur Windows ni aucun essai sur une vraie clé USB n'a été effectué depuis cet environnement. Le chemin USB reste expérimental et réservé à des supports jetables.
+- Estimations inchangées en attendant la CI Linux/Windows et un test matériel réel : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+---
+
 ### Complément — validation du chemin bloc brut et géométrie Dokany
 
 - Commit `a9e76b149a22c95338cc2d0c0cae44e79f8e36f0` puis correction `709e15412f8c888d7fa8359b665a26ec7ac2638b` : ajout d'un test d'intégration sur fichier temporaire utilisant réellement `RawDevice` : formatage, initialisation de la racine, création/écriture, flush/unmount, réouverture et comparaison exacte des octets relus.
