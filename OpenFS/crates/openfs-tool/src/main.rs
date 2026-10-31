@@ -2693,7 +2693,9 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE};
+    use super::{
+        audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE,
+    };
     use openfs_block::{BlockDevice, ImageDevice};
     use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
