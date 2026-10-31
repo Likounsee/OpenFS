@@ -1,8 +1,8 @@
-//! Safe-first host utility for OpenFS development images.
+//! Safe-first host utility for OpenFS images and explicitly selected offline USB disks.
 //!
-//! This tool deliberately has no raw-device formatting command. Physical-device
-//! support must wait for a journal-integrated on-disk format and stronger recovery
-//! guarantees; image creation never truncates or overwrites an existing path.
+//! Raw USB formatting is destructive and gated by Windows disk identity, USB transport,
+//! offline state, boot/system exclusion, and an exact typed confirmation. Physical-media
+//! durability and production safety are not yet guaranteed.
 
 use std::collections::HashSet;
 use std::env;
