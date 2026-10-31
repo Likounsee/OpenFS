@@ -1299,3 +1299,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le scénario complète les tests de troncature et de remplacement nominal. Il est ajouté mais non exécuté dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA restent à confirmer.
 - Inventaire lexical mis à jour dans le commit `a572263a567d4d857f17ebacbdc215a97b591fd7`. La progression globale reste à 73 % jusqu'à exécution et validation des scénarios.
 
+### Requêtes de plages d'extents accélérées (2026-10-31)
+
+- Commit `007233f2d30aeb34acc164fe6ad1a1fe0badd557` : `allocated_blocks_in_range()` utilise désormais une recherche binaire sur les débuts logiques pour limiter le parcours aux extents pouvant intersecter la plage demandée. Le contrôle de borne supérieure s'appuie sur le dernier extent, invariant garanti par les constructeurs et mutations validés de `ExtentMap`.
+- Complexité de la recherche : O(log n + k), où k est le nombre d'extents intersectant la plage, au lieu de parcourir tous les extents pour chaque requête.
+- Ajout d'un test de référence sur 256 extents clairsemés et un balayage de plages, comparant le résultat à une référence bloc par bloc et vérifiant le rejet d'une longueur logique trop courte.
+- Inventaire lexical synchronisé : 1 273 déclarations sur 18 fichiers Rust (commit `51541b5066210477b11ebf75c4c749079ef61367`).
+- Test ajouté mais non exécuté dans cette session; compilation, formatage, Clippy et CI restent non vérifiés. Progression globale conservée à 73 % jusqu'à validation.
+
