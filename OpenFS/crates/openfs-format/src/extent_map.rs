@@ -1131,6 +1131,34 @@ mod tests {
     }
 
     #[test]
+    fn removing_one_extent_from_large_map_preserves_distant_prefix_and_suffix() {
+        let extents: Vec<Extent> = (0..2048_u64)
+            .map(|index| Extent {
+                logical_start: index * 4,
+                physical_start: 10_000 + index * 7,
+                block_count: 2,
+            })
+            .collect();
+        let mut map = ExtentMap::new(extents).unwrap();
+
+        let removed = map.remove_range(4096, 2).unwrap();
+        assert_eq!(
+            removed,
+            vec![Extent {
+                logical_start: 4096,
+                physical_start: 17_168,
+                block_count: 2,
+            }]
+        );
+        assert_eq!(map.extents().len(), 2047);
+        assert_eq!(map.physical_block(0), Some(10_000));
+        assert_eq!(map.physical_block(4096), None);
+        assert_eq!(map.physical_block(8188), Some(24_332));
+        assert_eq!(map.physical_block(8190), None);
+        assert!(map.validate(8192, 10_000, 30_000).is_ok());
+    }
+
+    #[test]
     fn removing_disjoint_sparse_ranges_is_a_noop() {
         let mut map = sample();
         let before = map.clone();
