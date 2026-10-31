@@ -74,10 +74,18 @@ fn collect_file_owned_ranges(
         ranges.extend(map.validated_physical_ranges(u64::MAX, 0, u64::MAX)?);
     }
 
+    normalize_owned_ranges(&mut ranges)?;
+    Ok(ranges)
+}
+
+fn normalize_owned_ranges(ranges: &mut Vec<(u64, u64)>) -> Result<()> {
     ranges.sort_unstable();
     let mut write = 0_usize;
     for read in 0..ranges.len() {
         let (start, end) = ranges[read];
+        if start >= end {
+            return Err(Error::Corrupt("persistent ownership range is empty or inverted"));
+        }
         if write > 0 {
             let previous_end = ranges[write - 1].1;
             if start < previous_end {
@@ -94,7 +102,7 @@ fn collect_file_owned_ranges(
         write += 1;
     }
     ranges.truncate(write);
-    Ok(ranges)
+    Ok(())
 }
 
 fn owned_ranges_contain(ranges: &[(u64, u64)], block: u64) -> bool {
@@ -8636,7 +8644,7 @@ impl<D: BlockDevice> VolumeSession<D> {
 mod tests {
     use super::{
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
-        format_volume, open_volume, owned_ranges_contain, persist_inventory_hint,
+        format_volume, normalize_owned_ranges, open_volume, owned_ranges_contain, persist_inventory_hint,
         read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET,
         MAGIC, VERSION,
     };
@@ -8647,8 +8655,10 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn owned_range_lookup_handles_gaps_and_half_open_boundaries() {
-        let ranges = [(10, 15), (20, 24), (30, 31)];
+    fn owned_ranges_are_sorted_coalesced_and_reject_aliases() {
+        let mut ranges = vec![(20, 24), (10, 12), (12, 15), (30, 31)];
+        normalize_owned_ranges(&mut ranges).unwrap();
+        assert_eq!(ranges, vec![(10, 15), (20, 24), (30, 31)]);
         assert!(!owned_ranges_contain(&ranges, 9));
         assert!(owned_ranges_contain(&ranges, 10));
         assert!(owned_ranges_contain(&ranges, 14));
@@ -8659,6 +8669,15 @@ mod tests {
         assert!(!owned_ranges_contain(&ranges, 24));
         assert!(owned_ranges_contain(&ranges, 30));
         assert!(!owned_ranges_contain(&ranges, 31));
+
+        let mut overlapping = vec![(10, 14), (13, 18)];
+        assert!(matches!(
+            normalize_owned_ranges(&mut overlapping),
+            Err(Error::Corrupt(
+                "persistent files share a physical data or extent-map block"
+            ))
+        ));
+        assert_eq!(overlapping, vec![(10, 14), (13, 18)]);
     }
 
     fn snapshot_image_bytes(device: &mut ImageDevice) -> Vec<u8> {
