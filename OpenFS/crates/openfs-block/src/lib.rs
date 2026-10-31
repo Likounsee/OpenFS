@@ -516,6 +516,13 @@ pub struct RawDevice {
     block_count: u64,
 }
 
+#[cfg(windows)]
+fn is_windows_physical_drive_path(path: &Path) -> bool {
+    path.to_string_lossy()
+        .to_ascii_lowercase()
+        .starts_with(r"\\.\physicaldrive")
+}
+
 impl RawDevice {
     /// Open an existing path read/write without creating or truncating it.
     ///
@@ -534,17 +541,19 @@ impl RawDevice {
             .ok_or(Error::ArithmeticOverflow)?;
         let path = path.as_ref();
         let file = OpenOptions::new().read(true).write(true).open(path)?;
-        lock_exclusive(&file)?;
 
-        // Windows may reject metadata queries for PhysicalDrive handles. Geometry
-        // for that path is supplied by the caller from an independently verified source.
+        // A PhysicalDrive handle is a device handle, not a regular file: Windows
+        // does not reliably support byte-range LockFileEx locks on it. The USB
+        // adapter instead requires an exact-identity, offline-disk preflight.
         #[cfg(windows)]
-        let is_physical_device = path
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .starts_with(r"\\.\physicaldrive");
+        let is_physical_device = is_windows_physical_drive_path(path);
         #[cfg(not(windows))]
         let is_physical_device = false;
+
+        // Keep advisory locking for image files and ordinary block-device nodes.
+        if !is_physical_device {
+            lock_exclusive(&file)?;
+        }
 
         if !is_physical_device {
             let metadata = file.metadata()?;
