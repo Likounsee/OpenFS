@@ -1230,3 +1230,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Progression globale conservée à 73 % en attendant les validations et l'audit des droits spéciaux.
 
 - Commit `5ae5b19bf75cd5d0c76aaab9e0c74b1f9f8d1bb6` : le callback Dokany `flush_file_buffers` exige maintenant un handle disposant d'un accès écriture; les demandes de flush via un handle lecture seule sont refusées. L'inventaire a été synchronisé dans `45f7a6f66b52cd160659e0bba4d4504a1f4b3487` (1 264 déclarations). Cette modification et les 13 tests restent à valider par compilation/CI Windows.
+
+
+### Correction du mapping GENERIC_EXECUTE Dokany (2026-10-31)
+
+- Commit `21bd2bb299dfe464d4ae1e8b2fc10cb7f687d28e` : un handle ouvert avec `GENERIC_EXECUTE` autorise désormais la lecture des attributs, sans lui accorder la lecture du contenu (`FILE_READ_DATA`). Le mapping précédent traitait ce droit comme catégorie lecture pour le partage, mais le refusait ensuite au callback de métadonnées; les deux contrôles sont maintenant cohérents.
+- Test ajouté pour vérifier explicitement les deux côtés de cette distinction. Le module Windows contient maintenant 14 tests unitaires écrits; aucun n'est déclaré exécuté dans cet environnement.
+- Inventaire régénéré à 1265 déclarations lexicales sur 18 fichiers Rust (commit `5b999e73efb7ffc7c2fe5ab2e5ebac70a6ad928d`). Architecture et README actualisés.
+- Validation compilation, rustfmt, Clippy, CI Windows et essai Dokany réel toujours non confirmés. Progression globale conservée à 73 % : correction ciblée, sans prétendre avoir validé le montage.
