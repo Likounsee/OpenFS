@@ -1,3 +1,10 @@
+### Ajustement de documentation du handler
+
+- Commit `c2562dbf5a673160c32ec9f13f8ed820f595d15a` : commentaires Rust replacés au bon type après l'extraction du latch d'erreurs; aucun changement fonctionnel.
+- L'inventaire lexical reste à 18 fichiers et 1217 déclarations; les lignes de déclaration n'ont pas bougé.
+
+---
+
 ### Complément — garanties de verrouillage RawDevice
 
 - Commit `0aa050e1ad896681f56813d23a777ddd1640a5e3` : commentaire API de `RawDevice` corrigé pour distinguer les verrous des fichiers/nœuds bloc et le chemin Windows PhysicalDrive, qui ne prend pas de verrou byte-range. Le garde-fou du chemin USB est le précontrôle Windows exact-UniqueId + USB + disque Offline; cela ne bloque pas les logiciels externes qui ignorent ce contrôle.
