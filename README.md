@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/status-experimental-yellow.svg" alt="Experimental">
 </p>
 
-> **Status: experimental — not production-ready.** OpenFS currently provides a Rust workspace for working with filesystem images, including a canonical on-disk layout, a journal and recovery primitives, allocation and ownership verification, a persistent namespace, file I/O, and a development CLI. It is **not yet mountable as a normal OS filesystem**, is not a replacement for NTFS, and must not be trusted with important data.
+> **Status: experimental — not production-ready.** OpenFS has a persistent on-disk format, journal/recovery code, namespace and file I/O, plus an initial **Windows + Dokany mount adapter for image files**. You can create an image, mount it as a drive letter, use basic files through Windows, unmount it and reopen it. This is an early integration: it is not yet safe for important data, does not format physical disks, and is not a replacement for NTFS.
 
 ## Project goals
 
@@ -39,7 +39,7 @@ The workspace already contains:
 - **Allocation and verification:** bitmap allocation, extent maps, persistent inventory reconstruction and cross-layer ownership checks.
 - **Journal components:** journal/checkpoint encoding and recovery paths for supported operations.
 - **Persistent namespace and file APIs:** directory and file operations, streaming file import, range I/O, truncation, rename and removal through the development tool.
-- **Image CLI:** create, inspect, check, audit and recover development images without presenting physical-device formatting as safe.
+- **Image CLI and initial Windows mount:** create mount-ready images, inspect/check/audit/recover them, and mount an image as a Windows drive through Dokany. Physical-device formatting remains disabled.
 
 The `truncate` command shrinks files or grows them sparsely (newly exposed bytes read as zeroes). The presence of these components does **not** mean all multi-step operations are atomic under every crash scenario. General transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
 
@@ -55,7 +55,7 @@ The `truncate` command shrinks files or grows them sparsely (newly exposed bytes
     │   ├── openfs-core/           # Shared errors and checked ranges
     │   ├── openfs-block/          # Bounded block I/O and image backend
     │   ├── openfs-format/         # Format, allocator, journal, namespace and file APIs
-    │   └── openfs-tool/           # Image-only development CLI
+    │   └── openfs-tool/           # Image CLI + Windows/Dokany image mount
     └── docs/
         ├── assets/openfs-logo.svg
         ├── ARCHITECTURE.md
@@ -99,6 +99,23 @@ cargo run -p openfs-tool -- check-image ./openfs.img 4096
 
 The example creates a 1 GiB image. OpenFS supports block sizes of 4096, 8192, 16384, 32768 and 65536 bytes where accepted by the relevant command.
 
+### Mount the image as a Windows drive (experimental)
+
+This currently requires Windows and an installed, working [Dokany](https://dokany.com/) driver/runtime. Build the workspace on Windows, then run the following from `OpenFS/\` in PowerShell:
+
+```powershell
+cargo build --workspace
+cargo run -p openfs-tool -- create-image .\openfs.img 1024
+cargo run -p openfs-tool -- mount .\openfs.img O: 4096
+```
+
+The `create-image` command formats the image **and initializes its persistent root directory**. Do not run `init-namespace` on a newly created image. The mount command stays active while the drive is mounted. Open `O:\` in Explorer and create, copy, edit or delete test files. In a second terminal, unmount it:
+
+```powershell
+cargo run -p openfs-tool -- unmount O:
+```
+
+After the mount process exits, the image can be mounted again; its files should remain. Keep a backup and use disposable test data only. This adapter currently mounts **image files**, not raw SSDs/USB drives; Linux mounting and production-grade Windows handle/replace semantics are still incomplete.
 ### Create a namespace and work with a file
 
 ```sh
@@ -150,7 +167,7 @@ For additional examples and exact CLI behavior, see the [development guide](Open
 - Treat every byte read from an image as untrusted input.
 - Do not assume a successful image test proves physical-device or power-loss durability.
 - Do not use OpenFS with important data.
-- The development CLI is designed around regular image files; physical-device formatting and OS mounting are not ready for general use.
+- The current Windows OS integration is experimental and mounts regular image files through Dokany; physical-device formatting is intentionally disabled. Linux OS mounting is not implemented yet.
 - Exclusive file locks help coordinate cooperating OpenFS processes, but external programs may ignore advisory locks.
 - OpenFS defines its own format. It does not read or write NTFS volumes, and historical OpenFS formats are not implicitly compatible.
 
@@ -172,7 +189,7 @@ Read the [architecture guide](OpenFS/docs/ARCHITECTURE.md) and [development guid
 
 ## Roadmap
 
-Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **60%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, complete durable namespace and file semantics, safe device discovery and formatting, and OS integration.
+Progress is tracked in [`docs/ROADMAP.md`](OpenFS/docs/ROADMAP.md) using the P0–P3 engineering phases. The current documented overall estimate is **60%**, an engineering estimate rather than a measure of production readiness. The largest remaining work is around general transaction/recovery guarantees, Windows mount lifecycle and handle semantics, Linux mounting, and safe physical-device support. The Windows adapter must be validated on a real Windows + Dokany machine before being treated as usable for anything beyond disposable test data. The largest remaining work is around general transaction/recovery guarantees, complete durable namespace and file semantics, safe device discovery and formatting, and OS integration.
 
 ## License
 
