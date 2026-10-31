@@ -84,7 +84,9 @@ fn normalize_owned_ranges(ranges: &mut Vec<(u64, u64)>) -> Result<()> {
     for read in 0..ranges.len() {
         let (start, end) = ranges[read];
         if start >= end {
-            return Err(Error::Corrupt("persistent ownership range is empty or inverted"));
+            return Err(Error::Corrupt(
+                "persistent ownership range is empty or inverted",
+            ));
         }
         if write > 0 {
             let previous_end = ranges[write - 1].1;
@@ -370,9 +372,10 @@ impl OpenedVolume {
             try_zeroed_block(block_size, "unable to allocate candidate block buffer")?;
         // Next-fit scans from the last successful allocation and wraps once.
         // This avoids repeatedly walking a long allocated prefix on nearly-full volumes.
-        let scan_start = self
-            .allocation_hint
-            .clamp(self.volume.layout.data_start, self.volume.layout.backup_superblock);
+        let scan_start = self.allocation_hint.clamp(
+            self.volume.layout.data_start,
+            self.volume.layout.backup_superblock,
+        );
         for (scan_start, scan_end) in [
             (scan_start, self.volume.layout.backup_superblock),
             (self.volume.layout.data_start, scan_start),
@@ -383,115 +386,116 @@ impl OpenedVolume {
             let first_scan_bitmap = scan_start / bits_per_block;
             let last_scan_bitmap = (scan_end - 1) / bits_per_block;
             for bitmap_index in first_scan_bitmap..=last_scan_bitmap {
-            let bitmap_block = self
-                .volume
-                .layout
-                .bitmap_start
-                .checked_add(bitmap_index)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.read_blocks(bitmap_block, &mut bitmap)?;
+                let bitmap_block = self
+                    .volume
+                    .layout
+                    .bitmap_start
+                    .checked_add(bitmap_index)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(bitmap_block, &mut bitmap)?;
 
-            let bitmap_base = bitmap_index
-                .checked_mul(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?;
-            let data_first = bitmap_base.max(self.volume.layout.data_start);
-            let data_end = self.volume.layout.backup_superblock.min(
-                bitmap_base
-                    .checked_add(bits_per_block)
-                    .ok_or(Error::ArithmeticOverflow)?,
-            );
-            crate::allocator_extents::validate_bitmap_reserved_bits(
-                &bitmap,
-                bitmap_base,
-                data_first,
-                data_end,
-            )?;
-            let first_block = data_first.max(scan_start);
-            let end_block = data_end.min(scan_end);
-            if first_block >= end_block {
-                continue;
-            }
-            let local_start = first_block - bitmap_base;
-            let local_end = end_block - bitmap_base;
-            let first_byte =
-                usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
-            // Select and mark a candidate before leaving the scan, then move the
-            // bitmap page into the redo image. Cloning a full block here doubled
-            // transient bitmap memory and copied every byte for each single-block
-            // allocation, including allocations on nearly-full volumes.
-            let mut selected = None;
-            // Slice to the usable byte range directly: iterator skip() would still
-            // walk the unused prefix of the bitmap page on later segments.
-            for (byte_offset, byte) in bitmap[first_byte..end_byte].iter_mut().enumerate() {
-                let byte_index = first_byte
-                    .checked_add(byte_offset)
+                let bitmap_base = bitmap_index
+                    .checked_mul(bits_per_block)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let mut valid_mask = u8::MAX;
-                if byte_index == first_byte {
-                    valid_mask &= u8::MAX << (local_start % 8);
+                let data_first = bitmap_base.max(self.volume.layout.data_start);
+                let data_end = self.volume.layout.backup_superblock.min(
+                    bitmap_base
+                        .checked_add(bits_per_block)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                );
+                crate::allocator_extents::validate_bitmap_reserved_bits(
+                    &bitmap,
+                    bitmap_base,
+                    data_first,
+                    data_end,
+                )?;
+                let first_block = data_first.max(scan_start);
+                let end_block = data_end.min(scan_end);
+                if first_block >= end_block {
+                    continue;
                 }
-                if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
-                }
-                let available = !*byte & valid_mask;
-                if available != 0 {
-                    let bit = u64::from(available.trailing_zeros());
-                    let local = byte_start
-                        .checked_add(bit)
+                let local_start = first_block - bitmap_base;
+                let local_end = end_block - bitmap_base;
+                let first_byte =
+                    usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                let end_byte =
+                    usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                // Select and mark a candidate before leaving the scan, then move the
+                // bitmap page into the redo image. Cloning a full block here doubled
+                // transient bitmap memory and copied every byte for each single-block
+                // allocation, including allocations on nearly-full volumes.
+                let mut selected = None;
+                // Slice to the usable byte range directly: iterator skip() would still
+                // walk the unused prefix of the bitmap page on later segments.
+                for (byte_offset, byte) in bitmap[first_byte..end_byte].iter_mut().enumerate() {
+                    let byte_index = first_byte
+                        .checked_add(byte_offset)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    let block = bitmap_base
-                        .checked_add(local)
+                    let byte_start = u64::try_from(byte_index)
+                        .map_err(|_| Error::ArithmeticOverflow)?
+                        .checked_mul(8)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    *byte |= 1_u8 << bit;
-                    selected = Some(block);
-                    break;
-                }
-            }
-            if let Some(block) = selected {
-                // Clear the whole block before publishing ownership. Besides removing
-                // a stale inventory descriptor left by an interrupted publication, this
-                // prevents a newly allocated file from observing data from a prior owner.
-                // If the write or flush fails, the bitmap is still unchanged and the block
-                // remains free from the filesystem's point of view.
-                existing.fill(0);
-                device.write_blocks(block, &existing)?;
-                device.flush()?;
-                if let Err(error) = self.journal.commit(
-                    device,
-                    &[RedoUpdate {
-                        target_block: bitmap_block,
-                        contents: bitmap,
-                    }],
-                ) {
-                    self.journal = crate::journal_engine::open_journal_protected(
-                        device,
-                        self.volume.layout.journal,
-                        &[0, self.volume.layout.backup_superblock],
-                    )
-                    .map_err(|_| Error::Corrupt("allocator journal recovery failed"))?;
-                    existing.fill(0);
-                    device.read_blocks(bitmap_block, &mut existing)?;
-                    let local = block % bits_per_block;
-                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                    let mask = 1_u8 << (local % 8);
-                    if existing[byte] & mask == 0 {
-                        return Err(error);
+                    let mut valid_mask = u8::MAX;
+                    if byte_index == first_byte {
+                        valid_mask &= u8::MAX << (local_start % 8);
+                    }
+                    if byte_index + 1 == end_byte && local_end % 8 != 0 {
+                        valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                    }
+                    let available = !*byte & valid_mask;
+                    if available != 0 {
+                        let bit = u64::from(available.trailing_zeros());
+                        let local = byte_start
+                            .checked_add(bit)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        let block = bitmap_base
+                            .checked_add(local)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        *byte |= 1_u8 << bit;
+                        selected = Some(block);
+                        break;
                     }
                 }
-                self.allocation_hint = if block + 1 >= self.volume.layout.backup_superblock {
-                    self.volume.layout.data_start
-                } else {
-                    block + 1
-                };
-                return Ok(block);
-            }
+                if let Some(block) = selected {
+                    // Clear the whole block before publishing ownership. Besides removing
+                    // a stale inventory descriptor left by an interrupted publication, this
+                    // prevents a newly allocated file from observing data from a prior owner.
+                    // If the write or flush fails, the bitmap is still unchanged and the block
+                    // remains free from the filesystem's point of view.
+                    existing.fill(0);
+                    device.write_blocks(block, &existing)?;
+                    device.flush()?;
+                    if let Err(error) = self.journal.commit(
+                        device,
+                        &[RedoUpdate {
+                            target_block: bitmap_block,
+                            contents: bitmap,
+                        }],
+                    ) {
+                        self.journal = crate::journal_engine::open_journal_protected(
+                            device,
+                            self.volume.layout.journal,
+                            &[0, self.volume.layout.backup_superblock],
+                        )
+                        .map_err(|_| Error::Corrupt("allocator journal recovery failed"))?;
+                        existing.fill(0);
+                        device.read_blocks(bitmap_block, &mut existing)?;
+                        let local = block % bits_per_block;
+                        let byte =
+                            usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                        let mask = 1_u8 << (local % 8);
+                        if existing[byte] & mask == 0 {
+                            return Err(error);
+                        }
+                    }
+                    self.allocation_hint = if block + 1 >= self.volume.layout.backup_superblock {
+                        self.volume.layout.data_start
+                    } else {
+                        block + 1
+                    };
+                    return Ok(block);
+                }
             }
         }
         Err(Error::InvalidInput("volume has no free data blocks"))
@@ -1990,10 +1994,13 @@ impl OpenedVolume {
         if destination_id == source_id {
             return Ok(());
         }
-        let destination_record = namespace
-            .object(destination_id)
-            .cloned()
-            .ok_or(Error::Corrupt("replacement destination metadata is missing"))?;
+        let destination_record =
+            namespace
+                .object(destination_id)
+                .cloned()
+                .ok_or(Error::Corrupt(
+                    "replacement destination metadata is missing",
+                ))?;
         if destination_record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput(
                 "replacement destination must be a regular file",
@@ -2009,16 +2016,18 @@ impl OpenedVolume {
         let mut reclaim_blocks = Vec::new();
         if let Some(root_block) = destination_record.extent_root_block {
             let maps = self.read_namespace_extent_maps(device, &namespace)?;
-            let map = maps
-                .get(&destination_id)
-                .ok_or(Error::Corrupt("replacement destination extent map is missing"))?;
+            let map = maps.get(&destination_id).ok_or(Error::Corrupt(
+                "replacement destination extent map is missing",
+            ))?;
             let data_blocks = map.extents().iter().try_fold(0_u64, |count, extent| {
                 count
                     .checked_add(extent.block_count)
                     .ok_or(Error::ArithmeticOverflow)
             })?;
             let capacity = usize::try_from(
-                data_blocks.checked_add(1).ok_or(Error::ArithmeticOverflow)?,
+                data_blocks
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?,
             )
             .map_err(|_| Error::ArithmeticOverflow)?;
             reclaim_blocks.try_reserve_exact(capacity).map_err(|_| {
@@ -8644,9 +8653,9 @@ impl<D: BlockDevice> VolumeSession<D> {
 mod tests {
     use super::{
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
-        format_volume, normalize_owned_ranges, open_volume, owned_ranges_contain, persist_inventory_hint,
-        read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET,
-        MAGIC, VERSION,
+        format_volume, normalize_owned_ranges, open_volume, owned_ranges_contain,
+        persist_inventory_hint, read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE,
+        INVENTORY_HINT_OFFSET, MAGIC, VERSION,
     };
     use crate::{Extent, ExtentMap, JournalCheckpoint};
     use openfs_block::{BlockDevice, FaultInjectingDevice, ImageDevice, IoOperation, RawDevice};
@@ -13559,7 +13568,9 @@ mod tests {
             let after_cursor = volume.allocate_block(&mut device).unwrap();
             assert_eq!(after_cursor, third + 1);
             assert!(!volume.is_data_block_allocated(&mut device, first).unwrap());
-            assert!(volume.is_data_block_allocated(&mut device, after_cursor).unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, after_cursor)
+                .unwrap());
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
@@ -17477,7 +17488,6 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
-
     #[test]
     fn truncate_recovery_preserves_a_complete_old_or_new_file_generation() {
         use crate::ObjectId;
@@ -17500,18 +17510,12 @@ mod tests {
             let path = image_path(&format!("truncate-recovery-{label}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume =
-                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
                 volume
-                    .create_persistent_file_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(2),
-                        "payload.bin",
-                    )
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "payload.bin")
                     .unwrap();
                 volume
                     .write_persistent_file_contents(&mut device, "/payload.bin", &original)
@@ -17523,11 +17527,8 @@ mod tests {
                 let mut device = FaultInjectingDevice::new(image);
                 let mut volume = open_volume(&mut device).unwrap();
                 device.fail_after(operation, fail_at);
-                let _ = volume.truncate_persistent_file(
-                    &mut device,
-                    "/payload.bin",
-                    new_size as u64,
-                );
+                let _ =
+                    volume.truncate_persistent_file(&mut device, "/payload.bin", new_size as u64);
             }
 
             {
@@ -17549,12 +17550,7 @@ mod tests {
                 };
                 assert_eq!(
                     volume
-                        .read_persistent_path_range(
-                            &mut device,
-                            "/payload.bin",
-                            0,
-                            visible_size,
-                        )
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, visible_size,)
                         .unwrap(),
                     expected,
                     "recovery exposed mixed file contents after {label} failure {fail_at}"
@@ -17571,8 +17567,6 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
-
 
     #[test]
     fn replacement_recovery_preserves_a_complete_old_or_new_file_generation() {
@@ -17598,18 +17592,12 @@ mod tests {
             let path = image_path(&format!("replace-recovery-{label}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-                let mut volume =
-                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
                 volume
-                    .create_persistent_file_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(2),
-                        "payload.bin",
-                    )
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "payload.bin")
                     .unwrap();
                 volume
                     .write_persistent_file_contents(&mut device, "/payload.bin", &original)
@@ -17646,12 +17634,7 @@ mod tests {
                 };
                 assert_eq!(
                     volume
-                        .read_persistent_path_range(
-                            &mut device,
-                            "/payload.bin",
-                            0,
-                            visible_size,
-                        )
+                        .read_persistent_path_range(&mut device, "/payload.bin", 0, visible_size,)
                         .unwrap(),
                     expected,
                     "recovery exposed mixed file contents after {label} failure {fail_at}"
@@ -17668,5 +17651,4 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
-
 }
