@@ -1,3 +1,14 @@
+### Reprise de session — 2026-10-31 (flush sur fermeture et erreurs différées)
+
+- Commit `ee72c0c9e80dc713663b48880297077ed48fac6b` : le callback Dokany `cleanup` effectue désormais un flush pour toute fermeture de handle, et pas uniquement lors de `delete_on_close`. La suppression différée et son flush restent sérialisés sous le verrou de session.
+- Commit `7453d56ff2aadd58b165d588a5dd9a44668d52a3` : les échecs de suppression ou de flush dans `cleanup` sont conservés dans un latch d'erreurs différées. Le démontage tente toujours le flush final même si la boucle de montage retourne une erreur; après cela, le résultat du montage, du flush final et les erreurs de cleanup sont propagés au CLI au lieu d'être seulement écrits dans stderr.
+- Commit `daed060d3596686af5aae200de8885a1fcfbd9b1` : inventaire lexical synchronisé après ces changements (18 fichiers Rust, 1217 déclarations).
+- Test ajouté : le latch conserve plusieurs erreurs de cleanup et les vide une seule fois lors de leur récupération. Ce test Windows n'est pas déclaré exécuté tant que la CI n'a pas fourni son résultat.
+- Limites : les callbacks Dokany `cleanup` ne peuvent pas renvoyer d'erreur; le latch permet de la signaler au démontage, pas à l'application qui a fermé le handle. Un retrait USB brutal avant la fin du flush ne peut pas être rendu sûr par ce mécanisme. Aucun test sur vraie clé USB n'a été effectué.
+- Progression inchangée en attente de validation : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+
+---
+
 ### Complément — ouverture des PhysicalDrive Windows
 
 - Commits `f0b297b330efda020e5071b4b199c2832e65a922` et `12d08571852ec4f3dd03217361da842dc6c36eb5` : le backend `RawDevice` ne tente plus de prendre un verrou de fichier byte-range sur `\\\\.\\PhysicalDriveN`. Un handle PhysicalDrive est un handle de périphérique et Windows ne garantit pas que `LockFileEx` y soit pris en charge; cet appel pouvait donc faire échouer l'ouverture avant même les E/S. Les fichiers image et les nœuds bloc ordinaires conservent le verrou exclusif. Le chemin PhysicalDrive s'appuie sur le disque Offline, l'identité UniqueId exacte et le contrôle USB Windows déjà requis.
