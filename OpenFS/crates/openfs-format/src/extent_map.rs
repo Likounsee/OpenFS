@@ -315,50 +315,84 @@ impl ExtentMap {
             .extents
             .partition_point(|item| item.logical_start < extent.logical_start);
 
-        // Merge directly from the existing sorted map plus the insertion point.
-        // Avoid building a cloned candidate vector and then a second merged vector.
-        let capacity = self
-            .extents
-            .len()
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let mut merged: Vec<Extent> = Vec::new();
-        merged
-            .try_reserve_exact(capacity)
-            .map_err(|_| Error::AllocationFailed("unable to reserve extent insertion"))?;
-        for current in self
-            .extents
-            .iter()
-            .copied()
-            .take(position)
-            .chain(std::iter::once(extent))
-            .chain(self.extents.iter().copied().skip(position))
+        let previous = position
+            .checked_sub(1)
+            .and_then(|index| self.extents.get(index))
+            .copied();
+        let next = self.extents.get(position).copied();
+
+        if previous.is_some_and(|item| item.logical_end().is_ok_and(|end| end > extent.logical_start))
+            || next.is_some_and(|item| extent.logical_end().is_ok_and(|end| end > item.logical_start))
         {
-            if let Some(previous) = merged.last_mut() {
-                let previous_logical_end = previous.logical_end()?;
-                let previous_physical_end = previous.physical_end()?;
-                if current.logical_start < previous_logical_end {
-                    return Err(Error::InvalidInput(
-                        "extent overlaps existing logical blocks",
-                    ));
-                }
-                if current.logical_start == previous_logical_end
-                    && current.physical_start == previous_physical_end
-                {
-                    previous.block_count = previous
-                        .block_count
-                        .checked_add(current.block_count)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                    continue;
-                }
-            }
-            merged.push(current);
+            return Err(Error::InvalidInput(
+                "extent overlaps existing logical blocks",
+            ));
         }
 
-        // Logical order and physical non-overlap are now established without a
-        // second full-map sort: existing runs were valid and the inserted run was
-        // checked against every existing physical range above.
-        self.extents = merged;
+        let previous_adjacent = if let Some(item) = previous {
+            item.logical_end()? == extent.logical_start
+                && item.physical_end()? == extent.physical_start
+        } else {
+            false
+        };
+        let next_adjacent = if let Some(item) = next {
+            physical_end == item.physical_start
+                && extent.logical_end()? == item.logical_start
+        } else {
+            false
+        };
+
+        // Calculate every possible merged length before mutation. Once this preflight
+        // succeeds, the in-place update cannot fail or leave a partially changed map.
+        let merged_with_previous = previous
+            .map(|item| {
+                item.block_count
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)
+            })
+            .transpose()?;
+        let merged_with_both = if previous_adjacent && next_adjacent {
+            Some(
+                merged_with_previous
+                    .ok_or(Error::ArithmeticOverflow)?
+                    .checked_add(next.ok_or(Error::ArithmeticOverflow)?.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+        } else {
+            None
+        };
+        let merged_with_next = if next_adjacent {
+            Some(
+                extent
+                    .block_count
+                    .checked_add(next.ok_or(Error::ArithmeticOverflow)?.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            )
+        } else {
+            None
+        };
+
+        if previous_adjacent {
+            let previous_index = position - 1;
+            self.extents[previous_index].block_count =
+                merged_with_both.or(merged_with_previous).ok_or(Error::ArithmeticOverflow)?;
+            if next_adjacent {
+                self.extents.remove(position);
+            }
+            return Ok(());
+        }
+        if next_adjacent {
+            let next_extent = &mut self.extents[position];
+            next_extent.logical_start = extent.logical_start;
+            next_extent.physical_start = extent.physical_start;
+            next_extent.block_count = merged_with_next.ok_or(Error::ArithmeticOverflow)?;
+            return Ok(());
+        }
+
+        self.extents
+            .try_reserve(1)
+            .map_err(|_| Error::AllocationFailed("unable to reserve extent insertion"))?;
+        self.extents.insert(position, extent);
         Ok(())
     }
 
