@@ -41,7 +41,7 @@ The workspace already contains:
 - **Persistent namespace and file APIs:** directory and file operations, streaming file import, range I/O, truncation, rename and removal through the development tool.
 - **Image CLI and initial Windows mounts:** create mount-ready images, inspect/check/audit/recover them, and mount images or explicitly confirmed offline USB disks as Windows drives through Dokany. Raw physical-disk formatting is destructive and gated by exact identity and USB/offline checks.
 
-The `truncate` command shrinks files or grows them sparsely (newly exposed bytes read as zeroes). Windows Dokany replacement of an existing regular file now stages the namespace swap as one copy-on-write publication and reclaims the retired destination extents afterward; replacing a destination with open handles is refused. This does **not** mean all multi-step operations are atomic under every crash scenario. Full Windows share-access and delete-pending semantics, broader transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
+The `truncate` command shrinks files or grows them sparsely (newly exposed bytes read as zeroes). Windows Dokany replacement of an existing regular file now stages the namespace swap as one copy-on-write publication and reclaims the retired destination extents afterward; replacing a destination with open handles is refused. This does **not** mean all multi-step operations are atomic under every crash scenario. Full Windows share-access mask enforcement, broader transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
 
 ## Repository layout
 
@@ -157,7 +157,7 @@ The `create-image` command formats the image **and initializes its persistent ro
 cargo run -p openfs-tool -- unmount O:
 ```
 
-After the mount process exits, the image can be mounted again; its files should remain. Keep a backup and use disposable test data only. The adapter also has an initial raw USB-disk path; Linux mounting and production-grade Windows share-access/delete-pending semantics are still incomplete.
+After the mount process exits, the image can be mounted again; its files should remain. Keep a backup and use disposable test data only. The adapter also has an initial raw USB-disk path; Linux mounting and production-grade Windows share-access semantics are still incomplete.
 ### Create a namespace and work with a file
 
 ```sh
