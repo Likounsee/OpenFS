@@ -303,9 +303,9 @@ impl OpenedVolume {
 
     /// Allocate several data blocks atomically and return their block numbers.
     ///
-    /// All selected blocks are represented by one bitmap home-block image, so this
-    /// operation is bounded to one bitmap segment and one journal redo update. The
-    /// volatile next-fit cursor is honored, including its wraparound within a segment.
+    /// A batch may span bitmap segments when the journal has enough redo capacity.
+    /// Every touched bitmap page is committed in one transaction; oversized batches
+    /// are rejected before candidate blocks are scrubbed or otherwise modified.
     pub fn allocate_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -313,35 +313,33 @@ impl OpenedVolume {
     ) -> Result<Vec<u64>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > bits_per_block {
-            return Err(Error::InvalidInput(
-                "batch allocation count must fit within one bitmap block",
-            ));
+        if count == 0 {
+            return Err(Error::InvalidInput("batch allocation count must be non-zero"));
         }
         let requested_count = usize::try_from(count).map_err(|_| Error::ArithmeticOverflow)?;
         let layout = self.volume.layout;
-        let first_bitmap = layout.data_start / bits_per_block;
-        let last_data_block = layout
-            .backup_superblock
-            .checked_sub(1)
-            .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
-        let last_bitmap = last_data_block / bits_per_block;
+        if count > layout.data_blocks() {
+            return Err(Error::InvalidInput("batch allocation exceeds data-region capacity"));
+        }
         let scan_start = self
             .allocation_hint
             .clamp(layout.data_start, layout.backup_superblock);
-        let mut bitmap = try_zeroed_buffer(
-            self.volume.block_size as usize,
-            "allocation failed while preparing allocator bitmap",
-        )?;
         let mut selected = Vec::new();
         selected.try_reserve_exact(requested_count).map_err(|_| {
-            Error::AllocationFailed("allocation failed while selecting free extents")
+            Error::AllocationFailed("allocation failed while selecting batch blocks")
+        })?;
+        // Each entry stores one authoritative bitmap image. The same bitmap can be
+        // encountered in both wraparound passes when the cursor is inside a segment.
+        let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
+        let max_updates = self.journal.max_update_count(device)?;
+        pages.try_reserve(max_updates.min(requested_count)).map_err(|_| {
+            Error::AllocationFailed("allocation failed while preparing batch bitmap pages")
         })?;
         let mut scan_retries = 0_u8;
 
         'scan: loop {
-            // Two non-overlapping passes preserve next-fit order even when the cursor
-            // sits in the middle of a bitmap segment: cursor..end, then data_start..cursor.
+            selected.clear();
+            pages.clear();
             for (pass_start, pass_end) in [
                 (scan_start, layout.backup_superblock),
                 (layout.data_start, scan_start),
@@ -349,46 +347,65 @@ impl OpenedVolume {
                 if pass_start >= pass_end {
                     continue;
                 }
-                let first_scan_bitmap = pass_start / bits_per_block;
-                let last_scan_bitmap = (pass_end - 1) / bits_per_block;
-                for index in first_scan_bitmap..=last_scan_bitmap {
-                    selected.clear();
-                    let base = index
-                        .checked_mul(bits_per_block)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                    let start = layout.data_start.max(base).max(pass_start);
-                    let end = layout.backup_superblock.min(
-                        base.checked_add(bits_per_block)
-                            .ok_or(Error::ArithmeticOverflow)?,
-                    ).min(pass_end);
-                    if end - start < count {
+                let first_index = pass_start / bits_per_block;
+                let last_index = (pass_end - 1) / bits_per_block;
+                for index in first_index..=last_index {
+                    if selected.len() == requested_count {
+                        break;
+                    }
+                    let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+                    let segment_start = layout.data_start.max(base);
+                    let segment_end = layout.backup_superblock.min(
+                        base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    let start = segment_start.max(pass_start);
+                    let end = segment_end.min(pass_end);
+                    if start >= end {
                         continue;
                     }
-                    let bitmap_block = layout
-                        .bitmap_start
-                        .checked_add(index)
+                    let bitmap_block = layout.bitmap_start.checked_add(index)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    device.read_blocks(bitmap_block, &mut bitmap)?;
-                    validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
+                    let page_position = if let Some(position) =
+                        pages.iter().position(|page| page.0 == bitmap_block)
+                    {
+                        position
+                    } else {
+                        if pages.len() >= max_updates {
+                            return Err(Error::InvalidInput(
+                                "batch allocation exceeds the journal's atomic bitmap-update capacity",
+                            ));
+                        }
+                        let mut image = try_zeroed_buffer(
+                            self.volume.block_size as usize,
+                            "allocation failed while preparing allocator bitmap",
+                        )?;
+                        device.read_blocks(bitmap_block, &mut image)?;
+                        validate_bitmap_reserved_bits(&image, base, segment_start, segment_end)?;
+                        pages.try_reserve(1).map_err(|_| {
+                            Error::AllocationFailed("allocation failed while tracking bitmap pages")
+                        })?;
+                        pages.push((bitmap_block, base, image));
+                        pages.len() - 1
+                    };
+                    let bitmap = &pages[page_position].2;
                     let local_start = start - base;
                     let local_end = end - base;
-                    let first_byte =
-                        usize::try_from(local_start / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                    let end_byte =
-                        usize::try_from(local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                            .map_err(|_| Error::ArithmeticOverflow)?;
-                    for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
-                        let byte_index = first_byte
-                            .checked_add(byte_offset)
+                    let first_byte = usize::try_from(local_start / 8)
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                    let end_byte = usize::try_from(
+                        local_end.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+                    ).map_err(|_| Error::ArithmeticOverflow)?;
+                    for (offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+                        let byte_index = first_byte.checked_add(offset)
                             .ok_or(Error::ArithmeticOverflow)?;
-                        let mut valid_mask = u8::MAX;
+                        let mut mask = u8::MAX;
                         if byte_index == first_byte {
-                            valid_mask &= u8::MAX << (local_start % 8);
+                            mask &= u8::MAX << (local_start % 8);
                         }
                         if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                            valid_mask &= (1_u8 << (local_end % 8)) - 1;
+                            mask &= (1_u8 << (local_end % 8)) - 1;
                         }
-                        let mut available = !byte & valid_mask;
+                        let mut available = !*byte & mask;
                         while available != 0 {
                             let bit = u64::from(available.trailing_zeros());
                             let local = u64::try_from(byte_index)
@@ -400,114 +417,102 @@ impl OpenedVolume {
                             if selected.len() == requested_count {
                                 break;
                             }
-                            available &= !(1_u8 << bit);
+                            available &= available - 1;
                         }
                         if selected.len() == requested_count {
                             break;
                         }
                     }
-                    if selected.len() != requested_count {
-                        continue;
-                    }
+                }
+            }
+            if selected.len() != requested_count {
+                return Err(Error::InvalidInput("not enough free data blocks for batch allocation"));
+            }
 
-                    // Refresh the bitmap before touching candidate contents. A second
-                    // opener may have allocated one of these blocks since the first read.
-                    device.read_blocks(bitmap_block, &mut bitmap)?;
-                    validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
-                    let mut selection_changed = false;
-                    for block in &selected {
-                        let local = *block - base;
+            // Refresh every candidate bitmap before scrubbing data blocks. This detects
+            // stale allocator views without modifying candidate contents.
+            let mut changed = false;
+            for (bitmap_block, base, image) in &mut pages {
+                device.read_blocks(*bitmap_block, image)?;
+                let segment_start = layout.data_start.max(*base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(image, *base, segment_start, segment_end)?;
+                for block in selected.iter().filter(|block| **block / bits_per_block == *base / bits_per_block) {
+                    let local = *block - *base;
+                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                    if image[byte] & (1_u8 << (local % 8)) != 0 {
+                        changed = true;
+                        break;
+                    }
+                }
+                if changed {
+                    break;
+                }
+            }
+            if changed {
+                scan_retries += 1;
+                if scan_retries >= 3 {
+                    return Err(Error::InvalidInput(
+                        "batch allocation candidates changed repeatedly; retry allocation",
+                    ));
+                }
+                continue 'scan;
+            }
+
+            // Preflight has already bounded the redo count. Build all page images before
+            // any data-block scrub so journal-capacity errors cannot leave staged writes.
+            for (bitmap_block, base, image) in &mut pages {
+                for block in selected.iter().filter(|block| **block / bits_per_block == *base / bits_per_block) {
+                    let local = *block - *base;
+                    let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                    image[byte] |= 1_u8 << (local % 8);
+                }
+                let _ = bitmap_block;
+            }
+            let mut redo = Vec::new();
+            redo.try_reserve_exact(pages.len()).map_err(|_| {
+                Error::AllocationFailed("allocation failed while preparing batch redo images")
+            })?;
+            for (bitmap_block, _, image) in &pages {
+                redo.push(RedoUpdate {
+                    target_block: *bitmap_block,
+                    contents: image.clone(),
+                });
+            }
+            self.journal.required_record_count(device, redo.len())?;
+            clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
+
+            if let Err(error) = self.journal.commit(device, &redo) {
+                *self = crate::volume::open_volume(device).map_err(|_| {
+                    Error::Corrupt("batch allocation failed and journal recovery could not be completed")
+                })?;
+                let mut allocated_count = 0usize;
+                let mut recovered = try_zeroed_buffer(
+                    self.volume.block_size as usize,
+                    "allocation failed while verifying recovered batch allocation",
+                )?;
+                for (bitmap_block, base, _) in &pages {
+                    device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
+                        Error::Corrupt("batch allocation recovery could not read a bitmap page")
+                    })?;
+                    let segment_start = layout.data_start.max(*base);
+                    let segment_end = layout.backup_superblock.min(
+                        base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                    );
+                    validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
+                        .map_err(|_| Error::Corrupt("batch allocation recovery found an invalid bitmap"))?;
+                    for block in selected.iter().filter(|block| **block / bits_per_block == *base / bits_per_block) {
+                        let local = *block - *base;
                         let byte = usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                        if bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                            selection_changed = true;
-                            break;
+                        if recovered[byte] & (1_u8 << (local % 8)) != 0 {
+                            allocated_count += 1;
                         }
                     }
-                    if selection_changed {
-                        scan_retries += 1;
-                        if scan_retries >= 3 {
-                            return Err(Error::InvalidInput(
-                                "batch allocation candidates changed repeatedly; retry allocation",
-                            ));
-                        }
-                        continue 'scan;
-                    }
-
-                    clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
-                    let mut run_start = selected[0];
-                    let mut previous = selected[0];
-                    for &block in selected.iter().skip(1) {
-                        if previous.checked_add(1) == Some(block) {
-                            previous = block;
-                            continue;
-                        }
-                        set_bitmap_range(&mut bitmap, run_start - base, previous - base + 1, true)?;
-                        run_start = block;
-                        previous = block;
-                    }
-                    set_bitmap_range(
-                        &mut bitmap,
-                        run_start - base,
-                        previous.checked_add(1).ok_or(Error::ArithmeticOverflow)? - base,
-                        true,
-                    )?;
-
-                    if let Err(error) = self.journal.commit(
-                        device,
-                        &[RedoUpdate {
-                            target_block: bitmap_block,
-                            contents: bitmap,
-                        }],
-                    ) {
-                        *self = crate::volume::open_volume(device).map_err(|_| {
-                            Error::Corrupt(
-                                "batch allocation failed and journal recovery could not be completed",
-                            )
-                        })?;
-                        let mut recovered_bitmap = try_zeroed_buffer(
-                            self.volume.block_size as usize,
-                            "allocation failed while verifying recovered batch allocation",
-                        )?;
-                        device.read_blocks(bitmap_block, &mut recovered_bitmap).map_err(|_| {
-                            Error::Corrupt(
-                                "batch allocation recovery could not verify bitmap state",
-                            )
-                        })?;
-                        validate_bitmap_reserved_bits(&recovered_bitmap, base, start, end)
-                            .map_err(|_| {
-                                Error::Corrupt("batch allocation recovery found an invalid bitmap")
-                            })?;
-                        let mut allocated_count = 0usize;
-                        for block in &selected {
-                            let local = *block - base;
-                            let byte =
-                                usize::try_from(local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                            if recovered_bitmap[byte] & (1_u8 << (local % 8)) != 0 {
-                                allocated_count += 1;
-                            }
-                        }
-                        if allocated_count == selected.len() {
-                            let last = *selected.last().ok_or(Error::Corrupt(
-                                "batch allocator selected an empty allocation",
-                            ))?;
-                            self.allocation_hint = if last + 1 >= layout.backup_superblock {
-                                layout.data_start
-                            } else {
-                                last + 1
-                            };
-                            return Ok(selected);
-                        }
-                        if allocated_count == 0 {
-                            return Err(error);
-                        }
-                        return Err(Error::Corrupt(
-                            "batch allocation recovery left a mixed bitmap state",
-                        ));
-                    }
-
-                    let last = *selected.last().ok_or(Error::Corrupt(
-                        "batch allocator selected an empty allocation",
-                    ))?;
+                }
+                if allocated_count == selected.len() {
+                    let last = *selected.last().ok_or(Error::Corrupt("batch allocator selected no blocks"))?;
                     self.allocation_hint = if last + 1 >= layout.backup_superblock {
                         layout.data_start
                     } else {
@@ -515,10 +520,19 @@ impl OpenedVolume {
                     };
                     return Ok(selected);
                 }
+                if allocated_count == 0 {
+                    return Err(error);
+                }
+                return Err(Error::Corrupt("batch allocation recovery left a mixed bitmap state"));
             }
-            return Err(Error::InvalidInput(
-                "no bitmap segment has enough free data blocks for this batch",
-            ));
+
+            let last = *selected.last().ok_or(Error::Corrupt("batch allocator selected no blocks"))?;
+            self.allocation_hint = if last + 1 >= layout.backup_superblock {
+                layout.data_start
+            } else {
+                last + 1
+            };
+            return Ok(selected);
         }
     }
 
