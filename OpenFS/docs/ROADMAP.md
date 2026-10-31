@@ -1247,3 +1247,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical synchronisé : 1266 déclarations sur 18 fichiers Rust (commit `dd31e09dd409ba55d018a6369e699539f1dee925`).
 - Les tests du journal couvrent maintenant aussi la matrice de pannes à chaque opération. Compilation, tests, Clippy, rustfmt et CI restent à confirmer avant de compter ce travail comme validé.
 - Progression globale conservée à 73 % en attendant exécution effective et couverture des opérations multi-blocs.
+
+
+### Allocateur next-fit (2026-10-31)
+
+- Commit `807e41cef75c4dd7f2ad9ff6856ac268adef3b27` : ajout d'un curseur next-fit volatil dans `OpenedVolume`. Une allocation commence après le dernier bloc attribué et ne revient au début du bitmap qu'après avoir atteint la fin de la zone de données; cela évite de reparcourir à chaque allocation un préfixe déjà occupé.
+- Le curseur n'est pas une source de vérité persistante : le bitmap journalisé reste autoritaire et le curseur est réinitialisé à `data_start` à la réouverture. Les blocs libérés avant le curseur restent récupérables au tour suivant et immédiatement après réouverture.
+- Test de régression ajouté pour vérifier la progression, le retour circulaire après réouverture et l'état du bitmap. Test non exécuté dans cet environnement; compilation, rustfmt, Clippy et CI restent à confirmer.
+- Progression globale conservée à 73 % : optimisation ciblée de parcours, sans preuve de benchmark ni validation CI.
