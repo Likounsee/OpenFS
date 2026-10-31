@@ -17410,4 +17410,100 @@ mod tests {
 
         fs::remove_file(path).unwrap();
     }
+
+
+    #[test]
+    fn truncate_recovery_preserves_a_complete_old_or_new_file_generation() {
+        use crate::ObjectId;
+
+        let block_size = 4096_usize;
+        let original: Vec<u8> = (0..(block_size * 3 + 91))
+            .map(|index| ((index * 37 + 11) % 251) as u8)
+            .collect();
+        let new_size = block_size + 17;
+        let failures = (0..=20)
+            .map(|fail_at| (IoOperation::Write, fail_at))
+            .chain((0..=16).map(|fail_at| (IoOperation::Flush, fail_at)));
+
+        for (operation, fail_at) in failures {
+            let label = match operation {
+                IoOperation::Write => "write",
+                IoOperation::Flush => "flush",
+                IoOperation::Read => unreachable!(),
+            };
+            let path = image_path(&format!("truncate-recovery-{label}-{fail_at}"));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+                let mut volume =
+                    format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/",
+                        ObjectId(2),
+                        "payload.bin",
+                    )
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/payload.bin", &original)
+                    .unwrap();
+            }
+
+            {
+                let image = ImageDevice::open(&path, 4096).unwrap();
+                let mut device = FaultInjectingDevice::new(image);
+                let mut volume = open_volume(&mut device).unwrap();
+                device.fail_after(operation, fail_at);
+                let _ = volume.truncate_persistent_file(
+                    &mut device,
+                    "/payload.bin",
+                    new_size as u64,
+                );
+            }
+
+            {
+                let mut device = ImageDevice::open(&path, 4096).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
+                let record = volume
+                    .stat_persistent_path(&mut device, "/payload.bin")
+                    .unwrap();
+                assert!(
+                    record.size == original.len() as u64 || record.size == new_size as u64,
+                    "recovery exposed an unexpected file length after {label} failure {fail_at}: {}",
+                    record.size
+                );
+                let visible_size = usize::try_from(record.size).unwrap();
+                let expected = if visible_size == original.len() {
+                    &original[..]
+                } else {
+                    &original[..new_size]
+                };
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/payload.bin",
+                            0,
+                            visible_size,
+                        )
+                        .unwrap(),
+                    expected,
+                    "recovery exposed mixed file contents after {label} failure {fail_at}"
+                );
+                assert!(
+                    volume
+                        .verify_discovered_persistent_inventory(&mut device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent(),
+                    "recovered ownership is inconsistent after {label} failure {fail_at}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
