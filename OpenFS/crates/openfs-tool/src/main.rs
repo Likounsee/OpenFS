@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
-use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
+use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
 
 mod windows_device;
 #[cfg(windows)]
@@ -428,17 +428,27 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     // ImageDevice::create uses create_new: an existing path is never truncated.
     let mut device = ImageDevice::create(path, BLOCK_SIZE, block_count)?;
     let uuid = development_uuid();
-    if let Err(error) = format_volume(&mut device, uuid, 0) {
+
+    // A freshly formatted volume must already have a persistent root namespace
+    // before it can be opened by VolumeSession or mounted through Dokany.
+    let initialization = (|| -> openfs_core::Result<()> {
+        format_volume(&mut device, uuid, 0)?;
+        let mut volume = open_volume(&mut device)?;
+        volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
+        device.flush()
+    })();
+    if let Err(error) = initialization {
         drop(device);
         let _ = fs::remove_file(path);
         return Err(error.into());
     }
-    println!("OpenFS development image created.");
+
+    println!("OpenFS development image created and initialized.");
     println!("Path: {}", path.display());
     println!("Size: {size_mib} MiB ({block_count} blocks × {BLOCK_SIZE} bytes)");
     println!("UUID: {}", format_uuid(uuid));
-    println!("Format: OpenFS journaled filesystem");
-    println!("This command created a regular image file, not a physical USB volume.");
+    println!("Format: OpenFS journaled filesystem (versioned journal + persistent root namespace)");
+    println!("The image is ready to mount; this command created a regular image file, not a physical USB volume.");
     Ok(())
 }
 
@@ -3044,11 +3054,34 @@ mod tests {
     }
 
     #[test]
-    fn creates_and_reopens_a_valid_development_image() {
+    fn creates_and_reopens_a_mount_ready_image_with_persistent_files() {
         let path = unique_path("roundtrip");
         let result = create_image(&path, 1);
         assert!(result.is_ok(), "image creation failed: {result:?}");
         assert!(inspect_image(&path).is_ok(), "created image did not reopen");
+
+        {
+            let mut session =
+                VolumeSession::open(ImageDevice::open(&path, BLOCK_SIZE).unwrap()).unwrap();
+            let root = session.stat("/").unwrap();
+            assert_eq!(root.kind, ObjectKind::Directory);
+            session.create_file_auto("/", "roundtrip.txt").unwrap();
+            session
+                .write_file("/roundtrip.txt", b"OpenFS survives an unmount/remount")
+                .unwrap();
+            session.flush().unwrap();
+        }
+
+        {
+            let mut session =
+                VolumeSession::open(ImageDevice::open(&path, BLOCK_SIZE).unwrap()).unwrap();
+            assert_eq!(
+                session.read_file("/roundtrip.txt").unwrap(),
+                b"OpenFS survives an unmount/remount"
+            );
+            session.flush().unwrap();
+        }
+
         fs::remove_file(path).unwrap();
     }
 
