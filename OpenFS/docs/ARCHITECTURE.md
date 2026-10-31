@@ -47,6 +47,8 @@ There is one active volume implementation in `crates/openfs-format/src/volume.rs
 
 ## Current limits
 
+`openfs-format` now exposes a portable `VolumeSession<D>` lifecycle boundary. It owns a block device, opens the volume with journal recovery, and offers path-based stat/list/read/create/write/truncate/rename/remove operations plus an explicit flush-and-return `unmount`. This is a reusable backend API for a future OS adapter, not an operating-system mount: it does not create a Windows drive letter, Linux mount point, or kernel filesystem registration. The host CLI remains image-oriented, and no Windows/Linux mount adapter is integrated yet.
+
 The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and OS integration remain incomplete.
 
 ## Development order
