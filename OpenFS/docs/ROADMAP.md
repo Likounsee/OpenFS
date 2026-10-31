@@ -1,3 +1,15 @@
+### Reprise de session — 2026-10-31 (premier chemin de formatage/montage USB brut)
+
+- Le backend `RawDevice` existait déjà, mais l'adaptateur Dokany était limité à `ImageDevice`. Le commit `542f99f6c34b8fda67a468b9d62bab4e6daf0298` généralise le handler Dokany à tout `BlockDevice` et ajoute le chemin de montage d'un disque USB physique déjà formaté OpenFS.
+- Le commit `54deed972c4cd384d2fbf5eb3b11082b55f89bac` ajoute une prévalidation Windows statique (valeurs transmises par variables d'environnement, pas interpolées dans le script) : UniqueId exact, transport USB (BusType ou PnP USB/UASP), disque Offline, non boot/system et non read-only. Le contrôle est répété après l'ouverture du handle pour réduire la fenêtre de changement d'index.
+- Les commits `ef53e25e0ea6d67a2b09a1e2afb76b883f8e2604`, `6d03a52fb81bb4f1792b31693c550a6e30086fdd`, `fe055d18632f6440b0777232e4e0af3ecc3f4a84` ajoutent `format-usb` avec confirmation littérale `ERASE-ALL-DATA`, ouverture du périphérique brut, formatage du volume et initialisation de la racine. Le commit `678b815f813354a6708112081c40ae8cde3f84f1` refait la vérification d'identité juste après l'ouverture avant le formatage.
+- Le commit `e6c85c826e261b439c422ccdefdd9655ab17b442` extrait le parseur de géométrie et ajoute des tests pour les valeurs valides, mal formées, nulles ou aux tailles de secteur non supportées.
+- Documentation actualisée : README (`645ae52e8431731b862d41fc0357f8ab8f397b75`, `fc14548efff9f457382dd7c3d3fa1140bf602945`), architecture (`41712191860b35a28fa0afe04dbea4bbe4c5da3c`), modèle de sécurité (`dfa596cdaacc699d032583bfb61d976e1ec5fd40`), commentaire CLI (`e04bae29f81b13cb11c7e98527cf1df82e0540bb`).
+- **Limite critique :** ce flux écrit sur le disque entier et détruit GPT/partitions/données existantes. Il exige un disque USB explicitement Offline, une identité exacte et une confirmation destructive, mais ces contrôles ne remplacent ni une sauvegarde ni les essais réels. La compatibilité d'ouverture/écriture des handles `PhysicalDrive`, des contrôleurs USB et de Dokany n'a pas encore été vérifiée sur une machine Windows réelle.
+- Validation : tests ajoutés, mais aucun cargo test/rustfmt/Clippy ni run CI exacte-SHA n'a été exécuté/confirmé dans cette session. Le clone local a échoué car l'environnement ne résout pas `github.com`; les pourcentages restent donc inchangés.
+
+---
+
 ### Reprise de session — 2026-10-31 (course de création Windows + guide de montage)
 
 - Commit `87b0729a3b75ac51118a50899e481ae3be82a757` : le callback Dokany `create_file` conserve le verrou de session pendant la recherche du chemin et l'opération qui en découle (création ou troncature). Deux ouvertures concurrentes ne peuvent plus toutes deux décider de créer un même chemin sur la base d'un état périmé.
