@@ -2782,7 +2782,7 @@ mod tests {
     use super::{
         audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE,
     };
-    use openfs_block::{BlockDevice, ImageDevice};
+    use openfs_block::{BlockDevice, ImageDevice, RawDevice};
     use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2836,6 +2836,58 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn raw_device_backend_formats_and_preserves_files_across_reopen() {
+        let path = unique_path("raw-device-roundtrip");
+        let byte_len = 8 * 1024 * 1024;
+        {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap();
+            file.set_len(byte_len).unwrap();
+            file.sync_all().unwrap();
+        }
+
+        {
+            let mut device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
+                .unwrap();
+            format_volume(&mut device, *b"openfs-raw-test", 0).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, openfs_format::ObjectId::new(1).unwrap())
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
+                .unwrap();
+            let mut session = VolumeSession::open(device).unwrap();
+            session.create_file_auto("/", "usb-roundtrip.txt").unwrap();
+            session
+                .write_file("/usb-roundtrip.txt", b"raw block device persistence")
+                .unwrap();
+            let device = session.unmount().unwrap();
+            drop(device);
+        }
+
+        {
+            let device = RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE))
+                .unwrap();
+            let mut session = VolumeSession::open(device).unwrap();
+            assert_eq!(
+                session.read_file("/usb-roundtrip.txt").unwrap(),
+                b"raw block device persistence"
+            );
+            let device = session.unmount().unwrap();
+            drop(device);
+        }
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
