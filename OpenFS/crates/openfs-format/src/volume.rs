@@ -8287,7 +8287,7 @@ impl<D: BlockDevice> VolumeSession<D> {
                 }
                 for entry in &entries {
                     maximum = maximum.max(entry.object_id);
-                    if entry.kind == ObjectKind::Directory
+                    if entry.kind == crate::ObjectKind::Directory
                         && visited_directories.insert(entry.object_id)
                     {
                         let child_path = if directory_path == "/" {
