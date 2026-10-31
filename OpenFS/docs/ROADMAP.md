@@ -1,3 +1,15 @@
+### Reprise de session — 2026-10-31 (images immédiatement montables)
+
+- Branche : `OpenFS` uniquement.
+- `create-image` ne se contente plus d'écrire le superbloc et les régions réservées : il initialise aussi la racine persistante (ObjectId 1), indispensable à `VolumeSession::open` et à l'adaptateur Dokany.
+- En cas d'échec pendant le formatage ou l'initialisation du namespace, le nouvel artefact image est fermé puis supprimé; un fichier préexistant reste protégé par `ImageDevice::create` (`create_new`).
+- Le test de roundtrip existant vérifie maintenant la racine, crée et écrit un fichier via `VolumeSession`, ferme la session, rouvre l'image et relit exactement le contenu.
+- L'architecture a été mise à jour : montage Dokany Windows image-backed déjà présent; pas encore de montage brut de disque physique ni de montage Linux. Les callbacks Windows de suppression et la propagation d'erreurs de démontage restent à fiabiliser.
+- Commits : `b317dfb527908ebcfa1571efe4a72a41fa8dfbf5`, `fd217ddc1cc08b99bf5018e338858a40f904d8e4`, `95c2f72db2e374f4671272a4697e8cea6f7b0d61`.
+- Validation CI exacte-SHA : à confirmer; aucun pourcentage n'est augmenté avant les résultats Linux et Windows.
+
+---
+
 ### Reprise de session — 2026-10-28 (récupération du journal après échec de tail-scrub de troncature)
 
 - Correction de production dans `truncate_persistent_file` : si le commit du nettoyage des octets après EOF échoue, OpenFS rouvre/récupère désormais le volume avant toute tentative de libération des extents retirés.
