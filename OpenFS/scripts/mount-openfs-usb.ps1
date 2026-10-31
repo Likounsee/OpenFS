@@ -15,7 +15,7 @@ window while the mount-mode window remains open.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Mount", "Unmount")]
+    [ValidateSet("Mount", "Unmount", "Format")]
     [string]$Action,
 
     [Parameter(Mandatory = $true)]
@@ -27,7 +27,9 @@ param(
 
     [int]$DiskNumber,
 
-    [string]$UniqueId
+    [string]$UniqueId,
+
+    [string]$ConfirmEraseAllData
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,7 +58,7 @@ if ($Action -eq "Unmount") {
     return
 }
 
-if ($DiskNumber -lt 0) {
+if (-not $PSBoundParameters.ContainsKey("DiskNumber") -or $DiskNumber -lt 0) {
     throw "DiskNumber must identify the dedicated USB disk."
 }
 if ([string]::IsNullOrWhiteSpace($UniqueId)) {
@@ -92,11 +94,23 @@ try {
         }
     }
 
-    Write-Host "Starting OpenFS on USB disk $DiskNumber at $MountPoint."
-    Write-Host "Keep this window open. Use a second elevated PowerShell window to unmount."
-    & $exePath mount-usb $DiskNumber $UniqueId $MountPoint
-    if ($LASTEXITCODE -ne 0) {
-        throw "OpenFS mount-usb failed with exit code $LASTEXITCODE."
+    if ($Action -eq "Format") {
+        if ($ConfirmEraseAllData -cne "ERASE-ALL-DATA") {
+            throw "Formatting erases the entire USB disk. Pass -ConfirmEraseAllData ERASE-ALL-DATA exactly to continue."
+        }
+        Write-Warning "ERASING ALL DATA AND PARTITIONS on USB disk $DiskNumber ($UniqueId)."
+        & $exePath format-usb $DiskNumber $UniqueId ERASE-ALL-DATA
+        if ($LASTEXITCODE -ne 0) {
+            throw "OpenFS format-usb failed with exit code $LASTEXITCODE."
+        }
+    }
+    else {
+        Write-Host "Starting OpenFS on USB disk $DiskNumber at $MountPoint."
+        Write-Host "Keep this window open. Use a second elevated PowerShell window to unmount."
+        & $exePath mount-usb $DiskNumber $UniqueId $MountPoint
+        if ($LASTEXITCODE -ne 0) {
+            throw "OpenFS mount-usb failed with exit code $LASTEXITCODE."
+        }
     }
 }
 finally {
