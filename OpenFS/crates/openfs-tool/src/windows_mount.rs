@@ -206,8 +206,12 @@ impl OpenHandleState {
             .and_then(|opens| opens.iter().find(|open| open.handle_id == handle.handle_id))
             .ok_or("unknown or closed OpenFS handle")?;
         let generic_access = match requested_access {
-            FILE_READ_DATA => GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED,
-            FILE_WRITE_DATA | FILE_APPEND_DATA => GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED,
+            FILE_READ_DATA | FILE_READ_ATTRIBUTES => {
+                GENERIC_READ | GENERIC_ALL | MAXIMUM_ALLOWED
+            }
+            FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES => {
+                GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED
+            }
             DELETE => GENERIC_ALL | MAXIMUM_ALLOWED,
             _ => 0,
         };
@@ -605,6 +609,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<FileInfo, OperationError> {
+        self.require_handle_access(*context, FILE_READ_ATTRIBUTES)?;
         self.with_path(context, |session, path| session.stat(path))
             .map(|record| make_file_info(&record))
     }
@@ -616,6 +621,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         _info: &OperationInfo<'a, 'b, Self>,
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
+        self.require_handle_access(*context, FILE_READ_DATA)?;
         let entries = self.with_path(context, |session, path| {
             let mut entries = Vec::new();
             let mut marker: Option<String> = None;
@@ -915,7 +921,7 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 mod tests {
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
-        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_DATA, GENERIC_READ,
+        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_DATA, FILE_WRITE_ATTRIBUTES, GENERIC_READ,
         GENERIC_WRITE, MAXIMUM_ALLOWED, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
     };
     use openfs_format::ObjectId;
@@ -940,6 +946,7 @@ mod tests {
         assert!(state.allows_access(read_only, FILE_READ_DATA).unwrap());
         assert!(!state.allows_access(read_only, FILE_WRITE_DATA).unwrap());
         assert!(!state.allows_access(read_only, DELETE).unwrap());
+        assert!(!state.allows_access(read_only, FILE_WRITE_ATTRIBUTES).unwrap());
         assert!(!state.close(read_only, false).unwrap());
 
         let write_only = state.register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE).unwrap();
