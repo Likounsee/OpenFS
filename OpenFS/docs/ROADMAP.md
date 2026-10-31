@@ -1150,15 +1150,15 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Estimations après ce changement de comportement : P0 100 %, P1 81 %, P2 80 %, P3 5 %, global estimé 71 %. Le point supplémentaire correspond aux chemins de reprise bornée de l'allocateur, pas à une validation de compilation.
 
 
-### Préparation USB Windows — inventaire matériel non destructif (2026-10-29)
+### Préparation USB Windows — inventaire matériel et intégration raw (2026-10-29)
 
-- Ajout de `scripts/inspect-usb-disks.ps1` : inventaire consultatif des disques Windows, modèle, numéro de série, bus, capacité, style de partition, indicateurs boot/system et étiquettes de volumes. Il ne crée, ne formate et n'écrit rien.
-- Ajout de `docs/USB_TESTING.md` : procédure de compilation du workspace, identification d'une clé dédiée et séparation explicite entre backend image, backend raw générique et tests physiques encore absents.
-- Analyse du code existant : `openfs-block::RawDevice` existe déjà mais ouvre en lecture/écriture, reçoit une géométrie fournie par l'appelant et ne découvre pas les propriétés du périphérique Windows. Le CLI documenté reste orienté images; le flux d'ouverture raw n'est pas exposé comme un test USB contrôlé.
-- Limites de ce lot : aucun secteur physique n'a été lu ou écrit; le script n'a pas été exécuté sur une machine Windows dans cet environnement. Aucune écriture de formatage n'est activée.
-- Validation GitHub : le statut combiné consulté pour le HEAD antérieur renvoyait zéro statut; cela ne prouve pas une réussite. Les commandes Rust/CI n'ont pas été exécutées ici et restent à vérifier pour le nouveau HEAD.
-- Pourcentages conservés : global 71 % selon l'estimation documentée précédemment; tests matériels réels 0 % validé; pile USB/stockage physique partiellement implémentée (backend raw générique existant, détection/géométrie/CLI USB manquants); système de fichiers image avancé mais validation exacte du HEAD en attente.
-
+- Ajout de `scripts/inspect-usb-disks.ps1` : inventaire consultatif des disques Windows, modèle, numéro de série, bus, capacité, style de partition, indicateurs boot/system et étiquettes de volumes.
+- Ajout de `docs/USB_TESTING.md` : la page a depuis été actualisée pour décrire le flux réel `format-usb` / `mount-usb` / `unmount` et le helper PowerShell.
+- Le backend `RawDevice` reste une ouverture physique en lecture/écriture; la géométrie et les contrôles Windows sont fournis par le chemin CLI USB, qui exige l'identité exacte, le bus USB, le disque hors ligne et les exclusions boot/system, puis revalide l'identité après ouverture.
+- Le montage Dokany de disque USB et le formatage raw sont maintenant exposés par le CLI. Le helper `scripts/mount-openfs-usb.ps1` automatise les transitions Offline/Online et le démontage via une seconde fenêtre; voir le lot du 2026-10-31 ci-dessous.
+- Limites : aucun secteur physique n'a été lu ou écrit et aucun test matériel réel n'a été réalisé dans cet environnement. Le script d'inventaire et le helper de montage doivent être exécutés sur Windows; l'intégration reste expérimentale.
+- Compilation/tests/formatage/Clippy et CI exacte-SHA non confirmés ici. Un statut combiné vide n'est pas une preuve de réussite.
+- Estimations de périmètre conservées : global 71 %; validation physique réelle 0 %; pile USB physique implémentée au niveau du chemin CLI, mais non qualifiée matériellement.
 
 ### Flux d'utilisation USB Windows — formatage contrôlé, montage et démontage (2026-10-31)
 
