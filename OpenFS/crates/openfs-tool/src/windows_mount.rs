@@ -921,8 +921,9 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 mod tests {
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
-        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_DATA, FILE_WRITE_ATTRIBUTES, GENERIC_READ,
-        GENERIC_WRITE, MAXIMUM_ALLOWED, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
+        ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_ATTRIBUTES,
+        FILE_WRITE_DATA, GENERIC_READ, GENERIC_WRITE, MAXIMUM_ALLOWED, SHARE_DELETE,
+        SHARE_READ, SHARE_WRITE,
     };
     use openfs_format::ObjectId;
 
@@ -942,14 +943,18 @@ mod tests {
     fn operation_access_is_checked_against_the_exact_open_handle() {
         let state = OpenHandleState::default();
         let object = ObjectId(41);
-        let read_only = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        let read_only = state
+            .register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE)
+            .unwrap();
         assert!(state.allows_access(read_only, FILE_READ_DATA).unwrap());
         assert!(!state.allows_access(read_only, FILE_WRITE_DATA).unwrap());
         assert!(!state.allows_access(read_only, DELETE).unwrap());
         assert!(!state.allows_access(read_only, FILE_WRITE_ATTRIBUTES).unwrap());
         assert!(!state.close(read_only, false).unwrap());
 
-        let write_only = state.register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        let write_only = state
+            .register(object, GENERIC_WRITE, SHARE_READ | SHARE_WRITE)
+            .unwrap();
         assert!(!state.allows_access(write_only, FILE_READ_DATA).unwrap());
         assert!(state.allows_access(write_only, FILE_WRITE_DATA).unwrap());
         assert!(state.allows_access(write_only, FILE_APPEND_DATA).unwrap());
@@ -984,7 +989,9 @@ mod tests {
         let first = state
             .register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE)
             .unwrap();
-        assert!(state.register(object, FILE_WRITE_DATA, SHARE_WRITE).is_err());
+        assert!(state
+            .register(object, FILE_WRITE_DATA, SHARE_WRITE)
+            .is_err());
         assert!(!state.close(first, false).unwrap());
     }
 
@@ -992,8 +999,12 @@ mod tests {
     fn delete_access_requires_share_delete_in_both_directions() {
         let state = OpenHandleState::default();
         let object = ObjectId(45);
-        let first = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
-        assert!(state.register(object, DELETE, SHARE_READ | SHARE_WRITE).is_err());
+        let first = state
+            .register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE)
+            .unwrap();
+        assert!(state
+            .register(object, DELETE, SHARE_READ | SHARE_WRITE)
+            .is_err());
         assert!(!state.close(first, false).unwrap());
     }
 
@@ -1002,9 +1013,13 @@ mod tests {
         let state = OpenHandleState::default();
         let object = ObjectId(46);
         let first = state.register(object, FILE_READ_DATA, SHARE_READ | SHARE_WRITE).unwrap();
-        let second = state.register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE).unwrap();
+        let second = state
+            .register(object, FILE_WRITE_DATA, SHARE_READ | SHARE_WRITE)
+            .unwrap();
         assert!(!state.close(first, false).unwrap());
-        assert!(state.register(object, FILE_READ_DATA, SHARE_READ).is_err());
+        assert!(state
+            .register(object, FILE_READ_DATA, SHARE_READ)
+            .is_err());
         assert!(!state.close(second, false).unwrap());
     }
 
@@ -1060,7 +1075,9 @@ mod tests {
                 scope.spawn(move || {
                     barrier.wait();
                     for _ in 0..256 {
-                        let handle = state.register(object, FILE_READ_DATA, SHARE_READ).unwrap();
+                        let handle = state
+                            .register(object, FILE_READ_DATA, SHARE_READ)
+                            .unwrap();
                         assert!(!state.close(handle, false).unwrap());
                     }
                 });
@@ -1088,7 +1105,9 @@ mod tests {
 
     #[test]
     fn unsupported_share_bits_are_rejected() {
-        assert!(OpenHandleState::default().register(ObjectId(101), 0, 8).is_err());
+        assert!(OpenHandleState::default()
+            .register(ObjectId(101), 0, 8)
+            .is_err());
     }
 
     #[test]
