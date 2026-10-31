@@ -1276,3 +1276,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Allocation et libération construisent l'ensemble des images bitmap, vérifient la plage complète et la capacité redo, puis publient toutes les pages dans une transaction unique. La récupération après erreur rouvre le volume et distingue plage entièrement allouée/libre, état antérieur et état mixte.
 - Test image ajouté : quatre blocs libres traversant la frontière bitmap, vérification qu'un run de cinq blocs n'est pas faussement détecté, allocation, réouverture, libération et nouvelle réouverture. Test non exécuté; compilation, rustfmt, Clippy et CI restent non vérifiés.
 - Inventaire lexical : 1270 déclarations sur 18 fichiers Rust. Complétion globale maintenue à 73 % en attente de validation automatique et de tests de panne multi-page.
+
+### Libération groupée multi-bitmap (2026-10-31)
+
+- Commit `eba012b99bf678b788dc9a07c16e995419fc219d` : `free_blocks_sorted` accepte maintenant des listes triées couvrant plusieurs pages bitmap. Les pages réellement touchées sont regroupées, vérifiées et publiées dans une transaction redo unique; les listes dépassant la capacité atomique du journal sont refusées avant le commit.
+- Les contrôles de propriété persistante et de protection des descripteurs couvrent toute la liste avant modification. En cas de résultat de commit incertain, le volume est rouvert et chaque bloc demandé est vérifié : tous libres = succès, aucun libre = erreur initiale, état mixte = corruption.
+- Le test de régression multi-bitmap vérifie maintenant aussi la libération de la liste allouée, puis la persistance de cette libération après réouverture. Le comptage de pages est fondé sur les pages réellement touchées, pas sur l'intervalle physique entre le premier et le dernier bloc.
+- Inventaire lexical synchronisé : 1270 déclarations sur 18 fichiers Rust. Tests, compilation, rustfmt, Clippy et CI exacte-SHA restent à exécuter/confirmer. Progression globale maintenue à 73 %.
