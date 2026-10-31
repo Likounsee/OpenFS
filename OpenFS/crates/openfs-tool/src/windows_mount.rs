@@ -46,6 +46,7 @@ const GENERIC_ALL: u32 = 0x1000_0000;
 const GENERIC_EXECUTE: u32 = 0x2000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
 const GENERIC_READ: u32 = 0x8000_0000;
+const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
 const FILE_READ_DATA: u32 = 1;
 const FILE_WRITE_DATA: u32 = 2;
 const FILE_APPEND_DATA: u32 = 4;
@@ -58,15 +59,15 @@ const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
 
 fn access_categories(desired_access: u32) -> u8 {
     let mut result = 0;
-    if desired_access & (GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL
+    if desired_access & (GENERIC_READ | GENERIC_EXECUTE | GENERIC_ALL | MAXIMUM_ALLOWED
         | FILE_READ_DATA | FILE_READ_EA | FILE_READ_ATTRIBUTES | FILE_EXECUTE) != 0 {
         result |= ACCESS_READ;
     }
-    if desired_access & (GENERIC_WRITE | GENERIC_ALL
+    if desired_access & (GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED
         | FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES) != 0 {
         result |= ACCESS_WRITE;
     }
-    if desired_access & (DELETE | GENERIC_ALL) != 0 {
+    if desired_access & (DELETE | GENERIC_ALL | MAXIMUM_ALLOWED) != 0 {
         result |= ACCESS_DELETE;
     }
     result
@@ -815,7 +816,7 @@ mod tests {
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
         ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_DATA, FILE_WRITE_DATA, GENERIC_READ,
-        GENERIC_WRITE, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
+        GENERIC_WRITE, MAXIMUM_ALLOWED, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
     };
     use openfs_format::ObjectId;
 
@@ -825,6 +826,7 @@ mod tests {
         assert_eq!(access_categories(FILE_WRITE_DATA | GENERIC_WRITE), ACCESS_WRITE);
         assert_eq!(access_categories(DELETE), ACCESS_DELETE);
         assert_eq!(access_categories(FILE_APPEND_DATA), ACCESS_WRITE);
+        assert_eq!(access_categories(MAXIMUM_ALLOWED), ACCESS_READ | ACCESS_WRITE | ACCESS_DELETE);
     }
 
     #[test]
