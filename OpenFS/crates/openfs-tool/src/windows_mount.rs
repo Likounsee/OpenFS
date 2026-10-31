@@ -150,7 +150,7 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
     fn create_file(
         &'b self,
         file_name: &U16CStr,
-        _security_context: &dokan::IO_SECURITY_CONTEXT,
+        _security_context: &dokan::DOKAN_IO_SECURITY_CONTEXT,
         _desired_access: winapi::um::winnt::ACCESS_MASK,
         _file_attributes: u32,
         _share_access: u32,
@@ -480,14 +480,12 @@ pub fn mount_image(
         .allocation_unit_size(block_size)
         .flags(MountFlags::CURRENT_SESSION | MountFlags::ENABLE_FCB_GARBAGE_COLLECTION);
 
-    dokan::init();
     let result = drive.mount(&handler);
     let flush_result = handler
         .session
         .lock()
         .map_err(|_| "OpenFS session lock was poisoned")?
         .flush();
-    dokan::shutdown();
     result?;
     flush_result?;
     println!("OpenFS volume unmounted cleanly.");
