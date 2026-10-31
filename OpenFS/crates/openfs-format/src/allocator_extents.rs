@@ -719,7 +719,6 @@ impl OpenedVolume {
                         free_count = free_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
                     }
                 }
-                }
             }
             if free_count == sorted.len() {
                 return Ok(());
