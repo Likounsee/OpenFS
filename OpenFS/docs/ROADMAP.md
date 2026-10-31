@@ -1307,3 +1307,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical synchronisé : 1 273 déclarations sur 18 fichiers Rust (commit `51541b5066210477b11ebf75c4c749079ef61367`).
 - Test ajouté mais non exécuté dans cette session; compilation, formatage, Clippy et CI restent non vérifiés. Progression globale conservée à 73 % jusqu'à validation.
 
+### Plages de trous clairsemés indexées (2026-10-31)
+
+- Commit `34c63fdf1e39c0bb7e0bc376336353ce5e8e0f32` : ajout de `logical_hole_ranges_in_range()`, qui renvoie les trous logiques coupés à la plage demandée, en recherchant par dichotomie le premier extent utile et en ignorant les extents hors plage. `logical_hole_ranges()` réutilise maintenant cette implémentation pour conserver son API existante.
+- Le résultat est borné à la plage demandée; les bornes, dépassements arithmétiques et extents qui dépassent la longueur logique déclarée restent vérifiés.
+- Test ajouté : balayage de plages sur 128 extents clairsemés, comparaison bloc par bloc, vérification de compatibilité avec l'ancienne API et du rejet des plages hors limites.
+- Inventaire lexical : 1 274 déclarations sur 18 fichiers Rust (commit `8698573dab46482aca01e90089fe8bafb0d1b3e3`).
+- Test non exécuté dans cette session; compilation, rustfmt, Clippy et CI restent non vérifiés. Progression globale inchangée à 73 %.
+
