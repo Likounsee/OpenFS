@@ -13496,7 +13496,7 @@ mod tests {
             assert!(volume.is_data_block_allocated(&mut device, after_cursor).unwrap());
         }
         {
-            let mut device = ImageDevice::open(&path, 4096, 512).unwrap();
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             // The volatile cursor is intentionally reset on reopen; the bitmap remains
             // authoritative, so the lowest free data block is reusable immediately.
