@@ -1193,3 +1193,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 - Commit `a56d5e5d2f5ffd1d13bb8d165df919b00836a0a9` : correction de l'ordre de verrouillage dans l'état des handles. L'enregistrement et la fermeture prennent désormais les verrous dans le même ordre (`counts` puis `delete_pending`), y compris pour éviter un interblocage avec les ouvertures de la racine.
 - Commit `7878d37feb50ee42781dcb8501085f07ccc8e1ae` : index lexical resynchronisé après cette correction; 1 232 déclarations indexées.
+
+
+### Verrouillage atomique de l'état des handles Dokany (2026-10-31)
+
+- Commit `3cbf2231756477b18f4da07cd16bbbe53e032c98` : remplacement des deux mutex séparés (`counts` et `delete_pending`) par un état unique protégé par un mutex. L'ouverture, la fermeture et le passage en suppression différée sont désormais sérialisés dans une seule section critique; il n'existe plus d'ordre de verrouillage inter-mutex à respecter.
+- Une fermeture sans ouverture enregistrée est maintenant rejetée sans créer un état `delete-pending` orphelin.
+- Deux tests supplémentaires couvrent les fermetures invalides et 8 threads exécutant chacun 256 cycles ouverture/fermeture. Ces tests restent à exécuter par la CI Windows; aucun résultat de test n'est revendiqué ici.
+- Commit `2cbc00d45e6509709f2061455fe7a42fe340d8b8` : inventaire lexical resynchronisé, 1 235 déclarations sur 18 fichiers Rust.
+- Progression de périmètre estimée : P0 100 %, P1 81 %, P2 83 %, P3 5 %, global 73 %. Cette hausse reflète le renforcement réel du cycle de vie des handles, pas une validation de CI ou du matériel.
+- Compilation, rustfmt, Clippy, tests et CI exacte-SHA restent à confirmer. Aucun essai USB physique n'a été effectué.
