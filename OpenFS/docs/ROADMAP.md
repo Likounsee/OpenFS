@@ -1324,3 +1324,5 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical recalé après le déplacement des lignes du fichier `volume.rs` : commit `4e4bc979415e4fb43833ced1367bac078d853071`; 18 fichiers Rust et 1 274 déclarations.
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+- Correctif d'inventaire : le script officiel `OpenFS/scripts/generate_symbol_inventory.py` a été reproduit sur les 18 fichiers Rust sources récupérés de la branche, et le CSV complet a été régénéré au commit `354f2e70b54b225003843d0fc7cdf7ec70e53193`. Le compte exact est **1 275 déclarations** (et non 1 274); les lignes de `volume.rs` sont recalculées à partir du contenu actuel.
+
