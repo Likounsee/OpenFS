@@ -8224,12 +8224,8 @@ impl<D: BlockDevice> VolumeSession<D> {
         object_id: ObjectId,
         name: &str,
     ) -> Result<ObjectId> {
-        self.opened.create_persistent_file_at_path(
-            &mut self.device,
-            parent_path,
-            object_id,
-            name,
-        )
+        self.opened
+            .create_persistent_file_at_path(&mut self.device, parent_path, object_id, name)
     }
 
     /// Create an empty directory beneath an existing directory.
@@ -8260,24 +8256,14 @@ impl<D: BlockDevice> VolumeSession<D> {
     }
 
     /// Rename or move a file/directory to another existing directory.
-    pub fn rename(
-        &mut self,
-        path: &str,
-        new_parent_path: &str,
-        new_name: &str,
-    ) -> Result<()> {
-        self.opened.rename_persistent_path(
-            &mut self.device,
-            path,
-            new_parent_path,
-            new_name,
-        )
+    pub fn rename(&mut self, path: &str, new_parent_path: &str, new_name: &str) -> Result<()> {
+        self.opened
+            .rename_persistent_path(&mut self.device, path, new_parent_path, new_name)
     }
 
     /// Remove a file or an empty directory.
     pub fn remove(&mut self, path: &str) -> Result<()> {
-        self.opened
-            .remove_persistent_path(&mut self.device, path)
+        self.opened.remove_persistent_path(&mut self.device, path)
     }
 
     /// Report the number of currently free data blocks.
@@ -16892,9 +16878,7 @@ mod tests {
             assert_eq!(mounted.block_size(), 4096);
             assert_eq!(mounted.uuid(), *b"openfs-test-0001");
 
-            mounted
-                .create_directory("/", ObjectId(2), "docs")
-                .unwrap();
+            mounted.create_directory("/", ObjectId(2), "docs").unwrap();
             mounted
                 .create_file("/docs", ObjectId(3), "draft.txt")
                 .unwrap();
@@ -16910,7 +16894,10 @@ mod tests {
                 .rename("/docs/draft.txt", "/docs", "final.txt")
                 .unwrap();
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
-            assert_eq!(mounted.read_file("/docs/final.txt").unwrap(), b"OpenFS mount");
+            assert_eq!(
+                mounted.read_file("/docs/final.txt").unwrap(),
+                b"OpenFS mount"
+            );
 
             let entries = mounted.read_directory("/docs", None, 16).unwrap();
             assert_eq!(entries.len(), 1);
@@ -16934,10 +16921,7 @@ mod tests {
         {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
-            assert!(matches!(
-                mounted.stat("/docs"),
-                Err(Error::InvalidInput(_))
-            ));
+            assert!(matches!(mounted.stat("/docs"), Err(Error::InvalidInput(_))));
             assert!(mounted.read_directory("/", None, 16).unwrap().is_empty());
             let device = mounted.unmount().unwrap();
             drop(device);
@@ -16945,5 +16929,4 @@ mod tests {
 
         fs::remove_file(path).unwrap();
     }
-
 }
