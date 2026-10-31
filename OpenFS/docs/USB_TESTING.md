@@ -1,65 +1,100 @@
-# OpenFS — préparation des tests sur périphérique USB (Windows)
+# OpenFS — essais sur une vraie clé USB (Windows)
 
-## État actuel — lire avant d'essayer
+## État actuel
 
-Le CLI OpenFS documenté est principalement orienté images de fichiers. La crate `openfs-block` contient déjà un `RawDevice` capable d'effectuer des E/S par blocs sur un chemin explicitement fourni, mais ce type ouvre le chemin en lecture **et** écriture et exige une géométrie fournie par l'appelant. Il ne découvre pas lui-même la taille/les secteurs d'un disque Windows, ne démonte pas les volumes et ne rend pas sûre une opération destructive.
+Le dépôt possède maintenant un premier chemin de montage physique Windows, en plus du backend image :
 
-**À ce stade, le script ci-dessous ne teste pas OpenFS sur la clé et n'écrit rien.** Il sert à identifier la clé sans ambiguïté avant de développer un chemin raw-device contrôlé. N'utilise pas directement `RawDevice` sur un disque de données : une mauvaise géométrie ou une écriture peut endommager la table de partitions et les systèmes de fichiers existants.
+- `format-usb` initialise un volume OpenFS sur **tout le disque physique** sélectionné. Cette opération détruit la table de partitions et toutes les données présentes sur la clé.
+- `mount-usb` ouvre un disque USB déjà hors ligne, vérifie son `UniqueId` exact, son transport USB, son état boot/system et sa géométrie, puis monte le volume avec Dokany.
+- `unmount` demande à Dokany de démonter le lecteur. Le processus de montage attend la fin du démontage, effectue un flush final et retourne les erreurs de fermeture différées.
+- `scripts/mount-openfs-usb.ps1` automatise le passage hors ligne puis la restauration de l'état initial du disque. Il ne formate jamais.
 
-## 1. Compiler et vérifier le socle image
+**Limite majeure :** le chemin est implémenté mais n'a pas encore été validé sur une vraie clé USB dans cette session. La persistance sur matériel, le retrait à chaud, les coupures d'alimentation et la compatibilité réelle avec toutes les applications Windows restent à tester. Le statut CI du commit courant doit être vérifié séparément; aucune réussite n'est présumée.
 
-Depuis la racine du dépôt :
+## 1. Préparer le programme
+
+Depuis la racine du dépôt, dans PowerShell :
 
 ```powershell
-cd OpenFS
-cargo build --workspace
+cd .\OpenFS
+cargo build --release -p openfs-tool
+```
+
+Le binaire est normalement créé à `OpenFS\target\release\openfs.exe`.
+
+Pour vérifier le socle logiciel, lance aussi :
+
+```powershell
 cargo fmt --all -- --check
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-Ces commandes valident le workspace hôte et les images simulées; elles ne valident pas les E/S physiques USB.
+Ces commandes ne remplacent pas un test matériel.
 
-## 2. Identifier la clé USB sans écriture
+## 2. Identifier la clé sans écrire dessus
 
-1. Sauvegarde les données de la clé et débranche les autres disques externes si possible.
-2. Ouvre PowerShell. Pour afficher les disques, lance depuis la racine du dépôt :
+Depuis la racine du dépôt :
 
 ```powershell
 .\OpenFS\scripts\inspect-usb-disks.ps1
+Get-Disk | Format-Table Number, FriendlyName, SerialNumber, UniqueId, BusType, Size, IsOffline, IsBoot, IsSystem
 ```
 
-3. Identifie la clé par **BusType USB, modèle, numéro de série et capacité**. Ne te fie jamais au seul numéro de disque : il peut changer après reconnexion.
-4. Inspecte un candidat, par exemple le disque 3 :
+Note le numéro du disque et copie son `UniqueId` exact. Débranche les autres disques externes si possible. Ne sélectionne jamais un disque système, de démarrage ou contenant des données à conserver.
+
+## 3. Initialiser OpenFS — opération destructive
+
+**Cette commande efface intégralement le disque choisi.** Sauvegarde la clé, vérifie deux fois son numéro, sa capacité et son `UniqueId`. N'utilise qu'une clé dédiée et sacrifiable.
+
+Dans un PowerShell administrateur :
 
 ```powershell
-.\OpenFS\scripts\inspect-usb-disks.ps1 -DiskNumber 3
+.\OpenFS\target\release\openfs.exe format-usb 3 "UNIQUE-ID-EXACT" ERASE-ALL-DATA
 ```
 
-Le script est strictement consultatif. Il n'initialise, ne partitionne, ne formate et n'écrit sur aucun disque. Si `IsBoot` ou `IsSystem` vaut `True`, ne sélectionne pas ce disque pour les tests.
+Remplace `3` et `UNIQUE-ID-EXACT` par les valeurs réellement affichées sur ton PC. Ne copie pas l'exemple tel quel. Le texte `ERASE-ALL-DATA` est une confirmation obligatoire, pas une protection contre une mauvaise sélection du disque.
 
-Alternative native pour comparer les informations affichées :
+## 4. Monter la clé comme un lecteur Windows
+
+Dans un PowerShell administrateur, remplace le numéro, l'identifiant et la lettre :
 
 ```powershell
-Get-Disk | Format-Table Number, FriendlyName, SerialNumber, BusType, Size, PartitionStyle, IsBoot, IsSystem
-Get-Volume | Format-Table DriveLetter, FileSystemLabel, FileSystem, Size, SizeRemaining
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Mount -OpenFsExe .\OpenFS\target\release\openfs.exe -DiskNumber 3 -UniqueId "UNIQUE-ID-EXACT" -MountPoint O:
 ```
 
-## 3. État des étapes de validation
+La fenêtre reste occupée pendant que le volume est monté. Le lecteur `O:\` doit apparaître dans l'Explorateur Windows. Tu peux y créer, copier, déplacer et supprimer des fichiers comme sur un lecteur expérimental classique.
 
-| Étape | État |
+Le script vérifie de nouveau l'identité du disque, refuse les disques non-USB, boot/system ou read-only, le met hors ligne avant l'ouverture brute, puis lance `mount-usb`. Il ne lance aucun formatage.
+
+## 5. Démonter proprement
+
+Laisse la première fenêtre ouverte. Dans **un deuxième PowerShell administrateur**, lance :
+
+```powershell
+.\OpenFS\scripts\mount-openfs-usb.ps1 -Action Unmount -OpenFsExe .\OpenFS\target\release\openfs.exe -MountPoint O:
+```
+
+Attends que la première fenêtre se termine et confirme le retour du disque à son état initial avant de débrancher la clé. Ne retire jamais la clé pendant que le lecteur est encore monté ou pendant le flush final.
+
+## 6. Validation matérielle à effectuer
+
+| Essai | État |
 |---|---|
-| Inventaire des disques Windows en lecture seule | Script ajouté; exécution sur ton PC à faire |
-| Backend bloc d'image | Déjà présent |
-| Backend raw-device générique | Présent dans `openfs-block`; ouvre en lecture/écriture et nécessite la géométrie explicite |
-| Découverte fiable de géométrie Windows et garde-fou contre le disque système | Pas encore implémentés dans le workflow CLI |
-| Test de lecture seule des secteurs physiques via OpenFS | Pas encore exposé par le CLI |
-| Écriture de motif, relecture et checksum sur clé dédiée | Pas encore exposées/validées |
-| Initialisation du format OpenFS sur la clé | Ne pas tenter pour le moment |
-| Persistance validée après débranchement/redémarrage physique | Non testée |
+| Backend image et tests logiciels | Implémentés; exécution locale/CI à confirmer pour le HEAD |
+| Formatage raw USB avec identité exacte | Implémenté; destructive, non validé sur matériel ici |
+| Montage Dokany depuis PhysicalDrive | Implémenté; non validé sur matériel ici |
+| Création/copie de fichiers via Explorer | À tester sur une clé dédiée |
+| Fermeture des handles et flush | Flush callback + flush final implémentés; comportement matériel à valider |
+| Démontage puis remontage et comparaison des fichiers | À tester |
+| Débranchement surprise / panne d'alimentation | Non validé; risque de perte ou corruption |
+| Compatibilité complète Windows (partage, verrouillage, ACL, timestamps) | Incomplète |
 
-## 4. Conditions préalables à tout test d'écriture
+## Sécurité
 
-Ne lance aucune commande destructive sur la base de cette page. Le prochain lot doit ajouter un mode d'ouverture réellement read-only, une découverte de géométrie vérifiée, une confirmation explicite liant le numéro de série et la capacité, des limites de plage contrôlées, puis un test d'écriture uniquement activé par un drapeau explicite sur une clé dédiée. La détection USB ne prouve ni l'accès aux secteurs ni la compatibilité du format.
-
-Pour les premiers essais, conserve la clé sauvegardée et déconnecte les volumes qui pourraient utiliser le périphérique. Les verrous consultatifs OpenFS ne peuvent pas garantir que Windows ou un autre logiciel n'accède pas au même disque.
+- N'utilise pas de clé contenant des données importantes.
+- Ne formate jamais un disque sans vérifier l'identifiant exact.
+- Ne retire pas la clé avant la fin du démontage.
+- Un `flush` ne protège pas contre une déconnexion ou une coupure pendant une écriture.
+- Le montage Dokany initial ne signifie pas que toutes les sémantiques NTFS/Windows sont prises en charge.
+- En cas d'erreur I/O ou de retrait à chaud, arrête les écritures et préserve le périphérique pour diagnostic; ne relance pas immédiatement un formatage.
