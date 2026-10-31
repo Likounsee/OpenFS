@@ -1490,34 +1490,46 @@ mod tests {
             let mut journal = open_journal(&mut device, REGION).unwrap();
             let mut failing = FailAt::new(device, fail_at);
             assert!(
-                matches!(journal.commit(&mut failing, &[update(0xA5)]), Err(Error::Io(_))),
+                matches!(
+                    journal.commit(&mut failing, &[update(0xA5)]),
+                    Err(Error::Io(_))
+                ),
                 "failure injection at operation {fail_at} did not interrupt commit"
             );
             assert!(
                 matches!(
                     journal.commit(&mut failing, &[update(0x5A)]),
-                    Err(Error::InvalidInput("journal requires recovery after a previous I/O error"))
+                    Err(Error::InvalidInput(
+                        "journal requires recovery after a previous I/O error"
+                    ))
                 ),
                 "poisoned writer accepted another transaction after failure at {fail_at}"
             );
 
             let mut persisted = failing.into_inner();
-            let reopened = open_journal(&mut persisted, REGION)
-                .unwrap_or_else(|error| panic!("recovery failed at operation {fail_at}: {error:?}"));
+            let reopened = open_journal(&mut persisted, REGION).unwrap_or_else(|error| {
+                panic!("recovery failed at operation {fail_at}: {error:?}")
+            });
             let home = read_home(&mut persisted);
             let checkpoint = reopened.checkpoint().checkpoint_sequence;
             if home == vec![0x11; BS as usize] {
                 assert_eq!(checkpoint, 0, "old home image must retain old checkpoint");
             } else {
-                assert_eq!(home, vec![0xA5; BS as usize],
-                    "recovery must publish the complete redo image at operation {fail_at}");
-                assert_eq!(checkpoint, 4,
-                    "replayed transaction must advance the checkpoint at operation {fail_at}");
+                assert_eq!(
+                    home,
+                    vec![0xA5; BS as usize],
+                    "recovery must publish the complete redo image at operation {fail_at}"
+                );
+                assert_eq!(
+                    checkpoint, 4,
+                    "replayed transaction must advance the checkpoint at operation {fail_at}"
+                );
             }
 
             // Reopening a second time must be idempotent and leave the same image.
-            let reopened_again = open_journal(&mut persisted, REGION)
-                .unwrap_or_else(|error| panic!("second recovery failed at operation {fail_at}: {error:?}"));
+            let reopened_again = open_journal(&mut persisted, REGION).unwrap_or_else(|error| {
+                panic!("second recovery failed at operation {fail_at}: {error:?}")
+            });
             assert_eq!(reopened_again.checkpoint().checkpoint_sequence, checkpoint);
             assert_eq!(read_home(&mut persisted), home);
         }
