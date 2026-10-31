@@ -64,79 +64,77 @@ impl DeferredErrorLatch {
 /// not suddenly lose their namespace target.
 #[derive(Default)]
 struct OpenHandleState {
-    counts: Mutex<HashMap<ObjectId, usize>>,
-    delete_pending: Mutex<HashSet<ObjectId>>,
+    // Keep counts and delete-pending state under one mutex. A single critical
+    // section makes open/close transitions atomic and removes lock-order risks.
+    inner: Mutex<OpenHandleInner>,
+}
+
+#[derive(Default)]
+struct OpenHandleInner {
+    counts: HashMap<ObjectId, usize>,
+    delete_pending: HashSet<ObjectId>,
 }
 
 impl OpenHandleState {
     fn register(&self, object_id: ObjectId) -> Result<(), &'static str> {
-        // Use the same lock order as close(): counts, then delete_pending.
-        let mut counts = self
-            .counts
+        let mut inner = self
+            .inner
             .lock()
-            .map_err(|_| "OpenFS open-handle lock was poisoned")?;
-        let pending = self
-            .delete_pending
-            .lock()
-            .map_err(|_| "OpenFS delete-pending lock was poisoned")?;
-        if pending.contains(&object_id) {
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
+        if inner.delete_pending.contains(&object_id) {
             return Err("object is pending deletion");
         }
-        drop(pending);
-        let count = counts.entry(object_id).or_insert(0);
+        let count = inner.counts.entry(object_id).or_insert(0);
         *count = count.checked_add(1).ok_or("OpenFS open-handle count overflow")?;
         Ok(())
     }
 
     /// Release one open and return true when a pending deletion can now run.
     fn close(&self, object_id: ObjectId, delete_on_close: bool) -> Result<bool, &'static str> {
-        let mut counts = self
-            .counts
+        let mut inner = self
+            .inner
             .lock()
-            .map_err(|_| "OpenFS open-handle lock was poisoned")?;
-        if delete_on_close {
-            self.delete_pending
-                .lock()
-                .map_err(|_| "OpenFS delete-pending lock was poisoned")?
-                .insert(object_id);
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
+        if !inner.counts.contains_key(&object_id) {
+            return Err("cannot close an object without a registered open handle");
         }
-        let remove = match counts.get_mut(&object_id) {
+        if delete_on_close {
+            inner.delete_pending.insert(object_id);
+        }
+        let remove = match inner.counts.get_mut(&object_id) {
             Some(count) if *count > 1 => {
                 *count -= 1;
                 false
             }
             Some(_) => true,
-            None => false,
+            None => unreachable!("the open handle was checked above"),
         };
         if remove {
-            counts.remove(&object_id);
+            inner.counts.remove(&object_id);
         }
-        let no_open_handles = !counts.contains_key(&object_id);
-        drop(counts);
-        if !no_open_handles {
-            return Ok(false);
-        }
-        self.is_delete_pending(object_id)
+        Ok(!inner.counts.contains_key(&object_id)
+            && inner.delete_pending.contains(&object_id))
     }
 
     fn is_open(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.counts
+        self.inner
             .lock()
-            .map(|counts| counts.get(&object_id).copied().unwrap_or(0) != 0)
-            .map_err(|_| "OpenFS open-handle lock was poisoned")
+            .map(|inner| inner.counts.get(&object_id).copied().unwrap_or(0) != 0)
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")
     }
 
     fn is_delete_pending(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.delete_pending
+        self.inner
             .lock()
-            .map(|pending| pending.contains(&object_id))
-            .map_err(|_| "OpenFS delete-pending lock was poisoned")
+            .map(|inner| inner.delete_pending.contains(&object_id))
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")
     }
 
     fn complete_delete(&self, object_id: ObjectId) -> Result<(), &'static str> {
-        self.delete_pending
+        self.inner
             .lock()
-            .map_err(|_| "OpenFS delete-pending lock was poisoned")?
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")?
+            .delete_pending
             .remove(&object_id);
         Ok(())
     }
@@ -780,6 +778,44 @@ mod tests {
         let object = ObjectId(7);
         state.register(object).unwrap();
         assert!(!state.close(object, false).unwrap());
+        assert!(!state.is_open(object).unwrap());
+        assert!(!state.is_delete_pending(object).unwrap());
+    }
+
+    #[test]
+    fn concurrent_open_and_close_keep_handle_accounting_consistent() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let state = Arc::new(OpenHandleState::default());
+        let object = ObjectId(99);
+        let barrier = Arc::new(Barrier::new(9));
+
+        thread::scope(|scope| {
+            for _ in 0..8 {
+                let state = Arc::clone(&state);
+                let barrier = Arc::clone(&barrier);
+                scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..256 {
+                        state.register(object).unwrap();
+                        assert!(!state.close(object, false).unwrap());
+                    }
+                });
+            }
+            barrier.wait();
+        });
+
+        assert!(!state.is_open(object).unwrap());
+        assert!(!state.is_delete_pending(object).unwrap());
+    }
+
+    #[test]
+    fn closing_an_unregistered_handle_is_rejected_without_marking_delete() {
+        let state = OpenHandleState::default();
+        let object = ObjectId(100);
+
+        assert!(state.close(object, true).is_err());
         assert!(!state.is_open(object).unwrap());
         assert!(!state.is_delete_pending(object).unwrap());
     }
