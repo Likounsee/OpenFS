@@ -1375,3 +1375,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `38386458a9d986bcee350fa88f129163e81988bb` : test des bornes demi-ouvertes et des trous de l'index de plages. Commit `8f4f4451003a94d5b69834ec3e2059606e965a91` : test de normalisation, fusion de plages adjacentes et rejet d'alias physiques.
 - Inventaire lexical régénéré : `INVENTAIRE_SYMBOLES.csv`, 1 283 déclarations sur les 18 fichiers Rust (commit `5f2988243b9f6105fa98cf43c7a4d707848c103a`).
 - Tests Rust, rustfmt, Clippy et CI exacte-SHA non exécutés/confirmés dans cette session. Progression globale maintenue à 73 % jusqu'à validation automatisée et intégration Windows.
+
+### Libération groupée des blocs par plages bitmap (2026-10-31)
+
+- Commit `1dfbd126864f65780fe3613cbc6836254aad9b90` : `free_blocks_sorted()` réutilise désormais la dernière page bitmap chargée, car la liste validée est strictement croissante. La recherche d'une page passe d'une recherche linéaire parmi les pages déjà chargées à un accès direct sur la dernière page; le coût de parcours ne dépend plus du produit du nombre de blocs et du nombre de pages touchées.
+- Les blocs consécutifs d'une même page sont validés et libérés en une seule plage bitmap, plutôt qu'en opérations unitaires. Le chemin de récupération après erreur du journal utilise `partition_point` pour ne vérifier que les blocs appartenant à la page relue.
+- Les protections restent en place : validation préalable de toute la liste, rejet des doublons et blocs déjà libres, capacité redo vérifiée avant commit, contrôle des blocs réservés/descripteurs, et vérification de l'état récupéré après échec.
+- Les tests existants couvrent les lots contigus, les entrées dupliquées, les états mixtes, ainsi que la libération après allocation traversant une frontière de pages bitmap. Ils n'ont pas été exécutés dans cette session.
+- Inventaire lexical recalculé sur les 18 fichiers Rust : 1 283 déclarations, commit `e7836ea7236d1fe83b9d1394a6c1c9192489bcaf`.
+- Compilation, tests Rust, rustfmt, Clippy et CI exacte-SHA restent non vérifiés. Progression globale maintenue à 73 %.
