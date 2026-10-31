@@ -341,8 +341,7 @@ impl ExtentMap {
             false
         };
         let next_adjacent = if let Some(item) = next {
-            extent_logical_end == item.logical_start
-                && physical_end == item.physical_start
+            extent_logical_end == item.logical_start && physical_end == item.physical_start
         } else {
             false
         };
@@ -383,8 +382,9 @@ impl ExtentMap {
 
         if previous_adjacent {
             let previous_index = position - 1;
-            self.extents[previous_index].block_count =
-                merged_with_both.or(merged_with_previous).ok_or(Error::ArithmeticOverflow)?;
+            self.extents[previous_index].block_count = merged_with_both
+                .or(merged_with_previous)
+                .ok_or(Error::ArithmeticOverflow)?;
             if next_adjacent {
                 self.extents.remove(position);
             }
@@ -424,8 +424,10 @@ impl ExtentMap {
         data_start: u64,
         data_end: u64,
     ) -> Result<Vec<u64>> {
-        let ranges =
-            self.validate_and_collect_physical_ranges(Some(logical_block_count), Some((data_start, data_end)))?;
+        let ranges = self.validate_and_collect_physical_ranges(
+            Some(logical_block_count),
+            Some((data_start, data_end)),
+        )?;
         let block_count =
             usize::try_from(self.allocated_blocks()?).map_err(|_| Error::ArithmeticOverflow)?;
 
@@ -2742,7 +2744,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn allocated_range_queries_match_blockwise_reference_across_many_sparse_extents() {
         let extents: Vec<Extent> = (0..256_u64)
@@ -2774,8 +2775,6 @@ mod tests {
             Err(Error::Corrupt("extent exceeds logical file block count"))
         ));
     }
-
-
 
     #[test]
     fn sparse_hole_range_queries_match_full_map_reference() {
@@ -2818,8 +2817,9 @@ mod tests {
         );
         assert!(matches!(
             map.logical_hole_ranges_in_range(1020, 8, 1024),
-            Err(Error::InvalidInput("logical range exceeds file block count"))
+            Err(Error::InvalidInput(
+                "logical range exceeds file block count"
+            ))
         ));
     }
-
 }
