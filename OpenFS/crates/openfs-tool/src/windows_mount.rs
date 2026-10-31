@@ -527,6 +527,12 @@ pub fn mount_usb_device(
         block_size,
         size_bytes / u64::from(block_size),
     )?;
+    // Recheck after opening the handle so a disk-index change during the
+    // preflight/open window cannot silently redirect the mount to another disk.
+    let confirmed = super::windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+    if confirmed != (size_bytes, logical_sector_size) {
+        return Err("USB disk identity or geometry changed while opening it; refusing to mount".into());
+    }
     mount_device(device, size_bytes, mount_point, block_size)
 }
 
