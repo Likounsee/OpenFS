@@ -55,7 +55,7 @@ The `truncate` command shrinks files or grows them sparsely (newly exposed bytes
     │   ├── openfs-core/           # Shared errors and checked ranges
     │   ├── openfs-block/          # Bounded block I/O and image backend
     │   ├── openfs-format/         # Format, allocator, journal, namespace and file APIs
-    │   └── openfs-tool/           # Image CLI + Windows/Dokany image mount
+    │   └── openfs-tool/           # Image/raw-USB CLI + Windows/Dokany mount
     └── docs/
         ├── assets/openfs-logo.svg
         ├── ARCHITECTURE.md
