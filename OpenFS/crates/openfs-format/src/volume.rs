@@ -8280,7 +8280,8 @@ impl<D: BlockDevice> VolumeSession<D> {
         while let Some((directory_path, _directory_id)) = pending.pop_front() {
             let mut after_name: Option<String> = None;
             loop {
-                let entries = self.read_directory(&directory_path, after_name.as_deref(), PAGE_SIZE)?;
+                let entries =
+                    self.read_directory(&directory_path, after_name.as_deref(), PAGE_SIZE)?;
                 if entries.is_empty() {
                     break;
                 }
