@@ -746,49 +746,64 @@ impl OpenedVolume {
             ));
         }
         let layout = self.volume.layout;
-        let end_block = start_block
-            .checked_add(count)
-            .ok_or(Error::ArithmeticOverflow)?;
+        let end_block = start_block.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
         if start_block < layout.data_start || end_block > layout.backup_superblock {
             return Err(Error::InvalidInput(
                 "contiguous free extent contains a non-data block",
             ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if start_block / bits_per_block != (end_block - 1) / bits_per_block {
-            return Err(Error::InvalidInput(
-                "contiguous free extent must belong to one bitmap segment",
-            ));
-        }
-        let bitmap_index = start_block / bits_per_block;
-        let bitmap_block = layout
-            .bitmap_start
-            .checked_add(bitmap_index)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let base = bitmap_index
+        let max_updates = self.journal.max_update_count(device)?;
+        let max_blocks = u64::try_from(max_updates)
+            .map_err(|_| Error::ArithmeticOverflow)?
             .checked_mul(bits_per_block)
             .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(
-            self.volume.block_size as usize,
-            "allocation failed while preparing allocator bitmap",
-        )?;
-        device.read_blocks(bitmap_block, &mut bitmap)?;
-        let segment_start = layout.data_start.max(base);
-        let segment_end = layout.backup_superblock.min(
-            base.checked_add(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?,
-        );
-        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        // Validate the contiguous range byte-wise. A large free should not perform
-        // one bitmap lookup and mask operation per data block when one byte represents
-        // eight allocation states.
-        let local_start = start_block - base;
-        let local_end = end_block - base;
-        if !bitmap_range_matches(&bitmap, local_start, local_end, true)? {
+        if count > max_blocks {
             return Err(Error::InvalidInput(
-                "contiguous free extent contains an already-free block",
+                "contiguous free extent exceeds the journal's atomic bitmap capacity",
             ));
         }
+        let first_index = start_block / bits_per_block;
+        let last_index = (end_block - 1) / bits_per_block;
+        let page_count = usize::try_from(last_index - first_index + 1)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        if page_count > max_updates {
+            return Err(Error::InvalidInput(
+                "contiguous free extent exceeds the journal's atomic bitmap-update capacity",
+            ));
+        }
+
+        let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
+        pages.try_reserve_exact(page_count).map_err(|_| {
+            Error::AllocationFailed("unable to reserve contiguous free bitmap pages")
+        })?;
+        for index in first_index..=last_index {
+            let base = index.checked_mul(bits_per_block).ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_block = layout.bitmap_start.checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut image = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while preparing contiguous free bitmap pages",
+            )?;
+            device.read_blocks(bitmap_block, &mut image)?;
+            let segment_start = layout.data_start.max(base);
+            let segment_end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+            );
+            validate_bitmap_reserved_bits(&image, base, segment_start, segment_end)?;
+            let local_start = start_block.max(segment_start) - base;
+            let local_end = end_block.min(segment_end) - base;
+            if !bitmap_range_matches(&image, local_start, local_end, true)? {
+                return Err(Error::InvalidInput(
+                    "contiguous free extent contains an already-free block",
+                ));
+            }
+            set_bitmap_range(&mut image, local_start, local_end, false)?;
+            pages.push((bitmap_block, base, image));
+        }
+
+        // Ownership and descriptor checks cover the complete physical range before
+        // any bitmap page is published. This keeps freeing safe across page boundaries.
         self.ensure_inventory_range_releasable(device, start_block, end_block)?;
         crate::inventory_descriptor::reject_freeing_inventory_descriptor_range(
             device,
@@ -796,42 +811,53 @@ impl OpenedVolume {
             end_block,
             self.volume.block_size,
         )?;
-        // All requested bits were verified allocated above; clear them with the
-        // same edge masks, preserving neighboring allocations in partial bytes.
-        set_bitmap_range(&mut bitmap, local_start, local_end, false)?;
-        if let Err(error) = self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        ) {
-            // A failed journal call can happen after the COMMIT became durable.
-            // Reopen the volume and inspect the entire free range before returning
-            // an error that callers could interpret as permission to retry.
+
+        let mut redo = Vec::new();
+        redo.try_reserve_exact(pages.len()).map_err(|_| {
+            Error::AllocationFailed("unable to reserve contiguous free redo images")
+        })?;
+        for (bitmap_block, _, image) in &pages {
+            redo.push(RedoUpdate {
+                target_block: *bitmap_block,
+                contents: image.clone(),
+            });
+        }
+        self.journal.required_record_count(device, redo.len())?;
+        if let Err(error) = self.journal.commit(device, &redo) {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("contiguous free failed and journal recovery could not be completed")
             })?;
-            let mut recovered_bitmap = try_zeroed_buffer(
+            let mut recovered = try_zeroed_buffer(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered contiguous free",
             )?;
-            device
-                .read_blocks(bitmap_block, &mut recovered_bitmap)
-                .map_err(|_| {
-                    Error::Corrupt("contiguous free recovery could not verify bitmap state")
+            let mut free_count = 0_u64;
+            for (bitmap_block, base, _) in &pages {
+                device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
+                    Error::Corrupt("contiguous free recovery could not read a bitmap page")
                 })?;
-            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
-                .map_err(|_| Error::Corrupt("contiguous free recovery found an invalid bitmap"))?;
-            if bitmap_range_matches(&recovered_bitmap, local_start, local_end, false)? {
+                let segment_start = layout.data_start.max(*base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block).ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
+                    .map_err(|_| Error::Corrupt("contiguous free recovery found invalid bitmap"))?;
+                let local_start = start_block.max(segment_start) - *base;
+                let local_end = end_block.min(segment_end) - *base;
+                for block in local_start..local_end {
+                    let byte = usize::try_from(block / 8).map_err(|_| Error::ArithmeticOverflow)?;
+                    if recovered[byte] & (1_u8 << (block % 8)) == 0 {
+                        free_count = free_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+                    }
+                }
+            }
+            if free_count == count {
                 return Ok(());
             }
-            if bitmap_range_matches(&recovered_bitmap, local_start, local_end, true)? {
+            if free_count == 0 {
                 return Err(error);
             }
-            return Err(Error::Corrupt(
-                "contiguous free recovery left a mixed bitmap state",
-            ));
+            return Err(Error::Corrupt("contiguous free recovery left a mixed bitmap state"));
         }
         Ok(())
     }
