@@ -34,11 +34,11 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
-fn collect_file_owned_blocks(
+fn collect_file_owned_ranges(
     namespace: &Namespace,
     extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
-) -> Result<Vec<u64>> {
-    let block_count = namespace.objects().try_fold(0_u64, |count, record| {
+) -> Result<Vec<(u64, u64)>> {
+    let range_count = namespace.objects().try_fold(0_usize, |count, record| {
         let Some(_) = record.extent_root_block else {
             if record.kind == crate::ObjectKind::File && record.size != 0 {
                 return Err(Error::Corrupt(
@@ -51,15 +51,15 @@ fn collect_file_owned_blocks(
             .get(&record.id)
             .ok_or(Error::Corrupt("file extent map is missing"))?;
         count
-            .checked_add(map.allocated_blocks()?)
+            .checked_add(map.extents().len())
             .and_then(|value| value.checked_add(1))
             .ok_or(Error::ArithmeticOverflow)
     })?;
-    let capacity = usize::try_from(block_count).map_err(|_| Error::ArithmeticOverflow)?;
-    let mut blocks = Vec::new();
-    blocks
-        .try_reserve_exact(capacity)
-        .map_err(|_| Error::AllocationFailed("unable to reserve file block ownership inventory"))?;
+    let mut ranges = Vec::new();
+    ranges
+        .try_reserve_exact(range_count)
+        .map_err(|_| Error::AllocationFailed("unable to reserve file ownership ranges"))?;
+
     for record in namespace.objects() {
         let Some(root) = record.extent_root_block else {
             continue;
@@ -67,16 +67,41 @@ fn collect_file_owned_blocks(
         let map = extent_maps
             .get(&record.id)
             .ok_or(Error::Corrupt("file extent map is missing"))?;
-        blocks.push(root);
-        blocks.extend(map.physical_blocks());
+        let root_end = root.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        ranges.push((root, root_end));
+        // Keep ownership proportional to the number of extents, not the number of
+        // allocated blocks. This is especially important for large contiguous files.
+        ranges.extend(map.validated_physical_ranges(u64::MAX, 0, u64::MAX)?);
     }
-    blocks.sort_unstable();
-    if blocks.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(Error::Corrupt(
-            "persistent files share a physical data or extent-map block",
-        ));
+
+    ranges.sort_unstable();
+    let mut write = 0_usize;
+    for read in 0..ranges.len() {
+        let (start, end) = ranges[read];
+        if write > 0 {
+            let previous_end = ranges[write - 1].1;
+            if start < previous_end {
+                return Err(Error::Corrupt(
+                    "persistent files share a physical data or extent-map block",
+                ));
+            }
+            if start == previous_end {
+                ranges[write - 1].1 = end;
+                continue;
+            }
+        }
+        ranges[write] = (start, end);
+        write += 1;
     }
-    Ok(blocks)
+    ranges.truncate(write);
+    Ok(ranges)
+}
+
+fn owned_ranges_contain(ranges: &[(u64, u64)], block: u64) -> bool {
+    let index = ranges.partition_point(|(_, end)| *end <= block);
+    ranges
+        .get(index)
+        .is_some_and(|(start, end)| *start <= block && block < *end)
 }
 
 fn try_zeroed_block(block_size: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
@@ -3247,8 +3272,8 @@ impl OpenedVolume {
                     ))?;
             let old_maps = self.read_namespace_extent_maps(device, &old_namespace)?;
             let new_maps = self.read_namespace_extent_maps(device, namespace)?;
-            let old_owned = collect_file_owned_blocks(&old_namespace, &old_maps)?;
-            let new_owned = collect_file_owned_blocks(namespace, &new_maps)?;
+            let old_owned = collect_file_owned_ranges(&old_namespace, &old_maps)?;
+            let new_owned = collect_file_owned_ranges(namespace, &new_maps)?;
             let mut expected = try_copy_block_numbers(
                 expected_file_reclaim_blocks,
                 "allocation failed while validating retired file blocks",
@@ -3256,8 +3281,8 @@ impl OpenedVolume {
             expected.sort_unstable();
             if expected.windows(2).any(|pair| pair[0] == pair[1])
                 || expected.iter().any(|block| {
-                    old_owned.binary_search(block).is_err()
-                        || new_owned.binary_search(block).is_ok()
+                    !owned_ranges_contain(&old_owned, *block)
+                        || owned_ranges_contain(&new_owned, *block)
                 })
             {
                 return Err(Error::InvalidInput(
