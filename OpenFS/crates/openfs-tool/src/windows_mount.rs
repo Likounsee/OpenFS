@@ -32,23 +32,14 @@ type FileHandle = ObjectId;
 
 /// Shared OpenFS volume state. Dokany may dispatch callbacks concurrently, so
 /// the session is serialized and open handles retain stable on-disk object IDs.
-struct OpenFsHandler<D: BlockDevice> {
-    session: Mutex<VolumeSession<D>>,
-    total_bytes: u64,
-    deferred_error: Mutex<Option<String>>,
+#[derive(Default)]
+struct DeferredErrorLatch {
+    message: Mutex<Option<String>>,
 }
 
-impl<D: BlockDevice> OpenFsHandler<D> {
-    fn new(session: VolumeSession<D>, total_bytes: u64) -> Self {
-        Self {
-            session: Mutex::new(session),
-            total_bytes,
-            deferred_error: Mutex::new(None),
-        }
-    }
-
-    fn record_deferred_error(&self, error: String) {
-        match self.deferred_error.lock() {
+impl DeferredErrorLatch {
+    fn record(&self, error: String) {
+        match self.message.lock() {
             Ok(mut pending) => match pending.as_mut() {
                 Some(existing) => {
                     existing.push_str("; ");
@@ -60,11 +51,27 @@ impl<D: BlockDevice> OpenFsHandler<D> {
         }
     }
 
-    fn take_deferred_error(&self) -> Result<Option<String>, &'static str> {
-        self.deferred_error
+    fn take(&self) -> Result<Option<String>, &'static str> {
+        self.message
             .lock()
             .map(|mut pending| pending.take())
             .map_err(|_| "OpenFS deferred-error lock was poisoned")
+    }
+}
+
+struct OpenFsHandler<D: BlockDevice> {
+    session: Mutex<VolumeSession<D>>,
+    total_bytes: u64,
+    deferred_error: DeferredErrorLatch,
+}
+
+impl<D: BlockDevice> OpenFsHandler<D> {
+    fn new(session: VolumeSession<D>, total_bytes: u64) -> Self {
+        Self {
+            session: Mutex::new(session),
+            total_bytes,
+            deferred_error: DeferredErrorLatch::default(),
+        }
     }
 
     fn with_path<T>(
@@ -259,7 +266,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             });
         if let Err(error) = result {
             eprintln!("OpenFS: {error}");
-            self.record_deferred_error(error);
+            self.deferred_error.record(error);
         }
     }
 
@@ -592,7 +599,7 @@ fn mount_device<D: BlockDevice + Send + 'static>(
         .lock()
         .map_err(|_| "OpenFS session lock was poisoned")?
         .flush();
-    let deferred_error = handler.take_deferred_error()?;
+    let deferred_error = handler.deferred_error.take()?;
 
     mount_result?;
     flush_result?;
@@ -617,3 +624,22 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
     println!("Unmount request sent to {mount_text}.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DeferredErrorLatch;
+
+    #[test]
+    fn deferred_error_latch_retains_all_cleanup_failures_until_taken() {
+        let latch = DeferredErrorLatch::default();
+        latch.record("first flush failed".to_owned());
+        latch.record("delete-on-close failed".to_owned());
+
+        assert_eq!(
+            latch.take().unwrap().as_deref(),
+            Some("first flush failed; delete-on-close failed")
+        );
+        assert_eq!(latch.take().unwrap(), None);
+    }
+}
+
