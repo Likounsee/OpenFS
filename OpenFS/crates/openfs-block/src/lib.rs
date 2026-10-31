@@ -1096,6 +1096,18 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn physical_drive_detection_is_case_insensitive_and_excludes_partitions() {
+        use super::is_windows_physical_drive_path;
+        use std::path::Path;
+
+        assert!(is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive0")));
+        assert!(is_windows_physical_drive_path(Path::new(r"\\.\physicaldrive12")));
+        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive0\Partition1")));
+        assert!(!is_windows_physical_drive_path(Path::new(r"C:\\openfs.img")));
+    }
+
     #[test]
     fn fault_injector_fails_one_selected_operation_then_recovers() {
         use super::{FaultInjectingDevice, IoOperation};
