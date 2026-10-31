@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/status-experimental-yellow.svg" alt="Experimental">
 </p>
 
-> **Status: experimental — not production-ready.** OpenFS has a persistent on-disk format, journal/recovery code, namespace and file I/O, plus an initial **Windows + Dokany mount adapter for image files**. You can create an image, mount it as a drive letter, use basic files through Windows, unmount it and reopen it. This is an early integration: it is not yet safe for important data, does not format physical disks, and is not a replacement for NTFS.
+> **Status: experimental — not production-ready.** OpenFS has a persistent on-disk format, journal/recovery code, namespace and file I/O, plus a Windows + Dokany adapter for image files and an initial raw-USB-disk path. The USB path requires the disk to be explicitly offline and checks its exact Windows UniqueId, USB transport, geometry, and boot/system status before opening it. Formatting erases the entire selected USB disk. This is an early integration and must only be tested with disposable hardware and data; it is not a replacement for NTFS.
 
 ## Project goals
 
@@ -39,7 +39,7 @@ The workspace already contains:
 - **Allocation and verification:** bitmap allocation, extent maps, persistent inventory reconstruction and cross-layer ownership checks.
 - **Journal components:** journal/checkpoint encoding and recovery paths for supported operations.
 - **Persistent namespace and file APIs:** directory and file operations, streaming file import, range I/O, truncation, rename and removal through the development tool.
-- **Image CLI and initial Windows mount:** create mount-ready images, inspect/check/audit/recover them, and mount an image as a Windows drive through Dokany. Physical-device formatting remains disabled.
+- **Image CLI and initial Windows mounts:** create mount-ready images, inspect/check/audit/recover them, and mount images or explicitly confirmed offline USB disks as Windows drives through Dokany. Raw physical-disk formatting is destructive and gated by exact identity and USB/offline checks.
 
 The `truncate` command shrinks files or grows them sparsely (newly exposed bytes read as zeroes). The presence of these components does **not** mean all multi-step operations are atomic under every crash scenario. General transaction coverage, recovery guarantees, device safety and OS mounting remain active development areas.
 
@@ -98,6 +98,31 @@ cargo run -p openfs-tool -- check-image ./openfs.img 4096
 ```
 
 The example creates a 1 GiB image. OpenFS supports block sizes of 4096, 8192, 16384, 32768 and 65536 bytes where accepted by the relevant command.
+
+### Format and mount a real USB disk (destructive, experimental)
+
+This path writes directly to the **entire physical USB disk**, not to a partition or image file. It destroys its partition table and every existing partition. Use a spare USB stick with nothing important on it. Run PowerShell as Administrator.
+
+1. Run `cargo run -p openfs-tool -- list-devices` and identify the USB disk by model, capacity, serial and exact `Unique ID`. Never rely on the disk number alone.
+2. Open Windows Disk Management (`diskmgmt.msc`), identify that same USB disk, and set the disk **Offline**. OpenFS refuses an online disk, a non-USB disk, a read-only disk, or a boot/system disk.
+3. From the repository root, run the following, replacing the index and UniqueId with the exact values reported by Windows:
+
+```powershell
+cd .\OpenFS
+cargo run -p openfs-tool -- format-usb 2 "EXACT-UNIQUE-ID-FROM-LIST-DEVICES" ERASE-ALL-DATA 4096
+```
+
+The literal `ERASE-ALL-DATA` confirmation is mandatory. Formatting initializes OpenFS's persistent root directory. The disk remains offline.
+
+4. Mount the formatted disk as a drive letter:
+
+```powershell
+cargo run -p openfs-tool -- mount-usb 2 "EXACT-UNIQUE-ID-FROM-LIST-DEVICES" O: 4096
+```
+
+Open `O:\` in Explorer and try creating/copying/editing disposable test files. In a second terminal, run `cargo run -p openfs-tool -- unmount O:`. The mount process must finish its flush before you disconnect the stick. Reconnect/remount using the same identity check; never let Windows initialize or format the raw OpenFS disk.
+
+**Important limitations:** the raw USB route is newly wired and has not yet been validated against real USB controller/driver combinations or power-loss scenarios. Do not use it for important data. The Windows disk-offline check is a safety gate, not a substitute for a verified backup. If the disk index or UniqueId changes, stop and rerun `list-devices`; do not guess.
 
 ### Mount the image as a Windows drive (experimental)
 
@@ -168,7 +193,7 @@ For additional examples and exact CLI behavior, see the [development guide](Open
 - Treat every byte read from an image as untrusted input.
 - Do not assume a successful image test proves physical-device or power-loss durability.
 - Do not use OpenFS with important data.
-- The current Windows OS integration is experimental and mounts regular image files through Dokany; physical-device formatting is intentionally disabled. Linux OS mounting is not implemented yet.
+- Windows OS integration is experimental: Dokany mounts images or whole offline USB disks. The USB format command erases the selected disk and is not production-safe. Linux OS mounting is not implemented yet.
 - Exclusive file locks help coordinate cooperating OpenFS processes, but external programs may ignore advisory locks.
 - OpenFS defines its own format. It does not read or write NTFS volumes, and historical OpenFS formats are not implicitly compatible.
 
