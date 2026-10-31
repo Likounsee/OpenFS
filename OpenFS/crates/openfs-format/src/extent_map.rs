@@ -457,14 +457,26 @@ impl ExtentMap {
                 "logical range exceeds file block count",
             ));
         }
-        self.validate_ordering()?;
-
-        let mut allocated = 0_u64;
-        for extent in &self.extents {
-            let extent_end = extent.logical_end()?;
-            if extent_end > logical_block_count {
+        // ExtentMap's constructors and mutation methods preserve sorted, non-overlapping
+        // logical ranges. Because each range ends before the next starts, checking the
+        // final end validates the upper bound for the entire map in O(1).
+        if let Some(last) = self.extents.last() {
+            if last.logical_end()? > logical_block_count {
                 return Err(Error::Corrupt("extent exceeds logical file block count"));
             }
+        }
+
+        // Find the first extent that could intersect the requested range. Include the
+        // immediately preceding extent because it may begin before logical_start and
+        // continue into the range. This avoids walking every extent in large fragmented
+        // files when callers read or inspect a small region.
+        let end_index = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_end);
+        let first_index = end_index.saturating_sub(1);
+        let mut allocated = 0_u64;
+        for extent in &self.extents[first_index..end_index] {
+            let extent_end = extent.logical_end()?;
             let overlap_start = logical_start.max(extent.logical_start);
             let overlap_end = logical_end.min(extent_end);
             if overlap_start < overlap_end {
@@ -2427,4 +2439,38 @@ mod tests {
             Err(Error::Corrupt("extent count exceeds block capacity"))
         ));
     }
+
+
+    #[test]
+    fn allocated_range_queries_match_blockwise_reference_across_many_sparse_extents() {
+        let extents: Vec<Extent> = (0..256_u64)
+            .map(|index| Extent {
+                logical_start: index * 4,
+                physical_start: 10_000 + index * 7,
+                block_count: 2,
+            })
+            .collect();
+        let map = ExtentMap::new(extents).unwrap();
+
+        for logical_start in 0..1024_u64 {
+            for block_count in 0..=12_u64 {
+                let end = logical_start + block_count;
+                let expected = (logical_start..end)
+                    .filter(|logical| map.physical_block(*logical).is_some())
+                    .count() as u64;
+                assert_eq!(
+                    map.allocated_blocks_in_range(logical_start, block_count, 1024)
+                        .unwrap(),
+                    expected,
+                    "range start={logical_start}, count={block_count}"
+                );
+            }
+        }
+
+        assert!(matches!(
+            map.allocated_blocks_in_range(0, 0, 1023),
+            Err(Error::Corrupt("extent exceeds logical file block count"))
+        ));
+    }
+
 }
