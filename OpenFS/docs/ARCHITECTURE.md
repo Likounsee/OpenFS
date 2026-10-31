@@ -55,6 +55,8 @@ On Windows, `openfs-tool` includes a generic Dokany adapter that maps file creat
 
 The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions. Its in-memory test device now has a failure-injection sweep over every read/write/flush boundary of a single-block commit, checking old-or-new home-image atomicity and idempotent reopen recovery; this is software-boundary testing, not physical power-loss qualification. The journal still does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and physical-device integration remain incomplete.
 
+The single-block allocator now keeps a volatile next-fit cursor per opened volume. It scans from the block after the previous successful allocation and wraps to the beginning only when needed. The cursor is intentionally discarded on reopen; the journaled allocation bitmap remains authoritative, so no on-disk format change is involved. The regression test covers cursor advancement and reset after reopen, but has not yet been executed or benchmarked.
+
 ## Development order
 
 1. Keep formatting, workspace checks and Clippy green on Linux and Windows.
