@@ -5,7 +5,7 @@
 - En cas d'échec pendant le formatage ou l'initialisation du namespace, le nouvel artefact image est fermé puis supprimé; un fichier préexistant reste protégé par `ImageDevice::create` (`create_new`).
 - Le test de roundtrip existant vérifie maintenant la racine, crée et écrit un fichier via `VolumeSession`, ferme la session, rouvre l'image et relit exactement le contenu.
 - L'architecture a été mise à jour : montage Dokany Windows image-backed déjà présent; pas encore de montage brut de disque physique ni de montage Linux. Les callbacks Windows de suppression et la propagation d'erreurs de démontage restent à fiabiliser.
-- Commits : `b317dfb527908ebcfa1571efe4a72a41fa8dfbf5`, `fd217ddc1cc08b99bf5018e338858a40f904d8e4`, `95c2f72db2e374f4671272a4697e8cea6f7b0d61`.
+- Commits : `b317dfb527908ebcfa1571efe4a72a41fa8dfbf5`, `fd217ddc1cc08b99bf5018e338858a40f904d8e4`, `95c2f72db2e374f4671272a4697e8cea6f7b0d61`, `a88e833361921f0f05d2a9f1ac0631dc8ba521f6`, `7386d47d4bfc417b53d5fe10d38bd549176be477`, `42374f2dbcbe209d42e47a79a69746de70a4d7eb`, `9d7393e6e5d8748880e03950258fd4fea3826fe9`.
 - Validation CI exacte-SHA : à confirmer; aucun pourcentage n'est augmenté avant les résultats Linux et Windows.
 
 ---
