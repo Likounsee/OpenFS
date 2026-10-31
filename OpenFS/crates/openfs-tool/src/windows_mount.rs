@@ -256,12 +256,10 @@ impl<'a, 'b: 'a> FileSystemHandler<'a, 'b> for OpenFsHandler {
             .session
             .lock()
             .map_err(|_| "OpenFS session lock was poisoned".to_owned())
-            .and_then(|mut session| session.remove(&path).map_err(|error| error.to_string()))
-            .and_then(|()| {
-                self.session
-                    .lock()
-                    .map_err(|_| "OpenFS session lock was poisoned".to_owned())?
-                    .flush()
+            .and_then(|mut session| {
+                session
+                    .remove(&path)
+                    .and_then(|()| session.flush())
                     .map_err(|error| error.to_string())
             });
         if let Err(error) = result {
