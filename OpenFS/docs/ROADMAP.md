@@ -497,8 +497,7 @@ The legacy source tree contains a C core with format, bitmap/allocator, inode al
 
 - Legacy documentation has format-version drift (v1.3/v1.5 documents versus source declaring v1.6); treat source plus tests as evidence and resolve discrepancies before any parity claim.
 - Legacy C has a much broader feature surface, but C rollback, locking and lifecycle paths are complex and require fresh validation. The current Windows timeout is not to be ignored.
-- Rust format is a separate draft. No migration/conversion tool is present; future conversion must be explicit and tested against versioned golden fixtures.
-- NTFS is not an on-disk compatibility target. “NTFS-inspired” or feature comparison must not be described as NTFS mount compatibility.
+- Rust format is a separate draft. No migration/conversion tool is present; future conversion must be explicit and tested against versioned golden fixtures.- NTFS is not an on-disk compatibility target. “NTFS-inspired” or feature comparison must not be described as NTFS mount compatibility.
 
 ## P0 — Engineering baseline and safe development contract
 **Status: Validated as a baseline only — 100%. Weight: 10%.**
@@ -997,8 +996,7 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Branche cible : `OpenFS` uniquement.
 - Commit `7ad943d568be036126e19e3752443a416eb3c425` : ajout du test `torn_later_redo_chunk_never_partially_applies_multi_target_transaction`. Il laisse l'image redo de la première cible complète, provoque une écriture partielle sur la cible suivante et vérifie que la récupération ne modifie aucune des deux données home sans COMMIT durable.
 - Commit `8fbf0c69dbb9ed630246504269fd268df31ce468` : entrée du test ajoutée à `docs/INVENTAIRE_SYMBOLES.csv`.
-- Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Ne pas considérer ces tests comme validés tant que CI ne les a pas exécutés.
-- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
+- Validation : tests Rust non exécutés ici; statut CI exact-SHA non confirmé. Ne pas considérer ces tests comme validés tant que CI ne les a pas exécutés.- Estimations inchangées : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 60 %.
 
 ### Reprise de session — 2026-10-25 (deuxième bloc redo de la cible suivante)
 
@@ -1364,3 +1362,8 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical conservé et recalé sur les lignes actuelles : 1 280 déclarations sur 18 fichiers Rust (commit `24dbd49eafe39c00fb77d867a6c0f2df0fc08b7c`).
 - Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
 
+### Validation rapide de la taille logique des extents (2026-10-31)
+
+- Commit `14ab79b222c1876795bd16344db7c9fe7803a2a6` : `ExtentMap::validate_file_size()` ne parcourt plus tous les extents. Comme l'invariant de la carte garantit un ordre logique croissant sans chevauchement, le dernier extent possède nécessairement la plus grande fin logique; une seule vérification suffit donc, y compris pour les fichiers clairsemés.
+- Les cas de taille partielle, de trous sparse, de fichier vide et de dépassement restent couverts par les tests existants de `extent_map.rs`; aucun test local n'a été exécuté dans cette session. CI exacte-SHA en attente.
+- Progression globale maintenue à 73 % jusqu'à validation automatisée.
