@@ -12,7 +12,7 @@ openfs-tool ──> openfs-format ──> openfs-block ──> openfs-core
 - **`openfs-core`** — shared error types and checked block-range primitives.
 - **`openfs-block`** — bounded block-device interface, regular-file image backend, explicit flush contract and deterministic I/O fault injection.
 - **`openfs-format`** — versioned volume layout, superblock validation, allocation bitmap, journal/checkpoints, codecs, extent maps, namespace reconstruction, persistent file APIs and consistency reports.
-- **`openfs-tool`** — host-side development-image CLI. It is not an OS mount adapter and must not format physical devices.
+- **`openfs-tool`** — host-side image CLI plus a Windows Dokany mount adapter. Physical-device formatting remains disabled; the current mount target is a regular image file.
 
 There is one active volume implementation in `crates/openfs-format/src/volume.rs`. Version-specific layout calculations are kept within this implementation; do not create parallel format-generation implementations.
 
@@ -47,14 +47,18 @@ There is one active volume implementation in `crates/openfs-format/src/volume.rs
 
 ## Current limits
 
-`openfs-format` now exposes a portable `VolumeSession<D>` lifecycle boundary. It owns a block device, opens the volume with journal recovery, and offers path-based stat/list/read/create/write/truncate/rename/remove operations plus an explicit flush-and-return `unmount`. This is a reusable backend API for a future OS adapter, not an operating-system mount: it does not create a Windows drive letter, Linux mount point, or kernel filesystem registration. The host CLI remains image-oriented, and no Windows/Linux mount adapter is integrated yet.
+`openfs-format` exposes a portable `VolumeSession<D>` lifecycle boundary. It owns a block device, opens the volume with journal recovery, and offers path-based stat/list/read/create/write/truncate/rename/remove operations plus an explicit flush-and-return `unmount`.
 
-The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and OS integration remain incomplete.
+On Windows, `openfs-tool` includes a Dokany adapter that maps file creation, directory listing, ranged reads/writes, truncation, rename, and flush callbacks to `VolumeSession<ImageDevice>`. The `mount` command attaches an existing image to a drive letter and `unmount` requests its removal. This is an image-backed user-mode mount, not a raw physical-disk filesystem driver. Linux mount integration is not implemented.
+
+`create-image` now formats the image and initializes its persistent root namespace so a newly created image can be opened by `VolumeSession` and mounted immediately. The image remains a regular host file; it is not a physical USB/SSD partition. The adapter and namespace lifecycle still need stronger Windows delete/rename semantics, open-handle tracking, reliable unmount/error reporting, and automated end-to-end tests that exercise a real Dokany mount.
+
+The canonical format is version 4 with a 16-block journal ring; earlier Rust versions use version-specific geometry. The redo journal covers bounded block updates and is used for allocator bitmap and descriptor ownership transitions, but does not make every multi-step persistent file operation one transaction. Persistent file and namespace APIs exist; operation-specific crash ordering, protection against external writers that ignore OS locks, large-volume scaling and physical-device integration remain incomplete.
 
 ## Development order
 
 1. Keep formatting, workspace checks and Clippy green on Linux and Windows.
-2. Fix correctness and allocation hazards in production paths before adding low-value tests.
+2. Close Windows adapter correctness gaps (delete-pending lifecycle, handle identity across rename, and unmount error propagation).
 3. Close persistence ordering and recovery gaps for each file/namespace mutation.
 4. Extend exclusive-writer protection beyond cooperating OpenFS handles and improve checker/discovery scaling.
-5. Only then develop verified raw-device workflows and OS integration.
+5. Only then develop verified raw-device workflows and broader OS integration.
