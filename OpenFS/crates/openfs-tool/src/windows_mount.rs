@@ -70,13 +70,19 @@ struct OpenHandleState {
 
 impl OpenHandleState {
     fn register(&self, object_id: ObjectId) -> Result<(), &'static str> {
-        if self.is_delete_pending(object_id)? {
-            return Err("object is pending deletion");
-        }
+        // Use the same lock order as close(): counts, then delete_pending.
         let mut counts = self
             .counts
             .lock()
             .map_err(|_| "OpenFS open-handle lock was poisoned")?;
+        let pending = self
+            .delete_pending
+            .lock()
+            .map_err(|_| "OpenFS delete-pending lock was poisoned")?;
+        if pending.contains(&object_id) {
+            return Err("object is pending deletion");
+        }
+        drop(pending);
         let count = counts.entry(object_id).or_insert(0);
         *count = count.checked_add(1).ok_or("OpenFS open-handle count overflow")?;
         Ok(())
