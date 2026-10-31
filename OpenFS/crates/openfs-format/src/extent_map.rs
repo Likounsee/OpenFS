@@ -2270,6 +2270,58 @@ mod tests {
     }
 
     #[test]
+    fn in_place_insert_coalesces_previous_next_or_neither_neighbor() {
+        let mut map = ExtentMap::new(vec![
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 6,
+                physical_start: 200,
+                block_count: 2,
+            },
+        ])
+        .unwrap();
+
+        // Join only the previous extent.
+        map.insert_coalescing(Extent {
+            logical_start: 2,
+            physical_start: 102,
+            block_count: 1,
+        })
+        .unwrap();
+        assert_eq!(map.extents()[0].block_count, 3);
+
+        // Join only the next extent.
+        map.insert_coalescing(Extent {
+            logical_start: 5,
+            physical_start: 199,
+            block_count: 1,
+        })
+        .unwrap();
+        assert_eq!(
+            map.extents()[1],
+            Extent {
+                logical_start: 5,
+                physical_start: 199,
+                block_count: 3,
+            }
+        );
+
+        // Insert a separate run without merging either neighbor.
+        map.insert_coalescing(Extent {
+            logical_start: 10,
+            physical_start: 300,
+            block_count: 2,
+        })
+        .unwrap();
+        assert_eq!(map.extents().len(), 3);
+        assert_eq!(map.physical_block(10), Some(300));
+    }
+
+    #[test]
     fn physical_bounds_include_data_start_and_exclude_volume_end() {
         let map = ExtentMap::new(vec![Extent {
             logical_start: 0,
