@@ -2691,7 +2691,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{audit_image, create_image, inspect_image, BLOCK_SIZE};
+    use super::{audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice};
     use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
     use std::fs;
@@ -3054,7 +3054,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_and_reopens_a_mount_ready_image_with_persistent_files() {
+    fn creates_and_reopens_a_valid_development_image() {
         let path = unique_path("roundtrip");
         let result = create_image(&path, 1);
         assert!(result.is_ok(), "image creation failed: {result:?}");
