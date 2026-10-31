@@ -91,6 +91,9 @@ impl OpenFsHandler {
 
 fn map_core_error(error: CoreError) -> OperationError {
     match error {
+        CoreError::InvalidInput("path component does not exist") => {
+            OperationError::Win32(ERROR_FILE_NOT_FOUND)
+        }
         CoreError::InvalidInput(_) => OperationError::Win32(ERROR_INVALID_PARAMETER),
         CoreError::Io(_) => OperationError::Win32(ERROR_GEN_FAILURE),
         _ => OperationError::Win32(ERROR_GEN_FAILURE),
