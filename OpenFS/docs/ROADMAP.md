@@ -1315,3 +1315,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical : 1 274 déclarations sur 18 fichiers Rust (commit `8698573dab46482aca01e90089fe8bafb0d1b3e3`).
 - Test non exécuté dans cette session; compilation, rustfmt, Clippy et CI restent non vérifiés. Progression globale inchangée à 73 %.
 
+### Lecture des plages fragmentées par parcours d'extents (2026-10-31)
+
+- Commit `4427d07408812dbc5c6aac40b0ae84a6dc7bc1be` : `read_file_range_from_validated_namespace()` ne fait plus une recherche `physical_block()` pour chaque bloc logique. Il localise par dichotomie les extents intersectant la plage, puis lit directement leurs segments physiques contigus par lots bornés.
+- Le tampon de lecture reste plafonné à 1 Mio (et 128 blocs maximum), les trous restent pré-remplis à zéro et les segments non alignés continuent à ne copier que les octets demandés.
+- Correction immédiate au commit `176aa04cfd47f9ef789dccd30f5bbf76f7d0ab1b` : le parcours commence par le dernier extent pouvant chevaucher le premier bloc demandé; cela conserve le cas où la plage commence dans un trou et rejoint ensuite un extent.
+- Régression renforcée au commit `109ee8c0b6b03a24c0c2f5d9eb590ea7952f3657` : lecture débutant dans un trou et traversant l'extent suivant, avec vérification des zéros puis des données.
+- Inventaire lexical recalé après le déplacement des lignes du fichier `volume.rs` : commit `4e4bc979415e4fb43833ced1367bac078d853071`; 18 fichiers Rust et 1 274 déclarations.
+- Tests non exécutés dans cette session; compilation, rustfmt, Clippy et CI exacte-SHA non vérifiés. Progression globale maintenue à 73 %.
+
