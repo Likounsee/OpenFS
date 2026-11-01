@@ -1608,7 +1608,7 @@ mod tests {
         reopened.commit(&mut recovered, &[update(0x33)]).unwrap();
         let final_open = open_journal(&mut recovered, REGION)
             .expect("short retry must reopen without stale journal records");
-        assert_eq!(final_open.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(final_open.checkpoint().checkpoint_sequence, 13);
         assert_eq!(read_home(&mut recovered), vec![0x33; BS as usize]);
     }
 
@@ -1653,7 +1653,17 @@ mod tests {
             let home = read_home(&mut persisted);
             let checkpoint = reopened.checkpoint().checkpoint_sequence;
             if home == vec![0x11; BS as usize] {
-                assert_eq!(checkpoint, 0, "old home image must retain old checkpoint");
+                // A valid prefix can be retired even though its transaction was
+                // never committed. The checkpoint must stop at the last durable
+                // pre-COMMIT record, never at the missing COMMIT sequence.
+                let expected_checkpoint = match fail_at {
+                    0 => 0,
+                    1 => 1,
+                    2 => 2,
+                    3 | 4 => 3,
+                    _ => unreachable!("later failures occur after durable COMMIT"),
+                };
+                assert_eq!(checkpoint, expected_checkpoint);
             } else {
                 assert_eq!(
                     home,
