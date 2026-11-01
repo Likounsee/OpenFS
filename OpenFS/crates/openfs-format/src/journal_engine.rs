@@ -179,10 +179,52 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
 
     let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
     if plan.is_empty() {
-        // A transaction without a durable COMMIT is safe to discard. Leaving its
-        // valid prefix in the ring is unsafe: a shorter retry reuses its sequence
-        // and transaction IDs, leaving stale records after the new COMMIT.
-        if !scanned.records.is_empty() || scanned.first_malformed_slot.is_some() {
+        // A valid but uncommitted prefix is safe to retire: it never reaches home
+        // blocks. Advance the durable checkpoint over that prefix before clearing
+        // the ring, so a shorter retry cannot reuse its sequence or transaction ID.
+        // Publishing the checkpoint first also makes cleanup interruption-safe.
+        if let Some(last_record) = scanned.records.last() {
+            let highest_sequence = last_record.sequence;
+            let next_sequence = highest_sequence
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let next_transaction_id = scanned
+                .records
+                .iter()
+                .filter(|record| record.kind == JournalRecordKind::Begin)
+                .try_fold(checkpoint.next_transaction_id, |_, record| {
+                    record
+                        .transaction_id
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)
+                })?;
+            let next_generation = checkpoint
+                .generation
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            checkpoint.checkpoint_sequence = highest_sequence;
+            checkpoint.next_sequence = next_sequence;
+            checkpoint.next_transaction_id = next_transaction_id;
+            checkpoint.head_block = 0;
+            checkpoint.tail_block = 0;
+            checkpoint.generation = next_generation;
+            let next_copy = 1 - active_copy;
+            write_checkpoint_block(
+                device,
+                checkpoint_block_number(region, next_copy),
+                &checkpoint,
+            )?;
+            device.flush()?;
+            clear_journal_ring_from(device, region, 0)?;
+            return Ok(PersistentJournal {
+                region,
+                checkpoint,
+                active_checkpoint_copy: next_copy,
+                recovery_required: false,
+                protected_blocks,
+            });
+        }
+        if scanned.first_malformed_slot.is_some() {
             clear_journal_ring_from(device, region, 0)?;
         }
         return Ok(PersistentJournal {
