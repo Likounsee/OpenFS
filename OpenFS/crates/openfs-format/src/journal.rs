@@ -212,7 +212,10 @@ pub fn plan_recovery(
         .checked_add(1)
         .ok_or(Error::ArithmeticOverflow)?;
     let mut last_transaction_id = 0_u64;
-    let mut active: Option<CommittedTransaction> = None;
+    // Keep only the active transaction's start offset while validating the stream.
+    // Redo payloads are copied into the recovery plan only after a COMMIT is seen;
+    // a crash-truncated tail is therefore discarded without allocating its payloads.
+    let mut active: Option<(u64, usize)> = None;
     let mut completed = Vec::new();
 
     for (index, record) in records.iter().enumerate() {
@@ -234,72 +237,66 @@ pub fn plan_recovery(
                     return Err(Error::Corrupt("invalid or interleaved journal transaction"));
                 }
                 last_transaction_id = record.transaction_id;
-                active = Some(CommittedTransaction {
-                    transaction_id: record.transaction_id,
-                    updates: Vec::new(),
-                });
+                active = Some((record.transaction_id, index));
             }
             JournalRecordKind::Update => {
-                let transaction = active
-                    .as_mut()
+                let (transaction_id, _) = active
+                    .as_ref()
                     .ok_or(Error::Corrupt("journal UPDATE without BEGIN"))?;
-                if transaction.transaction_id != record.transaction_id {
+                if *transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal UPDATE transaction ID mismatch"));
                 }
-                transaction.updates.try_reserve(1).map_err(|_| {
-                    Error::AllocationFailed("unable to reserve journal recovery updates")
-                })?;
-                let mut payload = Vec::new();
-                payload
-                    .try_reserve_exact(record.payload.len())
-                    .map_err(|_| {
-                        Error::AllocationFailed("unable to copy journal recovery payload")
-                    })?;
-                payload.extend_from_slice(&record.payload);
-                transaction.updates.push(payload);
             }
             JournalRecordKind::Commit => {
-                let transaction = active
+                let (transaction_id, begin_index) = active
                     .take()
                     .ok_or(Error::Corrupt("journal COMMIT without BEGIN"))?;
-                if transaction.transaction_id != record.transaction_id {
+                if transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal COMMIT transaction ID mismatch"));
                 }
-                if transaction.updates.is_empty() {
+                let update_records = &records[begin_index + 1..index];
+                if update_records.is_empty() {
                     return Err(Error::Corrupt(
                         "committed journal transaction contains no redo updates",
                     ));
                 }
+
+                let mut updates = Vec::new();
+                updates.try_reserve_exact(update_records.len()).map_err(|_| {
+                    Error::AllocationFailed("unable to reserve journal recovery updates")
+                })?;
+                for update in update_records {
+                    let mut payload = Vec::new();
+                    payload
+                        .try_reserve_exact(update.payload.len())
+                        .map_err(|_| {
+                            Error::AllocationFailed("unable to copy journal recovery payload")
+                        })?;
+                    payload.extend_from_slice(&update.payload);
+                    updates.push(payload);
+                }
+
                 completed.try_reserve(1).map_err(|_| {
                     Error::AllocationFailed("unable to reserve recovered transactions")
                 })?;
-                completed.push(transaction);
+                completed.push(CommittedTransaction {
+                    transaction_id,
+                    updates,
+                });
             }
             JournalRecordKind::Abort => {
-                let transaction = active
+                let (transaction_id, _) = active
                     .take()
                     .ok_or(Error::Corrupt("journal ABORT without BEGIN"))?;
-                if transaction.transaction_id != record.transaction_id {
+                if transaction_id != record.transaction_id {
                     return Err(Error::Corrupt("journal ABORT transaction ID mismatch"));
-                }
-            }
-        }
-
-        if let Some(transaction) = active.as_ref() {
-            if index + 1 < records.len() {
-                let next = &records[index + 1];
-                if next.kind == JournalRecordKind::Begin
-                    || next.transaction_id != transaction.transaction_id
-                {
-                    return Err(Error::Corrupt(
-                        "incomplete journal transaction is not at stream tail",
-                    ));
                 }
             }
         }
     }
 
     // Any transaction still active at the end lacks a durable terminal record.
+    // Its payloads were never copied, so discarding it is allocation-free.
     Ok(completed)
 }
 
