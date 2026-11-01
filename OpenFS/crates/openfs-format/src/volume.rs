@@ -8552,6 +8552,39 @@ impl<D: BlockDevice> VolumeSession<D> {
         )
     }
 
+    /// Atomically create objects across several existing directories.
+    ///
+    /// Each tuple supplies a stable parent object ID, object kind, and child name.
+    /// Unlike create_objects_auto(), entries need not share one parent directory.
+    /// The entire batch is validated and published as one namespace replacement.
+    pub fn create_objects_auto_with_parent_ids(
+        &mut self,
+        objects: &[(ObjectId, crate::ObjectKind, &str)],
+    ) -> Result<Vec<ObjectId>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut batch = Vec::new();
+        batch.try_reserve_exact(objects.len()).map_err(|_| {
+            Error::AllocationFailed("unable to allocate multi-directory object batch")
+        })?;
+        for (parent_id, kind, name) in objects {
+            batch.push((
+                *parent_id,
+                self.allocate_object_id()?,
+                *kind,
+                try_clone_string(
+                    name,
+                    "unable to copy multi-directory persistent object name",
+                )?,
+            ));
+        }
+
+        self.opened
+            .create_persistent_objects(&mut self.device, &batch)
+    }
+
     fn allocate_object_id(&mut self) -> Result<ObjectId> {
         let object_id = ObjectId::new(self.next_object_id)?;
         self.next_object_id = self
@@ -17600,6 +17633,9 @@ mod tests {
             assert_eq!(batch_ids[1].0, batch_ids[0].0 + 1);
             assert_eq!(mounted.stat("/batch").unwrap().id, batch_ids[0]);
             assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
+            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
+            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
+            assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
 
             // A duplicate-name batch must publish nothing, not a partial prefix.
             assert!(mounted
@@ -17625,6 +17661,32 @@ mod tests {
             assert_eq!(nested_ids.len(), 2);
             assert_eq!(nested_ids[1].0, nested_ids[0].0 + 1);
             assert_eq!(mounted.read_directory("/batch", None, 8).unwrap().len(), 2);
+
+            // A single transaction can populate different existing directories.
+            let left_id = mounted.create_directory("/", ObjectId(12), "left").unwrap();
+            let right_id = mounted.create_directory("/", ObjectId(13), "right").unwrap();
+            mounted
+                .create_file("/right", ObjectId(14), "occupied.txt")
+                .unwrap();
+            assert!(mounted
+                .create_objects_auto_with_parent_ids(&[
+                    (left_id, crate::ObjectKind::File, "must-rollback.txt"),
+                    (right_id, crate::ObjectKind::File, "occupied.txt"),
+                ])
+                .is_err());
+            assert!(mounted.read_directory("/left", None, 8).unwrap().is_empty());
+            assert_eq!(mounted.read_directory("/right", None, 8).unwrap().len(), 1);
+
+            let cross_parent_ids = mounted
+                .create_objects_auto_with_parent_ids(&[
+                    (left_id, crate::ObjectKind::File, "left.txt"),
+                    (right_id, crate::ObjectKind::File, "right.txt"),
+                ])
+                .unwrap();
+            assert_eq!(cross_parent_ids.len(), 2);
+            assert_eq!(cross_parent_ids[1].0, cross_parent_ids[0].0 + 1);
+            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
+            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
             mounted
                 .write_file("/docs/draft.txt", b"OpenFS mounted session data")
                 .unwrap();
@@ -17705,6 +17767,11 @@ mod tests {
             mounted.remove("/batch/second.txt").unwrap();
             mounted.remove("/batch").unwrap();
             mounted.remove("/batch-root.txt").unwrap();
+            mounted.remove("/left/left.txt").unwrap();
+            mounted.remove("/right/right.txt").unwrap();
+            mounted.remove("/right/occupied.txt").unwrap();
+            mounted.remove("/left").unwrap();
+            mounted.remove("/right").unwrap();
             let device = mounted.unmount().unwrap();
             drop(device);
         }
