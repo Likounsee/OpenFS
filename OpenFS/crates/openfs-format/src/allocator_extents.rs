@@ -2535,6 +2535,19 @@ mod allocation_bitmap_report_tests {
         ));
     }
 
+    #[test]
+    fn bitmap_count_range_counts_allocated_and_free_bits_with_edge_masks() {
+        let bitmap = [0b1010_0101_u8, 0b1100_0011_u8];
+        assert_eq!(bitmap_count_range(&bitmap, 2, 14, true).unwrap(), 5);
+        assert_eq!(bitmap_count_range(&bitmap, 2, 14, false).unwrap(), 7);
+        assert_eq!(bitmap_count_range(&bitmap, 8, 8, true).unwrap(), 0);
+        assert_eq!(bitmap_count_range(&bitmap, 8, 8, false).unwrap(), 0);
+        assert!(matches!(
+            bitmap_count_range(&bitmap, 0, 17, true),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
     fn image_path(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
