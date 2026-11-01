@@ -1775,3 +1775,90 @@ mod tests {
         assert!(ns.validate().is_ok());
     }
 }
+
+impl Namespace {
+    /// Visit a directory's entries in lexical order without allocating a page or cloning
+    /// names. The visitor returns false to stop early; namespace validation errors remain
+    /// distinguishable from an intentional early stop.
+    pub fn visit_directory(
+        &self,
+        parent_id: ObjectId,
+        mut visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
+    ) -> Result<()> {
+        let parent = self
+            .objects
+            .get(&parent_id)
+            .ok_or(Error::InvalidInput("directory does not exist"))?;
+        if parent.kind != ObjectKind::Directory {
+            return Err(Error::InvalidInput("object is not a directory"));
+        }
+        for entry in self.children(parent_id) {
+            let record = self
+                .objects
+                .get(&ObjectId(entry.object_id))
+                .ok_or(Error::Corrupt("directory entry points to a missing object"))?;
+            if record.parent_id != parent_id.0 || record.kind != entry.kind {
+                return Err(Error::Corrupt(
+                    "directory entry does not match its object metadata",
+                ));
+            }
+            if !visitor(entry, record) {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod directory_visit_tests {
+    use super::*;
+
+    #[test]
+    fn directory_visit_is_ordered_metadata_rich_and_stops_without_losing_validation() {
+        let mut namespace = Namespace::new(ObjectId(1)).unwrap();
+        for (id, name, size) in [(2, "alpha", 17), (3, "beta", 29), (4, "gamma", 41)] {
+            namespace
+                .insert(
+                    DirectoryEntry {
+                        parent_id: 1,
+                        object_id: id,
+                        kind: ObjectKind::File,
+                        name: name.to_owned(),
+                    },
+                    MetadataRecord {
+                        id: ObjectId(id),
+                        parent_id: 1,
+                        kind: ObjectKind::File,
+                        flags: 0,
+                        size,
+                        extent_root_block: None,
+                        generation: 1,
+                    },
+                )
+                .unwrap();
+        }
+
+        let mut visited = Vec::new();
+        namespace
+            .visit_directory(ObjectId(1), |entry, record| {
+                visited.push((entry.name.as_str(), record.size));
+                true
+            })
+            .unwrap();
+        assert_eq!(visited, [("alpha", 17), ("beta", 29), ("gamma", 41)]);
+
+        let mut count = 0;
+        namespace
+            .visit_directory(ObjectId(1), |_, _| {
+                count += 1;
+                count < 2
+            })
+            .unwrap();
+        assert_eq!(count, 2);
+        assert!(matches!(
+            namespace.visit_directory(ObjectId(2), |_, _| true),
+            Err(Error::InvalidInput("object is not a directory"))
+        ));
+    }
+}
