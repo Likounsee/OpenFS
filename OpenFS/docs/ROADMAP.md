@@ -1431,3 +1431,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `71665d4e533bccf384134a1c6b0ec000e8e26f0a` : vérification des deux objets créés après réouverture; commit `bc25762fb36c763ff2e5841108e9228969a346a6` : inventaire lexical régénéré, 1 293 déclarations sur 18 fichiers Rust.
 - Aucun test local n'a été exécuté et le SHA final ne retourne aucun statut ni workflow CI exploitable dans l'interface consultée. Le test est publié, pas déclaré réussi.
 - Progression globale maintenue à 73 % : cette API étend la capacité de création transactionnelle, sans valider à elle seule une nouvelle phase complète.
+
+### Suppression récursive depuis VolumeSession (2026-11-01)
+
+- Commit `96ba02c1253d7d82c8262b7fd8270666375f924e` : `VolumeSession` expose `remove_tree(path)` et `remove_tree_by_id(object_id)`. Les adaptateurs peuvent maintenant supprimer un dossier et toute son arborescence sans accéder directement à `OpenedVolume`; le second point d'entrée permet d'utiliser un identifiant stable après un renommage.
+- Les deux méthodes délèguent au chemin persistant déjà transactionnel : prévalidation de la propriété, publication de l'inventaire avant récupération des extents, puis redécouverte pour confirmer que les objets retirés ne sont plus référencés.
+- Le test de cycle de vie de session supprime récursivement `/batch` après remontage et vérifie que le dossier et ses deux fichiers ne sont plus résolus, tout en préservant les objets frères. Ce test est publié mais n'a pas encore été exécuté dans cette session.
+- Inventaire lexical mis à jour au commit `8c616afa0779416f978bd462c26ec401e731d35` : 1 295 déclarations sur 18 fichiers Rust.
+- Aucun statut CI exploitable ni résultat de tests local n'est confirmé pour ces commits. Progression globale maintenue à 73 % : cette étape rend une capacité existante accessible depuis la session publique, sans compter deux fois l'implémentation transactionnelle déjà présente.
