@@ -1842,11 +1842,11 @@ mod directory_visit_tests {
         let mut visited = Vec::new();
         namespace
             .visit_directory(ObjectId(1), |entry, record| {
-                visited.push((entry.name.as_str(), record.size));
+                visited.push((entry.name.clone(), record.size));
                 true
             })
             .unwrap();
-        assert_eq!(visited, [("alpha", 17), ("beta", 29), ("gamma", 41)]);
+        assert_eq!(visited, [("alpha".to_owned(), 17), ("beta".to_owned(), 29), ("gamma".to_owned(), 41)]);
 
         let mut count = 0;
         namespace
