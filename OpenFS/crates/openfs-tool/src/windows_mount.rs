@@ -669,25 +669,16 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         let path = session
             .path_for_object(context.object_id)
             .map_err(map_core_error)?;
-        let mut marker: Option<String> = None;
-        loop {
-            let page = session
-                .read_directory(&path, marker.as_deref(), 256)
-                .map_err(map_core_error)?;
-            if page.is_empty() {
-                break;
-            }
-            let next_marker = page.last().map(|entry| entry.name.clone());
-            let page_len = page.len();
-            for entry in page {
-                let child_path = if path == "/" {
-                    format!("/{}", entry.name)
-                } else {
-                    format!("{}/{}", path, entry.name)
+        let mut fill_error = None;
+        session
+            .visit_directory(&path, |entry, record| {
+                let file_name = match U16CString::from_str(&entry.name) {
+                    Ok(name) => name,
+                    Err(_) => {
+                        fill_error = Some(OperationError::Win32(ERROR_INVALID_PARAMETER));
+                        return false;
+                    }
                 };
-                let file_size = session.stat(&child_path).map_err(map_core_error)?.size;
-                let file_name = U16CString::from_str(&entry.name)
-                    .map_err(|_| OperationError::Win32(ERROR_INVALID_PARAMETER))?;
                 let epoch = SystemTime::UNIX_EPOCH;
                 let data = FindData {
                     attributes: if entry.kind == ObjectKind::Directory {
@@ -698,18 +689,27 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                     creation_time: epoch,
                     last_access_time: epoch,
                     last_write_time: epoch,
-                    file_size,
+                    file_size: record.size,
                     file_name,
                 };
-                fill_find_data(&data)?;
-            }
-            if page_len < 256 {
-                break;
-            }
-            marker = next_marker;
+                if let Err(error) = fill_find_data(&data) {
+                    fill_error = Some(error.into());
+                    return false;
+                }
+                true
+            })
+            .map_err(map_core_error)?;
+        if let Some(error) = fill_error {
+            return Err(error);
         }
         Ok(())
     }
+
+
+
+
+
+
 
     fn delete_file(
         &'b self,
