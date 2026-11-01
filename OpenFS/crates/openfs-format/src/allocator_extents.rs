@@ -3305,6 +3305,11 @@ mod allocation_bitmap_report_tests {
                     volume.volume.layout.data_blocks() - 9,
                     "block_size={block_size}"
                 );
+                assert_eq!(
+                    fragmentation.largest_free_extent_start_block,
+                    Some(allocated[8] + 1),
+                    "largest extent start should identify the longest run for block_size={block_size}"
+                );
                 assert!(free_inventory.windows(2).all(|pair| pair[0] < pair[1]));
                 assert!(free_inventory
                     .iter()
