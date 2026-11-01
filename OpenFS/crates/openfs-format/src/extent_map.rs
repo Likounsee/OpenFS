@@ -112,7 +112,11 @@ impl ExtentMap {
     /// logical_allocated_bytes counts only bytes inside EOF that are backed by
     /// extents; physical_allocated_bytes includes the unused tail of a partially
     /// occupied final block. Sparse holes are counted in logical bytes.
-    pub fn allocation_stats(&self, file_size: u64, block_size: u32) -> Result<ExtentAllocationStats> {
+    pub fn allocation_stats(
+        &self,
+        file_size: u64,
+        block_size: u32,
+    ) -> Result<ExtentAllocationStats> {
         if block_size == 0 {
             return Err(Error::InvalidInput("block size must be nonzero"));
         }
@@ -2734,13 +2738,21 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn allocation_stats_distinguish_sparse_bytes_from_final_block_slack() {
         let map = ExtentMap::new(vec![
-            Extent { logical_start: 0, physical_start: 100, block_count: 2 },
-            Extent { logical_start: 4, physical_start: 200, block_count: 1 },
-        ]).unwrap();
+            Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 2,
+            },
+            Extent {
+                logical_start: 4,
+                physical_start: 200,
+                block_count: 1,
+            },
+        ])
+        .unwrap();
 
         let stats = map.allocation_stats(5 * 4096 - 100, 4096).unwrap();
         assert_eq!(stats.file_size_bytes, 5 * 4096 - 100);
@@ -2766,8 +2778,11 @@ mod tests {
     #[test]
     fn allocation_stats_rejects_invalid_size_and_overflow() {
         let map = ExtentMap::new(vec![Extent {
-            logical_start: 0, physical_start: 10, block_count: 2,
-        }]).unwrap();
+            logical_start: 0,
+            physical_start: 10,
+            block_count: 2,
+        }])
+        .unwrap();
         assert!(matches!(
             map.allocation_stats(0, 4096),
             Err(Error::Corrupt("empty file must not own data extents"))
@@ -2777,8 +2792,11 @@ mod tests {
             Err(Error::InvalidInput("block size must be nonzero"))
         ));
         let huge = ExtentMap::new(vec![Extent {
-            logical_start: 0, physical_start: 0, block_count: u64::MAX / 4 + 1,
-        }]).unwrap();
+            logical_start: 0,
+            physical_start: 0,
+            block_count: u64::MAX / 4 + 1,
+        }])
+        .unwrap();
         assert!(matches!(
             huge.allocation_stats(u64::MAX, 4),
             Err(Error::ArithmeticOverflow)
