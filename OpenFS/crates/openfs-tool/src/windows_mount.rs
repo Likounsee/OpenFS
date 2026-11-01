@@ -662,51 +662,51 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
         self.require_handle_access(*context, FILE_READ_DATA)?;
-        let entries = self.with_path(context, |session, path| {
-            let mut entries = Vec::new();
-            let mut marker: Option<String> = None;
-            loop {
-                let page = session.read_directory(path, marker.as_deref(), 256)?;
-                if page.is_empty() {
-                    break;
-                }
-                marker = page.last().map(|entry| entry.name.clone());
-                let page_len = page.len();
-                entries.extend(page);
-                if page_len < 256 {
-                    break;
-                }
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let path = session
+            .path_for_object(context.object_id)
+            .map_err(map_core_error)?;
+        let mut marker: Option<String> = None;
+        loop {
+            let page = session
+                .read_directory(&path, marker.as_deref(), 256)
+                .map_err(map_core_error)?;
+            if page.is_empty() {
+                break;
             }
-            let mut rows = Vec::with_capacity(entries.len());
-            for entry in entries {
+            let next_marker = page.last().map(|entry| entry.name.clone());
+            let page_len = page.len();
+            for entry in page {
                 let child_path = if path == "/" {
                     format!("/{}", entry.name)
                 } else {
                     format!("{}/{}", path, entry.name)
                 };
-                let record = session.stat(&child_path)?;
-                rows.push((entry, record.size));
+                let file_size = session.stat(&child_path).map_err(map_core_error)?.size;
+                let file_name = U16CString::from_str(&entry.name)
+                    .map_err(|_| OperationError::Win32(ERROR_INVALID_PARAMETER))?;
+                let epoch = SystemTime::UNIX_EPOCH;
+                let data = FindData {
+                    attributes: if entry.kind == ObjectKind::Directory {
+                        FILE_ATTRIBUTE_DIRECTORY
+                    } else {
+                        FILE_ATTRIBUTE_NORMAL
+                    },
+                    creation_time: epoch,
+                    last_access_time: epoch,
+                    last_write_time: epoch,
+                    file_size,
+                    file_name,
+                };
+                fill_find_data(&data)?;
             }
-            Ok(rows)
-        })?;
-
-        for (entry, file_size) in entries {
-            let file_name = U16CString::from_str(&entry.name)
-                .map_err(|_| OperationError::Win32(ERROR_INVALID_PARAMETER))?;
-            let epoch = SystemTime::UNIX_EPOCH;
-            let data = FindData {
-                attributes: if entry.kind == ObjectKind::Directory {
-                    FILE_ATTRIBUTE_DIRECTORY
-                } else {
-                    FILE_ATTRIBUTE_NORMAL
-                },
-                creation_time: epoch,
-                last_access_time: epoch,
-                last_write_time: epoch,
-                file_size,
-                file_name,
-            };
-            fill_find_data(&data)?;
+            if page_len < 256 {
+                break;
+            }
+            marker = next_marker;
         }
         Ok(())
     }
