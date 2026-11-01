@@ -1597,8 +1597,8 @@ impl OpenedVolume {
         }
         let first_index = extent.start_block / bits_per_block;
         let last_index = (end - 1) / bits_per_block;
-        let page_count = usize::try_from(last_index - first_index + 1)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let page_count =
+            usize::try_from(last_index - first_index + 1).map_err(|_| Error::ArithmeticOverflow)?;
         if page_count > max_updates {
             return Err(Error::InvalidInput(
                 "best-fit extent exceeds the journal's atomic bitmap-update capacity",
@@ -1669,9 +1669,11 @@ impl OpenedVolume {
             )?;
             let mut allocated_count = 0_u64;
             for (bitmap_block, base, _) in &pages {
-                device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
-                    Error::Corrupt("best-fit allocation recovery could not read a bitmap page")
-                })?;
+                device
+                    .read_blocks(*bitmap_block, &mut recovered)
+                    .map_err(|_| {
+                        Error::Corrupt("best-fit allocation recovery could not read a bitmap page")
+                    })?;
                 let segment_start = layout.data_start.max(*base);
                 let segment_end = layout.backup_superblock.min(
                     base.checked_add(bits_per_block)
@@ -3471,23 +3473,13 @@ mod allocation_bitmap_report_tests {
                 let bitmap_block = layout.bitmap_start + index;
                 let mut bitmap = vec![0_u8; volume.volume.block_size as usize];
                 device.read_blocks(bitmap_block, &mut bitmap).unwrap();
-                set_bitmap_range(
-                    &mut bitmap,
-                    segment_start - base,
-                    segment_end - base,
-                    true,
-                )
-                .unwrap();
+                set_bitmap_range(&mut bitmap, segment_start - base, segment_end - base, true)
+                    .unwrap();
                 let free_start = expected_start.max(segment_start);
                 let free_end = expected_end.min(segment_end);
                 if free_start < free_end {
-                    set_bitmap_range(
-                        &mut bitmap,
-                        free_start - base,
-                        free_end - base,
-                        false,
-                    )
-                    .unwrap();
+                    set_bitmap_range(&mut bitmap, free_start - base, free_end - base, false)
+                        .unwrap();
                 }
                 device.write_blocks(bitmap_block, &bitmap).unwrap();
             }
@@ -3513,7 +3505,9 @@ mod allocation_bitmap_report_tests {
             drop(volume);
             let reopened = crate::volume::open_volume(&mut device).unwrap();
             for block in expected_start..expected_end {
-                assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+                assert!(reopened
+                    .is_data_block_allocated(&mut device, block)
+                    .unwrap());
             }
         }
         fs::remove_file(path).unwrap();
