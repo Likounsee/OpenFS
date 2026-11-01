@@ -179,28 +179,29 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
 
     let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
     if plan.is_empty() {
-        // A complete ABORT is a durable terminal record. It is safe to advance
-        // past that transaction, but never past an incomplete BEGIN/UPDATE tail:
-        // doing so could make an old home image appear newer than it is.
-        if let Some(aborted) = scanned
-            .records
-            .last()
-            .filter(|record| record.kind == JournalRecordKind::Abort)
-        {
-            let next_sequence = aborted
-                .sequence
+        // An incomplete transaction has no COMMIT, so none of its redo images can
+        // reach home blocks. Retire the valid prefix durably before clearing the ring;
+        // this prevents a shorter retry from leaving stale records after its COMMIT.
+        if let Some(last_record) = scanned.records.last() {
+            let highest_sequence = last_record.sequence;
+            let next_sequence = highest_sequence
                 .checked_add(1)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let next_transaction_id = aborted
-                .transaction_id
-                .checked_add(1)
-                .ok_or(Error::ArithmeticOverflow)?
-                .max(checkpoint.next_transaction_id);
+            let next_transaction_id = scanned
+                .records
+                .iter()
+                .filter(|record| record.kind == JournalRecordKind::Begin)
+                .try_fold(checkpoint.next_transaction_id, |_, record| {
+                    record
+                        .transaction_id
+                        .checked_add(1)
+                        .ok_or(Error::ArithmeticOverflow)
+                })?;
             let next_generation = checkpoint
                 .generation
                 .checked_add(1)
                 .ok_or(Error::ArithmeticOverflow)?;
-            checkpoint.checkpoint_sequence = aborted.sequence;
+            checkpoint.checkpoint_sequence = highest_sequence;
             checkpoint.next_sequence = next_sequence;
             checkpoint.next_transaction_id = next_transaction_id;
             checkpoint.head_block = 0;
@@ -222,7 +223,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
                 protected_blocks,
             });
         }
-        if !scanned.records.is_empty() || scanned.first_malformed_slot.is_some() {
+        if scanned.first_malformed_slot.is_some() {
             clear_journal_ring_from(device, region, 0)?;
         }
         return Ok(PersistentJournal {
