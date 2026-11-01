@@ -2878,7 +2878,6 @@ mod tests {
                 );
             }
         }
-
     }
 
     #[test]
@@ -2998,10 +2997,13 @@ mod tests {
 
         // The recovered writer must be able to continue at the next transaction ID.
         journal
-            .commit(&mut device, &[RedoUpdate {
-                target_block: HOME + 1,
-                contents: vec![0xD7; BS as usize],
-            }])
+            .commit(
+                &mut device,
+                &[RedoUpdate {
+                    target_block: HOME + 1,
+                    contents: vec![0xD7; BS as usize],
+                }],
+            )
             .unwrap();
         assert_eq!(read_block(&mut device, HOME + 1), vec![0xD7; BS as usize]);
         assert_eq!(journal.checkpoint().next_transaction_id, 4);
