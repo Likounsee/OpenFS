@@ -1441,3 +1441,12 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Aucun statut CI exploitable ni résultat de tests local n'est confirmé pour ces commits. Progression globale maintenue à 73 % : cette étape rend une capacité existante accessible depuis la session publique, sans compter deux fois l'implémentation transactionnelle déjà présente.
 
 - Correctif de placement publié au commit `76f098dd642b119bfea50839200b496f1095a604` : les deux méthodes sont bien membres de `VolumeSession` (et non des fonctions libres). L'inventaire a été réaligné sur leurs lignes définitives, commit `456705df47d1417d40037ccf1570a73835bff54d`; le total reste de 1 295 déclarations.
+
+### Opérations multi-objets exposées par VolumeSession (2026-11-01)
+
+- Commit `16341a0f52f3181ef4d9e930ba04e2a19fcbcf62` : ajout de `VolumeSession::rename_objects()` et `VolumeSession::remove_objects()`. Les adaptateurs peuvent déplacer/renommer plusieurs objets entre répertoires en une seule publication d'inventaire, ou supprimer plusieurs fichiers/répertoires vides par identifiants stables en une seule opération.
+- Le test de cycle de vie de session couvre désormais un échange de fichiers entre deux répertoires après remontage : les chemins changent ensemble, les ObjectId restent stables, puis les deux fichiers sont supprimés dans un seul lot. Les objets voisins sont vérifiés séparément.
+- L'implémentation réutilise les primitives persistantes existantes `rename_persistent_objects` et `remove_persistent_objects`, qui valident le lot avant publication et gèrent les résultats d'E/S incertains par redécouverte de l'inventaire. Aucun nouveau format disque n'est introduit.
+- Inventaire lexical mis à jour : 1 297 déclarations sur 18 fichiers Rust; les lignes des tests de récupération déplacés ont également été réalignées.
+- Les tests n'ont pas été exécutés localement dans cette session. Aucun statut CI exploitable n'est disponible pour les commits concernés; ne pas considérer cette étape comme validée sur disque réel.
+- Progression conservée : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 %. Il s'agit de rendre les primitives atomiques existantes accessibles dans l'API de session, pas de revendiquer la prise en charge des hard links ou la fin de R3.
