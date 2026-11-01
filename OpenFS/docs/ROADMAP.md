@@ -1423,3 +1423,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `ca1c2c52097d02851931fafb63683a8cccdbf607` : `VolumeSession` expose maintenant `write_file_from_reader` et `stream_file_to_writer`. Les adaptateurs hôtes peuvent importer/exporter de gros fichiers sans devoir matérialiser tout leur contenu dans une tranche ou un vecteur en mémoire.
 - Le test de cycle de vie de session vérifie le flux complet, le nombre d'octets transférés, la relecture après démontage/remontage et la persistance du remplacement.
 - Le moteur de bas niveau existait déjà; cette étape complète la façade publique de session et son parcours d'intégration. Aucun test local ni statut CI exploitable n'a été obtenu dans cette session. Global roadmap conservé à 73 % en attendant validation.
+
+### Création atomique multi-répertoires depuis VolumeSession (2026-11-01)
+
+- Commit `850dfc8bbcb0431749fe024fe44ec258a84fc046` : ajout de `VolumeSession::create_objects_auto_with_parent_ids()`. Un adaptateur peut maintenant préparer un lot de fichiers/répertoires répartis dans plusieurs répertoires existants, avec génération automatique des identifiants et publication via une seule transaction d'inventaire.
+- Le test de cycle de vie vérifie qu'un conflit dans le second répertoire ne publie pas le premier objet, puis que le lot valide est visible dans les deux répertoires et survit au démontage/remontage. Les identifiants sont réservés avant validation; un lot rejeté peut laisser des trous dans la séquence, sans réutilisation d'ID pendant la session.
+- Commit `71665d4e533bccf384134a1c6b0ec000e8e26f0a` : vérification des deux objets créés après réouverture; commit `bc25762fb36c763ff2e5841108e9228969a346a6` : inventaire lexical régénéré, 1 293 déclarations sur 18 fichiers Rust.
+- Aucun test local n'a été exécuté et le SHA final ne retourne aucun statut ni workflow CI exploitable dans l'interface consultée. Le test est publié, pas déclaré réussi.
+- Progression globale maintenue à 73 % : cette API étend la capacité de création transactionnelle, sans valider à elle seule une nouvelle phase complète.
