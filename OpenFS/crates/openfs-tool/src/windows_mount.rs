@@ -705,12 +705,6 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         Ok(())
     }
 
-
-
-
-
-
-
     fn delete_file(
         &'b self,
         _file_name: &U16CStr,
