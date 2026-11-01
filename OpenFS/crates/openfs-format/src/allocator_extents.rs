@@ -807,10 +807,7 @@ impl OpenedVolume {
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let max_updates = self.journal.max_update_count(device)?;
-        let max_blocks = u64::try_from(max_updates)
-            .map_err(|_| Error::ArithmeticOverflow)?
-            .checked_mul(bits_per_block)
-            .ok_or(Error::ArithmeticOverflow)?;
+        let max_blocks = max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
         if count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous free extent exceeds the journal's atomic bitmap capacity",
