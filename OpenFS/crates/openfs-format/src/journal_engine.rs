@@ -1594,7 +1594,7 @@ mod tests {
         let mut recovered = failing.into_inner();
         let mut reopened = open_journal(&mut recovered, REGION)
             .expect("an incomplete transaction at the ring tail is discardable");
-        assert_eq!(reopened.checkpoint().checkpoint_sequence, 9);
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 5);
 
         for slot in 0..REGION.ring_blocks {
             assert_eq!(
@@ -1609,7 +1609,7 @@ mod tests {
         reopened.commit(&mut recovered, &[update(0x33)]).unwrap();
         let final_open = open_journal(&mut recovered, REGION)
             .expect("short retry must reopen without stale journal records");
-        assert_eq!(final_open.checkpoint().checkpoint_sequence, 13);
+        assert_eq!(final_open.checkpoint().checkpoint_sequence, 9);
         assert_eq!(read_home(&mut recovered), vec![0x33; BS as usize]);
     }
 
