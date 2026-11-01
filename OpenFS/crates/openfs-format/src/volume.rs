@@ -9828,10 +9828,10 @@ mod tests {
     }
 
     #[test]
-    fn locator_and_fallback_scan_reject_invalid_populated_namespace() {
+    fn locator_rejects_invalid_populated_namespace_and_stale_pointers() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        for hint_mode in ["valid", "absent", "stale"] {
+        for hint_mode in ["valid", "stale", "absent"] {
             let path = image_path(match hint_mode {
                 "valid" => "locator-invalid-populated-namespace",
                 "absent" => "scan-invalid-populated-namespace",
@@ -9876,15 +9876,24 @@ mod tests {
                     volume = open_volume(&mut device).unwrap();
                 }
 
-                assert!(
-                    matches!(
+                match hint_mode {
+                    "valid" => assert!(matches!(
                         volume.discover_persistent_inventory(&mut device),
                         Err(Error::Corrupt(
                             "persistent inventory descriptor contains an invalid namespace"
                         ))
-                    ),
-                    "invalid namespace was accepted with hint mode {hint_mode}"
-                );
+                    )),
+                    "stale" => assert!(matches!(
+                        volume.discover_persistent_inventory(&mut device),
+                        Err(Error::Corrupt(
+                            "inventory descriptor locator does not reference a descriptor"
+                        ))
+                    )),
+                    _ => assert!(volume
+                        .discover_persistent_inventory(&mut device)
+                        .unwrap()
+                        .is_none()),
+                }
             }
             fs::remove_file(path).unwrap();
         }
@@ -10121,24 +10130,25 @@ mod tests {
                 .publish_persistent_inventory(&mut device, &descriptor)
                 .unwrap();
 
-            // A damaged/stale locator may point beyond the device. The hint is advisory;
-            // authoritative discovery must still find the unique allocated descriptor.
+            // A damaged locator is no longer treated as advisory: current-format
+            // discovery must fail closed rather than scan arbitrary file contents.
             let invalid_hint = device.block_count() + 17;
             crate::volume::persist_inventory_hint(&mut device, invalid_hint).unwrap();
             volume = open_volume(&mut device).unwrap();
             assert_eq!(volume.inventory_descriptor_hint, Some(invalid_hint));
 
-            let discovered = volume
-                .discover_persistent_inventory(&mut device)
-                .unwrap()
-                .unwrap();
-            assert_eq!(discovered, (descriptor_block, descriptor));
+            assert!(matches!(
+                volume.discover_persistent_inventory(&mut device),
+                Err(Error::Corrupt(
+                    "inventory descriptor locator points outside the data region"
+                ))
+            ));
         }
         fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn locator_fast_path_rejects_a_second_persistent_inventory_descriptor() {
+    fn locator_fast_path_ignores_descriptor_magic_in_unreferenced_file_data() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
         let path = image_path("inventory-descriptor-ambiguous-with-locator");
@@ -10174,14 +10184,10 @@ mod tests {
                 .write_blocks(second, &descriptor.encode(4096).unwrap())
                 .unwrap();
 
-            assert!(
-                matches!(
-                    volume.discover_persistent_inventory(&mut device),
-                    Err(Error::Corrupt(
-                        "multiple persistent inventory descriptors were discovered"
-                    ))
-                ),
-                "a valid locator must not hide a second allocated descriptor"
+            assert_eq!(
+                volume.discover_persistent_inventory(&mut device).unwrap(),
+                Some((first, descriptor)),
+                "unreferenced data blocks containing descriptor magic are ordinary file data"
             );
         }
         fs::remove_file(path).unwrap();
@@ -10210,13 +10216,8 @@ mod tests {
                 }
 
                 assert!(
-                    matches!(
-                        volume.discover_persistent_inventory(&mut device),
-                        Err(Error::Corrupt(
-                            "multiple persistent inventory descriptors were discovered"
-                        ))
-                    ),
-                    "ambiguous descriptors must be rejected for block size {block_size}"
+                    volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                    "unreferenced descriptor-like data must not create a namespace at block size {block_size}"
                 );
             }
             fs::remove_file(path).unwrap();
@@ -10949,14 +10950,12 @@ mod tests {
                 device.write_blocks(first, &encoded).unwrap();
                 device.write_blocks(second, &encoded).unwrap();
 
-                assert!(
-                    matches!(
-                        volume.discover_persistent_inventory(&mut device),
-                        Err(Error::Corrupt(
-                            "multiple persistent inventory descriptors were discovered"
-                        ))
-                    ),
-                    "discovery must reject two descriptors at block size {block_size}"
+                crate::volume::persist_inventory_hint(&mut device, first).unwrap();
+                volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume.discover_persistent_inventory(&mut device).unwrap(),
+                    Some((first, descriptor)),
+                    "the authoritative locator selects one descriptor; unrelated magic is ignored"
                 );
             }
             fs::remove_file(path).unwrap();
@@ -10996,11 +10995,13 @@ mod tests {
                     )
                     .unwrap();
                 device.flush().unwrap();
+                crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                volume = open_volume(&mut device).unwrap();
 
                 assert_eq!(
                     volume.discover_persistent_inventory(&mut device).unwrap(),
                     Some((descriptor_block, descriptor)),
-                    "sparse descriptor at the final data block must be found at block size {block_size}"
+                    "sparse descriptor at the final data block must be found through its locator at block size {block_size}"
                 );
             }
             fs::remove_file(path).unwrap();
@@ -11043,6 +11044,8 @@ mod tests {
                             &descriptor.encode(block_size as usize).unwrap(),
                         )
                         .unwrap();
+                    crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                    volume = open_volume(&mut device).unwrap();
 
                     assert!(
                         matches!(
@@ -11083,6 +11086,8 @@ mod tests {
                     };
                     let encoded = descriptor.encode(block_size as usize).unwrap();
                     device.write_blocks(descriptor_block, &encoded).unwrap();
+                    crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                    volume = open_volume(&mut device).unwrap();
 
                     let freed_block = match freed_inventory {
                         "metadata" => metadata_block,
