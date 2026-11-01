@@ -526,7 +526,9 @@ impl ExtentMap {
             }
         }
         if logical_end > logical_block_count {
-            return Err(Error::InvalidInput("logical range exceeds file block count"));
+            return Err(Error::InvalidInput(
+                "logical range exceeds file block count",
+            ));
         }
 
         let end_index = self
@@ -1108,12 +1110,26 @@ mod tests {
         assert_eq!(
             map.allocated_ranges_in_range(1, 6, 7).unwrap(),
             vec![
-                Extent { logical_start: 1, physical_start: 101, block_count: 2 },
-                Extent { logical_start: 5, physical_start: 200, block_count: 2 },
+                Extent {
+                    logical_start: 1,
+                    physical_start: 101,
+                    block_count: 2,
+                },
+                Extent {
+                    logical_start: 5,
+                    physical_start: 200,
+                    block_count: 2,
+                },
             ]
         );
-        assert_eq!(map.allocated_ranges_in_range(3, 2, 7).unwrap(), Vec::<Extent>::new());
-        assert_eq!(map.allocated_ranges_in_range(0, 0, 7).unwrap(), Vec::<Extent>::new());
+        assert_eq!(
+            map.allocated_ranges_in_range(3, 2, 7).unwrap(),
+            Vec::<Extent>::new()
+        );
+        assert_eq!(
+            map.allocated_ranges_in_range(0, 0, 7).unwrap(),
+            Vec::<Extent>::new()
+        );
         assert!(matches!(
             map.allocated_ranges_in_range(6, 2, 7),
             Err(Error::InvalidInput(_))
@@ -1126,7 +1142,8 @@ mod tests {
             logical_start: 8,
             physical_start: 100,
             block_count: 1,
-        }]).unwrap();
+        }])
+        .unwrap();
         assert!(matches!(
             map.allocated_ranges_in_range(0, 0, 8),
             Err(Error::Corrupt(_))
