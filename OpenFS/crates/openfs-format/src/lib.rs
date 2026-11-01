@@ -168,10 +168,7 @@ mod legacy_layout;
 mod metadata;
 mod namespace;
 mod verifier;
-// The persistent directory visitor is kept beside the volume API after its large
-// test module; allow that intentional layout without weakening crate-wide Clippy.
-#[allow(clippy::items_after_test_module)]
-mod volume;
+#[allow(clippy::items_after_test_module)] mod volume;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{
     decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES,
