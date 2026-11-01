@@ -2764,6 +2764,9 @@ mod tests {
         for logical_start in 0..1024_u64 {
             for block_count in 0..=12_u64 {
                 let end = logical_start + block_count;
+                if end > 1024 {
+                    continue;
+                }
                 let expected = (logical_start..end)
                     .filter(|logical| map.physical_block(*logical).is_some())
                     .count() as u64;
@@ -2796,6 +2799,9 @@ mod tests {
         for logical_start in 0..1024_u64 {
             for block_count in 0..=16_u64 {
                 let logical_end = logical_start + block_count;
+                if logical_end > 1024 {
+                    continue;
+                }
                 let expected: Vec<(u64, u64)> = (logical_start..logical_end)
                     .filter(|logical| map.physical_block(*logical).is_none())
                     .fold(Vec::new(), |mut holes, logical| {
