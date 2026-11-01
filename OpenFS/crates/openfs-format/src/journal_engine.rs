@@ -177,28 +177,32 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         checkpoint.next_transaction_id,
     )?;
 
-    if !scanned.records.is_empty() {
-        let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
-        // Preflight every counter before replay: a counter overflow must never leave
-        // home blocks modified while recovery cannot publish its checkpoint.
+    let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
+    if !plan.is_empty() {
+        // Only a durable COMMIT advances the checkpoint. A torn or incomplete
+        // transaction at the end of the ring is intentionally ignored; advancing
+        // through its BEGIN/UPDATE records would make an old home image appear newer.
+        let last_transaction = plan.last().ok_or(Error::Corrupt(
+            "non-empty journal recovery plan has no final transaction",
+        ))?;
+        let highest_transaction = last_transaction.transaction_id;
         let highest_sequence = scanned
             .records
-            .last()
+            .iter()
+            .rev()
+            .find(|record| {
+                record.kind == JournalRecordKind::Commit
+                    && record.transaction_id == highest_transaction
+            })
+            .map(|record| record.sequence)
             .ok_or(Error::Corrupt(
-                "journal recovery scan returned no records for a non-empty recovery set",
-            ))?
-            .sequence;
+                "committed journal transaction has no terminal COMMIT record",
+            ))?;
+        // Preflight every counter before replay: a counter overflow must never leave
+        // home blocks modified while recovery cannot publish its checkpoint.
         let next_sequence = highest_sequence
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
-        let highest_transaction = scanned
-            .records
-            .iter()
-            .map(|record| record.transaction_id)
-            .max()
-            .ok_or(Error::Corrupt(
-                "journal recovery scan has no transaction identifier",
-            ))?;
         let next_transaction_id = highest_transaction
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
