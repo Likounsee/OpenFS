@@ -417,4 +417,12 @@ mod tests {
         assert!(super::parse_verified_geometry("64000000000\t520").is_err());
         assert!(super::parse_verified_geometry("unknown\t512").is_err());
     }
+
+
+    #[cfg(not(windows))]
+    #[test]
+    fn offline_usb_verification_is_explicitly_unsupported_on_non_windows_hosts() {
+        let error = super::verify_offline_usb_disk(0, "USB-UNIQUE-ID").unwrap_err();
+        assert!(error.to_string().contains("currently requires Windows"));
+    }
 }
