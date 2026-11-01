@@ -1443,6 +1443,91 @@ impl OpenedVolume {
         device: &mut D,
     ) -> Result<Option<(u64, PersistentInventoryDescriptor)>> {
         self.validate_device(device)?;
+
+        // Current-format volumes carry an authoritative descriptor block locator in
+        // both checksummed superblocks. Follow that pointer directly: scanning every
+        // allocated data block for magic can mistake ordinary file contents for
+        // metadata and makes every namespace operation proportional to volume usage.
+        if let Some(descriptor_block) = self.inventory_descriptor_hint {
+            if descriptor_block < self.volume.layout.data_start
+                || descriptor_block >= self.volume.layout.backup_superblock
+            {
+                return Err(Error::Corrupt(
+                    "inventory descriptor locator points outside the data region",
+                ));
+            }
+            if !self.is_data_block_allocated(device, descriptor_block)? {
+                return Err(Error::Corrupt(
+                    "inventory descriptor locator points to a free block",
+                ));
+            }
+            let mut bytes = try_zeroed_block(
+                self.volume.block_size as usize,
+                "allocation failed while reading persistent inventory descriptor",
+            )?;
+            device.read_blocks(descriptor_block, &mut bytes)?;
+            if !bytes.starts_with(INVENTORY_DESCRIPTOR_MAGIC) {
+                return Err(Error::Corrupt(
+                    "inventory descriptor locator does not reference a descriptor",
+                ));
+            }
+            let descriptor = PersistentInventoryDescriptor::decode(&bytes)?;
+            if descriptor.metadata_blocks.contains(&descriptor_block)
+                || descriptor.directory_blocks.contains(&descriptor_block)
+            {
+                return Err(Error::Corrupt(
+                    "inventory descriptor aliases one of its inventory blocks",
+                ));
+            }
+            let mut references = try_join_block_numbers(
+                &descriptor.metadata_blocks,
+                &descriptor.directory_blocks,
+                "allocation failed while validating inventory references",
+            )?;
+            references.sort_unstable();
+            if references.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(Error::Corrupt(
+                    "inventory descriptor contains duplicate block ownership",
+                ));
+            }
+            for block in references {
+                if block < self.volume.layout.data_start
+                    || block >= self.volume.layout.backup_superblock
+                {
+                    return Err(Error::Corrupt(
+                        "inventory descriptor references a block outside the data region",
+                    ));
+                }
+                if !self.is_data_block_allocated(device, block)? {
+                    return Err(Error::Corrupt(
+                        "inventory descriptor references a free inventory block",
+                    ));
+                }
+            }
+            if descriptor.metadata_record_count != 0 || descriptor.directory_entry_count != 0 {
+                self.reconstruct_namespace(
+                    device,
+                    descriptor.root_id,
+                    &descriptor.metadata_blocks,
+                    descriptor.metadata_record_count,
+                    &descriptor.directory_blocks,
+                    descriptor.directory_entry_count,
+                )
+                .map_err(|_| {
+                    Error::Corrupt(
+                        "persistent inventory descriptor contains an invalid namespace",
+                    )
+                })?;
+            }
+            return Ok(Some((descriptor_block, descriptor)));
+        }
+
+        // v2 predates the superblock locator and retains its compatibility discovery
+        // path. Current-format volumes without a locator have no published inventory;
+        // do not search user data for magic bytes.
+        if self.format_version >= PREVIOUS_VERSION {
+            return Ok(None);
+        }
         // Validate reserved and padding bits before trusting any allocation entry.
         // Do not materialize allocated_data_block_inventory here: on a large volume that
         // vector scales with every allocated block, even though discovery only needs a
