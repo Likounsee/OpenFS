@@ -12805,9 +12805,11 @@ mod tests {
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
+            // Reopening resets the volatile next-fit cursor. The freed first
+            // block is therefore the lowest available block and must be reused.
             assert_eq!(
                 volume.allocate_block(&mut device).unwrap(),
-                bits_per_bitmap_block + 2
+                bits_per_bitmap_block
             );
         }
         fs::remove_file(path).unwrap();
