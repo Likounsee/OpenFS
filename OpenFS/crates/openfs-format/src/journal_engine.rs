@@ -240,14 +240,18 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         }
         // Remove any uncommitted or torn suffix before replay. Keep committed records
         // durable until home blocks are flushed and the new checkpoint is published.
-        let last_commit_index = scanned.records.iter().rposition(|record| {
-            record.kind == JournalRecordKind::Commit
-                && record.transaction_id == highest_transaction
-        }).ok_or(Error::Corrupt(
-            "committed journal transaction has no terminal COMMIT record",
-        ))?;
-        let clear_from = u64::try_from(last_commit_index + 1)
-            .map_err(|_| Error::ArithmeticOverflow)?;
+        let last_commit_index = scanned
+            .records
+            .iter()
+            .rposition(|record| {
+                record.kind == JournalRecordKind::Commit
+                    && record.transaction_id == highest_transaction
+            })
+            .ok_or(Error::Corrupt(
+                "committed journal transaction has no terminal COMMIT record",
+            ))?;
+        let clear_from =
+            u64::try_from(last_commit_index + 1).map_err(|_| Error::ArithmeticOverflow)?;
         clear_journal_ring_from(device, region, clear_from)?;
 
         // Decode one transaction at a time during replay. The redo records remain the
