@@ -1246,6 +1246,9 @@ impl OpenedVolume {
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
+        // Preserve a free run across adjacent bitmap pages. Bitmap pages are an
+        // indexing boundary, not a physical discontinuity in the data region.
+        let mut current: Option<FreeExtent> = None;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1342,10 +1345,8 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            let mut current: Option<FreeExtent> = None;
-            // Start at the first relevant bitmap byte. Enumerating the whole page
-            // with take/skip repeatedly revisits bytes before the data region on the
-            // first segment, which is wasteful for large block sizes and many scans.
+            // Start at the first relevant bitmap byte; avoid revisiting the
+            // unused prefix on the first segment.
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
@@ -1405,12 +1406,12 @@ impl OpenedVolume {
                     free_bits &= !run_mask;
                 }
             }
-            if let Some(extent) = current {
-                extents
-                    .try_reserve(1)
-                    .map_err(|_| Error::AllocationFailed("unable to grow free-extent inventory"))?;
-                extents.push(extent);
-            }
+        }
+        if let Some(extent) = current {
+            extents
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed("unable to grow free-extent inventory"))?;
+            extents.push(extent);
         }
         Ok(extents)
     }
@@ -3751,3 +3752,24 @@ mod allocation_bitmap_report_tests {
         fs::remove_file(path).unwrap();
     }
 }
+ 
+    #[test]
+    fn free_extent_inventory_coalesces_runs_across_bitmap_pages() {
+        let path = image_path("free-inventory-cross-bitmap-page");
+        {
+            // One 4 KiB bitmap page describes 32,768 data blocks. The volume
+            // crosses that boundary so the free run must remain contiguous.
+            let mut device = ImageDevice::create(&path, 4096, 33_000).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let extents = volume.free_extent_inventory(&mut device).unwrap();
+
+            assert_eq!(extents.len(), 1);
+            assert!(extents[0].block_count > 32_768);
+            assert_eq!(
+                extents[0].start_block + extents[0].block_count,
+                volume.volume.layout.backup_superblock
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+\n
