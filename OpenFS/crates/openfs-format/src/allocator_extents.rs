@@ -934,7 +934,10 @@ impl OpenedVolume {
     ) -> Result<Option<u64>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > self.journal.max_update_count(device)? as u64 * bits_per_block {
+        let max_updates = self.journal.max_update_count(device)?;
+        let max_blocks =
+            max_atomic_extent_blocks(max_updates, bits_per_block, self.volume.layout.data_blocks())?;
+        if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous extent length exceeds the journal's atomic bitmap capacity",
             ));
@@ -1060,11 +1063,8 @@ impl OpenedVolume {
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
         let max_updates = self.journal.max_update_count(device)?;
-        let max_blocks = u64::try_from(max_updates)
-            .map_err(|_| Error::ArithmeticOverflow)?
-            .checked_mul(bits_per_block)
-            .ok_or(Error::ArithmeticOverflow)?;
-        if count == 0 || count > max_blocks || count > layout.data_blocks() {
+        let max_blocks = max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous extent length exceeds the journal's atomic bitmap capacity",
             ));
@@ -2429,6 +2429,21 @@ pub(crate) fn validate_bitmap_reserved_bits(
     Ok(())
 }
 
+/// Bound an atomic contiguous allocation by both journal capacity and usable data space.
+fn max_atomic_extent_blocks(
+    max_updates: usize,
+    bits_per_bitmap_block: u64,
+    data_blocks: u64,
+) -> Result<u64> {
+    let max_updates = u64::try_from(max_updates).map_err(|_| Error::ArithmeticOverflow)?;
+    // The mathematical journal capacity may exceed u64::MAX for synthetic or very
+    // large devices. Saturation is safe here because the volume's data region is the
+    // tighter bound and every requested extent is represented by a u64 block count.
+    Ok(max_updates
+        .saturating_mul(bits_per_bitmap_block)
+        .min(data_blocks))
+}
+
 fn validate_device<D: BlockDevice>(volume: &OpenedVolume, device: &D) -> Result<()> {
     if device.block_size() != volume.volume.block_size
         || device.block_count() != volume.volume.total_blocks
@@ -2457,6 +2472,13 @@ mod allocation_bitmap_report_tests {
     use openfs_block::{BlockDevice, ImageDevice};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn atomic_contiguous_capacity_saturates_and_is_bounded_by_data_region() {
+        assert_eq!(max_atomic_extent_blocks(2, 32_768, 100_000).unwrap(), 65_536);
+        assert_eq!(max_atomic_extent_blocks(usize::MAX, u64::MAX, 123).unwrap(), 123);
+        assert_eq!(max_atomic_extent_blocks(0, 32_768, 123).unwrap(), 0);
+    }
 
     #[test]
     fn bitmap_range_helpers_preserve_neighboring_bits_and_validate_bounds() {
