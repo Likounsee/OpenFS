@@ -262,9 +262,11 @@ pub fn plan_recovery(
                 }
 
                 let mut updates = Vec::new();
-                updates.try_reserve_exact(update_records.len()).map_err(|_| {
-                    Error::AllocationFailed("unable to reserve journal recovery updates")
-                })?;
+                updates
+                    .try_reserve_exact(update_records.len())
+                    .map_err(|_| {
+                        Error::AllocationFailed("unable to reserve journal recovery updates")
+                    })?;
                 for update in update_records {
                     let mut payload = Vec::new();
                     payload
