@@ -1080,7 +1080,8 @@ impl OpenedVolume {
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
         let max_updates = self.journal.max_update_count(device)?;
-        let max_blocks = max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        let max_blocks =
+            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
         if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous extent length exceeds the journal's atomic bitmap capacity",
@@ -1782,7 +1783,6 @@ impl OpenedVolume {
                     run_len = 0;
                 }
             }
-
         }
 
         if run_len != 0 {
@@ -2480,8 +2480,14 @@ mod allocation_bitmap_report_tests {
 
     #[test]
     fn atomic_contiguous_capacity_saturates_and_is_bounded_by_data_region() {
-        assert_eq!(max_atomic_extent_blocks(2, 32_768, 100_000).unwrap(), 65_536);
-        assert_eq!(max_atomic_extent_blocks(usize::MAX, u64::MAX, 123).unwrap(), 123);
+        assert_eq!(
+            max_atomic_extent_blocks(2, 32_768, 100_000).unwrap(),
+            65_536
+        );
+        assert_eq!(
+            max_atomic_extent_blocks(usize::MAX, u64::MAX, 123).unwrap(),
+            123
+        );
         assert_eq!(max_atomic_extent_blocks(0, 32_768, 123).unwrap(), 0);
     }
 
@@ -3394,7 +3400,10 @@ mod allocation_bitmap_report_tests {
             let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             let stats = volume.free_extent_stats(&mut device).unwrap();
             assert_eq!(stats.free_extent_count, 1);
-            assert_eq!(stats.largest_free_extent_blocks, volume.volume.layout.data_blocks());
+            assert_eq!(
+                stats.largest_free_extent_blocks,
+                volume.volume.layout.data_blocks()
+            );
             assert_eq!(
                 stats.largest_free_extent_start_block,
                 Some(volume.volume.layout.data_start)
