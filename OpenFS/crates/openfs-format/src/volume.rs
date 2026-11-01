@@ -18109,3 +18109,44 @@ mod tests {
         }
     }
 }
+
+impl OpenedVolume {
+    /// Visit a discovered persistent directory from one validated namespace snapshot.
+    ///
+    /// Unlike repeated paginated lookups, this discovers and reconstructs the namespace
+    /// once, then streams borrowed entry/metadata pairs to the visitor without building a
+    /// second directory-sized collection.
+    pub fn visit_persistent_directory<D, F>(
+        &self,
+        device: &mut D,
+        directory_path: &str,
+        visitor: F,
+    ) -> Result<()>
+    where
+        D: BlockDevice,
+        F: FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
+    {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        let directory_id = namespace.resolve_path(directory_path)?;
+        namespace.visit_directory(directory_id, visitor)
+    }
+}
+
+impl<D: BlockDevice> VolumeSession<D> {
+    /// Stream a directory from one validated on-disk namespace snapshot.
+    ///
+    /// The visitor may stop early by returning false. Entries arrive in lexical order and
+    /// include their already-validated metadata, avoiding a separate stat lookup per child.
+    pub fn visit_directory(
+        &mut self,
+        directory_path: &str,
+        visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
+    ) -> Result<()> {
+        self.opened
+            .visit_persistent_directory(&mut self.device, directory_path, visitor)
+    }
+}
