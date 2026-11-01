@@ -1116,8 +1116,12 @@ mod tests {
         assert!(!is_windows_physical_drive_path(Path::new(
             r"\\.\PhysicalDrive0\Partition1"
         )));
-        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive")));
-        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDriveX")));
+        assert!(!is_windows_physical_drive_path(Path::new(
+            r"\\.\PhysicalDrive"
+        )));
+        assert!(!is_windows_physical_drive_path(Path::new(
+            r"\\.\PhysicalDriveX"
+        )));
         assert!(!is_windows_physical_drive_path(Path::new(
             r"C:\\openfs.img"
         )));
