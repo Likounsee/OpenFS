@@ -193,7 +193,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             protected_blocks,
         });
     }
-    if !plan.is_empty() {
+    {
         // Only a durable COMMIT advances the checkpoint. A torn or incomplete
         // transaction at the end of the ring is intentionally ignored; advancing
         // through its BEGIN/UPDATE records would make an old home image appear newer.
@@ -1525,6 +1525,46 @@ mod tests {
             assert_eq!(journal.checkpoint().checkpoint_sequence, 0);
             assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
         }
+    }
+
+    #[test]
+    fn recovery_clears_long_uncommitted_transaction_before_short_retry() {
+        let mut device = formatted();
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        let long_updates = [
+            update(0xA5),
+            RedoUpdate {
+                target_block: HOME + 1,
+                contents: vec![0x5A; BS as usize],
+            },
+        ];
+
+        // The five pre-COMMIT records are durable, but the flush that would
+        // precede the COMMIT fails. Reopening must discard this incomplete tail.
+        let mut failing = FailAt::new(device, 5);
+        assert!(matches!(
+            journal.commit(&mut failing, &long_updates),
+            Err(Error::Io(_))
+        ));
+        let mut recovered = failing.into_inner();
+        let mut reopened = open_journal(&mut recovered, REGION)
+            .expect("an incomplete transaction at the ring tail is discardable");
+
+        for slot in 0..REGION.ring_blocks {
+            assert_eq!(
+                read_block(&mut recovered, REGION.ring_start + slot),
+                vec![0; BS as usize],
+                "abandoned record remained in ring slot {slot}"
+            );
+        }
+
+        // The shorter transaction reuses the same IDs/sequences. It must not be
+        // followed by stale UPDATE records from the previous longer attempt.
+        reopened.commit(&mut recovered, &[update(0x33)]).unwrap();
+        let final_open = open_journal(&mut recovered, REGION)
+            .expect("short retry must reopen without stale journal records");
+        assert_eq!(final_open.checkpoint().checkpoint_sequence, 4);
+        assert_eq!(read_home(&mut recovered), vec![0x33; BS as usize]);
     }
 
     #[test]
