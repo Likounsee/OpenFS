@@ -14,9 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(windows)]
 use openfs_block::RawDevice;
 use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
-use openfs_format::{
-    check_volume, format_volume, open_volume, ObjectId, ObjectKind, VolumeSession,
-};
+use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
+#[cfg(windows)]
+use openfs_format::VolumeSession;
 
 mod windows_device;
 #[cfg(windows)]
