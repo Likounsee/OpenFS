@@ -1565,8 +1565,8 @@ impl OpenedVolume {
     /// Atomically allocate a contiguous extent from the smallest fitting free run.
     ///
     /// Selection is deterministic (smallest extent, then lowest block number). The selected
-    /// bitmap is reread and every target bit is checked before the journal is committed.
-    /// Like other allocator transactions, the extent must fit in one bitmap segment.
+    /// bitmap pages are reread and every target bit is checked before the journal is committed.
+    /// The extent may cross bitmap pages when the complete redo set fits in one transaction.
     pub fn allocate_best_fit_contiguous_blocks<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -1718,9 +1718,8 @@ impl OpenedVolume {
 
     /// Measure free-space fragmentation without modifying the volume.
     ///
-    /// Extents are counted independently per bitmap segment so the report remains bounded
-    /// and stable at bitmap-page boundaries, even though allocation transactions can now
-    /// update multiple bitmap home blocks atomically. Reserved and padding bits are validated
+    /// Adjacent free runs are coalesced across bitmap-page boundaries because those pages
+    /// are metadata segmentation, not physical gaps. Reserved and padding bits are validated
     /// during the same bitmap pass, avoiding a separate full-volume scan.
     pub fn free_extent_stats<D: BlockDevice>(&self, device: &mut D) -> Result<FreeExtentStats> {
         validate_device(self, device)?;
