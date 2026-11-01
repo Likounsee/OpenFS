@@ -1246,9 +1246,6 @@ impl OpenedVolume {
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
-        // Preserve a free run across adjacent bitmap pages. Bitmap pages are an
-        // indexing boundary, not a physical discontinuity in the data region.
-        let mut current: Option<FreeExtent> = None;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
@@ -1323,6 +1320,9 @@ impl OpenedVolume {
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
+        // Preserve a free run across adjacent bitmap pages. Bitmap pages are an
+        // indexing boundary, not a physical discontinuity in the data region.
+        let mut current: Option<FreeExtent> = None;
         for bitmap_index in first_bitmap..=last_bitmap {
             let base = bitmap_index
                 .checked_mul(bits_per_block)
