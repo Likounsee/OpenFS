@@ -1410,3 +1410,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 - Commit `51220b023367b37c0244ac59bdb3e206419b273f` : le test de prévalidation de capacité exerce maintenant aussi `PersistentJournal::max_update_count()` et confirme que le ring de 8 blocs accepte au maximum 3 images redo de 4096 octets (2 chunks par image + BEGIN/COMMIT), tandis que la transaction trop grande est toujours rejetée sans mutation persistante.
 - Ce changement renforce le test du contrat de capacité; il n'ajoute pas de nouvelle capacité transactionnelle. Aucun test local ni résultat CI exacte-SHA n'est disponible dans cette session; les validations restent en attente et le pourcentage global reste à 73 %.
+
+### Reprise — atomicité du remplacement de fichiers sous erreurs E/S (2026-11-01)
+
+- Commit `586fa29afbf377aaebeaaac3e6d2ad99504a9eb3` : ajout d'un test d'intégration qui injecte une erreur unique sur 24 positions d'écriture puis 24 positions de flush pendant `replace_persistent_file_at_path`.
+- Après chaque interruption, le test rouvre l'image, vérifie que l'espace de noms expose soit l'ancien couple source/destination, soit le remplacement complet, et contrôle la cohérence de l'inventaire persistant. Il couvre notamment le cas où une publication a pu devenir durable malgré une erreur remontée à l'appelant.
+- L'inventaire lexical CSV n'est pas modifié : le générateur exclut volontairement les déclarations sous `#[cfg(test)]` du périmètre de production.
+- Validation locale et CI exacte-SHA non disponibles dans cette session. Le test est publié mais non déclaré réussi; progression globale maintenue à 73 % jusqu'à validation Linux/Windows.
