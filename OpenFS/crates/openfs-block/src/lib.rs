@@ -521,9 +521,11 @@ pub struct RawDevice {
 
 #[cfg(windows)]
 fn is_windows_physical_drive_path(path: &Path) -> bool {
-    path.to_string_lossy()
-        .to_ascii_lowercase()
-        .starts_with(r"\\.\physicaldrive")
+    let normalized = path.to_string_lossy().to_ascii_lowercase();
+    let Some(disk_number) = normalized.strip_prefix(r"\\.\physicaldrive") else {
+        return false;
+    };
+    !disk_number.is_empty() && disk_number.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl RawDevice {
@@ -1114,6 +1116,8 @@ mod tests {
         assert!(!is_windows_physical_drive_path(Path::new(
             r"\\.\PhysicalDrive0\Partition1"
         )));
+        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDrive")));
+        assert!(!is_windows_physical_drive_path(Path::new(r"\\.\PhysicalDriveX")));
         assert!(!is_windows_physical_drive_path(Path::new(
             r"C:\\openfs.img"
         )));
