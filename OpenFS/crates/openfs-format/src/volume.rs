@@ -3928,7 +3928,13 @@ impl OpenedVolume {
                 .checked_add(requested_blocks)
                 .ok_or(Error::ArithmeticOverflow)?;
             if let Some(extent) = map.and_then(|extent_map| {
-                extent_map.extents().iter().find(|extent| {
+                let extents = extent_map.extents();
+                // Extents are sorted by logical_start, so locate the only possible
+                // containing extent with binary search instead of scanning the map.
+                let index = extents
+                    .partition_point(|extent| extent.logical_start <= first_logical)
+                    .saturating_sub(1);
+                extents.get(index).filter(|extent| {
                     extent.logical_start <= first_logical
                         && extent
                             .logical_start
