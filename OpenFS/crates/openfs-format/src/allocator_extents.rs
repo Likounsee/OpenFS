@@ -3450,6 +3450,77 @@ mod allocation_bitmap_report_tests {
     }
 
     #[test]
+    fn best_fit_allocation_spans_bitmap_pages_atomically() {
+        let path = image_path("best-fit-cross-bitmap-pages");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 33_000).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let layout = volume.volume.layout;
+            let bits_per_block = u64::from(volume.volume.block_size) * 8;
+            let boundary = bits_per_block;
+            let expected_start = boundary - 2;
+            let expected_end = expected_start + 5;
+            let first_bitmap = layout.data_start / bits_per_block;
+            let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
+
+            // Leave exactly one five-block free run, deliberately crossing the
+            // bitmap-page boundary. All other usable blocks are marked allocated.
+            for index in first_bitmap..=last_bitmap {
+                let base = index * bits_per_block;
+                let segment_start = layout.data_start.max(base);
+                let segment_end = layout.backup_superblock.min(base + bits_per_block);
+                let bitmap_block = layout.bitmap_start + index;
+                let mut bitmap = vec![0_u8; volume.volume.block_size as usize];
+                device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+                set_bitmap_range(
+                    &mut bitmap,
+                    segment_start - base,
+                    segment_end - base,
+                    true,
+                )
+                .unwrap();
+                let free_start = expected_start.max(segment_start);
+                let free_end = expected_end.min(segment_end);
+                if free_start < free_end {
+                    set_bitmap_range(
+                        &mut bitmap,
+                        free_start - base,
+                        free_end - base,
+                        false,
+                    )
+                    .unwrap();
+                }
+                device.write_blocks(bitmap_block, &bitmap).unwrap();
+            }
+            device.flush().unwrap();
+
+            assert_eq!(
+                volume.find_best_fit_free_extent(&mut device, 5).unwrap(),
+                Some(FreeExtent {
+                    start_block: expected_start,
+                    block_count: 5,
+                })
+            );
+            assert_eq!(
+                volume
+                    .allocate_best_fit_contiguous_blocks(&mut device, 5)
+                    .unwrap(),
+                expected_start
+            );
+            for block in expected_start..expected_end {
+                assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
+            }
+
+            drop(volume);
+            let reopened = crate::volume::open_volume(&mut device).unwrap();
+            for block in expected_start..expected_end {
+                assert!(reopened.is_data_block_allocated(&mut device, block).unwrap());
+            }
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn bitmap_report_counts_free_and_allocated_data_blocks() {
         let path = image_path("counts");
         {
