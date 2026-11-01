@@ -178,6 +178,21 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
     )?;
 
     let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
+    if plan.is_empty() {
+        // A transaction without a durable COMMIT is safe to discard. Leaving its
+        // valid prefix in the ring is unsafe: a shorter retry reuses its sequence
+        // and transaction IDs, leaving stale records after the new COMMIT.
+        if !scanned.records.is_empty() || scanned.first_malformed_slot.is_some() {
+            clear_journal_ring_from(device, region, 0)?;
+        }
+        return Ok(PersistentJournal {
+            region,
+            checkpoint,
+            active_checkpoint_copy: active_copy,
+            recovery_required: false,
+            protected_blocks,
+        });
+    }
     if !plan.is_empty() {
         // Only a durable COMMIT advances the checkpoint. A torn or incomplete
         // transaction at the end of the ring is intentionally ignored; advancing
@@ -223,6 +238,18 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
                 validate_protected_target(&protected_blocks, update.target_block)?;
             }
         }
+        // Remove any uncommitted or torn suffix before replay. Keep committed records
+        // durable until home blocks are flushed and the new checkpoint is published.
+        let last_commit_index = scanned.records.iter().rposition(|record| {
+            record.kind == JournalRecordKind::Commit
+                && record.transaction_id == highest_transaction
+        }).ok_or(Error::Corrupt(
+            "committed journal transaction has no terminal COMMIT record",
+        ))?;
+        let clear_from = u64::try_from(last_commit_index + 1)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        clear_journal_ring_from(device, region, clear_from)?;
+
         // Decode one transaction at a time during replay. The redo records remain the
         // source of truth, while peak temporary decoded-image memory is bounded to one
         // transaction rather than the full recovery plan.
@@ -536,6 +563,27 @@ fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u
 
 struct ScannedRecords {
     records: Vec<JournalRecord>,
+    first_malformed_slot: Option<u64>,
+}
+
+fn clear_journal_ring_from<D: BlockDevice>(
+    device: &mut D,
+    region: JournalRegion,
+    first_slot: u64,
+) -> Result<()> {
+    if first_slot >= region.ring_blocks {
+        return Ok(());
+    }
+    let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+    let zero = try_zeroed_vec(block_size, "unable to allocate journal ring cleanup block")?;
+    for slot in first_slot..region.ring_blocks {
+        let block_number = region
+            .ring_start
+            .checked_add(slot)
+            .ok_or(Error::ArithmeticOverflow)?;
+        device.write_blocks(block_number, &zero)?;
+    }
+    device.flush()
 }
 
 fn scan_uncheckpointed_records<D: BlockDevice>(
@@ -621,7 +669,10 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
         .try_reserve_exact(newer.len())
         .map_err(|_| Error::AllocationFailed("unable to reserve decoded journal records"))?;
     records.extend(newer.into_iter().map(|(_, record)| record));
-    Ok(ScannedRecords { records })
+    Ok(ScannedRecords {
+        records,
+        first_malformed_slot,
+    })
 }
 
 fn read_checkpoint_pair<D: BlockDevice>(
