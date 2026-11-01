@@ -34,6 +34,23 @@ impl Extent {
     }
 }
 
+/// Allocation accounting for one file's logical length and extent map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtentAllocationStats {
+    /// Logical file length in bytes.
+    pub file_size_bytes: u64,
+    /// Number of physical data blocks owned by the file.
+    pub allocated_blocks: u64,
+    /// Physical allocation capacity, including unused bytes in the final block.
+    pub physical_allocated_bytes: u64,
+    /// Bytes within EOF backed by physical extents.
+    pub logical_allocated_bytes: u64,
+    /// Logical bytes within EOF represented by sparse holes.
+    pub sparse_bytes: u64,
+    /// Number of discontiguous logical-to-physical extent runs.
+    pub extent_count: u64,
+}
+
 /// Ordered extent map for one file. Gaps in logical space represent sparse holes.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExtentMap {
@@ -88,6 +105,31 @@ impl ExtentMap {
         self.allocated_blocks()?
             .checked_mul(u64::from(block_size))
             .ok_or(Error::ArithmeticOverflow)
+    }
+
+    /// Summarize the logical and physical allocation of a file using this extent map.
+    ///
+    /// logical_allocated_bytes counts only bytes inside EOF that are backed by
+    /// extents; physical_allocated_bytes includes the unused tail of a partially
+    /// occupied final block. Sparse holes are counted in logical bytes.
+    pub fn allocation_stats(&self, file_size: u64, block_size: u32) -> Result<ExtentAllocationStats> {
+        if block_size == 0 {
+            return Err(Error::InvalidInput("block size must be nonzero"));
+        }
+        self.validate_file_size(file_size, block_size)?;
+        let allocated_blocks = self.allocated_blocks()?;
+        let physical_allocated_bytes = allocated_blocks
+            .checked_mul(u64::from(block_size))
+            .ok_or(Error::ArithmeticOverflow)?;
+        let logical_allocated_bytes = physical_allocated_bytes.min(file_size);
+        Ok(ExtentAllocationStats {
+            file_size_bytes: file_size,
+            allocated_blocks,
+            physical_allocated_bytes,
+            logical_allocated_bytes,
+            sparse_bytes: file_size - logical_allocated_bytes,
+            extent_count: self.extents.len() as u64,
+        })
     }
 
     /// Logical byte length implied by the final extent, including sparse gaps.
@@ -2689,6 +2731,57 @@ mod tests {
         assert!(matches!(
             ExtentMap::decode_block(&overlapping),
             Err(Error::Corrupt("physical extents overlap"))
+        ));
+    }
+
+
+    #[test]
+    fn allocation_stats_distinguish_sparse_bytes_from_final_block_slack() {
+        let map = ExtentMap::new(vec![
+            Extent { logical_start: 0, physical_start: 100, block_count: 2 },
+            Extent { logical_start: 4, physical_start: 200, block_count: 1 },
+        ]).unwrap();
+
+        let stats = map.allocation_stats(5 * 4096 - 100, 4096).unwrap();
+        assert_eq!(stats.file_size_bytes, 5 * 4096 - 100);
+        assert_eq!(stats.allocated_blocks, 3);
+        assert_eq!(stats.physical_allocated_bytes, 3 * 4096);
+        assert_eq!(stats.logical_allocated_bytes, 3 * 4096);
+        assert_eq!(stats.sparse_bytes, 2 * 4096 - 100);
+        assert_eq!(stats.extent_count, 2);
+    }
+
+    #[test]
+    fn allocation_stats_handles_empty_and_sparse_only_files() {
+        let empty = ExtentMap::default().allocation_stats(0, 4096).unwrap();
+        assert_eq!(empty.allocated_blocks, 0);
+        assert_eq!(empty.sparse_bytes, 0);
+        assert_eq!(empty.extent_count, 0);
+
+        let sparse = ExtentMap::default().allocation_stats(8193, 4096).unwrap();
+        assert_eq!(sparse.logical_allocated_bytes, 0);
+        assert_eq!(sparse.sparse_bytes, 8193);
+    }
+
+    #[test]
+    fn allocation_stats_rejects_invalid_size_and_overflow() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 0, physical_start: 10, block_count: 2,
+        }]).unwrap();
+        assert!(matches!(
+            map.allocation_stats(0, 4096),
+            Err(Error::Corrupt("empty file must not own data extents"))
+        ));
+        assert!(matches!(
+            ExtentMap::default().allocation_stats(1, 0),
+            Err(Error::InvalidInput("block size must be nonzero"))
+        ));
+        let huge = ExtentMap::new(vec![Extent {
+            logical_start: 0, physical_start: 10, block_count: u64::MAX / 2 + 1,
+        }]).unwrap();
+        assert!(matches!(
+            huge.allocation_stats(u64::MAX, 4),
+            Err(Error::ArithmeticOverflow)
         ));
     }
 
