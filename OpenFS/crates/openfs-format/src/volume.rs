@@ -4161,6 +4161,7 @@ impl OpenedVolume {
         let mut block_buffer =
             try_zeroed_block(block_len, "unable to allocate file write block buffer")?;
         let mut source_offset = 0_usize;
+        let extents = map.extents();
         let mut extent_index = extents
             .partition_point(|extent| extent.logical_start <= first_logical)
             .saturating_sub(1);
