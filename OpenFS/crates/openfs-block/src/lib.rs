@@ -545,15 +545,27 @@ impl RawDevice {
             .checked_mul(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
         let path = path.as_ref();
-        let file = OpenOptions::new().read(true).write(true).open(path)?;
-
         // A PhysicalDrive handle is a device handle, not a regular file: Windows
-        // does not reliably support byte-range LockFileEx locks on it. The USB
-        // adapter instead requires an exact-identity, offline-disk preflight.
+        // does not reliably support byte-range LockFileEx locks on it. Request
+        // share mode zero at CreateFile time so a second process cannot obtain a
+        // concurrent handle while OpenFS is writing the volume.
         #[cfg(windows)]
         let is_physical_device = is_windows_physical_drive_path(path);
         #[cfg(not(windows))]
         let is_physical_device = false;
+
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            let mut options = OpenOptions::new();
+            options.read(true).write(true);
+            if is_physical_device {
+                options.share_mode(0);
+            }
+            options.open(path)?
+        };
+        #[cfg(not(windows))]
+        let file = OpenOptions::new().read(true).write(true).open(path)?;
 
         // Keep advisory locking for image files and ordinary block-device nodes.
         if !is_physical_device {
