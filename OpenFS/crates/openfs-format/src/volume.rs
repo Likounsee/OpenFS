@@ -17531,7 +17531,7 @@ mod tests {
             {
                 let image = ImageDevice::open(&path, 4096).unwrap();
                 let mut device = FaultInjectingDevice::new(image);
-                let volume = open_volume(&mut device).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
                 device.fail_after(operation, fail_at);
                 let _ =
                     volume.truncate_persistent_file(&mut device, "/payload.bin", new_size as u64);
@@ -17539,7 +17539,7 @@ mod tests {
 
             {
                 let mut device = ImageDevice::open(&path, 4096).unwrap();
-                let mut volume = open_volume(&mut device).unwrap();
+                let volume = open_volume(&mut device).unwrap();
                 let record = volume
                     .stat_persistent_path(&mut device, "/payload.bin")
                     .unwrap();
@@ -17613,7 +17613,7 @@ mod tests {
             {
                 let image = ImageDevice::open(&path, 4096).unwrap();
                 let mut device = FaultInjectingDevice::new(image);
-                let volume = open_volume(&mut device).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
                 device.fail_after(operation, fail_at);
                 let _ = volume.write_persistent_file_contents(
                     &mut device,
