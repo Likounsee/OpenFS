@@ -2777,7 +2777,7 @@ mod tests {
             Err(Error::InvalidInput("block size must be nonzero"))
         ));
         let huge = ExtentMap::new(vec![Extent {
-            logical_start: 0, physical_start: 0, block_count: u64::MAX / 2 + 1,
+            logical_start: 0, physical_start: 0, block_count: u64::MAX / 4 + 1,
         }]).unwrap();
         assert!(matches!(
             huge.allocation_stats(u64::MAX, 4),
