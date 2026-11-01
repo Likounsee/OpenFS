@@ -8538,18 +8538,12 @@ impl<D: BlockDevice> VolumeSession<D> {
             batch.push((
                 self.allocate_object_id()?,
                 *kind,
-                try_clone_string(
-                    name,
-                    "unable to copy automatic persistent object name",
-                )?,
+                try_clone_string(name, "unable to copy automatic persistent object name")?,
             ));
         }
 
-        self.opened.create_persistent_objects_at_path(
-            &mut self.device,
-            parent_path,
-            &batch,
-        )
+        self.opened
+            .create_persistent_objects_at_path(&mut self.device, parent_path, &batch)
     }
 
     /// Atomically create objects across several existing directories.
@@ -8716,10 +8710,7 @@ impl<D: BlockDevice> VolumeSession<D> {
     ///
     /// Each change is (object ID, destination directory ID, new name). This is useful
     /// for adapters implementing multi-entry operations without exposing partial moves.
-    pub fn rename_objects(
-        &mut self,
-        changes: &[(ObjectId, ObjectId, String)],
-    ) -> Result<()> {
+    pub fn rename_objects(&mut self, changes: &[(ObjectId, ObjectId, String)]) -> Result<()> {
         self.opened
             .rename_persistent_objects(&mut self.device, changes)
     }
@@ -8758,7 +8749,6 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.free_data_block_count(&mut self.device)
     }
 
-
     /// Remove a directory and its complete subtree in one persistent namespace publication.
     ///
     /// File extents and metadata roots are reclaimed only after the updated inventory
@@ -8784,7 +8774,6 @@ impl<D: BlockDevice> VolumeSession<D> {
         Ok(self.device)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -17685,7 +17674,10 @@ mod tests {
                     ],
                 )
                 .is_err());
-            assert!(mounted.read_directory("/batch", None, 8).unwrap().is_empty());
+            assert!(mounted
+                .read_directory("/batch", None, 8)
+                .unwrap()
+                .is_empty());
 
             nested_ids = mounted
                 .create_objects_auto(
@@ -17702,13 +17694,19 @@ mod tests {
 
             // A single transaction can populate different existing directories.
             left_directory_id = mounted.create_directory("/", ObjectId(12), "left").unwrap();
-            right_directory_id = mounted.create_directory("/", ObjectId(13), "right").unwrap();
+            right_directory_id = mounted
+                .create_directory("/", ObjectId(13), "right")
+                .unwrap();
             mounted
                 .create_file("/right", ObjectId(14), "occupied.txt")
                 .unwrap();
             assert!(mounted
                 .create_objects_auto_with_parent_ids(&[
-                    (left_directory_id, crate::ObjectKind::File, "must-rollback.txt"),
+                    (
+                        left_directory_id,
+                        crate::ObjectKind::File,
+                        "must-rollback.txt"
+                    ),
                     (right_directory_id, crate::ObjectKind::File, "occupied.txt"),
                 ])
                 .is_err());
@@ -17723,8 +17721,14 @@ mod tests {
                 .unwrap();
             assert_eq!(cross_parent_ids.len(), 2);
             assert_eq!(cross_parent_ids[1].0, cross_parent_ids[0].0 + 1);
-            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
-            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
+            assert_eq!(
+                mounted.stat("/left/left.txt").unwrap().id,
+                cross_parent_ids[0]
+            );
+            assert_eq!(
+                mounted.stat("/right/right.txt").unwrap().id,
+                cross_parent_ids[1]
+            );
             mounted
                 .write_file("/docs/draft.txt", b"OpenFS mounted session data")
                 .unwrap();
@@ -17813,17 +17817,42 @@ mod tests {
                 mounted.stat("/batch"),
                 Err(Error::InvalidInput(_))
             ));
-            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
-            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
-            assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
+            assert_eq!(
+                mounted.stat("/left/left.txt").unwrap().id,
+                cross_parent_ids[0]
+            );
+            assert_eq!(
+                mounted.stat("/right/right.txt").unwrap().id,
+                cross_parent_ids[1]
+            );
+            assert_eq!(
+                mounted.stat("/right/occupied.txt").unwrap().id,
+                ObjectId(14)
+            );
 
             // Cross-directory renames are committed together and retain stable IDs.
-            mounted.rename_objects(&[
-                (cross_parent_ids[0], right_directory_id, "left-moved.txt".to_owned()),
-                (cross_parent_ids[1], left_directory_id, "right-moved.txt".to_owned()),
-            ]).unwrap();
-            assert_eq!(mounted.stat("/right/left-moved.txt").unwrap().id, cross_parent_ids[0]);
-            assert_eq!(mounted.stat("/left/right-moved.txt").unwrap().id, cross_parent_ids[1]);
+            mounted
+                .rename_objects(&[
+                    (
+                        cross_parent_ids[0],
+                        right_directory_id,
+                        "left-moved.txt".to_owned(),
+                    ),
+                    (
+                        cross_parent_ids[1],
+                        left_directory_id,
+                        "right-moved.txt".to_owned(),
+                    ),
+                ])
+                .unwrap();
+            assert_eq!(
+                mounted.stat("/right/left-moved.txt").unwrap().id,
+                cross_parent_ids[0]
+            );
+            assert_eq!(
+                mounted.stat("/left/right-moved.txt").unwrap().id,
+                cross_parent_ids[1]
+            );
 
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
