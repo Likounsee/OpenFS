@@ -1427,9 +1427,15 @@ impl OpenedVolume {
     ) -> Result<Option<FreeExtent>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > bits_per_block {
+        let max_updates = self.journal.max_update_count(device)?;
+        let max_blocks = max_atomic_extent_blocks(
+            max_updates,
+            bits_per_block,
+            self.volume.layout.data_blocks(),
+        )?;
+        if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
-                "best-fit extent length must fit within one bitmap block",
+                "best-fit extent length exceeds the journal's atomic bitmap capacity",
             ));
         }
 
@@ -1443,7 +1449,7 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
         let mut best: Option<FreeExtent> = None;
-        // Keep memory bounded to one bitmap block even when scanning many segments.
+        let mut current: Option<FreeExtent> = None;
         let mut bitmap = try_zeroed_buffer(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
@@ -1471,7 +1477,6 @@ impl OpenedVolume {
             let end_byte =
                 usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
                     .map_err(|_| Error::ArithmeticOverflow)?;
-            let mut current: Option<FreeExtent> = None;
 
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
                 let byte_index = first_byte
@@ -1510,10 +1515,6 @@ impl OpenedVolume {
                             current = Some(extent);
                         }
                         Some(extent) => {
-                            // An exact fit is globally optimal. Since bitmap segments and
-                            // runs are visited in ascending block order, returning here also
-                            // preserves the lowest-block tie-break without scanning the rest
-                            // of a potentially very large volume.
                             if extent.block_count == count {
                                 return Ok(Some(extent));
                             }
@@ -1541,23 +1542,23 @@ impl OpenedVolume {
                     free_bits &= !run_mask;
                 }
             }
-
-            if let Some(extent) = current {
-                // The final run in this segment may be an exact fit too.
-                if extent.block_count == count {
-                    return Ok(Some(extent));
-                }
-                if extent.block_count >= count
-                    && best.map_or(true, |candidate| {
-                        (extent.block_count, extent.start_block)
-                            < (candidate.block_count, candidate.start_block)
-                    })
-                {
-                    best = Some(extent);
-                }
-            }
+            // Keep the current run across adjacent bitmap pages. The journal can
+            // atomically update multiple bitmap pages when its redo capacity permits.
         }
 
+        if let Some(extent) = current {
+            if extent.block_count == count {
+                return Ok(Some(extent));
+            }
+            if extent.block_count >= count
+                && best.map_or(true, |candidate| {
+                    (extent.block_count, extent.start_block)
+                        < (candidate.block_count, candidate.start_block)
+                })
+            {
+                best = Some(extent);
+            }
+        }
         Ok(best)
     }
 
@@ -1573,9 +1574,13 @@ impl OpenedVolume {
     ) -> Result<u64> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        if count == 0 || count > bits_per_block {
+        let layout = self.volume.layout;
+        let max_updates = self.journal.max_update_count(device)?;
+        let max_blocks =
+            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
-                "best-fit allocation length must fit within one bitmap block",
+                "best-fit allocation length exceeds the journal's atomic bitmap capacity",
             ));
         }
         let extent = self
@@ -1585,90 +1590,129 @@ impl OpenedVolume {
             .start_block
             .checked_add(count)
             .ok_or(Error::ArithmeticOverflow)?;
-        if end > self.volume.layout.backup_superblock
-            || extent.start_block / bits_per_block != (end - 1) / bits_per_block
-        {
+        if extent.start_block < layout.data_start || end > layout.backup_superblock {
             return Err(Error::Corrupt(
-                "best-fit extent crosses an allocation bitmap segment",
+                "best-fit allocator selected blocks outside data region",
             ));
         }
-        let bitmap_index = extent.start_block / bits_per_block;
-        let bitmap_block = self
-            .volume
-            .layout
-            .bitmap_start
-            .checked_add(bitmap_index)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let base = bitmap_index
-            .checked_mul(bits_per_block)
-            .ok_or(Error::ArithmeticOverflow)?;
-        let mut bitmap = try_zeroed_buffer(
-            self.volume.block_size as usize,
-            "allocation failed while preparing allocator bitmap",
-        )?;
-        device.read_blocks(bitmap_block, &mut bitmap)?;
-        let segment_start = self.volume.layout.data_start.max(base);
-        let segment_end = self.volume.layout.backup_superblock.min(
-            base.checked_add(bits_per_block)
-                .ok_or(Error::ArithmeticOverflow)?,
-        );
-        validate_bitmap_reserved_bits(&bitmap, base, segment_start, segment_end)?;
-        let local_start = extent.start_block - base;
-        let local_end = end - base;
-        // Revalidate the whole candidate using bitmap-byte masks, matching the
-        // regular contiguous allocator and avoiding per-block division/modulo.
-        if !bitmap_range_matches(&bitmap, local_start, local_end, false)? {
-            return Err(Error::Corrupt("best-fit extent changed during allocation"));
+        let first_index = extent.start_block / bits_per_block;
+        let last_index = (end - 1) / bits_per_block;
+        let page_count = usize::try_from(last_index - first_index + 1)
+            .map_err(|_| Error::ArithmeticOverflow)?;
+        if page_count > max_updates {
+            return Err(Error::InvalidInput(
+                "best-fit extent exceeds the journal's atomic bitmap-update capacity",
+            ));
         }
-        // Match every other allocation path: interrupted descriptor staging must not
-        // become discoverable when a stale free block is allocated through best-fit.
+
+        let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
+        pages.try_reserve_exact(page_count).map_err(|_| {
+            Error::AllocationFailed("unable to reserve best-fit allocation bitmap pages")
+        })?;
+        for index in first_index..=last_index {
+            let base = index
+                .checked_mul(bits_per_block)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let bitmap_block = layout
+                .bitmap_start
+                .checked_add(index)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let mut image = try_zeroed_buffer(
+                self.volume.block_size as usize,
+                "allocation failed while preparing best-fit bitmap pages",
+            )?;
+            device.read_blocks(bitmap_block, &mut image)?;
+            let segment_start = layout.data_start.max(base);
+            let segment_end = layout.backup_superblock.min(
+                base.checked_add(bits_per_block)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            validate_bitmap_reserved_bits(&image, base, segment_start, segment_end)?;
+            let local_start = extent.start_block.max(segment_start) - base;
+            let local_end = end.min(segment_end) - base;
+            if !bitmap_range_matches(&image, local_start, local_end, false)? {
+                return Err(Error::InvalidInput(
+                    "best-fit extent changed during allocation; retry allocation",
+                ));
+            }
+            set_bitmap_range(&mut image, local_start, local_end, true)?;
+            pages.push((bitmap_block, base, image));
+        }
+
+        let mut redo = Vec::new();
+        redo.try_reserve_exact(pages.len()).map_err(|_| {
+            Error::AllocationFailed("unable to reserve best-fit allocation redo images")
+        })?;
+        for (bitmap_block, _, image) in &pages {
+            redo.push(RedoUpdate {
+                target_block: *bitmap_block,
+                contents: image.clone(),
+            });
+        }
+        self.journal.required_record_count(device, redo.len())?;
         clear_stale_descriptor_magic_range(
             device,
             self.volume.block_size,
             extent.start_block,
             end,
         )?;
-        // Preserve adjacent allocation bits while marking the selected run in bulk.
-        set_bitmap_range(&mut bitmap, local_start, local_end, true)?;
-        if let Err(error) = self.journal.commit(
-            device,
-            &[RedoUpdate {
-                target_block: bitmap_block,
-                contents: bitmap,
-            }],
-        ) {
-            // Best-fit is a separate public allocation path; it must provide the
-            // same no-double-allocation guarantee as the regular contiguous path.
+
+        if let Err(error) = self.journal.commit(device, &redo) {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt(
                     "best-fit allocation failed and journal recovery could not be completed",
                 )
             })?;
-            let mut recovered_bitmap = try_zeroed_buffer(
+            let mut recovered = try_zeroed_buffer(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered best-fit allocation",
             )?;
-            device
-                .read_blocks(bitmap_block, &mut recovered_bitmap)
-                .map_err(|_| {
-                    Error::Corrupt("best-fit allocation recovery could not verify bitmap state")
+            let mut allocated_count = 0_u64;
+            for (bitmap_block, base, _) in &pages {
+                device.read_blocks(*bitmap_block, &mut recovered).map_err(|_| {
+                    Error::Corrupt("best-fit allocation recovery could not read a bitmap page")
                 })?;
-            validate_bitmap_reserved_bits(&recovered_bitmap, base, segment_start, segment_end)
-                .map_err(|_| {
-                    Error::Corrupt("best-fit allocation recovery found an invalid bitmap")
-                })?;
-            let allocated = bitmap_range_matches(&recovered_bitmap, local_start, local_end, true)?;
-            if allocated {
+                let segment_start = layout.data_start.max(*base);
+                let segment_end = layout.backup_superblock.min(
+                    base.checked_add(bits_per_block)
+                        .ok_or(Error::ArithmeticOverflow)?,
+                );
+                validate_bitmap_reserved_bits(&recovered, *base, segment_start, segment_end)
+                    .map_err(|_| {
+                        Error::Corrupt("best-fit allocation recovery found invalid bitmap")
+                    })?;
+                let local_start = extent.start_block.max(segment_start) - *base;
+                let local_end = end.min(segment_end) - *base;
+                allocated_count = allocated_count
+                    .checked_add(bitmap_count_range(
+                        &recovered,
+                        local_start,
+                        local_end,
+                        true,
+                    )?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+            if allocated_count == count {
+                self.allocation_hint = if end >= layout.backup_superblock {
+                    layout.data_start
+                } else {
+                    end
+                };
                 return Ok(extent.start_block);
             }
-            let free = bitmap_range_matches(&recovered_bitmap, local_start, local_end, false)?;
-            if free {
+            if allocated_count == 0 {
                 return Err(error);
             }
             return Err(Error::Corrupt(
                 "best-fit allocation recovery left a mixed bitmap state",
             ));
         }
+
+        self.allocation_hint = if end >= layout.backup_superblock {
+            layout.data_start
+        } else {
+            end
+        };
         Ok(extent.start_block)
     }
 
