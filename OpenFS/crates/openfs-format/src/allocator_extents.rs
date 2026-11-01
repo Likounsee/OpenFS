@@ -188,8 +188,8 @@ pub struct FreeExtent {
 
 /// Read-only fragmentation summary for free space in the data region.
 ///
-/// A free extent is a consecutive run of free data blocks within one bitmap segment,
-/// intentionally split at bitmap boundaries for bounded read-only reporting.
+/// A free extent is a consecutive run of free data blocks across the complete data
+/// region. Runs that cross bitmap-page boundaries are merged in the report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FreeExtentStats {
     pub free_extent_count: u64,
@@ -1664,6 +1664,9 @@ impl OpenedVolume {
         let layout = self.volume.layout;
         let bits_per_block = u64::from(layout.block_size) * 8;
         let mut stats = FreeExtentStats::default();
+        // Keep the current run across bitmap pages: physical free extents do not
+        // stop at allocator metadata boundaries.
+        let mut run_len = 0_u64;
         // Fragmentation diagnostics may scan the entire volume; allocate the
         // bitmap buffer once instead of once per segment.
         let mut bitmap = try_zeroed_buffer(
@@ -1707,7 +1710,6 @@ impl OpenedVolume {
             .map_err(|_| Error::ArithmeticOverflow)?;
             let first_local = start - base;
             let end_local = end - base;
-            let mut run_len = 0_u64;
 
             for (byte_offset, byte) in bitmap[first_data_byte..end_data_byte].iter().enumerate() {
                 let byte_index = first_data_byte
@@ -1775,15 +1777,15 @@ impl OpenedVolume {
                 }
             }
 
-            if run_len != 0 {
-                stats.free_extent_count = stats
-                    .free_extent_count
-                    .checked_add(1)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
-            }
         }
 
+        if run_len != 0 {
+            stats.free_extent_count = stats
+                .free_extent_count
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+        }
         Ok(stats)
     }
 
@@ -3373,6 +3375,19 @@ mod allocation_bitmap_report_tests {
                     free_data_blocks: total - 3,
                 }
             );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn free_extent_stats_merges_runs_across_bitmap_page_boundaries() {
+        let path = image_path("extent-stats-cross-bitmap-page");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let stats = volume.free_extent_stats(&mut device).unwrap();
+            assert_eq!(stats.free_extent_count, 1);
+            assert_eq!(stats.largest_free_extent_blocks, volume.volume.layout.data_blocks());
         }
         fs::remove_file(path).unwrap();
     }
