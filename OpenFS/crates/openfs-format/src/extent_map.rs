@@ -561,18 +561,19 @@ impl ExtentMap {
         let logical_end = logical_start
             .checked_add(block_count)
             .ok_or(Error::ArithmeticOverflow)?;
-        if logical_end > logical_block_count {
-            return Err(Error::InvalidInput(
-                "logical range exceeds file block count",
-            ));
-        }
+        // Validate the map itself before the requested range. Even an empty query
+        // must not conceal an extent that lies beyond the file's logical length.
         // ExtentMap's constructors and mutation methods preserve sorted, non-overlapping
-        // logical ranges. Because each range ends before the next starts, checking the
-        // final end validates the upper bound for the entire map in O(1).
+        // logical ranges, so checking the final end validates the map in O(1).
         if let Some(last) = self.extents.last() {
             if last.logical_end()? > logical_block_count {
                 return Err(Error::Corrupt("extent exceeds logical file block count"));
             }
+        }
+        if logical_end > logical_block_count {
+            return Err(Error::InvalidInput(
+                "logical range exceeds file block count",
+            ));
         }
 
         // Find the first extent that could intersect the requested range. Include the
