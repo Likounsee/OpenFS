@@ -8866,9 +8866,7 @@ mod tests {
             .map(|index| ("write", index))
             .chain((0..24).map(|index| ("flush", index)))
         {
-            let path = image_path(&format!(
-                "replacement-recovery-{failure_kind}-{fail_at}"
-            ));
+            let path = image_path(&format!("replacement-recovery-{failure_kind}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
                 let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
