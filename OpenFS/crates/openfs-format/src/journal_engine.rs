@@ -234,7 +234,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             protected_blocks,
         });
     }
-    {
+    if !plan.is_empty() {
         // Only a durable COMMIT advances the checkpoint. A torn or incomplete
         // transaction at the end of the ring is intentionally ignored; advancing
         // through its BEGIN/UPDATE records would make an old home image appear newer.
