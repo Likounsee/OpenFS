@@ -1514,9 +1514,7 @@ impl OpenedVolume {
                     descriptor.directory_entry_count,
                 )
                 .map_err(|_| {
-                    Error::Corrupt(
-                        "persistent inventory descriptor contains an invalid namespace",
-                    )
+                    Error::Corrupt("persistent inventory descriptor contains an invalid namespace")
                 })?;
             }
             return Ok(Some((descriptor_block, descriptor)));
@@ -9980,7 +9978,10 @@ mod tests {
             device.flush().unwrap();
 
             assert!(
-                volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                volume
+                    .discover_persistent_inventory(&mut device)
+                    .unwrap()
+                    .is_none(),
                 "descriptor-like bytes in an ordinary allocated block must not create an inventory"
             );
         }
