@@ -17634,9 +17634,6 @@ mod tests {
             assert_eq!(batch_ids[1].0, batch_ids[0].0 + 1);
             assert_eq!(mounted.stat("/batch").unwrap().id, batch_ids[0]);
             assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
-            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
-            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
-            assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
 
             // A duplicate-name batch must publish nothing, not a partial prefix.
             assert!(mounted
@@ -17762,6 +17759,9 @@ mod tests {
             assert_eq!(mounted.stat("/batch/first.txt").unwrap().id, nested_ids[0]);
             assert_eq!(mounted.stat("/batch/second.txt").unwrap().id, nested_ids[1]);
             assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
+            assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
+            assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
+            assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
             mounted.remove("/batch/first.txt").unwrap();
