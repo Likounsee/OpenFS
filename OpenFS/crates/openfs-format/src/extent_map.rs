@@ -494,7 +494,10 @@ impl ExtentMap {
         let end_index = self
             .extents
             .partition_point(|extent| extent.logical_start < logical_end);
-        let first_index = end_index.saturating_sub(1);
+        let first_candidate = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_start);
+        let first_index = first_candidate.saturating_sub(1);
         let mut holes = Vec::new();
         holes
             .try_reserve_exact(end_index.saturating_sub(first_index).saturating_add(1))
@@ -579,7 +582,10 @@ impl ExtentMap {
         let end_index = self
             .extents
             .partition_point(|extent| extent.logical_start < logical_end);
-        let first_index = end_index.saturating_sub(1);
+        let first_candidate = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_start);
+        let first_index = first_candidate.saturating_sub(1);
         let mut allocated = 0_u64;
         for extent in &self.extents[first_index..end_index] {
             let extent_end = extent.logical_end()?;
