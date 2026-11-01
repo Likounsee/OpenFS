@@ -194,6 +194,22 @@ pub struct FreeExtent {
 pub struct FreeExtentStats {
     pub free_extent_count: u64,
     pub largest_free_extent_blocks: u64,
+    /// First data block of the largest free extent, when one exists.
+    pub largest_free_extent_start_block: Option<u64>,
+}
+
+impl FreeExtentStats {
+    fn record_extent(&mut self, start_block: u64, block_count: u64) -> Result<()> {
+        self.free_extent_count = self
+            .free_extent_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if block_count > self.largest_free_extent_blocks {
+            self.largest_free_extent_blocks = block_count;
+            self.largest_free_extent_start_block = Some(start_block);
+        }
+        Ok(())
+    }
 }
 
 /// Bounded diagnostics for reserved or out-of-volume bits incorrectly marked free.
@@ -1667,6 +1683,7 @@ impl OpenedVolume {
         // Keep the current run across bitmap pages: physical free extents do not
         // stop at allocator metadata boundaries.
         let mut run_len = 0_u64;
+        let mut run_start_block = 0_u64;
         // Fragmentation diagnostics may scan the entire volume; allocate the
         // bitmap buffer once instead of once per segment.
         let mut bitmap = try_zeroed_buffer(
@@ -1738,13 +1755,12 @@ impl OpenedVolume {
                             .ok_or(Error::ArithmeticOverflow)?;
                     } else {
                         if run_len != 0 {
-                            stats.free_extent_count = stats
-                                .free_extent_count
-                                .checked_add(1)
-                                .ok_or(Error::ArithmeticOverflow)?;
-                            stats.largest_free_extent_blocks =
-                                stats.largest_free_extent_blocks.max(run_len);
+                            stats.record_extent(run_start_block, run_len)?;
                         }
+                        run_start_block = base
+                            .checked_add(byte_start)
+                            .and_then(|value| value.checked_add(u64::from(first_bit)))
+                            .ok_or(Error::ArithmeticOverflow)?;
                         run_len = u64::from(width);
                     }
 
@@ -1752,12 +1768,7 @@ impl OpenedVolume {
                     let run_mask = ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
                     free_bits &= !run_mask;
                     if u64::from(after_run) < valid_bits {
-                        stats.free_extent_count = stats
-                            .free_extent_count
-                            .checked_add(1)
-                            .ok_or(Error::ArithmeticOverflow)?;
-                        stats.largest_free_extent_blocks =
-                            stats.largest_free_extent_blocks.max(run_len);
+                        stats.record_extent(run_start_block, run_len)?;
                         run_len = 0;
                     }
                 }
@@ -1767,12 +1778,7 @@ impl OpenedVolume {
                 let last_valid_bit_is_free =
                     valid_bits != 0 && (*byte & (1_u8 << (valid_bits - 1))) == 0;
                 if !last_valid_bit_is_free && run_len != 0 {
-                    stats.free_extent_count = stats
-                        .free_extent_count
-                        .checked_add(1)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                    stats.largest_free_extent_blocks =
-                        stats.largest_free_extent_blocks.max(run_len);
+                    stats.record_extent(run_start_block, run_len)?;
                     run_len = 0;
                 }
             }
@@ -1780,11 +1786,7 @@ impl OpenedVolume {
         }
 
         if run_len != 0 {
-            stats.free_extent_count = stats
-                .free_extent_count
-                .checked_add(1)
-                .ok_or(Error::ArithmeticOverflow)?;
-            stats.largest_free_extent_blocks = stats.largest_free_extent_blocks.max(run_len);
+            stats.record_extent(run_start_block, run_len)?;
         }
         Ok(stats)
     }
@@ -3388,6 +3390,10 @@ mod allocation_bitmap_report_tests {
             let stats = volume.free_extent_stats(&mut device).unwrap();
             assert_eq!(stats.free_extent_count, 1);
             assert_eq!(stats.largest_free_extent_blocks, volume.volume.layout.data_blocks());
+            assert_eq!(
+                stats.largest_free_extent_start_block,
+                Some(volume.volume.layout.data_start)
+            );
         }
         fs::remove_file(path).unwrap();
     }
