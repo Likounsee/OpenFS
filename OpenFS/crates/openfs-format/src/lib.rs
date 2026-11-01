@@ -173,7 +173,7 @@ pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPO
 pub use directory_entry::{
     decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES,
 };
-pub use extent_map::{Extent, ExtentMap};
+pub use extent_map::{Extent, ExtentAllocationStats, ExtentMap};
 pub use inventory_descriptor::{PersistentInventoryDescriptor, INVENTORY_DESCRIPTOR_MAGIC};
 pub use journal::{
     plan_recovery, CommittedTransaction, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
