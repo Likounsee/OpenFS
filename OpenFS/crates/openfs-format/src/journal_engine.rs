@@ -2127,7 +2127,7 @@ mod tests {
 
         // A 4096-byte redo image needs two ring records; BEGIN and COMMIT
         // consume the other two records per transaction.
-        assert_eq!(journal.max_update_count(&device).unwrap(), 3);
+        assert_eq!((journal.max_update_count(&device).unwrap(), journal.required_record_count(&device, 3).unwrap()), (3, 8));
         assert!(matches!(
             journal.required_record_count(&device, 4),
             Err(Error::InvalidInput(
