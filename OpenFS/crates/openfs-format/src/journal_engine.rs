@@ -2879,6 +2879,8 @@ mod tests {
             }
         }
 
+    }
+
     #[test]
     fn recovery_replays_multiple_commits_in_order_and_discards_incomplete_tail() {
         let region = JournalRegion {
@@ -3003,6 +3005,5 @@ mod tests {
             .unwrap();
         assert_eq!(read_block(&mut device, HOME + 1), vec![0xD7; BS as usize]);
         assert_eq!(journal.checkpoint().next_transaction_id, 4);
-    }
     }
 }
