@@ -1302,11 +1302,11 @@ impl OpenedVolume {
         Ok(free)
     }
 
-    /// Return free contiguous runs in ascending order, split at bitmap-segment boundaries.
+    /// Return free contiguous runs in ascending order, coalescing adjacent bitmap segments.
     ///
     /// This read-only inventory is suitable for placement decisions and diagnostics. Returned
-    /// extents are snapshots only; they are not reservations. Allocation can span adjacent
-    /// bitmap segments when the complete redo set fits in the journal.
+    /// extents are snapshots only; they are not reservations. Bitmap page boundaries do not
+    /// split physically contiguous free space.
     pub fn free_extent_inventory<D: BlockDevice>(&self, device: &mut D) -> Result<Vec<FreeExtent>> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
