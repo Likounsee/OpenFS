@@ -2878,5 +2878,131 @@ mod tests {
                 );
             }
         }
+
+    #[test]
+    fn recovery_replays_multiple_commits_in_order_and_discards_incomplete_tail() {
+        let region = JournalRegion {
+            checkpoint_a: 1,
+            checkpoint_b: 2,
+            ring_start: 3,
+            ring_blocks: 12,
+        };
+        let mut device = MemoryDevice::new();
+        format_journal(&mut device, region).unwrap();
+        device.write_blocks(HOME, &vec![0x11; BS as usize]).unwrap();
+        device
+            .write_blocks(HOME + 1, &vec![0x22; BS as usize])
+            .unwrap();
+
+        let mut sequence = 1_u64;
+        let mut slot = 0_u64;
+        for (transaction_id, target, byte) in [(1_u64, HOME, 0xA5), (2, HOME, 0xB6)] {
+            let begin = crate::JournalRecord {
+                kind: crate::JournalRecordKind::Begin,
+                sequence,
+                transaction_id,
+                payload: Vec::new(),
+            };
+            device
+                .write_blocks(
+                    region.ring_start + slot,
+                    &begin.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+            sequence += 1;
+            slot += 1;
+
+            let redo = RedoUpdate {
+                target_block: target,
+                contents: vec![byte; BS as usize],
+            };
+            for payload in encode_redo_chunks(&redo, BS as usize).unwrap() {
+                let update = crate::JournalRecord {
+                    kind: crate::JournalRecordKind::Update,
+                    sequence,
+                    transaction_id,
+                    payload,
+                };
+                device
+                    .write_blocks(
+                        region.ring_start + slot,
+                        &update.encode_block(BS as usize).unwrap(),
+                    )
+                    .unwrap();
+                sequence += 1;
+                slot += 1;
+            }
+
+            let commit = crate::JournalRecord {
+                kind: crate::JournalRecordKind::Commit,
+                sequence,
+                transaction_id,
+                payload: Vec::new(),
+            };
+            device
+                .write_blocks(
+                    region.ring_start + slot,
+                    &commit.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+            sequence += 1;
+            slot += 1;
+        }
+
+        // A later transaction has a valid BEGIN and redo chunks but no COMMIT.
+        // Its records must not hide either earlier durable transaction.
+        let incomplete_begin = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Begin,
+            sequence,
+            transaction_id: 3,
+            payload: Vec::new(),
+        };
+        device
+            .write_blocks(
+                region.ring_start + slot,
+                &incomplete_begin.encode_block(BS as usize).unwrap(),
+            )
+            .unwrap();
+        sequence += 1;
+        slot += 1;
+        let incomplete = RedoUpdate {
+            target_block: HOME + 1,
+            contents: vec![0xCC; BS as usize],
+        };
+        for payload in encode_redo_chunks(&incomplete, BS as usize).unwrap() {
+            let update = crate::JournalRecord {
+                kind: crate::JournalRecordKind::Update,
+                sequence,
+                transaction_id: 3,
+                payload,
+            };
+            device
+                .write_blocks(
+                    region.ring_start + slot,
+                    &update.encode_block(BS as usize).unwrap(),
+                )
+                .unwrap();
+            sequence += 1;
+            slot += 1;
+        }
+        assert!(slot < region.ring_blocks);
+        device.flush().unwrap();
+
+        let mut journal = open_journal(&mut device, region).unwrap();
+        assert_eq!(read_home(&mut device), vec![0xB6; BS as usize]);
+        assert_eq!(read_block(&mut device, HOME + 1), vec![0x22; BS as usize]);
+        assert_eq!(journal.checkpoint().checkpoint_sequence, 8);
+        assert_eq!(journal.checkpoint().next_transaction_id, 3);
+
+        // The recovered writer must be able to continue at the next transaction ID.
+        journal
+            .commit(&mut device, &[RedoUpdate {
+                target_block: HOME + 1,
+                contents: vec![0xD7; BS as usize],
+            }])
+            .unwrap();
+        assert_eq!(read_block(&mut device, HOME + 1), vec![0xD7; BS as usize]);
+        assert_eq!(journal.checkpoint().next_transaction_id, 4);
+    }
     }
 }
