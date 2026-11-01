@@ -3278,9 +3278,7 @@ mod tests {
             let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
-            assert!(volume
-                .is_data_block_allocated(&mut device, second)
-                .unwrap());
+            assert!(volume.is_data_block_allocated(&mut device, second).unwrap());
             assert!(volume
                 .is_data_block_allocated(&mut device, after_cursor)
                 .unwrap());
