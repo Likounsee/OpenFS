@@ -1594,6 +1594,7 @@ mod tests {
         let mut recovered = failing.into_inner();
         let mut reopened = open_journal(&mut recovered, REGION)
             .expect("an incomplete transaction at the ring tail is discardable");
+        assert_eq!(reopened.checkpoint().checkpoint_sequence, 9);
 
         for slot in 0..REGION.ring_blocks {
             assert_eq!(
@@ -1603,8 +1604,8 @@ mod tests {
             );
         }
 
-        // The shorter transaction reuses the same IDs/sequences. It must not be
-        // followed by stale UPDATE records from the previous longer attempt.
+        // The shorter retry receives fresh IDs after the valid prefix was retired.
+        // It must not be followed by stale UPDATE records from the previous attempt.
         reopened.commit(&mut recovered, &[update(0x33)]).unwrap();
         let final_open = open_journal(&mut recovered, REGION)
             .expect("short retry must reopen without stale journal records");
