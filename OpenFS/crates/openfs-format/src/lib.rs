@@ -155,7 +155,6 @@ pub(crate) fn crc32c(bytes: &[u8]) -> u32 {
     }
     !crc
 }
-
 mod allocator_extents;
 mod checkpoint;
 mod directory_entry;
@@ -168,7 +167,8 @@ mod legacy_layout;
 mod metadata;
 mod namespace;
 mod verifier;
-#[allow(clippy::items_after_test_module)] mod volume;
+#[allow(clippy::items_after_test_module)]
+mod volume;
 pub use checkpoint::{JournalCheckpoint, JOURNAL_CHECKPOINT_SIZE, JOURNAL_CHECKPOINT_VERSION};
 pub use directory_entry::{
     decode_directory_entries, DirectoryEntry, DIRECTORY_ENTRY_SIZE, DIRECTORY_NAME_MAX_BYTES,
