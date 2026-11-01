@@ -11193,7 +11193,9 @@ mod tests {
                 .read_file_range(&mut device, &namespace, &maps, ObjectId(2), 4096, 8192)
                 .unwrap();
             assert!(hole_to_extent[..4096].iter().all(|byte| *byte == 0));
-            assert_eq!(&hole_to_extent[4096..], &vec![0x5A; 4096]);
+            // The file ends at byte 12,000, so only 3,808 bytes of the
+            // second allocated block are part of the readable file range.
+            assert_eq!(&hole_to_extent[4096..], &vec![0x5A; 3808]);
             assert_eq!(
                 volume
                     .read_path_range(&mut device, &namespace, &maps, "/sparse.bin", 4094, 6)
