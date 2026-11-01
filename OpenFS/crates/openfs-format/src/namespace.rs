@@ -212,7 +212,10 @@ impl Namespace {
         }
 
         let mut current = object_id;
-        let mut components = Vec::new();
+        // Borrow component names from the reverse index. The previous implementation
+        // cloned every String in the parent chain and then cloned it again for the
+        // forward-index consistency check, creating avoidable allocations on path_of.
+        let mut components: Vec<&str> = Vec::new();
         // A valid parent chain reaches root in at most objects.len() edges. Use that
         // structural bound for cycle detection instead of allocating a tree set on
         // every path lookup.
@@ -229,7 +232,6 @@ impl Namespace {
             let (parent_id, name) = self
                 .parents
                 .get(&current)
-                .cloned()
                 .ok_or(Error::Corrupt("path directory entry is missing"))?;
             if record.parent_id != parent_id.0 {
                 return Err(Error::Corrupt(
@@ -238,7 +240,7 @@ impl Namespace {
             }
             let entry = self
                 .names
-                .get(&(parent_id, name.clone()))
+                .get(&(*parent_id, name.clone()))
                 .ok_or(Error::Corrupt("path directory entry is missing"))?;
             if entry.parent_id != parent_id.0
                 || entry.object_id != current.0
@@ -249,8 +251,8 @@ impl Namespace {
             components
                 .try_reserve(1)
                 .map_err(|_| Error::AllocationFailed("unable to grow namespace path components"))?;
-            components.push(name);
-            current = parent_id;
+            components.push(name.as_str());
+            current = *parent_id;
         }
         components.reverse();
         let path_len = components.iter().try_fold(0_usize, |length, component| {
