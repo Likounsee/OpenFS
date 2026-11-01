@@ -9095,7 +9095,7 @@ mod tests {
                 drop(volume);
 
                 let mut recovered_device = failing.inner;
-                let mut recovered = open_volume(&mut recovered_device).unwrap_or_else(|error| {
+                let recovered = open_volume(&mut recovered_device).unwrap_or_else(|error| {
                     panic!(
                         "reopen failed after injected {failure_kind} failure at {fail_at}: {error:?}"
                     )
