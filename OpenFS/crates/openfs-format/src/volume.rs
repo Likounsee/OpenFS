@@ -8737,17 +8737,6 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.free_data_block_count(&mut self.device)
     }
 
-    /// Flush pending host writes and return the underlying device to the caller.
-    ///
-    /// The caller must stop dispatching filesystem requests before invoking this
-    /// method. A successful return means the block-device flush completed; it does
-    /// not claim that physical hardware honored a power-loss durability guarantee.
-    pub fn unmount(mut self) -> Result<D> {
-        self.flush()?;
-        Ok(self.device)
-    }
-}
-
 
     /// Remove a directory and its complete subtree in one persistent namespace publication.
     ///
@@ -8763,6 +8752,18 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened
             .remove_persistent_tree(&mut self.device, object_id)
     }
+
+    /// Flush pending host writes and return the underlying device to the caller.
+    ///
+    /// The caller must stop dispatching filesystem requests before invoking this
+    /// method. A successful return means the block-device flush completed; it does
+    /// not claim that physical hardware honored a power-loss durability guarantee.
+    pub fn unmount(mut self) -> Result<D> {
+        self.flush()?;
+        Ok(self.device)
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
