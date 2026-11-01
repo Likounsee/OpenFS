@@ -12579,14 +12579,19 @@ mod tests {
             let allocated = volume.allocate_block(&mut device).unwrap();
             assert_eq!(allocated, bits_per_bitmap_block);
             volume.free_block(&mut device, allocated).unwrap();
-            assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated);
+            // The next-fit cursor continues forward; the freed block becomes eligible
+            // again after reopening resets the volatile cursor.
+            assert_eq!(
+                volume.allocate_block(&mut device).unwrap(),
+                allocated + 1
+            );
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             assert_eq!(
                 volume.allocate_block(&mut device).unwrap(),
-                bits_per_bitmap_block + 1
+                bits_per_bitmap_block + 2
             );
         }
         fs::remove_file(path).unwrap();
@@ -13070,8 +13075,8 @@ mod tests {
                 volume.free_block(&mut device, first).unwrap();
                 assert_eq!(
                     volume.allocate_block(&mut device).unwrap(),
-                    first,
-                    "block must be reusable after a later successful free (block size {block_size})"
+                    first + 2,
+                    "next-fit continues after the cursor before wrapping (block size {block_size})"
                 );
             }
             fs::remove_file(path).unwrap();
@@ -13140,7 +13145,11 @@ mod tests {
                     let mut recovered = open_volume(&mut device).unwrap();
                     assert_eq!(recovered.allocate_block(&mut device).unwrap(), first + 1);
                     recovered.free_block(&mut device, first).unwrap();
-                    assert_eq!(recovered.allocate_block(&mut device).unwrap(), first);
+                    assert_eq!(
+                        recovered.allocate_block(&mut device).unwrap(),
+                        first + 2,
+                        "next-fit continues after the allocation cursor before wrapping"
+                    );
                 }
                 fs::remove_file(path).unwrap();
             }
@@ -13769,8 +13778,8 @@ mod tests {
                     recovered.free_block(&mut device, first).unwrap();
                     assert_eq!(
                         recovered.allocate_block(&mut device).unwrap(),
-                        first,
-                        "preserved block must be reusable after successful free"
+                        first + 2,
+                        "next-fit continues after the cursor before wrapping"
                     );
                 }
                 fs::remove_file(path).unwrap();
@@ -14019,8 +14028,8 @@ mod tests {
                 recovered.free_block(&mut device, later_block).unwrap();
                 assert_eq!(
                     recovered.allocate_block(&mut device).unwrap(),
-                    later_block,
-                    "later-segment block must be reusable after a successful free (block size {block_size})"
+                    later_block + 2,
+                    "next-fit continues after the cursor before wrapping (block size {block_size})"
                 );
             }
             fs::remove_file(path).unwrap();
