@@ -3943,7 +3943,9 @@ mod allocation_bitmap_report_tests {
 
                 assert!(matches!(
                     volume.extent_map_ownership_report(&mut device, &[(&map, 2), (&map, 2)]),
-                    Err(Error::Corrupt("a data block is referenced by multiple owners"))
+                    Err(Error::Corrupt(
+                        "a data block is referenced by multiple owners"
+                    ))
                 ));
 
                 let outside = ExtentMap::new(vec![Extent {
