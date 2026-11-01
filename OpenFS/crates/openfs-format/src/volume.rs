@@ -17614,9 +17614,9 @@ mod tests {
             let mut mounted = VolumeSession::open(device).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
-                b"openfs mount"
+                b"streamed replacement payload"
             );
-            assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 12);
+            assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 28);
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
             let device = mounted.unmount().unwrap();
