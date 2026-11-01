@@ -8856,6 +8856,99 @@ mod tests {
     }
 
     #[test]
+    fn persistent_file_replacement_recovers_to_old_or_new_namespace_after_io_failures() {
+        use crate::ObjectId;
+
+        // Inject a one-shot failure at each early write/flush boundary of the
+        // replacement protocol. Once the failed operation is consumed, reopening
+        // must discover a complete old or complete new namespace, never a mixture.
+        for (failure_kind, fail_at) in (0..24)
+            .map(|index| ("write", index))
+            .chain((0..24).map(|index| ("flush", index)))
+        {
+            let path = image_path(&format!(
+                "replacement-recovery-{failure_kind}-{fail_at}"
+            ));
+            {
+                let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "source.bin")
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(&mut device, "/", ObjectId(3), "target.bin")
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/source.bin", b"new source")
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/target.bin", b"old target")
+                    .unwrap();
+
+                let mut failing = FailNthWrite {
+                    inner: device,
+                    writes_until_failure: (failure_kind == "write").then_some(fail_at),
+                    flushes_until_failure: (failure_kind == "flush").then_some(fail_at),
+                };
+                // The operation may report an I/O error even when its publication
+                // became durable; the reopened namespace, not the return code,
+                // determines which complete outcome won.
+                let _ = volume.replace_persistent_file_at_path(
+                    &mut failing,
+                    "/source.bin",
+                    "/",
+                    "target.bin",
+                );
+                drop(volume);
+
+                let mut recovered_device = failing.inner;
+                let mut recovered = open_volume(&mut recovered_device).unwrap_or_else(|error| {
+                    panic!(
+                        "reopen failed after injected {failure_kind} failure at {fail_at}: {error:?}"
+                    )
+                });
+                let source_result = recovered.read_persistent_path_range(
+                    &mut recovered_device,
+                    "/source.bin",
+                    0,
+                    10,
+                );
+                let target_result = recovered.read_persistent_path_range(
+                    &mut recovered_device,
+                    "/target.bin",
+                    0,
+                    10,
+                );
+
+                match (source_result, target_result) {
+                    (Ok(source), Ok(target)) => {
+                        assert_eq!(source, b"new source");
+                        assert_eq!(target, b"old target");
+                    }
+                    (Err(_), Ok(target)) => {
+                        assert_eq!(target, b"new source");
+                    }
+                    (source, target) => panic!(
+                        "replacement exposed a mixed or missing namespace after {failure_kind} failure at {fail_at}: source={source:?}, target={target:?}"
+                    ),
+                }
+                assert!(
+                    recovered
+                        .verify_discovered_persistent_inventory(&mut recovered_device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent(),
+                    "inventory inconsistent after {failure_kind} failure at {fail_at}"
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn persistent_file_replacement_is_published_once_and_survives_reopen() {
         use crate::ObjectId;
 
