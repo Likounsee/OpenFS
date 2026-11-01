@@ -1167,6 +1167,49 @@ mod tests {
     }
 
     #[test]
+    fn reverse_extent_root_index_is_checked_and_updated_with_layout_lifecycle() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "file.bin", ObjectKind::File),
+            MetadataRecord {
+                id: ObjectId(2),
+                parent_id: 1,
+                kind: ObjectKind::File,
+                flags: 0,
+                size: 4096,
+                extent_root_block: Some(20),
+                generation: 1,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(ns.object_extent_roots.get(&ObjectId(2)), Some(&20));
+        assert_eq!(ns.extent_roots.get(&20), Some(&ObjectId(2)));
+        ns.validate().unwrap();
+
+        // A stale reverse index must be detected by every ownership audit.
+        ns.object_extent_roots.remove(&ObjectId(2));
+        assert!(matches!(ns.validate(), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            ns.validated_extent_root_inventory(8, 64),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(ns.extent_root_owner_count(), Err(Error::Corrupt(_))));
+
+        ns.object_extent_roots.insert(ObjectId(2), 20);
+        ns.set_file_layout(ObjectId(2), 0, None).unwrap();
+        assert!(!ns.extent_roots.contains_key(&20));
+        assert!(!ns.object_extent_roots.contains_key(&ObjectId(2)));
+        ns.set_file_layout(ObjectId(2), 8192, Some(21)).unwrap();
+        assert_eq!(ns.object_extent_roots.get(&ObjectId(2)), Some(&21));
+        assert_eq!(ns.extent_roots.get(&21), Some(&ObjectId(2)));
+        ns.remove(ObjectId(2)).unwrap();
+        assert!(ns.extent_roots.is_empty());
+        assert!(ns.object_extent_roots.is_empty());
+        ns.validate().unwrap();
+    }
+
+    #[test]
     fn reconstructs_namespace_from_decoded_record_inventories() {
         let root = record(1, 0, ObjectKind::Directory);
         let folder = record(2, 1, ObjectKind::Directory);
