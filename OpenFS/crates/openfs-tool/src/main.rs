@@ -16,7 +16,7 @@ use openfs_block::RawDevice;
 use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(any(windows, test))]
 use openfs_format::VolumeSession;
-use openfs_format::{check_volume, format_volume, open_volume, ObjectId, ObjectKind};
+use openfs_format::{check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind};
 
 mod windows_device;
 #[cfg(windows)]
@@ -984,13 +984,14 @@ fn report_namespace_usage(
         .ok_or("no persistent namespace; run init-namespace first")?;
     let root_id = namespace.resolve_path(target)?;
     let extent_maps = volume.read_namespace_extent_maps(&mut device, &namespace)?;
-    let block_bytes = u64::from(block_size);
     let mut pending = vec![root_id];
     let mut files = 0_u64;
     let mut directories = 0_u64;
     let mut logical_bytes = 0_u64;
     let mut allocated_bytes = 0_u64;
+    let mut logical_allocated_bytes = 0_u64;
     let mut sparse_bytes = 0_u64;
+    let mut extent_runs = 0_u64;
 
     while let Some(object_id) = pending.pop() {
         let record = namespace
@@ -1014,43 +1015,27 @@ fn report_namespace_usage(
                 logical_bytes = logical_bytes
                     .checked_add(record.size)
                     .ok_or("logical usage overflows")?;
-                let allocated_blocks = match extent_maps.get(&object_id) {
-                    Some(map) => map.allocated_blocks()?,
-                    None if record.size == 0 && record.extent_root_block.is_none() => 0,
+                let stats = match extent_maps.get(&object_id) {
+                    Some(map) => map.allocation_stats(record.size, block_size)?,
+                    None if record.size == 0 && record.extent_root_block.is_none() => {
+                        ExtentMap::default().allocation_stats(0, block_size)?
+                    }
                     None => {
                         return Err("file extent map is missing from persistent inventory".into())
                     }
                 };
-                let file_allocated_bytes = allocated_blocks
-                    .checked_mul(block_bytes)
-                    .ok_or("allocated usage overflows")?;
                 allocated_bytes = allocated_bytes
-                    .checked_add(file_allocated_bytes)
+                    .checked_add(stats.physical_allocated_bytes)
                     .ok_or("allocated usage overflows")?;
-                let allocated_logical_bytes = match extent_maps.get(&object_id) {
-                    Some(map) => map.extents().iter().try_fold(0_u64, |total, extent| {
-                        let start = extent
-                            .logical_start
-                            .checked_mul(block_bytes)
-                            .ok_or("logical extent start overflows")?;
-                        let end_block = extent
-                            .logical_start
-                            .checked_add(extent.block_count)
-                            .ok_or("logical extent end overflows")?;
-                        let end = end_block
-                            .checked_mul(block_bytes)
-                            .ok_or("logical extent end overflows")?;
-                        total
-                            .checked_add(
-                                record.size.min(end).saturating_sub(start.min(record.size)),
-                            )
-                            .ok_or("allocated logical usage overflows")
-                    })?,
-                    None => 0,
-                };
+                logical_allocated_bytes = logical_allocated_bytes
+                    .checked_add(stats.logical_allocated_bytes)
+                    .ok_or("logical allocated usage overflows")?;
                 sparse_bytes = sparse_bytes
-                    .checked_add(record.size - allocated_logical_bytes)
+                    .checked_add(stats.sparse_bytes)
                     .ok_or("sparse usage overflows")?;
+                extent_runs = extent_runs
+                    .checked_add(stats.extent_count)
+                    .ok_or("extent run count overflows")?;
             }
         }
     }
@@ -1061,7 +1046,9 @@ fn report_namespace_usage(
     println!("Files: {files}");
     println!("Logical file bytes: {logical_bytes}");
     println!("Allocated data bytes: {allocated_bytes}");
+    println!("Logical bytes backed by extents: {logical_allocated_bytes}");
     println!("Sparse logical bytes: {sparse_bytes}");
+    println!("Extent runs: {extent_runs}");
     println!(
         "Note: allocated data excludes extent-map metadata and filesystem journal/bitmap overhead."
     );
