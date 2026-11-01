@@ -919,12 +919,9 @@ impl OpenedVolume {
                     .map_err(|_| Error::Corrupt("contiguous free recovery found invalid bitmap"))?;
                 let local_start = start_block.max(segment_start) - *base;
                 let local_end = end_block.min(segment_end) - *base;
-                for block in local_start..local_end {
-                    let byte = usize::try_from(block / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                    if recovered[byte] & (1_u8 << (block % 8)) == 0 {
-                        free_count = free_count.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
-                    }
-                }
+                free_count = free_count
+                    .checked_add(bitmap_count_range(&recovered, local_start, local_end, false)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
             if free_count == count {
                 return Ok(());
@@ -1191,15 +1188,14 @@ impl OpenedVolume {
                         })?;
                     let local_start = start.max(segment_start) - *base;
                     let local_end = end.min(segment_end) - *base;
-                    for block in local_start..local_end {
-                        let byte =
-                            usize::try_from(block / 8).map_err(|_| Error::ArithmeticOverflow)?;
-                        if recovered[byte] & (1_u8 << (block % 8)) != 0 {
-                            allocated_count = allocated_count
-                                .checked_add(1)
-                                .ok_or(Error::ArithmeticOverflow)?;
-                        }
-                    }
+                    allocated_count = allocated_count
+                        .checked_add(bitmap_count_range(
+                            &recovered,
+                            local_start,
+                            local_end,
+                            true,
+                        )?)
+                        .ok_or(Error::ArithmeticOverflow)?;
                 }
                 if allocated_count == count {
                     self.allocation_hint = if end >= layout.backup_superblock {
@@ -2318,6 +2314,31 @@ fn bitmap_range_mask(
         mask &= (1_u8 << (end_bit % 8)) - 1;
     }
     mask
+}
+
+/// Count bits in a half-open bitmap range that match the requested allocation state.
+///
+/// Recovery verification uses this instead of visiting every block individually, so
+/// large contiguous transactions are checked in time proportional to bitmap bytes.
+fn bitmap_count_range(
+    bitmap: &[u8],
+    start_bit: u64,
+    end_bit: u64,
+    allocated: bool,
+) -> Result<u64> {
+    let (first_byte, end_byte) = bitmap_range_span(bitmap.len(), start_bit, end_bit)?;
+    let mut count = 0_u64;
+    for (byte_offset, byte) in bitmap[first_byte..end_byte].iter().enumerate() {
+        let byte_index = first_byte
+            .checked_add(byte_offset)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mask = bitmap_range_mask(byte_index, first_byte, end_byte, start_bit, end_bit);
+        let matching = if allocated { *byte & mask } else { !*byte & mask };
+        count = count
+            .checked_add(u64::from(matching.count_ones()))
+            .ok_or(Error::ArithmeticOverflow)?;
+    }
+    Ok(count)
 }
 
 /// Check whether every bit in a half-open bitmap range has the requested state.
