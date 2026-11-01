@@ -253,7 +253,7 @@ if ([string]$disk.UniqueId -cne [string]$env:OPENFS_DISK_UNIQUE_ID) {
 $pnp = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
     Where-Object { [int]$_.Index -eq [int]$disk.Number } |
     Select-Object -First 1
-$isUsb = ([string]$disk.BusType -eq 'USB') -or ([string]$pnp.PNPDeviceID -match '(^|\)USB')
+$isUsb = ([string]$disk.BusType -eq 'USB') -or ([string]$pnp.PNPDeviceID -like '*USB*')
 if (-not $isUsb) { throw 'target disk is not identified as USB transport' }
 if ($disk.IsBoot -or $disk.IsSystem) { throw 'refusing to open a boot or system disk' }
 if (-not $disk.IsOffline) { throw 'target USB disk must first be set Offline in Windows Disk Management' }
