@@ -1392,3 +1392,13 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - L'inventaire lexical a été recalculé pour ces fichiers et le total vérifié par le script CI est de 1 284 déclarations sur 18 fichiers Rust (commit `4693686ad27c9961d01716b250f0bfdda5a4001c`).
 - La CI du commit de correction doit encore confirmer le passage de rustfmt, des tests workspace et de Clippy; aucune réussite n'est anticipée avant le résultat du runner.
 - Progression globale maintenue à 73 %.
+
+### Corrections de régressions révélées par la CI (2026-11-01)
+
+- La CI du commit `3dadfde8eacfbe7b237b8e1cb9adaa5d80d301af` a échoué : 340 tests réussis, 13 échoués sous Linux; la compilation Windows échouait également sur une définition manquante de `DeferredErrorLatch`.
+- `ExtentMap::logical_hole_ranges_in_range` et `allocated_blocks_in_range` ne commençaient qu'au dernier extent avant la fin de la requête, ce qui omettait les extents antérieurs situés dans la plage. Le début de parcours est maintenant calculé séparément à partir de `logical_start`, en conservant le saut des préfixes non concernés.
+- La récupération du journal avançait le checkpoint jusqu'au dernier enregistrement scanné, même si le dernier enregistrement appartenait à une transaction incomplète sans COMMIT. Elle ne progresse désormais qu'au COMMIT de la dernière transaction réellement récupérable; un suffixe incomplet ne valide plus un ancien état home.
+- Restauration de `DeferredErrorLatch` dans l'adaptateur Windows : les erreurs de cleanup sont conservées dans l'ordre et agrégées au démontage. L'import `VolumeSession` du CLI est limité à Windows.
+- Les attentes des tests de libération/réallocation ont été alignées sur le contrat next-fit déjà documenté : une libération avant le curseur n'est réutilisée qu'après retour/wrap ou réouverture, où le curseur volatile repart du début.
+- Tests concernés modifiés; inventaire lexical recalculé après les changements : 1 288 déclarations sur 18 fichiers Rust, commit `4ed18b2fccff57e7640e72792b3cdf43198b1f5f`.
+- Le run de correction doit encore valider les tests workspace Linux/Windows et Clippy. Aucun succès n'est revendiqué avant son résultat. Progression globale maintenue à 73 %.
