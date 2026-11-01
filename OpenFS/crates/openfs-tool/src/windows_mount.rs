@@ -467,21 +467,34 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 if create_disposition == CREATE_NEW {
                     return Err(OperationError::Win32(ERROR_FILE_EXISTS));
                 }
-                if wants_directory != (record.kind == ObjectKind::Directory) {
+                // FILE_DIRECTORY_FILE is a constraint, not a requirement that
+                // callers must always provide when opening an existing directory.
+                if wants_directory && record.kind != ObjectKind::Directory {
                     return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                 }
+                let is_dir = record.kind == ObjectKind::Directory;
                 let handle = self.register_open_handle(record.id, desired_access, share_access)?;
                 if create_disposition == CREATE_ALWAYS || create_disposition == TRUNCATE_EXISTING {
-                    if wants_directory {
+                    if is_dir {
                         let _ = self.open_handles.close(handle, false);
                         return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
+                    }
+                    // Truncation changes file contents and therefore requires an
+                    // actual write-data right; FILE_APPEND_DATA alone is insufficient.
+                    const MAXIMUM_ALLOWED_ACCESS: u32 = 0x0200_0000;
+                    if desired_access
+                        & (FILE_WRITE_DATA | GENERIC_WRITE | GENERIC_ALL | MAXIMUM_ALLOWED_ACCESS)
+                        == 0
+                    {
+                        let _ = self.open_handles.close(handle, false);
+                        return Err(OperationError::Win32(ERROR_ACCESS_DENIED));
                     }
                     if let Err(error) = session.set_file_len(&path, 0) {
                         let _ = self.open_handles.close(handle, false);
                         return Err(map_core_error(error));
                     }
                 }
-                (wants_directory, false, record.id, Some(handle))
+                (is_dir, false, record.id, Some(handle))
             }
             Err(CoreError::InvalidInput("path component does not exist")) => {
                 if create_disposition == OPEN_EXISTING || create_disposition == TRUNCATE_EXISTING {
