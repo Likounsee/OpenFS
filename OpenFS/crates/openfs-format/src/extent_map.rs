@@ -2781,7 +2781,7 @@ mod tests {
         }
 
         assert!(matches!(
-            map.allocated_blocks_in_range(0, 0, 1023),
+            map.allocated_blocks_in_range(0, 0, 1021),
             Err(Error::Corrupt("extent exceeds logical file block count"))
         ));
     }
