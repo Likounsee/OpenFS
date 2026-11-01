@@ -3772,4 +3772,4 @@ mod allocation_bitmap_report_tests {
         }
         fs::remove_file(path).unwrap();
     }
-\n
+
