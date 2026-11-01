@@ -17559,6 +17559,8 @@ mod tests {
         use crate::ObjectId;
 
         let path = image_path("volume-session-lifecycle");
+        let mut batch_ids = Vec::new();
+        let mut nested_ids = Vec::new();
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
@@ -17585,7 +17587,7 @@ mod tests {
             assert_eq!(mounted.stat("/auto/generated.txt").unwrap().id, auto_file);
             mounted.remove("/auto/generated.txt").unwrap();
             mounted.remove("/auto").unwrap();
-            let batch_ids = mounted
+            batch_ids = mounted
                 .create_objects_auto(
                     "/",
                     &[
@@ -17611,7 +17613,7 @@ mod tests {
                 .is_err());
             assert!(mounted.read_directory("/batch", None, 8).unwrap().is_empty());
 
-            let nested_ids = mounted
+            nested_ids = mounted
                 .create_objects_auto(
                     "/batch",
                     &[
