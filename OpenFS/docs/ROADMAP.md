@@ -1417,3 +1417,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Après chaque interruption, le test rouvre l'image, vérifie que l'espace de noms expose soit l'ancien couple source/destination, soit le remplacement complet, et contrôle la cohérence de l'inventaire persistant. Il couvre notamment le cas où une publication a pu devenir durable malgré une erreur remontée à l'appelant.
 - L'inventaire lexical CSV n'est pas modifié : le générateur exclut volontairement les déclarations sous `#[cfg(test)]` du périmètre de production.
 - Validation locale et CI exacte-SHA non disponibles dans cette session. Le test est publié mais non déclaré réussi; progression globale maintenue à 73 % jusqu'à validation Linux/Windows.
+
+### API de session pour import et export en flux (2026-11-01)
+
+- Commit `ca1c2c52097d02851931fafb63683a8cccdbf607` : `VolumeSession` expose maintenant `write_file_from_reader` et `stream_file_to_writer`. Les adaptateurs hôtes peuvent importer/exporter de gros fichiers sans devoir matérialiser tout leur contenu dans une tranche ou un vecteur en mémoire.
+- Le test de cycle de vie de session vérifie le flux complet, le nombre d'octets transférés, la relecture après démontage/remontage et la persistance du remplacement.
+- Le moteur de bas niveau existait déjà; cette étape complète la façade publique de session et son parcours d'intégration. Aucun test local ni statut CI exploitable n'a été obtenu dans cette session. Global roadmap conservé à 73 % en attendant validation.
