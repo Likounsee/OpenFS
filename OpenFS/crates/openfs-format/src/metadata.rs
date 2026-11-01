@@ -6,6 +6,7 @@
 
 use crate::crc32c;
 use openfs_core::{Error, Result};
+use std::collections::HashSet;
 
 pub const METADATA_RECORD_SIZE: usize = 80;
 const MAGIC: &[u8; 8] = b"OFSMETA\0";
@@ -74,8 +75,18 @@ pub fn decode_metadata_records(bytes: &[u8]) -> Result<Vec<MetadataRecord>> {
     records
         .try_reserve_exact(record_count)
         .map_err(|_| Error::AllocationFailed("unable to allocate decoded metadata records"))?;
+    let mut object_ids = HashSet::new();
+    object_ids.try_reserve(record_count).map_err(|_| {
+        Error::AllocationFailed("unable to allocate metadata object-ID validation set")
+    })?;
     for record in bytes.chunks_exact(METADATA_RECORD_SIZE) {
-        records.push(MetadataRecord::decode(record)?);
+        let decoded = MetadataRecord::decode(record)?;
+        if !object_ids.insert(decoded.id) {
+            return Err(Error::Corrupt(
+                "metadata inventory contains duplicate object IDs",
+            ));
+        }
+        records.push(decoded);
     }
     Ok(records)
 }
@@ -358,6 +369,25 @@ mod tests {
             super::decode_metadata_records(&packed),
             Err(Error::InvalidInput(
                 "metadata inventory is not record-aligned"
+            ))
+        ));
+    }
+
+    #[test]
+    fn packed_metadata_inventory_rejects_duplicate_object_ids() {
+        let first = file();
+        let mut duplicate = file();
+        duplicate.parent_id = 7;
+        duplicate.size = 0;
+        duplicate.extent_root_block = None;
+
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&duplicate.encode().unwrap());
+
+        assert!(matches!(
+            super::decode_metadata_records(&packed),
+            Err(Error::Corrupt(
+                "metadata inventory contains duplicate object IDs"
             ))
         ));
     }
