@@ -4128,33 +4128,22 @@ impl OpenedVolume {
 
         // The persisted map was loaded by read_namespace_extent_maps above, which
         // validates every physical range, allocation bit, root alias and cross-file
-        // overlap. Only the write-specific condition remains to preflight here: every
-        // touched logical block must exist, so a sparse hole cannot cause a partial write.
-        let extents = map.extents();
-        let mut extent_index = extents
-            .partition_point(|extent| extent.logical_start <= first_logical)
-            .saturating_sub(1);
-        for logical in first_logical..=last_logical {
-            while let Some(extent) = extents.get(extent_index) {
-                let extent_end = extent
-                    .logical_start
-                    .checked_add(extent.block_count)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                if logical < extent_end {
-                    break;
-                }
-                extent_index = extent_index
-                    .checked_add(1)
-                    .ok_or(Error::ArithmeticOverflow)?;
-            }
-            let extent = extents.get(extent_index).ok_or(Error::InvalidInput(
+        // overlap. Preflight the complete logical range through the extent index instead
+        // of visiting every block: large writes to highly fragmented files now scale with
+        // the intersecting extents, not with the byte length of the request.
+        let touched_logical_blocks = last_logical
+            .checked_sub(first_logical)
+            .and_then(|count| count.checked_add(1))
+            .ok_or(Error::ArithmeticOverflow)?;
+        let logical_block_count = record.size.div_ceil(block_size);
+        if !map.logical_range_is_allocated(
+            first_logical,
+            touched_logical_blocks,
+            logical_block_count,
+        )? {
+            return Err(Error::InvalidInput(
                 "cannot write into a sparse hole without allocating extents",
-            ))?;
-            if logical < extent.logical_start {
-                return Err(Error::InvalidInput(
-                    "cannot write into a sparse hole without allocating extents",
-                ));
-            }
+            ));
         }
 
         let block_len = self.volume.block_size as usize;
