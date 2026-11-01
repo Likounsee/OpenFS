@@ -1194,7 +1194,10 @@ mod tests {
             ns.validated_extent_root_inventory(8, 64),
             Err(Error::Corrupt(_))
         ));
-        assert!(matches!(ns.extent_root_owner_count(), Err(Error::Corrupt(_))));
+        assert!(matches!(
+            ns.extent_root_owner_count(),
+            Err(Error::Corrupt(_))
+        ));
 
         ns.object_extent_roots.insert(ObjectId(2), 20);
         ns.set_file_layout(ObjectId(2), 0, None).unwrap();
