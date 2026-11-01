@@ -4130,10 +4130,31 @@ impl OpenedVolume {
         // validates every physical range, allocation bit, root alias and cross-file
         // overlap. Only the write-specific condition remains to preflight here: every
         // touched logical block must exist, so a sparse hole cannot cause a partial write.
+        let extents = map.extents();
+        let mut extent_index = extents
+            .partition_point(|extent| extent.logical_start <= first_logical)
+            .saturating_sub(1);
         for logical in first_logical..=last_logical {
-            map.physical_block(logical).ok_or(Error::InvalidInput(
+            while let Some(extent) = extents.get(extent_index) {
+                let extent_end = extent
+                    .logical_start
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if logical < extent_end {
+                    break;
+                }
+                extent_index = extent_index
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+            let extent = extents.get(extent_index).ok_or(Error::InvalidInput(
                 "cannot write into a sparse hole without allocating extents",
             ))?;
+            if logical < extent.logical_start {
+                return Err(Error::InvalidInput(
+                    "cannot write into a sparse hole without allocating extents",
+                ));
+            }
         }
 
         let block_len = self.volume.block_size as usize;
@@ -4151,7 +4172,29 @@ impl OpenedVolume {
         let mut block_buffer =
             try_zeroed_block(block_len, "unable to allocate file write block buffer")?;
         let mut source_offset = 0_usize;
+        let mut extent_index = extents
+            .partition_point(|extent| extent.logical_start <= first_logical)
+            .saturating_sub(1);
         for logical in first_logical..=last_logical {
+            while let Some(extent) = extents.get(extent_index) {
+                let extent_end = extent
+                    .logical_start
+                    .checked_add(extent.block_count)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if logical < extent_end {
+                    break;
+                }
+                extent_index = extent_index
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+            let extent = extents.get(extent_index).ok_or(Error::Corrupt(
+                "target extent disappeared after write-range preflight",
+            ))?;
+            let physical = extent
+                .physical_start
+                .checked_add(logical - extent.logical_start)
+                .ok_or(Error::ArithmeticOverflow)?;
             let block_start = logical
                 .checked_mul(block_size)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -4166,9 +4209,6 @@ impl OpenedVolume {
             let within_end =
                 usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
             let chunk_len = within_end - within_start;
-            let physical = map.physical_block(logical).ok_or(Error::Corrupt(
-                "target extent disappeared after write-range preflight",
-            ))?;
             let source_end = source_offset
                 .checked_add(chunk_len)
                 .ok_or(Error::ArithmeticOverflow)?;
