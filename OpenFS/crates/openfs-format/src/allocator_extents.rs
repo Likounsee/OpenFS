@@ -3900,4 +3900,64 @@ mod allocation_bitmap_report_tests {
         }
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn extent_map_ownership_validation_tracks_orphans_dangling_and_aliases() {
+        for block_size in [4096_u32, 65_536] {
+            let path = image_path(&format!("extent-ownership-validation-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let allocated = volume.allocate_blocks(&mut device, 2).unwrap();
+                let map = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: allocated[0],
+                    block_count: 2,
+                }])
+                .unwrap();
+
+                assert!(volume
+                    .validate_extent_map_ownership(&mut device, &[(&map, 2)])
+                    .is_ok());
+                let clean = volume
+                    .extent_map_ownership_report(&mut device, &[(&map, 2)])
+                    .unwrap();
+                assert!(clean.is_consistent());
+                assert_eq!(clean.orphaned_allocation_count, 0);
+                assert_eq!(clean.dangling_reference_count, 0);
+
+                let orphan = volume.allocate_blocks(&mut device, 1).unwrap()[0];
+                volume.free_blocks(&mut device, &[allocated[1]]).unwrap();
+                let damaged = volume
+                    .extent_map_ownership_report(&mut device, &[(&map, 2)])
+                    .unwrap();
+                assert_eq!(damaged.orphaned_allocations, vec![orphan]);
+                assert_eq!(damaged.dangling_references, vec![allocated[1]]);
+                assert!(!damaged.is_consistent());
+                assert!(matches!(
+                    volume.validate_extent_map_ownership(&mut device, &[(&map, 2)]),
+                    Err(Error::Corrupt(
+                        "allocation bitmap and extent-map ownership disagree"
+                    ))
+                ));
+
+                assert!(matches!(
+                    volume.extent_map_ownership_report(&mut device, &[(&map, 2), (&map, 2)]),
+                    Err(Error::Corrupt("a data block is referenced by multiple owners"))
+                ));
+
+                let outside = ExtentMap::new(vec![Extent {
+                    logical_start: 0,
+                    physical_start: volume.volume.layout.backup_superblock,
+                    block_count: 1,
+                }])
+                .unwrap();
+                assert!(matches!(
+                    volume.extent_map_ownership_report(&mut device, &[(&outside, 1)]),
+                    Err(Error::Corrupt(_))
+                ));
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
