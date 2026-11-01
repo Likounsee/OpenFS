@@ -1541,6 +1541,28 @@ impl OpenedVolume {
                     let run_mask = ((u16::from(u8::MAX) >> (8 - run_width)) << first_bit) as u8;
                     free_bits &= !run_mask;
                 }
+
+                // Finalize a run as soon as an allocated suffix proves it ended.
+                // Without this boundary check, an exact-size candidate followed by a
+                // long allocated region would remain pending until another free run
+                // appeared (or the complete volume scan ended).
+                let last_valid_bit_is_free =
+                    valid_bits != 0 && (*bitmap_byte & (1_u8 << (valid_bits - 1))) == 0;
+                if !last_valid_bit_is_free {
+                    if let Some(extent) = current.take() {
+                        if extent.block_count == count {
+                            return Ok(Some(extent));
+                        }
+                        if extent.block_count >= count
+                            && best.map_or(true, |candidate| {
+                                (extent.block_count, extent.start_block)
+                                    < (candidate.block_count, candidate.start_block)
+                            })
+                        {
+                            best = Some(extent);
+                        }
+                    }
+                }
             }
             // Keep the current run across adjacent bitmap pages. The journal can
             // atomically update multiple bitmap pages when its redo capacity permits.
