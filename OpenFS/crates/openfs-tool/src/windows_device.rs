@@ -284,7 +284,7 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), test))]
 pub fn verify_offline_usb_disk(
     _index: u32,
     _expected_unique_id: &str,
@@ -417,7 +417,6 @@ mod tests {
         assert!(super::parse_verified_geometry("64000000000\t520").is_err());
         assert!(super::parse_verified_geometry("unknown\t512").is_err());
     }
-
 
     #[cfg(not(windows))]
     #[test]
