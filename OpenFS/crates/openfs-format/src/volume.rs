@@ -9903,8 +9903,8 @@ mod tests {
     fn discovery_read_failures_are_reported_and_retryable_with_a_locator() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        // Discovery performs three reads for this one-block empty inventory: bitmap
-        // validation, candidate bitmap enumeration, and the candidate block batch.
+        // Locator discovery reads the allocation bitmap, descriptor block, and metadata
+        // stream for this one-record inventory.
         for fail_at in 0..3 {
             let path = image_path(&format!("inventory-discovery-read-failure-{fail_at}"));
             {
@@ -9958,51 +9958,33 @@ mod tests {
     }
 
     #[test]
-    fn discovery_batch_read_failures_are_retryable() {
+    fn unreferenced_descriptor_magic_in_allocated_data_is_ignored() {
         use crate::{ObjectId, PersistentInventoryDescriptor};
 
-        // A full bitmap page is scanned into batches of 64 candidates. With 130
-        // consecutive allocations, reads 2, 3, and 4 hit each candidate batch.
-        for fail_at in 2..5 {
-            let path = image_path(&format!("inventory-discovery-batch-read-failure-{fail_at}"));
-            {
-                let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
-                let allocated = volume.allocate_blocks(&mut device, 130).unwrap();
-                let descriptor = PersistentInventoryDescriptor {
-                    root_id: ObjectId(1),
-                    metadata_blocks: vec![],
-                    metadata_record_count: 0,
-                    directory_blocks: vec![],
-                    directory_entry_count: 0,
-                };
-                let descriptor_block = *allocated.last().unwrap();
-                device
-                    .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
-                    .unwrap();
-                device.flush().unwrap();
+        let path = image_path("unreferenced-descriptor-magic-is-data");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let allocated = volume.allocate_blocks(&mut device, 130).unwrap();
+            let descriptor = PersistentInventoryDescriptor {
+                root_id: ObjectId(1),
+                metadata_blocks: vec![],
+                metadata_record_count: 0,
+                directory_blocks: vec![],
+                directory_entry_count: 0,
+            };
+            let data_block = *allocated.last().unwrap();
+            device
+                .write_blocks(data_block, &descriptor.encode(4096).unwrap())
+                .unwrap();
+            device.flush().unwrap();
 
-                let mut failing = FailReadAt {
-                    inner: device,
-                    read_index: 0,
-                    fail_at,
-                };
-                assert!(
-                    matches!(
-                        volume.discover_persistent_inventory(&mut failing),
-                        Err(Error::Io(_))
-                    ),
-                    "discovery must propagate candidate-batch read failure at read {fail_at}"
-                );
-                let found = volume
-                    .discover_persistent_inventory(&mut failing)
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(found.0, descriptor_block);
-                assert_eq!(found.1, descriptor);
-            }
-            fs::remove_file(path).unwrap();
+            assert!(
+                volume.discover_persistent_inventory(&mut device).unwrap().is_none(),
+                "descriptor-like bytes in an ordinary allocated block must not create an inventory"
+            );
         }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -10011,8 +9993,8 @@ mod tests {
             DirectoryEntry, MetadataRecord, ObjectId, ObjectKind, PersistentInventoryDescriptor,
         };
 
-        // Descriptor discovery reads are followed by packed metadata and directory reads.
-        // These indices target the namespace-stream reads in this fixture.
+        // Locator discovery reads the descriptor directly, then reads the packed
+        // metadata and directory streams. These indices target the latter reads.
         {
             let fail_at = 3;
             let path = image_path(&format!(
@@ -10074,6 +10056,8 @@ mod tests {
                     .write_blocks(descriptor_block, &descriptor.encode(4096).unwrap())
                     .unwrap();
                 device.flush().unwrap();
+                crate::volume::persist_inventory_hint(&mut device, descriptor_block).unwrap();
+                volume = open_volume(&mut device).unwrap();
 
                 let mut failing = FailReadAt {
                     inner: device,
@@ -10970,7 +10954,7 @@ mod tests {
             let path = image_path(&format!("sparse-descriptor-near-end-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let layout = volume.volume.layout;
                 let descriptor_block = layout.backup_superblock - 1;
                 let bits_per_bitmap_block = u64::from(block_size) * 8;
