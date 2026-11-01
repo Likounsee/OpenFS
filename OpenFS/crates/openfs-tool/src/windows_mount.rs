@@ -104,6 +104,31 @@ struct OpenHandleState {
 }
 
 #[derive(Default)]
+struct DeferredErrorLatch {
+    errors: Mutex<Vec<String>>,
+}
+
+impl DeferredErrorLatch {
+    fn record(&self, error: String) {
+        let mut errors = self
+            .errors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        errors.push(error);
+    }
+
+    fn take(&self) -> std::sync::LockResult<Option<String>> {
+        self.errors.lock().map(|mut errors| {
+            if errors.is_empty() {
+                None
+            } else {
+                Some(errors.drain(..).collect::<Vec<_>>().join("; "))
+            }
+        })
+    }
+}
+
+#[derive(Default)]
 struct OpenHandleInner {
     handles: HashMap<ObjectId, Vec<OpenHandleRecord>>,
     delete_pending: HashSet<ObjectId>,
