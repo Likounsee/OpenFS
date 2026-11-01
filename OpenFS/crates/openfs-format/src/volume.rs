@@ -8484,6 +8484,20 @@ impl<D: BlockDevice> VolumeSession<D> {
         )
     }
 
+    /// Stream an entire regular file to a writer without materializing it in memory.
+    ///
+    /// The returned byte count is the exact logical file length. The underlying
+    /// implementation validates the complete extent ownership graph before emitting
+    /// bytes and uses bounded scratch memory.
+    pub fn stream_file_to_writer<W: std::io::Write>(
+        &mut self,
+        path: &str,
+        writer: &mut W,
+    ) -> Result<u64> {
+        self.opened
+            .stream_persistent_file_to_writer(&mut self.device, path, writer)
+    }
+
     /// Create a regular file using an ID allocated uniquely within this open session.
     ///
     /// IDs are initialized above the maximum ID in the mounted namespace and then
@@ -8593,6 +8607,19 @@ impl<D: BlockDevice> VolumeSession<D> {
     pub fn write_file(&mut self, path: &str, contents: &[u8]) -> Result<()> {
         self.opened
             .write_persistent_file_contents(&mut self.device, path, contents)
+    }
+
+    /// Replace a regular file's contents from a reader using bounded staging memory.
+    ///
+    /// Unlike write_file, this does not require the caller to hold the entire file
+    /// in a byte slice. The returned value is the number of bytes imported.
+    pub fn write_file_from_reader<R: std::io::Read>(
+        &mut self,
+        path: &str,
+        reader: &mut R,
+    ) -> Result<u64> {
+        self.opened
+            .write_persistent_file_from_reader(&mut self.device, path, reader)
     }
 
     /// Write a byte range at an explicit file offset.
@@ -17538,6 +17565,14 @@ mod tests {
                 7
             );
             assert_eq!(streamed, b"mounted");
+            let mut complete_stream = Vec::new();
+            assert_eq!(
+                mounted
+                    .stream_file_to_writer("/docs/draft.txt", &mut complete_stream)
+                    .unwrap(),
+                27
+            );
+            assert_eq!(complete_stream, b"OpenFS mounted session data");
             mounted
                 .write_file_range("/docs/draft.txt", 0, b"openfs")
                 .unwrap();
@@ -17550,6 +17585,21 @@ mod tests {
                 mounted.read_file("/docs/final.txt").unwrap(),
                 b"openfs mount"
             );
+            let mut imported = std::io::Cursor::new(b"streamed replacement payload".to_vec());
+            assert_eq!(
+                mounted
+                    .write_file_from_reader("/docs/final.txt", &mut imported)
+                    .unwrap(),
+                28
+            );
+            let mut streamed_replacement = Vec::new();
+            assert_eq!(
+                mounted
+                    .stream_file_to_writer("/docs/final.txt", &mut streamed_replacement)
+                    .unwrap(),
+                28
+            );
+            assert_eq!(streamed_replacement, b"streamed replacement payload");
 
             let entries = mounted.read_directory("/docs", None, 16).unwrap();
             assert_eq!(entries.len(), 1);
