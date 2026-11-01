@@ -8748,6 +8748,22 @@ impl<D: BlockDevice> VolumeSession<D> {
     }
 }
 
+
+    /// Remove a directory and its complete subtree in one persistent namespace publication.
+    ///
+    /// File extents and metadata roots are reclaimed only after the updated inventory
+    /// has been published and rediscovery confirms that the removed objects are unreachable.
+    pub fn remove_tree(&mut self, path: &str) -> Result<()> {
+        self.opened
+            .remove_persistent_tree_at_path(&mut self.device, path)
+    }
+
+    /// Remove a directory subtree using its stable object ID rather than a cached path.
+    pub fn remove_tree_by_id(&mut self, object_id: ObjectId) -> Result<()> {
+        self.opened
+            .remove_persistent_tree(&mut self.device, object_id)
+    }
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -17759,14 +17775,25 @@ mod tests {
             assert_eq!(mounted.stat("/batch/first.txt").unwrap().id, nested_ids[0]);
             assert_eq!(mounted.stat("/batch/second.txt").unwrap().id, nested_ids[1]);
             assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
+            // Recursive session removal publishes the whole subtree and reclaims its files.
+            mounted.remove_tree("/batch").unwrap();
+            assert!(matches!(
+                mounted.stat("/batch/first.txt"),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                mounted.stat("/batch/second.txt"),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                mounted.stat("/batch"),
+                Err(Error::InvalidInput(_))
+            ));
             assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
             assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
             assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
-            mounted.remove("/batch/first.txt").unwrap();
-            mounted.remove("/batch/second.txt").unwrap();
-            mounted.remove("/batch").unwrap();
             mounted.remove("/batch-root.txt").unwrap();
             mounted.remove("/left/left.txt").unwrap();
             mounted.remove("/right/right.txt").unwrap();
