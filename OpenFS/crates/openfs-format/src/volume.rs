@@ -17559,8 +17559,8 @@ mod tests {
         use crate::ObjectId;
 
         let path = image_path("volume-session-lifecycle");
-        let mut batch_ids = Vec::new();
-        let mut nested_ids = Vec::new();
+        let batch_ids;
+        let nested_ids;
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
