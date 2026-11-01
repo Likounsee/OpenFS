@@ -117,14 +117,17 @@ impl DeferredErrorLatch {
         errors.push(error);
     }
 
-    fn take(&self) -> std::sync::LockResult<Option<String>> {
-        self.errors.lock().map(|mut errors| {
-            if errors.is_empty() {
-                None
-            } else {
-                Some(errors.drain(..).collect::<Vec<_>>().join("; "))
-            }
-        })
+    fn take(&self) -> Result<Option<String>, std::io::Error> {
+        self.errors
+            .lock()
+            .map(|mut errors| {
+                if errors.is_empty() {
+                    None
+                } else {
+                    Some(errors.drain(..).collect::<Vec<_>>().join("; "))
+                }
+            })
+            .map_err(|_| std::io::Error::other("OpenFS deferred error latch lock was poisoned"))
     }
 }
 
