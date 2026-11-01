@@ -8513,6 +8513,45 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.create_directory(parent_path, object_id, name)
     }
 
+    /// Atomically create several files and directories beneath one existing directory.
+    ///
+    /// Every object receives a session-unique ID. The complete batch is validated and
+    /// published through one persistent inventory replacement, so a crash cannot expose
+    /// only a prefix of the requested entries. An empty batch is a no-op.
+    ///
+    /// IDs are reserved monotonically before publication; a rejected batch may therefore
+    /// leave harmless gaps in the ID sequence, but IDs are never reused in this session.
+    pub fn create_objects_auto(
+        &mut self,
+        parent_path: &str,
+        objects: &[(crate::ObjectKind, &str)],
+    ) -> Result<Vec<ObjectId>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut batch = Vec::new();
+        batch.try_reserve_exact(objects.len()).map_err(|_| {
+            Error::AllocationFailed("unable to allocate automatic persistent object batch")
+        })?;
+        for (kind, name) in objects {
+            batch.push((
+                self.allocate_object_id()?,
+                *kind,
+                try_clone_string(
+                    name,
+                    "unable to copy automatic persistent object name",
+                )?,
+            ));
+        }
+
+        self.opened.create_persistent_objects_at_path(
+            &mut self.device,
+            parent_path,
+            &batch,
+        )
+    }
+
     fn allocate_object_id(&mut self) -> Result<ObjectId> {
         let object_id = ObjectId::new(self.next_object_id)?;
         self.next_object_id = self
@@ -17546,6 +17585,44 @@ mod tests {
             assert_eq!(mounted.stat("/auto/generated.txt").unwrap().id, auto_file);
             mounted.remove("/auto/generated.txt").unwrap();
             mounted.remove("/auto").unwrap();
+            let batch_ids = mounted
+                .create_objects_auto(
+                    "/",
+                    &[
+                        (crate::ObjectKind::Directory, "batch"),
+                        (crate::ObjectKind::File, "batch-root.txt"),
+                    ],
+                )
+                .unwrap();
+            assert_eq!(batch_ids.len(), 2);
+            assert_eq!(batch_ids[1].0, batch_ids[0].0 + 1);
+            assert_eq!(mounted.stat("/batch").unwrap().id, batch_ids[0]);
+            assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
+
+            // A duplicate-name batch must publish nothing, not a partial prefix.
+            assert!(mounted
+                .create_objects_auto(
+                    "/batch",
+                    &[
+                        (crate::ObjectKind::File, "duplicate.txt"),
+                        (crate::ObjectKind::File, "duplicate.txt"),
+                    ],
+                )
+                .is_err());
+            assert!(mounted.read_directory("/batch", None, 8).unwrap().is_empty());
+
+            let nested_ids = mounted
+                .create_objects_auto(
+                    "/batch",
+                    &[
+                        (crate::ObjectKind::File, "first.txt"),
+                        (crate::ObjectKind::File, "second.txt"),
+                    ],
+                )
+                .unwrap();
+            assert_eq!(nested_ids.len(), 2);
+            assert_eq!(nested_ids[1].0, nested_ids[0].0 + 1);
+            assert_eq!(mounted.read_directory("/batch", None, 8).unwrap().len(), 2);
             mounted
                 .write_file("/docs/draft.txt", b"OpenFS mounted session data")
                 .unwrap();
@@ -17617,8 +17694,15 @@ mod tests {
                 b"streamed replacement payload"
             );
             assert_eq!(mounted.stat("/docs/final.txt").unwrap().size, 28);
+            assert_eq!(mounted.stat("/batch/first.txt").unwrap().id, nested_ids[0]);
+            assert_eq!(mounted.stat("/batch/second.txt").unwrap().id, nested_ids[1]);
+            assert_eq!(mounted.stat("/batch-root.txt").unwrap().id, batch_ids[1]);
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
+            mounted.remove("/batch/first.txt").unwrap();
+            mounted.remove("/batch/second.txt").unwrap();
+            mounted.remove("/batch").unwrap();
+            mounted.remove("/batch-root.txt").unwrap();
             let device = mounted.unmount().unwrap();
             drop(device);
         }
