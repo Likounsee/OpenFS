@@ -12581,10 +12581,7 @@ mod tests {
             volume.free_block(&mut device, allocated).unwrap();
             // The next-fit cursor continues forward; the freed block becomes eligible
             // again after reopening resets the volatile cursor.
-            assert_eq!(
-                volume.allocate_block(&mut device).unwrap(),
-                allocated + 1
-            );
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), allocated + 1);
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
