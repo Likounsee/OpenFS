@@ -5328,25 +5328,45 @@ impl OpenedVolume {
                 batch_extents.try_reserve_exact(blocks.len()).map_err(|_| {
                     Error::AllocationFailed("unable to reserve staged file extents")
                 })?;
-                for (slot, (block, filled)) in blocks.iter().zip(valid_lengths.iter()).enumerate() {
-                    let start = slot
+                // The allocator may return adjacent blocks within a bitmap run.
+                // Submit those runs as multi-block device writes instead of issuing
+                // one I/O operation per block. Fragmented and wraparound selections
+                // naturally split into smaller runs without changing logical order.
+                let mut slot = 0_usize;
+                while slot < blocks.len() {
+                    let mut run_end = slot + 1;
+                    while run_end < blocks.len()
+                        && blocks[run_end - 1].checked_add(1) == Some(blocks[run_end])
+                    {
+                        run_end += 1;
+                    }
+                    let byte_start = slot
                         .checked_mul(block_size)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    let end = start
-                        .checked_add(block_size)
+                    let byte_end = run_end
+                        .checked_mul(block_size)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    device.write_blocks(*block, &contents[start..end])?;
-                    batch_extents.push(crate::Extent {
-                        logical_start: logical_block,
-                        physical_start: *block,
-                        block_count: 1,
-                    });
-                    file_size = file_size
-                        .checked_add(u64::try_from(*filled).map_err(|_| Error::ArithmeticOverflow)?)
-                        .ok_or(Error::ArithmeticOverflow)?;
-                    logical_block = logical_block
-                        .checked_add(1)
-                        .ok_or(Error::ArithmeticOverflow)?;
+                    device.write_blocks(blocks[slot], &contents[byte_start..byte_end])?;
+
+                    for (block, filled) in blocks[slot..run_end]
+                        .iter()
+                        .zip(valid_lengths[slot..run_end].iter())
+                    {
+                        batch_extents.push(crate::Extent {
+                            logical_start: logical_block,
+                            physical_start: *block,
+                            block_count: 1,
+                        });
+                        file_size = file_size
+                            .checked_add(
+                                u64::try_from(*filled).map_err(|_| Error::ArithmeticOverflow)?,
+                            )
+                            .ok_or(Error::ArithmeticOverflow)?;
+                        logical_block = logical_block
+                            .checked_add(1)
+                            .ok_or(Error::ArithmeticOverflow)?;
+                    }
+                    slot = run_end;
                 }
                 extent_map.push_coalescing_batch(batch_extents)?;
                 if valid_lengths
