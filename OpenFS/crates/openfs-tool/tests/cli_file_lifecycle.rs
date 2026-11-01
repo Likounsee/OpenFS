@@ -73,7 +73,8 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     let image_arg = image.to_str().unwrap();
 
     assert_ok(invoke(["create-image", image_arg, "32"]), "create-image");
-    run_image(&image, "init-namespace", &[]);
+    // create-image now publishes the persistent root namespace atomically;
+    // the legacy init-namespace command is only for older blank images.
     run_image(&image, "mkdir-p", &["/docs/deep"]);
     run_image(&image, "touch", &["/docs/deep/payload.bin"]);
 
