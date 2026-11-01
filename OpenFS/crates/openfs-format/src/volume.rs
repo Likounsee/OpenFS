@@ -8712,6 +8712,18 @@ impl<D: BlockDevice> VolumeSession<D> {
             .rename_persistent_path(&mut self.device, path, new_parent_path, new_name)
     }
 
+    /// Atomically move or rename several objects in one namespace publication.
+    ///
+    /// Each change is (object ID, destination directory ID, new name). This is useful
+    /// for adapters implementing multi-entry operations without exposing partial moves.
+    pub fn rename_objects(
+        &mut self,
+        changes: &[(ObjectId, ObjectId, String)],
+    ) -> Result<()> {
+        self.opened
+            .rename_persistent_objects(&mut self.device, changes)
+    }
+
     /// Replace an existing regular file, or rename when the destination is absent.
     pub fn replace_file(
         &mut self,
@@ -8730,6 +8742,15 @@ impl<D: BlockDevice> VolumeSession<D> {
     /// Remove a file or an empty directory.
     pub fn remove(&mut self, path: &str) -> Result<()> {
         self.opened.remove_persistent_path(&mut self.device, path)
+    }
+
+    /// Atomically remove several files or empty directories by stable object ID.
+    ///
+    /// All targets are validated against one namespace snapshot and published together.
+    /// File extents are reclaimed only after the new inventory is confirmed active.
+    pub fn remove_objects(&mut self, object_ids: &[ObjectId]) -> Result<()> {
+        self.opened
+            .remove_persistent_objects(&mut self.device, object_ids)
     }
 
     /// Report the number of currently free data blocks.
@@ -17612,6 +17633,8 @@ mod tests {
         let batch_ids;
         let nested_ids;
         let cross_parent_ids;
+        let left_directory_id;
+        let right_directory_id;
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
@@ -17678,15 +17701,15 @@ mod tests {
             assert_eq!(mounted.read_directory("/batch", None, 8).unwrap().len(), 2);
 
             // A single transaction can populate different existing directories.
-            let left_id = mounted.create_directory("/", ObjectId(12), "left").unwrap();
-            let right_id = mounted.create_directory("/", ObjectId(13), "right").unwrap();
+            left_directory_id = mounted.create_directory("/", ObjectId(12), "left").unwrap();
+            right_directory_id = mounted.create_directory("/", ObjectId(13), "right").unwrap();
             mounted
                 .create_file("/right", ObjectId(14), "occupied.txt")
                 .unwrap();
             assert!(mounted
                 .create_objects_auto_with_parent_ids(&[
-                    (left_id, crate::ObjectKind::File, "must-rollback.txt"),
-                    (right_id, crate::ObjectKind::File, "occupied.txt"),
+                    (left_directory_id, crate::ObjectKind::File, "must-rollback.txt"),
+                    (right_directory_id, crate::ObjectKind::File, "occupied.txt"),
                 ])
                 .is_err());
             assert!(mounted.read_directory("/left", None, 8).unwrap().is_empty());
@@ -17694,8 +17717,8 @@ mod tests {
 
             cross_parent_ids = mounted
                 .create_objects_auto_with_parent_ids(&[
-                    (left_id, crate::ObjectKind::File, "left.txt"),
-                    (right_id, crate::ObjectKind::File, "right.txt"),
+                    (left_directory_id, crate::ObjectKind::File, "left.txt"),
+                    (right_directory_id, crate::ObjectKind::File, "right.txt"),
                 ])
                 .unwrap();
             assert_eq!(cross_parent_ids.len(), 2);
@@ -17793,11 +17816,27 @@ mod tests {
             assert_eq!(mounted.stat("/left/left.txt").unwrap().id, cross_parent_ids[0]);
             assert_eq!(mounted.stat("/right/right.txt").unwrap().id, cross_parent_ids[1]);
             assert_eq!(mounted.stat("/right/occupied.txt").unwrap().id, ObjectId(14));
+
+            // Cross-directory renames are committed together and retain stable IDs.
+            mounted.rename_objects(&[
+                (cross_parent_ids[0], right_directory_id, "left-moved.txt".to_owned()),
+                (cross_parent_ids[1], left_directory_id, "right-moved.txt".to_owned()),
+            ]).unwrap();
+            assert_eq!(mounted.stat("/right/left-moved.txt").unwrap().id, cross_parent_ids[0]);
+            assert_eq!(mounted.stat("/left/right-moved.txt").unwrap().id, cross_parent_ids[1]);
+
             mounted.remove("/docs/final.txt").unwrap();
             mounted.remove("/docs").unwrap();
             mounted.remove("/batch-root.txt").unwrap();
-            mounted.remove("/left/left.txt").unwrap();
-            mounted.remove("/right/right.txt").unwrap();
+            mounted.remove_objects(&cross_parent_ids).unwrap();
+            assert!(matches!(
+                mounted.stat("/right/left-moved.txt"),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                mounted.stat("/left/right-moved.txt"),
+                Err(Error::InvalidInput(_))
+            ));
             mounted.remove("/right/occupied.txt").unwrap();
             mounted.remove("/left").unwrap();
             mounted.remove("/right").unwrap();
