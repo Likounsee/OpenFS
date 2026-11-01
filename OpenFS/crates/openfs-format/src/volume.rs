@@ -10111,7 +10111,7 @@ mod tests {
                 directory_blocks: vec![],
                 directory_entry_count: 0,
             };
-            let descriptor_block = volume
+            let _descriptor_block = volume
                 .publish_persistent_inventory(&mut device, &descriptor)
                 .unwrap();
 
