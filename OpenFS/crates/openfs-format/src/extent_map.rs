@@ -169,6 +169,11 @@ impl ExtentMap {
         if block_size == 0 {
             return Err(Error::InvalidInput("block size must be nonzero"));
         }
+        // Reject allocated extents on an empty file before checking the final
+        // extent boundary, so callers receive the specific empty-file invariant.
+        if file_size == 0 && !self.extents.is_empty() {
+            return Err(Error::Corrupt("empty file must not own data extents"));
+        }
         let block_size = u64::from(block_size);
         let required_blocks = file_size / block_size + u64::from(file_size % block_size != 0);
         // Extents are kept in non-overlapping logical order, so the final extent
@@ -178,9 +183,6 @@ impl ExtentMap {
             if last_extent.logical_end()? > required_blocks {
                 return Err(Error::Corrupt("extent exceeds file byte length"));
             }
-        }
-        if file_size == 0 && !self.extents.is_empty() {
-            return Err(Error::Corrupt("empty file must not own data extents"));
         }
         Ok(())
     }
