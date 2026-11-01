@@ -1846,7 +1846,14 @@ mod directory_visit_tests {
                 true
             })
             .unwrap();
-        assert_eq!(visited, [("alpha".to_owned(), 17), ("beta".to_owned(), 29), ("gamma".to_owned(), 41)]);
+        assert_eq!(
+            visited,
+            [
+                ("alpha".to_owned(), 17),
+                ("beta".to_owned(), 29),
+                ("gamma".to_owned(), 41)
+            ]
+        );
 
         let mut count = 0;
         namespace
