@@ -3751,6 +3751,26 @@ mod allocation_bitmap_report_tests {
         }
         fs::remove_file(path).unwrap();
     }
+        #[test]
+        fn free_extent_inventory_coalesces_runs_across_bitmap_pages() {
+            let path = image_path("free-inventory-cross-bitmap-page");
+            {
+                // One 4 KiB bitmap page describes 32,768 data blocks. The volume
+                // crosses that boundary so the free run must remain contiguous.
+                let mut device = ImageDevice::create(&path, 4096, 33_000).unwrap();
+                let volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let extents = volume.free_extent_inventory(&mut device).unwrap();
+    
+                assert_eq!(extents.len(), 1);
+                assert!(extents[0].block_count > 32_768);
+                assert_eq!(
+                    extents[0].start_block + extents[0].block_count,
+                    volume.volume.layout.backup_superblock
+                );
+            }
+            fs::remove_file(path).unwrap();
+        }
+    
 }
  
     #[test]
