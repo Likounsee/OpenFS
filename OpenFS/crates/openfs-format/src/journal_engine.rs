@@ -179,9 +179,49 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
 
     let plan = plan_recovery(&scanned.records, checkpoint.checkpoint_sequence)?;
     if plan.is_empty() {
-        // No durable COMMIT means no home block was changed by this transaction.
-        // Retire the complete tail without advancing the checkpoint: a later retry
-        // may safely reuse the same sequence and transaction identifiers.
+        // A complete ABORT is a durable terminal record. It is safe to advance
+        // past that transaction, but never past an incomplete BEGIN/UPDATE tail:
+        // doing so could make an old home image appear newer than it is.
+        if let Some(aborted) = scanned
+            .records
+            .last()
+            .filter(|record| record.kind == JournalRecordKind::Abort)
+        {
+            let next_sequence = aborted
+                .sequence
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let next_transaction_id = aborted
+                .transaction_id
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?
+                .max(checkpoint.next_transaction_id);
+            let next_generation = checkpoint
+                .generation
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            checkpoint.checkpoint_sequence = aborted.sequence;
+            checkpoint.next_sequence = next_sequence;
+            checkpoint.next_transaction_id = next_transaction_id;
+            checkpoint.head_block = 0;
+            checkpoint.tail_block = 0;
+            checkpoint.generation = next_generation;
+            let next_copy = 1 - active_copy;
+            write_checkpoint_block(
+                device,
+                checkpoint_block_number(region, next_copy),
+                &checkpoint,
+            )?;
+            device.flush()?;
+            clear_journal_ring_from(device, region, 0)?;
+            return Ok(PersistentJournal {
+                region,
+                checkpoint,
+                active_checkpoint_copy: next_copy,
+                recovery_required: false,
+                protected_blocks,
+            });
+        }
         if !scanned.records.is_empty() || scanned.first_malformed_slot.is_some() {
             clear_journal_ring_from(device, region, 0)?;
         }
