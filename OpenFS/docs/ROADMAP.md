@@ -1439,3 +1439,5 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test de cycle de vie de session supprime récursivement `/batch` après remontage et vérifie que le dossier et ses deux fichiers ne sont plus résolus, tout en préservant les objets frères. Ce test est publié mais n'a pas encore été exécuté dans cette session.
 - Inventaire lexical mis à jour au commit `8c616afa0779416f978bd462c26ec401e731d35` : 1 295 déclarations sur 18 fichiers Rust.
 - Aucun statut CI exploitable ni résultat de tests local n'est confirmé pour ces commits. Progression globale maintenue à 73 % : cette étape rend une capacité existante accessible depuis la session publique, sans compter deux fois l'implémentation transactionnelle déjà présente.
+
+- Correctif de placement publié au commit `76f098dd642b119bfea50839200b496f1095a604` : les deux méthodes sont bien membres de `VolumeSession` (et non des fonctions libres). L'inventaire a été réaligné sur leurs lignes définitives, commit `456705df47d1417d40037ccf1570a73835bff54d`; le total reste de 1 295 déclarations.
