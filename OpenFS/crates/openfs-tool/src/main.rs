@@ -1107,6 +1107,9 @@ fn report_space(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
             .checked_mul(block_bytes)
             .ok_or("largest extent byte count overflows")?
     );
+    if let Some(start_block) = fragmentation.largest_free_extent_start_block {
+        println!("Largest free extent starts at block: {start_block}");
+    }
     if allocation.free_data_blocks == 0 {
         println!("Free-space ratio: 0.00%");
         println!("Free-space fragmentation: 0.00%");
