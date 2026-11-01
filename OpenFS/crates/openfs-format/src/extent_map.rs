@@ -505,6 +505,62 @@ impl ExtentMap {
         self.allocated_blocks()
     }
 
+    /// Return allocated logical runs intersecting a requested file range.
+    ///
+    /// Each returned extent is clipped to the requested half-open range. Its
+    /// physical_start is adjusted by the same logical displacement, so callers
+    /// can issue bounded I/O without expanding a run into individual blocks.
+    /// Sparse holes are omitted and results remain in logical order.
+    pub fn allocated_ranges_in_range(
+        &self,
+        logical_start: u64,
+        block_count: u64,
+        logical_block_count: u64,
+    ) -> Result<Vec<Extent>> {
+        let logical_end = logical_start
+            .checked_add(block_count)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if let Some(last) = self.extents.last() {
+            if last.logical_end()? > logical_block_count {
+                return Err(Error::Corrupt("extent exceeds logical file block count"));
+            }
+        }
+        if logical_end > logical_block_count {
+            return Err(Error::InvalidInput("logical range exceeds file block count"));
+        }
+
+        let end_index = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_end);
+        let first_candidate = self
+            .extents
+            .partition_point(|extent| extent.logical_start < logical_start);
+        let first_index = first_candidate.saturating_sub(1);
+        let mut allocated = Vec::new();
+        allocated
+            .try_reserve_exact(end_index.saturating_sub(first_index))
+            .map_err(|_| Error::AllocationFailed("unable to reserve allocated extent ranges"))?;
+
+        for extent in &self.extents[first_index..end_index] {
+            let extent_end = extent.logical_end()?;
+            let overlap_start = logical_start.max(extent.logical_start);
+            let overlap_end = logical_end.min(extent_end);
+            if overlap_start >= overlap_end {
+                continue;
+            }
+            let displacement = overlap_start - extent.logical_start;
+            allocated.push(Extent {
+                logical_start: overlap_start,
+                physical_start: extent
+                    .physical_start
+                    .checked_add(displacement)
+                    .ok_or(Error::ArithmeticOverflow)?,
+                block_count: overlap_end - overlap_start,
+            });
+        }
+        Ok(allocated)
+    }
+
     /// Return logical sparse holes inside a file's logical block range.
     ///
     /// The returned pairs are (start, block_count), ordered by logical offset. Extents
@@ -1044,6 +1100,37 @@ mod tests {
         assert_eq!(map.physical_block(5), Some(200));
         assert_eq!(map.physical_block(7), None);
         assert_eq!(map.allocated_blocks().unwrap(), 5);
+    }
+
+    #[test]
+    fn allocated_ranges_are_clipped_and_preserve_physical_offsets() {
+        let map = sample();
+        assert_eq!(
+            map.allocated_ranges_in_range(1, 6, 7).unwrap(),
+            vec![
+                Extent { logical_start: 1, physical_start: 101, block_count: 2 },
+                Extent { logical_start: 5, physical_start: 200, block_count: 2 },
+            ]
+        );
+        assert_eq!(map.allocated_ranges_in_range(3, 2, 7).unwrap(), Vec::<Extent>::new());
+        assert_eq!(map.allocated_ranges_in_range(0, 0, 7).unwrap(), Vec::<Extent>::new());
+        assert!(matches!(
+            map.allocated_ranges_in_range(6, 2, 7),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn allocated_ranges_reject_corrupt_tail_even_for_empty_query() {
+        let map = ExtentMap::new(vec![Extent {
+            logical_start: 8,
+            physical_start: 100,
+            block_count: 1,
+        }]).unwrap();
+        assert!(matches!(
+            map.allocated_ranges_in_range(0, 0, 8),
+            Err(Error::Corrupt(_))
+        ));
     }
 
     #[test]
