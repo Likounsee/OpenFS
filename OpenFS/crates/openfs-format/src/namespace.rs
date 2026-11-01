@@ -29,8 +29,9 @@ pub struct Namespace {
     names: BTreeMap<(ObjectId, String), DirectoryEntry>,
     // Reverse index avoids scanning every sibling when resolving an object's parent edge.
     parents: BTreeMap<ObjectId, (ObjectId, String)>,
-    // Reverse ownership index keeps extent-root uniqueness checks logarithmic.
+    // Forward and reverse indexes avoid linear owner scans.
     extent_roots: BTreeMap<u64, ObjectId>,
+    object_extent_roots: BTreeMap<ObjectId, u64>,
 }
 
 impl Namespace {
@@ -54,6 +55,7 @@ impl Namespace {
             names: BTreeMap::new(),
             parents: BTreeMap::new(),
             extent_roots: BTreeMap::new(),
+            object_extent_roots: BTreeMap::new(),
         })
     }
 
@@ -84,9 +86,12 @@ impl Namespace {
         }
 
         let mut extent_roots = BTreeMap::new();
+        let mut object_extent_roots = BTreeMap::new();
         for record in objects.values() {
             if let Some(block) = record.extent_root_block {
-                if extent_roots.insert(block, record.id).is_some() {
+                if extent_roots.insert(block, record.id).is_some()
+                    || object_extent_roots.insert(record.id, block).is_some()
+                {
                     return Err(Error::Corrupt(
                         "multiple namespace objects claim the same extent-map root block",
                     ));
@@ -125,6 +130,7 @@ impl Namespace {
             names,
             parents,
             extent_roots,
+            object_extent_roots,
         };
         namespace.validate()?;
         Ok(namespace)
@@ -339,9 +345,9 @@ impl Namespace {
         if self.objects.contains_key(&object_id) {
             return Err(Error::InvalidInput("object ID already exists"));
         }
-        if self.extent_roots.values().any(|owner| *owner == object_id) {
+        if self.object_extent_roots.contains_key(&object_id) {
             return Err(Error::Corrupt(
-                "extent-root ownership index contains a stale entry",
+                "object-to-extent-root ownership index contains a stale entry",
             ));
         }
         if let Some(root_block) = record.extent_root_block {
@@ -377,6 +383,7 @@ impl Namespace {
         self.objects.insert(parent_id, updated_parent);
         if let Some(root_block) = record.extent_root_block {
             self.extent_roots.insert(root_block, object_id);
+            self.object_extent_roots.insert(object_id, root_block);
         }
         self.objects.insert(object_id, record);
         self.parents.insert(object_id, (parent_id, parent_name));
@@ -575,13 +582,9 @@ impl Namespace {
                 ));
             }
         }
-        if self
-            .extent_roots
-            .iter()
-            .any(|(root, owner)| *owner == object_id && current.extent_root_block != Some(*root))
-        {
+        if self.object_extent_roots.get(&object_id).copied() != current.extent_root_block {
             return Err(Error::Corrupt(
-                "extent-root ownership index contains a stale entry",
+                "object-to-extent-root ownership index is inconsistent",
             ));
         }
 
@@ -603,9 +606,11 @@ impl Namespace {
         if old_root != extent_root_block {
             if let Some(old_root) = old_root {
                 self.extent_roots.remove(&old_root);
+                self.object_extent_roots.remove(&object_id);
             }
             if let Some(new_root) = extent_root_block {
                 self.extent_roots.insert(new_root, object_id);
+                self.object_extent_roots.insert(object_id, new_root);
             }
         }
         self.objects.insert(object_id, updated);
@@ -683,13 +688,9 @@ impl Namespace {
                 ));
             }
         }
-        if self
-            .extent_roots
-            .iter()
-            .any(|(root, owner)| *owner == object_id && record.extent_root_block != Some(*root))
-        {
+        if self.object_extent_roots.get(&object_id).copied() != record.extent_root_block {
             return Err(Error::Corrupt(
-                "extent-root ownership index contains a stale entry",
+                "object-to-extent-root ownership index is inconsistent",
             ));
         }
 
@@ -698,6 +699,7 @@ impl Namespace {
         self.parents.remove(&object_id);
         if let Some(root_block) = record.extent_root_block {
             self.extent_roots.remove(&root_block);
+            self.object_extent_roots.remove(&object_id);
         }
         self.objects.insert(parent_id, parent_record);
         self.objects
@@ -830,9 +832,15 @@ impl Namespace {
                 }
             }
         }
-        if expected_extent_roots != self.extent_roots {
+        let mut expected_object_extent_roots = BTreeMap::new();
+        for (root, owner) in &expected_extent_roots {
+            expected_object_extent_roots.insert(*owner, *root);
+        }
+        if expected_extent_roots != self.extent_roots
+            || expected_object_extent_roots != self.object_extent_roots
+        {
             return Err(Error::Corrupt(
-                "extent-root ownership index is inconsistent",
+                "extent-root ownership indexes are inconsistent",
             ));
         }
 
@@ -953,9 +961,11 @@ impl Namespace {
                 }
                 // A matching count alone is insufficient: a stale index could point
                 // at the wrong owner while still having the expected number of keys.
-                if self.extent_roots.get(&root) != Some(&record.id) {
+                if self.extent_roots.get(&root) != Some(&record.id)
+                    || self.object_extent_roots.get(&record.id) != Some(&root)
+                {
                     return Err(Error::Corrupt(
-                        "extent-root ownership index is inconsistent",
+                        "extent-root ownership indexes are inconsistent",
                     ));
                 }
                 owner_count = owner_count
@@ -967,14 +977,20 @@ impl Namespace {
         // The reverse index is ordered, but also verify every indexed owner exists and
         // actually points back to its indexed root before exposing it to the allocator.
         if owner_count != self.extent_roots.len()
+            || owner_count != self.object_extent_roots.len()
             || self.extent_roots.iter().any(|(root, owner)| {
+                self.objects
+                    .get(owner)
+                    .map_or(true, |record| record.extent_root_block != Some(*root))
+            })
+            || self.object_extent_roots.iter().any(|(owner, root)| {
                 self.objects
                     .get(owner)
                     .map_or(true, |record| record.extent_root_block != Some(*root))
             })
         {
             return Err(Error::Corrupt(
-                "extent-root ownership index is inconsistent",
+                "extent-root ownership indexes are inconsistent",
             ));
         }
         let mut roots = Vec::new();
@@ -992,9 +1008,11 @@ impl Namespace {
                 .encode()
                 .map_err(|_| Error::Corrupt("invalid metadata record in namespace"))?;
             if let Some(root) = record.extent_root_block {
-                if self.extent_roots.get(&root) != Some(&record.id) {
+                if self.extent_roots.get(&root) != Some(&record.id)
+                    || self.object_extent_roots.get(&record.id) != Some(&root)
+                {
                     return Err(Error::Corrupt(
-                        "extent-root ownership index is inconsistent",
+                        "extent-root ownership indexes are inconsistent",
                     ));
                 }
             }
@@ -1003,14 +1021,20 @@ impl Namespace {
                 .ok_or(Error::ArithmeticOverflow)
         })?;
         if count != self.extent_roots.len()
+            || count != self.object_extent_roots.len()
             || self.extent_roots.iter().any(|(root, owner)| {
+                self.objects
+                    .get(owner)
+                    .map_or(true, |record| record.extent_root_block != Some(*root))
+            })
+            || self.object_extent_roots.iter().any(|(owner, root)| {
                 self.objects
                     .get(owner)
                     .map_or(true, |record| record.extent_root_block != Some(*root))
             })
         {
             return Err(Error::Corrupt(
-                "extent-root ownership index is inconsistent",
+                "extent-root ownership indexes are inconsistent",
             ));
         }
         Ok(count)
