@@ -3255,17 +3255,36 @@ mod tests {
             let mut volume = open_volume(&mut device).unwrap();
             volume.allocate_block(&mut device).unwrap()
         };
-        let second = {
+        let (second, after_cursor) = {
             let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             let next = volume.allocate_block(&mut device).unwrap();
             assert_ne!(next, first);
             volume.free_block(&mut device, first).unwrap();
-            let reused = volume.allocate_block(&mut device).unwrap();
-            assert_eq!(reused, first);
-            next
+
+            // The allocator is next-fit while a handle is open: freeing a block
+            // before the cursor does not rewind it. The free bit remains durable,
+            // and reopening resets the volatile cursor so the block can be reused.
+            let after_cursor = volume.allocate_block(&mut device).unwrap();
+            assert!(after_cursor > next);
+            assert!(!volume.is_data_block_allocated(&mut device, first).unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, after_cursor)
+                .unwrap());
+            (next, after_cursor)
         };
         assert_ne!(second, first);
+        {
+            let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
+            assert_eq!(volume.allocate_block(&mut device).unwrap(), first);
+            assert!(volume
+                .is_data_block_allocated(&mut device, second)
+                .unwrap());
+            assert!(volume
+                .is_data_block_allocated(&mut device, after_cursor)
+                .unwrap());
+        }
         fs::remove_file(path).unwrap();
     }
 
