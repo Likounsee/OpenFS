@@ -17594,6 +17594,7 @@ mod tests {
         let path = image_path("volume-session-lifecycle");
         let batch_ids;
         let nested_ids;
+        let cross_parent_ids;
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
@@ -17677,7 +17678,7 @@ mod tests {
             assert!(mounted.read_directory("/left", None, 8).unwrap().is_empty());
             assert_eq!(mounted.read_directory("/right", None, 8).unwrap().len(), 1);
 
-            let cross_parent_ids = mounted
+            cross_parent_ids = mounted
                 .create_objects_auto_with_parent_ids(&[
                     (left_id, crate::ObjectKind::File, "left.txt"),
                     (right_id, crate::ObjectKind::File, "right.txt"),
