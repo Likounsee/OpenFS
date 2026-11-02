@@ -69,7 +69,9 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .next()
                 .ok_or("missing physical disk index")?
                 .parse::<u32>()?;
-            let unique_id = args.next().ok_or("missing exact physical disk UniqueId")?;
+            let expected_model = args.next().ok_or("missing exact physical disk model")?;
+            let expected_serial = args.next().ok_or("missing exact physical disk serial number")?;
+            let expected_size = args.next().ok_or("missing exact physical disk capacity in bytes")?.parse::<u64>()?;
             let confirmation = args.next().ok_or("missing ERASE-ALL-DATA confirmation")?;
             if confirmation != "ERASE-ALL-DATA" {
                 return Err(
@@ -81,11 +83,11 @@ fn run() -> Result<(), Box<dyn StdError>> {
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
-                format_disk_device(disk_index, &unique_id, block_size)
+                format_disk_device(disk_index, &expected_model, &expected_serial, expected_size, block_size)
             }
             #[cfg(not(windows))]
             {
-                let _ = (disk_index, unique_id, block_size);
+                let _ = (disk_index, expected_model, expected_serial, expected_size, block_size);
                 Err("format-disk currently requires Windows".into())
             }
         }
@@ -2637,14 +2639,16 @@ fn ensure_disk_geometry_unchanged(
 #[cfg(windows)]
 fn format_disk_device(
     disk_index: u32,
-    unique_id: &str,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
     block_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
-    // Physical formatting is deliberately restricted to positively identified USB media.
-    // An exact UniqueId alone is not sufficient: it could identify an internal secondary SSD.
-    windows_device::verify_usb_transport(disk_index, unique_id)?;
-    let (initial_size, initial_sector_size) =
-        windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
+    // A Windows UniqueId can be a generic value (for example "USB"). Require the
+    // model + hardware serial + exact capacity as a composite physical-media identity.
+    let (initial_size, initial_sector_size) = windows_device::verify_usb_identity(
+        disk_index, expected_model, expected_serial, expected_size,
+    )?;
     if block_size < initial_sector_size || block_size % initial_sector_size != 0 {
         return Err(format!(
             "OpenFS block size {block_size} must be a multiple of the disk logical sector size {initial_sector_size}"
@@ -2657,7 +2661,8 @@ fn format_disk_device(
     }
 
     let (size_bytes, logical_sector_size) =
-        windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
+        windows_device::prepare_disk_for_raw_access(disk_index, "USB")?;
+    windows_device::verify_usb_identity(disk_index, expected_model, expected_serial, expected_size)?;
     // The disk may have changed between the initial check and volume dismount.
     // Never derive the raw-device geometry from a different snapshot.
     ensure_disk_geometry_unchanged(
@@ -2667,8 +2672,9 @@ fn format_disk_device(
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck transport after acquiring the exclusive PhysicalDrive handle.
-    windows_device::verify_usb_transport(disk_index, unique_id)?;
-    let confirmed = windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
+    let confirmed = windows_device::verify_usb_identity(
+        disk_index, expected_model, expected_serial, expected_size,
+    )?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
             "disk identity or geometry changed while opening it; refusing to format".into(),
@@ -2699,7 +2705,7 @@ fn print_usage() {
     );
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
     eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
-    eprintln!("  openfs format-disk <disk-index> <exact-UniqueId> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
+    eprintln!("  openfs format-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
     eprintln!("  openfs mount-disk <disk-index> <exact-UniqueId> <drive-letter> [block-size]  (Windows + Dokany; mounted volumes are dismounted)");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
