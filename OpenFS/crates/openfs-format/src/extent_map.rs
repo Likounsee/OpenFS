@@ -2469,6 +2469,10 @@ mod tests {
             map.allocated_byte_count(0),
             Err(Error::InvalidInput("block size must be nonzero"))
         ));
+        assert!(matches!(
+            map.logical_byte_capacity(0),
+            Err(Error::InvalidInput("block size must be nonzero"))
+        ));
     }
 
     #[test]
