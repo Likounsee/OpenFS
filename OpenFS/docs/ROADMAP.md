@@ -1471,3 +1471,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit cae9d996496374775412e2f2848ac113a8930d24 : ajout de stat_persistent_object() au volume ouvert et de VolumeSession::stat_object(). Les adaptateurs peuvent relire les métadonnées d'un handle ObjectId après renommage/déplacement sans conserver un chemin potentiellement périmé.
 - Le test de cycle de vie vérifie que l'identifiant 3 retrouve toujours ses métadonnées et sa taille après le renommage de /docs/draft.txt en /docs/final.txt.
 - Aucun test local ni statut CI exacte-SHA n'a encore été confirmé; progression P0/P1/P2/P3 et globale inchangée (73 %) jusqu'à validation.
+
+
+### API de session — pagination par identifiant stable (2026-11-02)
+
+- Commit `caf19a3fe881785e91930aa216956294fd25ae62` : ajout de `OpenedVolume::list_persistent_directory_by_id()` et `VolumeSession::read_directory_by_id()`. Les adaptateurs peuvent paginer un répertoire avec son ObjectId même après un renommage ou déplacement, sans résoudre un chemin mis en cache.
+- Le test de cycle de vie vérifie que le dossier `ObjectId(2)` retourne bien `final.txt` après renommage de son enfant, et qu'un identifiant de fichier est rejeté comme cible de listing.
+- Le changement réutilise le contrôle de type, l'ordre lexical et le curseur exclusif de `Namespace::list_directory()`; aucun format disque n'est modifié.
+- Tests locaux, rustfmt et statut CI exacte-SHA non confirmés dans cette session. Les pourcentages restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 % en attendant validation.
