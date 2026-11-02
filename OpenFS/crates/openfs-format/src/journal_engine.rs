@@ -426,6 +426,12 @@ impl PersistentJournal {
             ));
         }
         self.region.validate(device)?;
+        let block_size =
+            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Reject transactions that cannot fit before walking every target or
+        // allocating the duplicate-detection set. The journal has a fixed ring, so
+        // an oversized caller-provided slice must not trigger unbounded extra work.
         let required_records = self.required_record_count(device, updates.len())?;
 
         // A contiguous vector avoids one tree-node allocation per target. Sort
@@ -579,12 +585,6 @@ impl PersistentJournal {
             ));
         }
 
-        let block_size =
-            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-
-        // Reject transactions that cannot fit before walking every target or
-        // allocating the duplicate-detection set. The journal has a fixed ring, so
-        // an oversized caller-provided slice must not trigger unbounded extra work.
         // From here on persistence may be uncertain after any error.
         self.recovery_required = true;
         for (slot, block) in encoded.iter().take(encoded.len() - 1).enumerate() {
