@@ -4051,7 +4051,9 @@ mod allocation_bitmap_report_tests {
                     "contiguous-free recovery must not expose mixed allocation bits, block_size={block_size}"
                 );
                 assert!(
-                    reopened.validate_allocation_bitmap(&mut reopened_device).is_ok(),
+                    reopened
+                        .validate_allocation_bitmap(&mut reopened_device)
+                        .is_ok(),
                     "recovered bitmap must remain structurally valid, block_size={block_size}"
                 );
             }
