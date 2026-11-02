@@ -34,6 +34,21 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
+fn append_extent_blocks(
+    blocks: &mut Vec<u64>,
+    physical_start: u64,
+    block_count: u64,
+) -> Result<()> {
+    for delta in 0..block_count {
+        blocks.push(
+            physical_start
+                .checked_add(delta)
+                .ok_or(Error::ArithmeticOverflow)?,
+        );
+    }
+    Ok(())
+}
+
 fn collect_file_owned_ranges(
     namespace: &Namespace,
     extent_maps: &std::collections::BTreeMap<ObjectId, ExtentMap>,
@@ -2104,14 +2119,7 @@ impl OpenedVolume {
                 Error::AllocationFailed("unable to reserve replacement block inventory")
             })?;
             for extent in map.extents() {
-                for delta in 0..extent.block_count {
-                    reclaim_blocks.push(
-                        extent
-                            .physical_start
-                            .checked_add(delta)
-                            .ok_or(Error::ArithmeticOverflow)?,
-                    );
-                }
+                append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
             }
             reclaim_blocks.push(root_block);
         }
@@ -2936,14 +2944,7 @@ impl OpenedVolume {
                         )
                     })?;
                 for extent in map.extents() {
-                    for delta in 0..extent.block_count {
-                        reclaim_blocks.push(
-                            extent
-                                .physical_start
-                                .checked_add(delta)
-                                .ok_or(Error::ArithmeticOverflow)?,
-                        );
-                    }
+                    append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
                 }
                 reclaim_blocks.push(root);
             } else if record.size != 0 {
@@ -3127,14 +3128,7 @@ impl OpenedVolume {
                     .get(id)
                     .ok_or(Error::Corrupt("file extent map is missing"))?;
                 for extent in map.extents() {
-                    for delta in 0..extent.block_count {
-                        reclaim_blocks.push(
-                            extent
-                                .physical_start
-                                .checked_add(delta)
-                                .ok_or(Error::ArithmeticOverflow)?,
-                        );
-                    }
+                    append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
                 }
                 reclaim_blocks.push(root);
             } else if record.size != 0 {
@@ -4954,14 +4948,7 @@ impl OpenedVolume {
                 Error::AllocationFailed("allocation failed while staging truncated file blocks")
             })?;
         for extent in removed_extents {
-            for delta in 0..extent.block_count {
-                reclaim_blocks.push(
-                    extent
-                        .physical_start
-                        .checked_add(delta)
-                        .ok_or(Error::ArithmeticOverflow)?,
-                );
-            }
+            append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
         }
 
         let remainder =
@@ -5465,14 +5452,7 @@ impl OpenedVolume {
                 .get(&object_id)
                 .ok_or(Error::Corrupt("file extent map is missing"))?;
             for extent in old_map.extents() {
-                for delta in 0..extent.block_count {
-                    reclaim_blocks.push(
-                        extent
-                            .physical_start
-                            .checked_add(delta)
-                            .ok_or(Error::ArithmeticOverflow)?,
-                    );
-                }
+                append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
             }
             reclaim_blocks.push(old_root);
         } else if existing.size != 0 {
@@ -5816,14 +5796,7 @@ impl OpenedVolume {
                     Error::AllocationFailed("allocation failed while tracking replaced file blocks")
                 })?;
             for extent in old_map.extents() {
-                for delta in 0..extent.block_count {
-                    reclaim_blocks.push(
-                        extent
-                            .physical_start
-                            .checked_add(delta)
-                            .ok_or(Error::ArithmeticOverflow)?,
-                    );
-                }
+                append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
             }
             reclaim_blocks.push(old_root);
         } else if existing.size != 0 {
@@ -6116,14 +6089,7 @@ impl OpenedVolume {
                 if old_physical.is_some() {
                     let removed = updated_map.remove_range(logical, 1)?;
                     for extent in removed {
-                        for delta in 0..extent.block_count {
-                            reclaim_blocks.push(
-                                extent
-                                    .physical_start
-                                    .checked_add(delta)
-                                    .ok_or(Error::ArithmeticOverflow)?,
-                            );
-                        }
+                        append_extent_blocks(&mut reclaim_blocks, extent.physical_start, extent.block_count)?;
                     }
                 }
                 updated_map.insert_coalescing(crate::Extent {
