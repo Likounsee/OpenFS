@@ -750,9 +750,9 @@ impl OpenedVolume {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
                 contents: try_copy_slice(
-                        image,
-                        "allocation failed while copying bitmap redo image",
-                    )?,
+                    image,
+                    "allocation failed while copying bitmap redo image",
+                )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
@@ -898,9 +898,9 @@ impl OpenedVolume {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
                 contents: try_copy_slice(
-                        image,
-                        "allocation failed while copying bitmap redo image",
-                    )?,
+                    image,
+                    "allocation failed while copying bitmap redo image",
+                )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
@@ -1681,9 +1681,9 @@ impl OpenedVolume {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
                 contents: try_copy_slice(
-                        image,
-                        "allocation failed while copying bitmap redo image",
-                    )?,
+                    image,
+                    "allocation failed while copying bitmap redo image",
+                )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
