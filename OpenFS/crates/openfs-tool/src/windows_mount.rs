@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error as StdError;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use dokan::{
@@ -139,6 +139,12 @@ struct OpenHandleInner {
 }
 
 impl OpenHandleState {
+    fn lock(&self) -> Result<MutexGuard<'_, OpenHandleInner>, &'static str> {
+        self.inner
+            .lock()
+            .map_err(|_| "OpenFS open-handle state lock was poisoned")
+    }
+
     fn register(
         &self,
         object_id: ObjectId,
@@ -149,10 +155,7 @@ impl OpenHandleState {
             return Err("unsupported Windows share-access flags");
         }
         let access = access_categories(desired_access);
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
+        let mut inner = self.lock()?;
         if inner.delete_pending.contains(&object_id) {
             return Err("object is pending deletion");
         }
@@ -227,10 +230,7 @@ impl OpenHandleState {
         handle: FileHandle,
         requested_access: u32,
     ) -> Result<bool, &'static str> {
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| "OpenFS open-handle state lock was poisoned")?;
+        let inner = self.lock()?;
         let record = inner
             .handles
             .get(&handle.object_id)
@@ -249,30 +249,19 @@ impl OpenHandleState {
     }
 
     fn is_open(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.inner
-            .lock()
-            .map(|inner| {
-                inner
-                    .handles
-                    .get(&object_id)
-                    .is_some_and(|opens| !opens.is_empty())
-            })
-            .map_err(|_| "OpenFS open-handle state lock was poisoned")
+        let inner = self.lock()?;
+        Ok(inner
+            .handles
+            .get(&object_id)
+            .is_some_and(|opens| !opens.is_empty()))
     }
 
     fn is_delete_pending(&self, object_id: ObjectId) -> Result<bool, &'static str> {
-        self.inner
-            .lock()
-            .map(|inner| inner.delete_pending.contains(&object_id))
-            .map_err(|_| "OpenFS open-handle state lock was poisoned")
+        Ok(self.lock()?.delete_pending.contains(&object_id))
     }
 
     fn complete_delete(&self, object_id: ObjectId) -> Result<(), &'static str> {
-        self.inner
-            .lock()
-            .map_err(|_| "OpenFS open-handle state lock was poisoned")?
-            .delete_pending
-            .remove(&object_id);
+        self.lock()?.delete_pending.remove(&object_id);
         Ok(())
     }
 }
