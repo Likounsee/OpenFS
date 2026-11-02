@@ -426,6 +426,42 @@ impl PersistentJournal {
             ));
         }
         self.region.validate(device)?;
+        // A journal handle is a snapshot of the durable writer epoch. Another
+        // handle may have committed (or left an uncertain append) since this one
+        // was opened; never reuse its transaction ID or ring slots.
+        let (persisted_checkpoint, persisted_copy) =
+            match read_checkpoint_pair(device, self.region) {
+                Ok(state) => state,
+                Err(error) => {
+                    self.recovery_required = true;
+                    return Err(error);
+                }
+            };
+        if persisted_checkpoint != self.checkpoint || persisted_copy != self.active_checkpoint_copy {
+            self.recovery_required = true;
+            return Err(Error::InvalidInput(
+                "journal writer is stale; reopen before committing",
+            ));
+        }
+        let pending = match scan_uncheckpointed_records(
+            device,
+            self.region,
+            self.checkpoint.checkpoint_sequence,
+            self.checkpoint.next_transaction_id,
+        ) {
+            Ok(scanned) => scanned,
+            Err(error) => {
+                self.recovery_required = true;
+                return Err(error);
+            }
+        };
+        if !pending.records.is_empty() || pending.first_malformed_slot.is_some() {
+            self.recovery_required = true;
+            return Err(Error::InvalidInput(
+                "journal has uncheckpointed records; reopen before committing",
+            ));
+        }
+
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
 
@@ -3008,4 +3044,49 @@ mod tests {
         assert_eq!(read_block(&mut device, HOME + 1), vec![0xD7; BS as usize]);
         assert_eq!(journal.checkpoint().next_transaction_id, 4);
     }
+    #[test]
+    fn stale_journal_writers_are_rejected_before_persistent_mutation() {
+        // A second handle opened at the same checkpoint must not overwrite a
+        // transaction committed by the first handle.
+        let mut device = formatted();
+        let mut current = open_journal(&mut device, REGION).unwrap();
+        let mut stale = open_journal(&mut device, REGION).unwrap();
+        current.commit(&mut device, &[update(0xA5)]).unwrap();
+
+        let before = device.bytes.lock().unwrap().clone();
+        assert!(matches!(
+            stale.commit(&mut device, &[update(0x5A)]),
+            Err(Error::InvalidInput(
+                "journal writer is stale; reopen before committing"
+            ))
+        ));
+        assert_eq!(*device.bytes.lock().unwrap(), before);
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+
+        // A durable COMMIT without a checkpoint is also an external pending
+        // transaction. A stale handle must request recovery instead of appending.
+        let mut device = formatted();
+        let mut interrupted = open_journal(&mut device, REGION).unwrap();
+        let mut stale = open_journal(&mut device, REGION).unwrap();
+        let mut failing = FailAt::new(device.clone(), 6);
+        assert!(matches!(
+            interrupted.commit(&mut failing, &[update(0xC3)]),
+            Err(Error::Io(_))
+        ));
+        let mut device = failing.into_inner();
+
+        let before = device.bytes.lock().unwrap().clone();
+        assert!(matches!(
+            stale.commit(&mut device, &[update(0x5A)]),
+            Err(Error::InvalidInput(
+                "journal has uncheckpointed records; reopen before committing"
+            ))
+        ));
+        assert_eq!(*device.bytes.lock().unwrap(), before);
+
+        let recovered = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(read_home(&mut device), vec![0xC3; BS as usize]);
+        assert_eq!(recovered.checkpoint().next_transaction_id, 2);
+    }
+
 }
