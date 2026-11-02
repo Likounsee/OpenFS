@@ -1505,8 +1505,8 @@ impl OpenedVolume {
                 // Without this boundary check, an exact-size candidate followed by a
                 // long allocated region would remain pending until another free run
                 // appeared (or the complete volume scan ended).
-                let last_valid_bit_is_free =
-                    byte_mask.valid_bits != 0 && (*bitmap_byte & (1_u8 << (byte_mask.valid_bits - 1))) == 0;
+                let last_valid_bit_is_free = byte_mask.valid_bits != 0
+                    && (*bitmap_byte & (1_u8 << (byte_mask.valid_bits - 1))) == 0;
                 if !last_valid_bit_is_free {
                     if let Some(extent) = current.take() {
                         if extent.block_count == count {
@@ -1796,8 +1796,8 @@ impl OpenedVolume {
 
                 // A free suffix may continue into the next byte. Any allocated suffix
                 // terminates the current run immediately.
-                let last_valid_bit_is_free =
-                    byte_mask.valid_bits != 0 && (*byte & (1_u8 << (byte_mask.valid_bits - 1))) == 0;
+                let last_valid_bit_is_free = byte_mask.valid_bits != 0
+                    && (*byte & (1_u8 << (byte_mask.valid_bits - 1))) == 0;
                 if !last_valid_bit_is_free && run_len != 0 {
                     stats.record_extent(run_start_block, run_len)?;
                     run_len = 0;
