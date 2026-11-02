@@ -716,6 +716,23 @@ impl OpenedVolume {
         Ok(())
     }
 
+    fn is_active_generation<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+        record: &MetadataRecord,
+    ) -> bool {
+        matches!(
+            self.reconstruct_discovered_namespace(device),
+            Ok(Some((_, ref active)))
+                if active.object(object_id).is_some_and(|item| {
+                    item.size == record.size
+                        && item.generation == record.generation
+                        && item.extent_root_block == record.extent_root_block
+                })
+        )
+    }
+
     fn cached_inventory_descriptor<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -5231,15 +5248,8 @@ impl OpenedVolume {
                         }
                     };
                     *self = recovered;
-                    let old_generation_is_active = matches!(
-                        self.reconstruct_discovered_namespace(device),
-                        Ok(Some((_, ref active)))
-                            if active.object(object_id).is_some_and(|item| {
-                                item.size == record.size
-                                    && item.generation == record.generation
-                                    && item.extent_root_block == record.extent_root_block
-                            })
-                    );
+                    let old_generation_is_active =
+                        self.is_active_generation(device, object_id, &record);
                     if !old_generation_is_active {
                         return Err(Error::Corrupt(
                             "sparse extension tail scrub failed and the active file generation is uncertain",
@@ -6373,15 +6383,8 @@ impl OpenedVolume {
                         }
                     };
                     *self = recovered;
-                    let old_generation_is_active = matches!(
-                        self.reconstruct_discovered_namespace(device),
-                        Ok(Some((_, ref active)))
-                            if active.object(object_id).is_some_and(|item| {
-                                item.size == record.size
-                                    && item.generation == record.generation
-                                    && item.extent_root_block == record.extent_root_block
-                            })
-                    );
+                    let old_generation_is_active =
+                        self.is_active_generation(device, object_id, &record);
                     if !old_generation_is_active {
                         return Err(Error::Corrupt(
                             "append data write failed and the active file generation is uncertain",
@@ -6413,15 +6416,8 @@ impl OpenedVolume {
                                 "append data write failed and cleanup journal recovery failed; preserve the image",
                             )
                         })?;
-                        let old_generation_is_active = matches!(
-                            self.reconstruct_discovered_namespace(device),
-                            Ok(Some((_, ref active)))
-                                if active.object(object_id).is_some_and(|item| {
-                                    item.size == record.size
-                                        && item.generation == record.generation
-                                        && item.extent_root_block == record.extent_root_block
-                                })
-                        );
+                        let old_generation_is_active =
+                            self.is_active_generation(device, object_id, &record);
                         if !old_generation_is_active {
                             return Err(Error::Corrupt(
                                 "append data cleanup failed and the old generation could not be verified; preserve the image",
@@ -6546,15 +6542,8 @@ impl OpenedVolume {
                                     )
                                 })?;
                                 *self = recovered;
-                                let old_generation_is_active = matches!(
-                                    self.reconstruct_discovered_namespace(device),
-                                    Ok(Some((_, ref active)))
-                                        if active.object(object_id).is_some_and(|item| {
-                                            item.size == record.size
-                                                && item.generation == record.generation
-                                                && item.extent_root_block == record.extent_root_block
-                                        })
-                                );
+                                let old_generation_is_active =
+                                    self.is_active_generation(device, object_id, &record);
                                 if !old_generation_is_active {
                                     return Err(Error::Corrupt(
                                         "append publication failed and the old generation could not be verified; preserve the image",
@@ -6738,15 +6727,8 @@ impl OpenedVolume {
                             )
                         })?;
                         *self = recovered;
-                        let old_generation_is_active = matches!(
-                            self.reconstruct_discovered_namespace(device),
-                            Ok(Some((_, ref active)))
-                                if active.object(object_id).is_some_and(|item| {
-                                    item.size == record.size
-                                        && item.generation == record.generation
-                                        && item.extent_root_block == record.extent_root_block
-                                })
-                        );
+                        let old_generation_is_active =
+                            self.is_active_generation(device, object_id, &record);
                         if !old_generation_is_active {
                             return Err(Error::Corrupt(
                                 "append staging failed and the old file generation could not be verified; preserve staged blocks",
@@ -6783,15 +6765,8 @@ impl OpenedVolume {
                                     "append staging rollback failed and journal recovery failed; preserve the image",
                                 )
                             })?;
-                            let old_generation_is_active = matches!(
-                                self.reconstruct_discovered_namespace(device),
-                                Ok(Some((_, ref active)))
-                                    if active.object(object_id).is_some_and(|item| {
-                                        item.size == record.size
-                                            && item.generation == record.generation
-                                            && item.extent_root_block == record.extent_root_block
-                                    })
-                            );
+                            let old_generation_is_active =
+                                self.is_active_generation(device, object_id, &record);
                             if !old_generation_is_active {
                                 return Err(Error::Corrupt(
                                     "append staging rollback failed and the old generation is uncertain; preserve the image",
@@ -6824,15 +6799,8 @@ impl OpenedVolume {
                                             "append staging rollback retry failed and journal recovery failed; preserve the image",
                                         )
                                     })?;
-                                    let old_generation_is_active = matches!(
-                                        self.reconstruct_discovered_namespace(device),
-                                        Ok(Some((_, ref active)))
-                                            if active.object(object_id).is_some_and(|item| {
-                                                item.size == record.size
-                                                    && item.generation == record.generation
-                                                    && item.extent_root_block == record.extent_root_block
-                                            })
-                                    );
+                                    let old_generation_is_active =
+                                        self.is_active_generation(device, object_id, &record);
                                     if !old_generation_is_active {
                                         return Err(Error::Corrupt(
                                             "append staging rollback retry left the active generation uncertain; preserve the image",
@@ -6916,15 +6884,8 @@ impl OpenedVolume {
                                 )
                             })?;
                             *self = recovered;
-                            let old_generation_is_active = matches!(
-                                self.reconstruct_discovered_namespace(device),
-                                Ok(Some((_, ref active)))
-                                    if active.object(object_id).is_some_and(|item| {
-                                        item.size == record.size
-                                            && item.generation == record.generation
-                                            && item.extent_root_block == record.extent_root_block
-                                    })
-                            );
+                            let old_generation_is_active =
+                                self.is_active_generation(device, object_id, &record);
                             if !old_generation_is_active {
                                 return Err(Error::Corrupt(
                                     "append metadata preparation failed and the old generation could not be verified; preserve staged blocks",
@@ -7035,15 +6996,8 @@ impl OpenedVolume {
                                             "append publication rollback failed and journal recovery failed; preserve the image",
                                         )
                                     })?;
-                                    let old_generation_is_active = matches!(
-                                        self.reconstruct_discovered_namespace(device),
-                                        Ok(Some((_, ref active)))
-                                            if active.object(object_id).is_some_and(|item| {
-                                                item.size == record.size
-                                                    && item.generation == record.generation
-                                                    && item.extent_root_block == record.extent_root_block
-                                            })
-                                    );
+                                    let old_generation_is_active =
+                                        self.is_active_generation(device, object_id, &record);
                                     if !old_generation_is_active {
                                         return Err(Error::Corrupt(
                                             "append publication rollback could not verify the old generation; preserve staged blocks",
@@ -7084,15 +7038,8 @@ impl OpenedVolume {
                                                 )
                                             })?;
                                         }
-                                        let old_generation_is_active = matches!(
-                                            self.reconstruct_discovered_namespace(device),
-                                            Ok(Some((_, ref active)))
-                                                if active.object(object_id).is_some_and(|item| {
-                                                    item.size == record.size
-                                                        && item.generation == record.generation
-                                                        && item.extent_root_block == record.extent_root_block
-                                                })
-                                        );
+                                        let old_generation_is_active =
+                                            self.is_active_generation(device, object_id, &record);
                                         if !old_generation_is_active {
                                             return Err(Error::Corrupt(
                                                 "append publication rollback retry left the active generation uncertain; preserve the image",
