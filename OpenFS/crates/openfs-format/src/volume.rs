@@ -34,6 +34,25 @@ const JOURNAL_RESERVED_BLOCKS: u64 = 2 + JOURNAL_RING_BLOCKS;
 const INVENTORY_DISCOVERY_BATCH_BLOCKS: usize = 64;
 const INVENTORY_BITMAP_CACHE_PAGES: usize = 8;
 
+fn validate_file_extent_map<'a>(
+    record: &MetadataRecord,
+    maps: &'a std::collections::BTreeMap<ObjectId, crate::ExtentMap>,
+    object_id: ObjectId,
+) -> Result<Option<&'a crate::ExtentMap>> {
+    let map = maps.get(&object_id);
+    if record.extent_root_block.is_some() && map.is_none() {
+        return Err(Error::Corrupt(
+            "file extent map is missing from loaded inventory",
+        ));
+    }
+    if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
+        return Err(Error::Corrupt(
+            "file has extents without a persistent extent-map root",
+        ));
+    }
+    Ok(map)
+}
+
 fn append_extent_blocks(
     blocks: &mut Vec<u64>,
     physical_start: u64,
@@ -4430,17 +4449,7 @@ impl OpenedVolume {
         // Validate the persisted ownership graph even for an empty or out-of-EOF
         // range. A no-byte read must not become a way to bypass corruption detection.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = extent_maps.get(&object_id);
-        if record.extent_root_block.is_some() && map.is_none() {
-            return Err(Error::Corrupt(
-                "file extent map is missing from loaded inventory",
-            ));
-        }
-        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
-            return Err(Error::Corrupt(
-                "file has extents without a persistent extent-map root",
-            ));
-        }
+        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps already validates every extent map against the
         // allocation bitmap and global ownership graph; do not scan the same bits again.
@@ -4593,17 +4602,7 @@ impl OpenedVolume {
         // Validate the persisted ownership graph even for an empty or out-of-EOF
         // range. A no-byte read must not become a way to bypass corruption detection.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = extent_maps.get(&object_id);
-        if record.extent_root_block.is_some() && map.is_none() {
-            return Err(Error::Corrupt(
-                "file extent map is missing from loaded inventory",
-            ));
-        }
-        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
-            return Err(Error::Corrupt(
-                "file has extents without a persistent extent-map root",
-            ));
-        }
+        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps already validates every extent map against the
         // allocation bitmap and global ownership graph; do not scan the same bits again.
@@ -4757,17 +4756,7 @@ impl OpenedVolume {
         }
 
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = extent_maps.get(&object_id);
-        if record.extent_root_block.is_some() && map.is_none() {
-            return Err(Error::Corrupt(
-                "file extent map is missing from loaded inventory",
-            ));
-        }
-        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
-            return Err(Error::Corrupt(
-                "file has extents without a persistent extent-map root",
-            ));
-        }
+        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps has already checked all roots, physical ranges,
         // allocation bits and cross-file aliases before any bytes are emitted.
