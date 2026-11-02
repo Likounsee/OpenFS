@@ -1401,7 +1401,8 @@ mod tests {
         .unwrap();
 
         ns.objects.get_mut(&ObjectId(2)).unwrap().parent_id = 2;
-        ns.parents.insert(ObjectId(2), (ObjectId(2), "self".to_owned()));
+        ns.parents
+            .insert(ObjectId(2), (ObjectId(2), "self".to_owned()));
         ns.names.remove(&(ObjectId(1), "child".to_owned()));
         ns.names.insert(
             (ObjectId(2), "self".to_owned()),
@@ -1410,7 +1411,9 @@ mod tests {
 
         assert!(matches!(
             ns.validate_directory_ancestry(ObjectId(2), None),
-            Err(Error::Corrupt("directory ancestry already contains a cycle"))
+            Err(Error::Corrupt(
+                "directory ancestry already contains a cycle"
+            ))
         ));
     }
 
