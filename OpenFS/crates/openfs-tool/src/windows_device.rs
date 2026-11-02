@@ -205,34 +205,35 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
     Err("list-devices currently requires Windows (Get-Disk and Win32_DiskDrive via CIM)".into())
 }
 
-/// Verify a disk's identity and safety state immediately before opening it read/write.
+/// Validate the selected physical disk, dismount its mounted volumes, and report geometry.
 ///
-/// The disk must be USB-attached, explicitly offline in Windows, writable, and neither
-/// the boot nor system disk. The caller must supply the exact UniqueId printed by
-/// `list-devices`; the disk index alone is not a stable identity.
+/// OpenFS deliberately does not require the physical disk to be Offline. Instead, every
+/// non-GUID mount point on its partitions is removed with mountvol /p before raw access.
+/// The caller must then acquire an exclusive PhysicalDrive handle; failure to do so aborts
+/// the operation. Boot and system disks are always rejected.
 #[cfg(any(windows, test))]
 fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
     let fields: Vec<&str> = output.trim().split('\t').collect();
     if fields.len() != 2 {
-        return Err("Windows returned malformed USB disk geometry".to_owned());
+        return Err("Windows returned malformed physical disk geometry".to_owned());
     }
     let size_bytes = fields[0]
         .parse::<u64>()
-        .map_err(|_| "Windows returned an invalid USB disk capacity".to_owned())?;
+        .map_err(|_| "Windows returned an invalid physical disk capacity".to_owned())?;
     let logical_sector_size = fields[1]
         .parse::<u32>()
-        .map_err(|_| "Windows returned an invalid USB logical sector size".to_owned())?;
+        .map_err(|_| "Windows returned an invalid logical sector size".to_owned())?;
     if size_bytes == 0 || logical_sector_size == 0 {
-        return Err("Windows returned zero-sized USB disk geometry".to_owned());
+        return Err("Windows returned zero-sized physical disk geometry".to_owned());
     }
     if !matches!(logical_sector_size, 512 | 1024 | 2048 | 4096) {
-        return Err("Windows reported an unsupported USB logical sector size".to_owned());
+        return Err("Windows reported an unsupported logical sector size".to_owned());
     }
     Ok((size_bytes, logical_sector_size))
 }
 
 #[cfg(windows)]
-pub fn verify_offline_usb_disk(
+pub fn prepare_disk_for_raw_access(
     index: u32,
     expected_unique_id: &str,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
@@ -242,24 +243,51 @@ pub fn verify_offline_usb_disk(
         return Err("an exact non-empty disk UniqueId is required".into());
     }
 
-    // Static script: all user-provided values are passed as environment data, never
-    // interpolated into PowerShell source.
+    // Values supplied by the caller are environment data, never interpolated into
+    // PowerShell source. mountvol dismounts each mounted partition without changing
+    // the physical disk's IsOffline state.
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
-$disk = Get-Disk -Number ([int]$env:OPENFS_DISK_INDEX) -ErrorAction Stop
-if ([string]$disk.UniqueId -cne [string]$env:OPENFS_DISK_UNIQUE_ID) {
+$index = [int]$env:OPENFS_DISK_INDEX
+$expectedId = [string]$env:OPENFS_DISK_UNIQUE_ID
+$disk = Get-Disk -Number $index -ErrorAction Stop
+if ([string]$disk.UniqueId -cne $expectedId) {
     throw 'disk UniqueId changed; re-run list-devices and verify the target'
 }
-$pnp = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
-    Where-Object { [int]$_.Index -eq [int]$disk.Number } |
-    Select-Object -First 1
-$isUsb = ([string]$disk.BusType -eq 'USB') -or ([string]$pnp.PNPDeviceID -like '*USB*')
-if (-not $isUsb) { throw 'target disk is not identified as USB transport' }
-if ($disk.IsBoot -or $disk.IsSystem) { throw 'refusing to open a boot or system disk' }
-if (-not $disk.IsOffline) { throw 'target USB disk must first be set Offline in Windows Disk Management' }
-if ($disk.IsReadOnly) { throw 'target USB disk is read-only' }
+if ($disk.IsBoot -or $disk.IsSystem) {
+    throw 'refusing raw access to a boot or system disk'
+}
+if ($disk.IsReadOnly) { throw 'target physical disk is read-only' }
 if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
-    throw 'Windows reported invalid disk geometry'
+    throw 'Windows reported invalid physical disk geometry'
+}
+if ($disk.IsOffline) {
+    throw 'target disk is Offline; bring it Online in Windows before using OpenFS'
+}
+
+$partitions = @(Get-Partition -DiskNumber $index -ErrorAction SilentlyContinue)
+foreach ($partition in $partitions) {
+    # Volume GUID paths are identifiers, not mount points. Dismount through one
+    # actual drive-letter or directory mount point when one exists.
+    $mountPoints = @($partition.AccessPaths | Where-Object {
+        $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
+    })
+    if ($mountPoints.Count -gt 0) {
+        $mountPoint = [string]$mountPoints[0]
+        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint /p 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not safely dismount volume mounted at '$mountPoint' (mountvol exit $LASTEXITCODE); close applications using it and retry"
+        }
+    }
+}
+
+# Re-read identity and geometry after dismounting; disk numbers are not stable IDs.
+$disk = Get-Disk -Number $index -ErrorAction Stop
+if ([string]$disk.UniqueId -cne $expectedId) {
+    throw 'disk identity changed during volume dismount; refusing raw access'
+}
+if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk safety state changed during volume dismount; refusing raw access'
 }
 [Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
 "#;
@@ -277,7 +305,7 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
         .output()?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("USB disk safety check failed: {}", detail.trim()).into());
+        return Err(format!("physical disk preflight failed: {}", detail.trim()).into());
     }
     let stdout = String::from_utf8(output.stdout)?;
     parse_verified_geometry(&stdout)
@@ -285,11 +313,11 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
 }
 
 #[cfg(all(not(windows), test))]
-pub fn verify_offline_usb_disk(
+pub fn prepare_disk_for_raw_access(
     _index: u32,
     _expected_unique_id: &str,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
-    Err("raw USB disk mounting currently requires Windows".into())
+    Err("raw physical disk access currently requires Windows".into())
 }
 
 #[cfg(windows)]
@@ -396,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn verified_usb_geometry_parser_accepts_supported_sector_sizes() {
+    fn verified_disk_geometry_parser_accepts_supported_sector_sizes() {
         assert_eq!(
             super::parse_verified_geometry("64000000000\t512\n").unwrap(),
             (64_000_000_000, 512)
@@ -408,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn verified_usb_geometry_parser_rejects_ambiguous_or_unsupported_values() {
+    fn verified_disk_geometry_parser_rejects_ambiguous_or_unsupported_values() {
         assert!(super::parse_verified_geometry("").is_err());
         assert!(super::parse_verified_geometry("64000000000").is_err());
         assert!(super::parse_verified_geometry("64000000000\t512\textra").is_err());
@@ -420,8 +448,8 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn offline_usb_verification_is_explicitly_unsupported_on_non_windows_hosts() {
-        let error = super::verify_offline_usb_disk(0, "USB-UNIQUE-ID").unwrap_err();
+    fn physical_disk_preflight_is_explicitly_unsupported_on_non_windows_hosts() {
+        let error = super::prepare_disk_for_raw_access(0, "DISK-UNIQUE-ID").unwrap_err();
         assert!(error.to_string().contains("currently requires Windows"));
     }
 }
