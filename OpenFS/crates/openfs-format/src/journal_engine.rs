@@ -1195,8 +1195,11 @@ mod tests {
             self.inner
         }
         fn check(&mut self, mutation: bool) -> Result<()> {
-            let mutation_only = self.fail_at >= usize::MAX / 2; let current = self.operation;
-            if !mutation_only || mutation { self.operation += 1; }
+            let mutation_only = self.fail_at >= usize::MAX / 2;
+            let current = self.operation;
+            if !mutation_only || mutation {
+                self.operation += 1;
+            }
             let target = self.fail_at - (mutation_only as usize) * (usize::MAX / 2);
             if (!mutation_only || mutation) && current == target {
                 return Err(Error::Io(std::io::Error::other(
