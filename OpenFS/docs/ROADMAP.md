@@ -1465,3 +1465,9 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Matrice exécutée par le test sur les tailles de blocs 4, 8, 16, 32 et 64 Kio; le bitmap doit aussi rester structurellement valide.
 - Commit de test : ec802c46ec7b5ce0eec3e8caaae991dd15d99307.
 - Statut CI exacte-SHA au moment de la mise à jour : aucun statut ni run retourné par l'API GitHub; tests Rust et rustfmt non exécutés localement. Cette régression reste donc en attente de validation, sans hausse des pourcentages.
+
+### API de session — lecture par identifiant stable (2026-11-02)
+
+- Commit ca e9d996496374775412e2f2848ac113a8930d24 : ajout de stat_persistent_object() au volume ouvert et de VolumeSession::stat_object(). Les adaptateurs peuvent relire les métadonnées d'un handle ObjectId après renommage/déplacement sans conserver un chemin potentiellement périmé.
+- Le test de cycle de vie vérifie que l'identifiant 3 retrouve toujours ses métadonnées et sa taille après le renommage de /docs/draft.txt en /docs/final.txt.
+- Aucun test local ni statut CI exacte-SHA n'a encore été confirmé; progression P0/P1/P2/P3 et globale inchangée (73 %) jusqu'à validation.
