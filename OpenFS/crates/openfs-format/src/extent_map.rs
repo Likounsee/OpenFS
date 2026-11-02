@@ -20,6 +20,13 @@ pub struct Extent {
     pub block_count: u64,
 }
 
+fn nonzero_block_size(block_size: u32) -> Result<u64> {
+    if block_size == 0 {
+        return Err(Error::InvalidInput("block size must be nonzero"));
+    }
+    Ok(u64::from(block_size))
+}
+
 impl Extent {
     fn logical_end(self) -> Result<u64> {
         self.logical_start
@@ -99,11 +106,8 @@ impl ExtentMap {
     /// The multiplication is checked so a malformed or extremely large map cannot wrap
     /// a byte count. A zero block size is rejected instead of silently reporting zero.
     pub fn allocated_byte_count(&self, block_size: u32) -> Result<u64> {
-        if block_size == 0 {
-            return Err(Error::InvalidInput("block size must be nonzero"));
-        }
         self.allocated_blocks()?
-            .checked_mul(u64::from(block_size))
+            .checked_mul(nonzero_block_size(block_size)?)
             .ok_or(Error::ArithmeticOverflow)
     }
 
@@ -117,13 +121,10 @@ impl ExtentMap {
         file_size: u64,
         block_size: u32,
     ) -> Result<ExtentAllocationStats> {
-        if block_size == 0 {
-            return Err(Error::InvalidInput("block size must be nonzero"));
-        }
         self.validate_file_size(file_size, block_size)?;
         let allocated_blocks = self.allocated_blocks()?;
         let physical_allocated_bytes = allocated_blocks
-            .checked_mul(u64::from(block_size))
+            .checked_mul(nonzero_block_size(block_size)?)
             .ok_or(Error::ArithmeticOverflow)?;
         let logical_allocated_bytes = physical_allocated_bytes.min(file_size);
         Ok(ExtentAllocationStats {
@@ -141,11 +142,8 @@ impl ExtentMap {
     /// This reports the extent map's covered length, not necessarily the file's recorded
     /// byte length (the final allocated block may be only partially used).
     pub fn logical_byte_capacity(&self, block_size: u32) -> Result<u64> {
-        if block_size == 0 {
-            return Err(Error::InvalidInput("block size must be nonzero"));
-        }
         self.logical_block_count()?
-            .checked_mul(u64::from(block_size))
+            .checked_mul(nonzero_block_size(block_size)?)
             .ok_or(Error::ArithmeticOverflow)
     }
 
@@ -166,15 +164,12 @@ impl ExtentMap {
     /// including at the end of a file. This validates the upper bound only; it does not
     /// require every byte in the file to be allocated.
     pub fn validate_file_size(&self, file_size: u64, block_size: u32) -> Result<()> {
-        if block_size == 0 {
-            return Err(Error::InvalidInput("block size must be nonzero"));
-        }
         // Reject allocated extents on an empty file before checking the final
         // extent boundary, so callers receive the specific empty-file invariant.
         if file_size == 0 && !self.extents.is_empty() {
             return Err(Error::Corrupt("empty file must not own data extents"));
         }
-        let block_size = u64::from(block_size);
+        let block_size = nonzero_block_size(block_size)?;
         let required_blocks = file_size / block_size + u64::from(file_size % block_size != 0);
         // Extents are kept in non-overlapping logical order, so the final extent
         // has the greatest logical end. Checking it is sufficient and avoids a full
