@@ -293,7 +293,7 @@ if ($disk.IsOffline) {
     throw 'target disk is Offline; bring it Online in Windows before using OpenFS'
 }
 
-$partitions = @(Get-Partition -DiskNumber $index -ErrorAction SilentlyContinue)
+$partitions = @(Get-Partition -DiskNumber $index -ErrorAction Stop)
 $volumePlans = @()
 foreach ($partition in $partitions) {
     # Volume GUID paths are identifiers, not mount points.
