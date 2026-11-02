@@ -229,7 +229,7 @@ fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
 /// Validate a selected physical disk, dismount its mounted filesystem volumes, and report geometry.
 ///
 /// The physical disk remains Online. OpenFS dismounts mounted filesystem volumes and removes
-/// their drive-letter/directory mount points before opening the raw device. The caller must
+/// while preserving their existing drive-letter/directory mount-point configuration. The caller must
 /// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
 /// Boot and system disks are always rejected.
 #[cfg(windows)]
@@ -281,24 +281,17 @@ foreach ($partition in $partitions) {
         }
         $volumePlans += [pscustomobject]@{
             DrivePath = ([string]$drivePath[0]).Substring(0, 2)
-            MountPoints = $mountPoints
         }
     }
 }
 
 # Dismount only after validating every mounted partition has a supported path.
+# Keep the user's mount-point configuration intact; the exclusive raw handle below
+# prevents a second process from opening the physical disk during OpenFS operations.
 foreach ($plan in $volumePlans) {
     & "$env:SystemRoot\System32\fsutil.exe" volume dismount $plan.DrivePath 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "could not safely dismount volume $($plan.DrivePath); close applications using it and retry"
-    }
-    # Remove every drive-letter or directory mount path so Windows does not
-    # immediately remount the volume while OpenFS owns the physical disk.
-    foreach ($mountPoint in $plan.MountPoints) {
-        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint /d 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "could not remove mount path '$mountPoint' after dismounting $($plan.DrivePath)"
-        }
     }
 }
 
