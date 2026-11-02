@@ -4021,7 +4021,7 @@ mod allocation_bitmap_report_tests {
                 let start = volume.allocate_contiguous_blocks(&mut image, 4).unwrap();
                 let blocks = (start..start + 4).collect::<Vec<_>>();
                 drop(volume);
-    
+
                 let mut failing = FailNextFlush {
                     inner: image,
                     fail_next_flush: true,
@@ -4033,7 +4033,7 @@ mod allocation_bitmap_report_tests {
                 ));
                 drop(volume);
                 drop(failing);
-    
+
                 let mut reopened_device = ImageDevice::open(&path, block_size).unwrap();
                 let reopened = crate::volume::open_volume(&mut reopened_device).unwrap();
                 let stats = reopened.allocation_stats(&mut reopened_device).unwrap();
