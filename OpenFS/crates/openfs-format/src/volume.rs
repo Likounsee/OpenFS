@@ -18015,7 +18015,7 @@ mod tests {
             assert_eq!(renamed_metadata.size, 27);
             assert_eq!(
                 mounted.read_file_range_by_id(ObjectId(3), 7, 8).unwrap(),
-                b"tch.txt "
+                b"ounted s"
             );
             let renamed_directory_entries = mounted
                 .read_directory_by_id(ObjectId(2), None, 16)
