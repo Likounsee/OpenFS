@@ -159,6 +159,50 @@ fn try_clone_namespace_records(namespace: &Namespace) -> Result<Vec<MetadataReco
     Ok(records)
 }
 
+fn cached_bitmap_page<'a, D: BlockDevice>(
+    device: &mut D,
+    layout: &VolumeLayout,
+    bitmap_index: u64,
+    block_size: usize,
+    cache: &'a mut std::collections::BTreeMap<u64, Vec<u8>>,
+    validate_reserved_bits: bool,
+) -> Result<&'a [u8]> {
+    if !cache.contains_key(&bitmap_index) && cache.len() >= INVENTORY_BITMAP_CACHE_PAGES {
+        cache.clear();
+    }
+    if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(bitmap_index) {
+        let base = bitmap_index
+            .checked_mul(u64::from(layout.block_size) * 8)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let bitmap_block = layout
+            .bitmap_start
+            .checked_add(bitmap_index)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let mut bitmap = try_zeroed_bytes(
+            block_size,
+            "allocation failed while preparing persistent I/O buffer",
+        )?;
+        device.read_blocks(bitmap_block, &mut bitmap)?;
+        if validate_reserved_bits {
+            let end = layout.backup_superblock.min(
+                base.checked_add(u64::from(layout.block_size) * 8)
+                    .ok_or(Error::ArithmeticOverflow)?,
+            );
+            crate::allocator_extents::validate_bitmap_reserved_bits(
+                &bitmap,
+                base,
+                layout.data_start.max(base),
+                end,
+            )?;
+        }
+        entry.insert(bitmap);
+    }
+    cache
+        .get(&bitmap_index)
+        .map(Vec::as_slice)
+        .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))
+}
+
 fn bitmap_valid_mask(
     byte_index: usize,
     first_byte: usize,
@@ -907,44 +951,14 @@ impl OpenedVolume {
             // Keep bitmap-cache memory bounded even when an inventory spans many
             // bitmap pages. Clearing is safe: it only trades cache hits for device reads.
             let bitmap_index = *block / bits_per_bitmap_block;
-            if !allocation_bitmaps.contains_key(&bitmap_index)
-                && allocation_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
-            {
-                allocation_bitmaps.clear();
-            }
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                allocation_bitmaps.entry(bitmap_index)
-            {
-                let base = bitmap_index
-                    .checked_mul(bits_per_bitmap_block)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let bitmap_block = self
-                    .volume
-                    .layout
-                    .bitmap_start
-                    .checked_add(bitmap_index)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let mut bitmap = try_zeroed_bytes(
-                    block_size,
-                    "allocation failed while preparing persistent I/O buffer",
-                )?;
-                device.read_blocks(bitmap_block, &mut bitmap)?;
-                let segment_start = self.volume.layout.data_start.max(base);
-                let segment_end = self.volume.layout.backup_superblock.min(
-                    base.checked_add(bits_per_bitmap_block)
-                        .ok_or(Error::ArithmeticOverflow)?,
-                );
-                crate::allocator_extents::validate_bitmap_reserved_bits(
-                    &bitmap,
-                    base,
-                    segment_start,
-                    segment_end,
-                )?;
-                entry.insert(bitmap);
-            }
-            let bitmap = allocation_bitmaps
-                .get(&bitmap_index)
-                .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
+            let bitmap = cached_bitmap_page(
+                device,
+                &self.volume.layout,
+                bitmap_index,
+                block_size,
+                &mut allocation_bitmaps,
+                true,
+            )?;
             let local_bit = *block % bits_per_bitmap_block;
             let byte_index =
                 usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
@@ -1523,30 +1537,15 @@ impl OpenedVolume {
                         ));
                     }
                     let bitmap_index = inventory_block / bits_per_bitmap_block;
-                    // Descriptor references can span the whole data region. Bound retained
-                    // bitmap pages independently from the descriptor's number of references.
-                    if !allocation_bitmaps.contains_key(&bitmap_index)
-                        && allocation_bitmaps.len() >= INVENTORY_BITMAP_CACHE_PAGES
-                    {
-                        allocation_bitmaps.clear();
-                    }
-                    if let std::collections::btree_map::Entry::Vacant(entry) =
-                        allocation_bitmaps.entry(bitmap_index)
-                    {
-                        let mut bitmap = try_zeroed_bytes(
-                            block_size,
-                            "allocation failed while preparing persistent I/O buffer",
-                        )?;
-                        let bitmap_block = layout
-                            .bitmap_start
-                            .checked_add(bitmap_index)
-                            .ok_or(Error::ArithmeticOverflow)?;
-                        device.read_blocks(bitmap_block, &mut bitmap)?;
-                        entry.insert(bitmap);
-                    }
-                    let bitmap = allocation_bitmaps
-                        .get(&bitmap_index)
-                        .ok_or(Error::Corrupt("allocation bitmap page cache is incomplete"))?;
+                    // Descriptor references can span the whole data region; keep the cache bounded.
+                    let bitmap = cached_bitmap_page(
+                        device,
+                        &layout,
+                        bitmap_index,
+                        block_size,
+                        &mut allocation_bitmaps,
+                        false,
+                    )?;
                     let local_bit = inventory_block % bits_per_bitmap_block;
                     let byte_index =
                         usize::try_from(local_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
