@@ -8739,12 +8739,8 @@ impl<D: BlockDevice> VolumeSession<D> {
         offset: u64,
         length: usize,
     ) -> Result<Vec<u8>> {
-        self.opened.read_persistent_object_range(
-            &mut self.device,
-            object_id,
-            offset,
-            length,
-        )
+        self.opened
+            .read_persistent_object_range(&mut self.device, object_id, offset, length)
     }
 
     /// Resolve the current path of an open object handle.
@@ -18202,12 +18198,7 @@ mod tests {
             let mut streamed_by_id = Vec::new();
             assert_eq!(
                 mounted
-                    .stream_file_range_by_id_to_writer(
-                        ObjectId(3),
-                        7,
-                        8,
-                        &mut streamed_by_id,
-                    )
+                    .stream_file_range_by_id_to_writer(ObjectId(3), 7, 8, &mut streamed_by_id,)
                     .unwrap(),
                 8
             );
@@ -18220,9 +18211,8 @@ mod tests {
                 .read_file_range_by_id(ObjectId(3), 10_000, 32)
                 .unwrap()
                 .is_empty());
-            let renamed_directory_entries = mounted
-                .read_directory_by_id(ObjectId(2), None, 16)
-                .unwrap();
+            let renamed_directory_entries =
+                mounted.read_directory_by_id(ObjectId(2), None, 16).unwrap();
             assert_eq!(renamed_directory_entries.len(), 1);
             assert_eq!(renamed_directory_entries[0].name, "final.txt");
             assert_eq!(renamed_directory_entries[0].object_id, ObjectId(3).0);
@@ -18231,15 +18221,9 @@ mod tests {
                 Err(Error::InvalidInput(_))
             ));
             mounted.rename("/docs", "/", "documents").unwrap();
+            assert_eq!(mounted.path_for_object(ObjectId(2)).unwrap(), "/documents");
             assert_eq!(
-                mounted.path_for_object(ObjectId(2)).unwrap(),
-                "/documents"
-            );
-            assert_eq!(
-                mounted
-                    .read_directory_by_id(ObjectId(2), None, 16)
-                    .unwrap()[0]
-                    .name,
+                mounted.read_directory_by_id(ObjectId(2), None, 16).unwrap()[0].name,
                 "final.txt"
             );
             mounted.rename("/documents", "/", "docs").unwrap();
@@ -18585,7 +18569,9 @@ impl OpenedVolume {
         F: FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     {
         let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
         };
         namespace.visit_directory(directory_id, visitor)
     }
