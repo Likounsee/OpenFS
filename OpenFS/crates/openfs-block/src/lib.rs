@@ -509,7 +509,8 @@ impl ReadOnlyRawDevice {
 /// does not make formatting safe by itself. Regular files and ordinary block-device
 /// nodes acquire an exclusive OS file lock where supported. Windows PhysicalDrive handles
 /// skip byte-range locking because device handles do not reliably support LockFileEx; the
-/// Windows USB adapter instead requires an exact-identity, offline-disk preflight. External
+/// Windows physical-disk adapter instead requires exact-identity verification, mounted-volume
+/// dismount, and an exclusive PhysicalDrive handle. External
 /// software may still ignore advisory locks. Writes are raw and can destroy partition tables
 /// or existing filesystems; never point it at a device containing data you need.
 /// Regular files are accepted only when their length exactly matches the declared geometry.
