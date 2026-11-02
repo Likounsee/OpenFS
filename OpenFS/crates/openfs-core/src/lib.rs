@@ -69,7 +69,8 @@ impl From<std::io::Error> for Error {
 /// Allocate a zero-filled byte buffer without infallible growth.
 pub fn try_zeroed_bytes(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    bytes.try_reserve_exact(length)
+    bytes
+        .try_reserve_exact(length)
         .map_err(|_| Error::AllocationFailed(allocation_error))?;
     bytes.resize(length, 0);
     Ok(bytes)
