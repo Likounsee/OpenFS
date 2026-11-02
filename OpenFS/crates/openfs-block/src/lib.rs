@@ -178,6 +178,27 @@ impl<D: BlockDevice> BlockDevice for FaultInjectingDevice<D> {
     }
 }
 
+/// Validate a block-aligned I/O buffer and calculate its byte range.
+fn validate_io_range(
+    block_size: u32,
+    block_count: u64,
+    first_block: u64,
+    length: usize,
+) -> Result<(u64, u64)> {
+    let size = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+    if length == 0 || length % size != 0 {
+        return Err(Error::InvalidInput(
+            "buffer length must be a non-zero multiple of block size",
+        ));
+    }
+    let count = u64::try_from(length / size).map_err(|_| Error::ArithmeticOverflow)?;
+    check_block_range(first_block, count, block_count)?;
+    let offset = first_block
+        .checked_mul(u64::from(block_size))
+        .ok_or(Error::ArithmeticOverflow)?;
+    Ok((count, offset))
+}
+
 /// A regular file interpreted as a fixed-size block device.
 ///
 /// flush calls File::sync_all. This requests synchronization through the host
@@ -262,23 +283,6 @@ impl ImageDevice {
         })
     }
 
-    fn byte_offset(&self, first_block: u64) -> Result<u64> {
-        first_block
-            .checked_mul(u64::from(self.block_size))
-            .ok_or(Error::ArithmeticOverflow)
-    }
-
-    fn validate_buffer(&self, first_block: u64, length: usize) -> Result<u64> {
-        let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if length == 0 || length % block_size != 0 {
-            return Err(Error::InvalidInput(
-                "buffer length must be a non-zero multiple of block size",
-            ));
-        }
-        let count = u64::try_from(length / block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        check_block_range(first_block, count, self.block_count)?;
-        Ok(count)
-    }
 }
 
 impl BlockDevice for ImageDevice {
@@ -291,8 +295,8 @@ impl BlockDevice for ImageDevice {
     }
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
-        self.validate_buffer(first_block, output.len())?;
-        let offset = self.byte_offset(first_block)?;
+        let (_, offset) =
+            validate_io_range(self.block_size, self.block_count, first_block, output.len())?;
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileExt;
@@ -324,8 +328,8 @@ impl BlockDevice for ImageDevice {
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
-        self.validate_buffer(first_block, input.len())?;
-        let offset = self.byte_offset(first_block)?;
+        let (_, offset) =
+            validate_io_range(self.block_size, self.block_count, first_block, input.len())?;
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileExt;
@@ -440,17 +444,8 @@ impl ReadOnlyRawDevice {
     }
 
     pub fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
-        let size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if output.is_empty() || output.len() % size != 0 {
-            return Err(Error::InvalidInput(
-                "buffer length must be a non-zero multiple of block size",
-            ));
-        }
-        let count = u64::try_from(output.len() / size).map_err(|_| Error::ArithmeticOverflow)?;
-        check_block_range(first_block, count, self.block_count)?;
-        let offset = first_block
-            .checked_mul(u64::from(self.block_size))
-            .ok_or(Error::ArithmeticOverflow)?;
+        let (count, offset) =
+            validate_io_range(self.block_size, self.block_count, first_block, output.len())?;
         // Windows raw physical-disk handles do not reliably support the
         // shared file-pointer seek path. Use positional OVERLAPPED reads via
         // FileExt::seek_read instead; this also avoids shared seek state.
@@ -597,23 +592,6 @@ impl RawDevice {
         })
     }
 
-    fn validate_buffer(&self, first_block: u64, length: usize) -> Result<()> {
-        let block_size = usize::try_from(self.block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        if length == 0 || length % block_size != 0 {
-            return Err(Error::InvalidInput(
-                "buffer length must be a non-zero multiple of block size",
-            ));
-        }
-        let count = u64::try_from(length / block_size).map_err(|_| Error::ArithmeticOverflow)?;
-        check_block_range(first_block, count, self.block_count)?;
-        Ok(())
-    }
-
-    fn byte_offset(&self, first_block: u64) -> Result<u64> {
-        first_block
-            .checked_mul(u64::from(self.block_size))
-            .ok_or(Error::ArithmeticOverflow)
-    }
 }
 
 impl BlockDevice for RawDevice {
@@ -626,8 +604,8 @@ impl BlockDevice for RawDevice {
     }
 
     fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
-        self.validate_buffer(first_block, output.len())?;
-        let offset = self.byte_offset(first_block)?;
+        let (_, offset) =
+            validate_io_range(self.block_size, self.block_count, first_block, output.len())?;
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileExt;
@@ -661,8 +639,8 @@ impl BlockDevice for RawDevice {
     }
 
     fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> Result<()> {
-        self.validate_buffer(first_block, input.len())?;
-        let offset = self.byte_offset(first_block)?;
+        let (_, offset) =
+            validate_io_range(self.block_size, self.block_count, first_block, input.len())?;
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileExt;
