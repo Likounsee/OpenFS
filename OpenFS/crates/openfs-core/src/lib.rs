@@ -66,6 +66,24 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Allocate a zero-filled byte buffer without infallible growth.
+pub fn try_zeroed_bytes(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(length)
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
+    bytes.resize(length, 0);
+    Ok(bytes)
+}
+
+/// Copy a slice after reserving its exact capacity fallibly.
+pub fn try_copy_slice<T: Copy>(input: &[T], allocation_error: &'static str) -> Result<Vec<T>> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(input.len())
+        .map_err(|_| Error::AllocationFailed(allocation_error))?;
+    copy.extend_from_slice(input);
+    Ok(copy)
+}
+
 /// Validate a non-empty range without adding `first_block` + `block_count`.
 ///
 /// # Errors
