@@ -343,6 +343,66 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
     .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
+
+/// Verify a physical USB disk using a composite identity, not Windows UniqueId alone.
+///
+/// Some USB bridges report the generic UniqueId "USB". The model, hardware serial and
+/// exact byte capacity are therefore all required and rechecked at every destructive boundary.
+#[cfg(windows)]
+pub fn verify_usb_identity(
+    index: u32,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
+        return Err("exact non-empty USB model, serial number and capacity are required".into());
+    }
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$index = [int]$env:OPENFS_DISK_INDEX
+$disk = Get-Disk -Number $index -ErrorAction Stop
+$drive = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+    Where-Object { [int]$_.Index -eq $index } |
+    Select-Object -First 1
+if ($null -eq $drive) { throw 'Windows could not confirm the physical disk PnP identity' }
+if ([string]$disk.FriendlyName -cne [string]$env:OPENFS_EXPECTED_MODEL) {
+    throw 'physical disk model changed; refusing destructive access'
+}
+if (([string]$drive.SerialNumber).Trim() -cne [string]$env:OPENFS_EXPECTED_SERIAL) {
+    throw 'physical disk serial number changed; refusing destructive access'
+}
+if ([uint64]$disk.Size -ne [uint64]$env:OPENFS_EXPECTED_SIZE) {
+    throw 'physical disk capacity changed; refusing destructive access'
+}
+if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk safety state prevents destructive access'
+}
+$busType = [string]$disk.BusType
+$pnpId = [string]$drive.PNPDeviceID
+if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
+    throw 'refusing destructive access: target is not positively identified as USB'
+}
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+    use std::process::Command;
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_EXPECTED_MODEL", expected_model)
+        .env("OPENFS_EXPECTED_SERIAL", expected_serial)
+        .env("OPENFS_EXPECTED_SIZE", expected_size.to_string())
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "composite USB identity verification failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ).into());
+    }
+    parse_verified_geometry(&String::from_utf8(output.stdout)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
 /// Require positive Windows evidence that the selected physical disk uses USB transport.
 #[cfg(windows)]
 pub fn verify_usb_transport(index: u32, expected_unique_id: &str) -> Result<(), Box<dyn StdError>> {
