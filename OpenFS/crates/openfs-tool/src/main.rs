@@ -805,7 +805,7 @@ fn list_namespace(
         return Err("directory page limit must be greater than zero".into());
     }
     let mut device = ImageDevice::open(path, block_size)?;
-    let (volume, namespace) = open_persistent_namespace(&mut device)?;
+    let (_volume, namespace) = open_persistent_namespace(&mut device)?;
     let directory_id = namespace.resolve_path(target)?;
     let record = namespace
         .object(directory_id)
@@ -845,7 +845,7 @@ fn list_namespace(
 /// validated by the same path used by ls/stat before traversal begins.
 fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let (volume, namespace) = open_persistent_namespace(&mut device)?;
+    let (_volume, namespace) = open_persistent_namespace(&mut device)?;
     let root_id = namespace.resolve_path(target)?;
     let root_record = namespace
         .object(root_id)
@@ -898,7 +898,7 @@ fn find_namespace_entries(
         return Err("search text must not be empty".into());
     }
     let mut device = ImageDevice::open(path, block_size)?;
-    let (volume, namespace) = open_persistent_namespace(&mut device)?;
+    let (_volume, namespace) = open_persistent_namespace(&mut device)?;
     let root_id = namespace.resolve_path(root)?;
     let mut pending = vec![root_id];
     let mut matches = 0_u64;
