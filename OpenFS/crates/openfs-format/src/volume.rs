@@ -159,6 +159,23 @@ fn try_clone_namespace_records(namespace: &Namespace) -> Result<Vec<MetadataReco
     Ok(records)
 }
 
+fn bitmap_valid_mask(
+    byte_index: usize,
+    first_byte: usize,
+    end_byte: usize,
+    local_start: u64,
+    local_end: u64,
+) -> u8 {
+    let mut mask = u8::MAX;
+    if byte_index == first_byte {
+        mask &= u8::MAX << (local_start % 8);
+    }
+    if byte_index + 1 == end_byte && local_end % 8 != 0 {
+        mask &= (1_u8 << (local_end % 8)) - 1;
+    }
+    mask
+}
+
 fn try_clone_namespace_entries(namespace: &Namespace) -> Result<Vec<DirectoryEntry>> {
     let count = namespace.entries().count();
     let mut entries = Vec::new();
@@ -411,13 +428,7 @@ impl OpenedVolume {
                         .map_err(|_| Error::ArithmeticOverflow)?
                         .checked_mul(8)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    let mut valid_mask = u8::MAX;
-                    if byte_index == first_byte {
-                        valid_mask &= u8::MAX << (local_start % 8);
-                    }
-                    if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                        valid_mask &= (1_u8 << (local_end % 8)) - 1;
-                    }
+                    let valid_mask = bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                     let available = !*byte & valid_mask;
                     if available != 0 {
                         let bit = u64::from(available.trailing_zeros());
@@ -579,13 +590,7 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut valid_mask = u8::MAX;
-                if byte_index == first_byte {
-                    valid_mask &= u8::MAX << (local_start % 8);
-                }
-                if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
-                }
+                let valid_mask = bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                 let free_bits = (!*byte & valid_mask).count_ones() as u64;
                 free = free
                     .checked_add(free_bits)
