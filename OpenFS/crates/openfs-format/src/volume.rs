@@ -1713,6 +1713,26 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved path has no metadata record"))
     }
 
+    /// Look up persistent metadata by its stable object identifier.
+    ///
+    /// Unlike a path lookup, this remains valid after rename or move operations and
+    /// is intended for adapters that retain object IDs in open handles.
+    pub fn stat_persistent_object<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<MetadataRecord> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        namespace
+            .object(object_id)
+            .cloned()
+            .ok_or(Error::InvalidInput("object does not exist"))
+    }
+
     /// Resolve the current path of a persistent object identifier.
     ///
     /// Object IDs remain stable across rename/move operations. OS adapters should
@@ -8482,6 +8502,15 @@ impl<D: BlockDevice> VolumeSession<D> {
     /// Look up persistent metadata by path.
     pub fn stat(&mut self, path: &str) -> Result<MetadataRecord> {
         self.opened.stat_persistent_path(&mut self.device, path)
+    }
+
+    /// Look up persistent metadata by a stable object handle.
+    ///
+    /// The lookup remains valid after rename/move operations and avoids requiring
+    /// callers to cache or reconstruct a path from the object ID.
+    pub fn stat_object(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
+        self.opened
+            .stat_persistent_object(&mut self.device, object_id)
     }
 
     /// Resolve the current path of an open object handle.
@@ -17893,6 +17922,9 @@ mod tests {
             mounted
                 .rename("/docs/draft.txt", "/docs", "final.txt")
                 .unwrap();
+            let renamed_metadata = mounted.stat_object(ObjectId(3)).unwrap();
+            assert_eq!(renamed_metadata.id, ObjectId(3));
+            assert_eq!(renamed_metadata.size, 27);
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
