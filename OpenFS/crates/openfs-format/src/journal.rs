@@ -3,7 +3,7 @@
 //! This module validates individual records and builds a fail-closed recovery plan.
 //! It does not scan persistent storage, write a WAL, apply redo, or provide crash recovery.
 
-use openfs_core::{Error, Result};
+use openfs_core::{try_zeroed_bytes, Error, Result};
 
 #[cfg(test)]
 use crate::crc32c;
@@ -64,7 +64,7 @@ impl JournalRecord {
         let payload_len = u32::try_from(self.payload.len())
             .map_err(|_| Error::InvalidInput("journal payload is too large"))?;
 
-        let mut bytes = try_zeroed_vec(total_size, "unable to allocate encoded journal record")?;
+        let mut bytes = try_zeroed_bytes(total_size, "unable to allocate encoded journal record")?;
         bytes[0..8].copy_from_slice(MAGIC);
         put_u16(&mut bytes, 8, JOURNAL_VERSION);
         put_u16(&mut bytes, 10, JOURNAL_HEADER_SIZE as u16);
@@ -147,7 +147,7 @@ impl JournalRecord {
                 "journal record does not fit in one journal block",
             ));
         }
-        let mut block = try_zeroed_vec(block_size, "unable to allocate journal block")?;
+        let mut block = try_zeroed_bytes(block_size, "unable to allocate journal block")?;
         block[..encoded.len()].copy_from_slice(&encoded);
         Ok(block)
     }
@@ -300,15 +300,6 @@ pub fn plan_recovery(
     // Any transaction still active at the end lacks a durable terminal record.
     // Its payloads were never copied, so discarding it is allocation-free.
     Ok(completed)
-}
-
-fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(length)
-        .map_err(|_| Error::AllocationFailed(allocation_error))?;
-    bytes.resize(length, 0);
-    Ok(bytes)
 }
 
 fn validate_record(record: &JournalRecord) -> Result<()> {
