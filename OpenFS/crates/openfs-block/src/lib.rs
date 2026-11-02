@@ -282,7 +282,6 @@ impl ImageDevice {
             block_count,
         })
     }
-
 }
 
 impl BlockDevice for ImageDevice {
@@ -591,7 +590,6 @@ impl RawDevice {
             block_count,
         })
     }
-
 }
 
 impl BlockDevice for RawDevice {
