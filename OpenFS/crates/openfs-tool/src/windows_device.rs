@@ -226,13 +226,6 @@ fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
     Ok((size_bytes, logical_sector_size))
 }
 
-/// Validate a selected physical disk, dismount its mounted filesystem volumes, and report geometry.
-///
-/// The physical disk remains Online. OpenFS dismounts mounted filesystem volumes while preserving
-/// their existing drive-letter/directory mount-point configuration. The caller must
-/// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
-/// Boot and system disks are always rejected.
-
 /// Run a static PowerShell disk script with caller values passed only through the environment.
 #[cfg(windows)]
 fn run_disk_script(
@@ -266,6 +259,13 @@ fn run_disk_script(
     }
     Ok(String::from_utf8(output.stdout)?)
 }
+
+/// Validate a selected physical disk, dismount its mounted filesystem volumes, and report geometry.
+///
+/// The physical disk remains Online. OpenFS dismounts mounted filesystem volumes while preserving
+/// their existing drive-letter/directory mount-point configuration. The caller must
+/// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
+/// Boot and system disks are always rejected.
 
 #[cfg(windows)]
 pub fn prepare_disk_for_raw_access(
