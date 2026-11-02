@@ -9617,8 +9617,7 @@ mod tests {
             };
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let mut metadata = vec![0_u8; 4096];
-            metadata[..crate::METADATA_RECORD_SIZE]
-                .copy_from_slice(&root_record.encode().unwrap());
+            metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
             device.write_blocks(metadata_block, &metadata).unwrap();
             volume
                 .publish_persistent_inventory(
@@ -9634,7 +9633,11 @@ mod tests {
                 .unwrap();
 
             let mut namespace = Namespace::new(root).unwrap();
-            for (id, name, size) in [(2, "alpha.txt", 11), (3, "beta.txt", 22), (4, "gamma.txt", 33)] {
+            for (id, name, size) in [
+                (2, "alpha.txt", 11),
+                (3, "beta.txt", 22),
+                (4, "gamma.txt", 33),
+            ] {
                 namespace
                     .insert(
                         DirectoryEntry {
