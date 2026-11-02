@@ -355,7 +355,10 @@ pub fn verify_usb_identity(
     expected_serial: &str,
     expected_size: u64,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
-    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
+    if expected_model.trim().is_empty()
+        || expected_serial.trim().is_empty()
+        || expected_size == 0
+    {
         return Err("exact non-empty USB model, serial number and capacity are required".into());
     }
     const SCRIPT: &str = r#"
@@ -405,7 +408,10 @@ if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
 
 /// Require positive Windows evidence that the selected physical disk uses USB transport.
 #[cfg(windows)]
-pub fn verify_usb_transport(index: u32, expected_unique_id: &str) -> Result<(), Box<dyn StdError>> {
+pub fn verify_usb_transport(
+    index: u32,
+    expected_unique_id: &str,
+) -> Result<(), Box<dyn StdError>> {
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $index = [int]$env:OPENFS_DISK_INDEX
