@@ -670,6 +670,23 @@ impl OpenedVolume {
         Ok(())
     }
 
+    fn cached_inventory_descriptor<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+    ) -> Result<Option<(u64, &PersistentInventoryDescriptor)>> {
+        if self.inventory_descriptor_cache.is_none() {
+            self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
+        }
+        Ok(self
+            .inventory_descriptor_cache
+            .as_ref()
+            .ok_or(Error::Corrupt(
+                "inventory descriptor cache was not initialized",
+            ))?
+            .as_ref()
+            .map(|(block, descriptor)| (*block, descriptor)))
+    }
+
     /// Refuse to release blocks that the persistent inventory still owns.
     ///
     /// Discovery is scan-based today; check the whole batch before mutating any bitmap.
@@ -678,16 +695,7 @@ impl OpenedVolume {
         device: &mut D,
         blocks: &[u64],
     ) -> Result<()> {
-        if self.inventory_descriptor_cache.is_none() {
-            self.inventory_descriptor_cache = Some(self.discover_persistent_inventory(device)?);
-        }
-        let Some((_, descriptor)) =
-            self.inventory_descriptor_cache
-                .as_ref()
-                .ok_or(Error::Corrupt(
-                    "inventory descriptor cache was not initialized",
-                ))?
-        else {
+        let Some((_, descriptor)) = self.cached_inventory_descriptor(device)? else {
             return Ok(());
         };
         let descriptor_block_count = descriptor
