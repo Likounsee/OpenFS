@@ -208,7 +208,7 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
 /// Validate the selected physical disk, dismount its mounted volumes, and report geometry.
 ///
 /// OpenFS deliberately does not require the physical disk to be Offline. Instead, every
-/// non-GUID mount point on its partitions is removed with mountvol /p before raw access.
+/// non-GUID mount point on its partitions is removed before raw access.
 /// The caller must then acquire an exclusive PhysicalDrive handle; failure to do so aborts
 /// the operation. Boot and system disks are always rejected.
 #[cfg(any(windows, test))]
@@ -272,11 +272,14 @@ foreach ($partition in $partitions) {
     $mountPoints = @($partition.AccessPaths | Where-Object {
         $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
     })
-    if ($mountPoints.Count -gt 0) {
-        $mountPoint = [string]$mountPoints[0]
-        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint /p 2>&1 | Out-Null
+    for ($mountIndex = 0; $mountIndex -lt $mountPoints.Count; $mountIndex++) {
+        $mountPoint = [string]$mountPoints[$mountIndex]
+        # Remove secondary mount paths first, then dismount the volume via its
+        # final path so no stale drive-letter or directory mount remains.
+        $mountAction = if ($mountIndex -eq ($mountPoints.Count - 1)) { '/p' } else { '/d' }
+        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint $mountAction 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            throw "could not safely dismount volume mounted at '$mountPoint' (mountvol exit $LASTEXITCODE); close applications using it and retry"
+            throw "could not safely remove mount path '$mountPoint' (mountvol exit $LASTEXITCODE); close applications using the volume and retry"
         }
     }
 }
