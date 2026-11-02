@@ -299,7 +299,7 @@ impl Namespace {
         // as the parent key changes, so listing remains bounded to this directory.
         use std::ops::Bound::{Excluded, Included, Unbounded};
         let lower_name = match after_name {
-            Some(cursor) => Excluded((parent_id, cursor.to_owned())),
+            Some(cursor) => Excluded((parent_id, try_clone_name(cursor)?)),
             None => Included((parent_id, String::new())),
         };
         let mut page = Vec::new();
