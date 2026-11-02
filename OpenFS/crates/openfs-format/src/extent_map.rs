@@ -2211,6 +2211,44 @@ mod tests {
     }
 
     #[test]
+    fn batch_append_matches_incremental_append_across_fragmentation_patterns() {
+        for case in 0..64_u64 {
+            let initial = ExtentMap::new(vec![Extent {
+                logical_start: 0,
+                physical_start: 100,
+                block_count: 1 + case % 3,
+            }])
+            .unwrap();
+            let mut logical = initial.logical_block_count().unwrap();
+            let mut physical = 10_000_u64 + case * 100;
+            let mut incoming = Vec::new();
+
+            for index in 0..(1 + case % 7) {
+                let count = 1 + (case + index) % 3;
+                logical += (case + index) % 2;
+                physical += (case * 3 + index) % 2;
+                incoming.push(Extent {
+                    logical_start: logical,
+                    physical_start: physical,
+                    block_count: count,
+                });
+                logical += count;
+                physical += count;
+            }
+
+            let mut batched = initial.clone();
+            batched.push_coalescing_batch(incoming.clone()).unwrap();
+
+            let mut incremental = initial;
+            for extent in incoming {
+                incremental.push_coalescing(extent).unwrap();
+            }
+
+            assert_eq!(batched, incremental, "fragmentation case {case}");
+        }
+    }
+
+    #[test]
     fn decode_rejects_truncated_and_checksum_corrupted_blocks() {
         let bytes = sample().encode_block(4096).unwrap();
 
