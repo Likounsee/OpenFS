@@ -3961,5 +3961,51 @@ mod allocation_bitmap_report_tests {
             }
             fs::remove_file(path).unwrap();
         }
+
+        // A failed journal flush during batch free must recover to one complete
+        // bitmap generation; reopening must never expose a partially freed batch.
+        let path = image_path("batch-free-flush-recovery");
+        {
+            let mut image = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut image, *b"openfs-test-0001", 0).unwrap();
+            let blocks = volume.allocate_blocks(&mut image, 4).unwrap();
+            drop(volume);
+
+            let mut failing = FailNextFlush {
+                inner: image,
+                fail_next_flush: true,
+            };
+            let mut volume = crate::volume::open_volume(&mut failing).unwrap();
+            assert!(matches!(
+                volume.free_blocks(&mut failing, &blocks),
+                Err(Error::Io(_))
+            ));
+            drop(volume);
+            drop(failing);
+
+            let mut reopened_device = ImageDevice::open(&path, 4096).unwrap();
+            let reopened = crate::volume::open_volume(&mut reopened_device).unwrap();
+            let stats = reopened.allocation_stats(&mut reopened_device).unwrap();
+            assert!(
+                stats.allocated_data_blocks == 0 || stats.allocated_data_blocks == 4,
+                "recovery must expose either the complete old or complete new batch"
+            );
+            let states = blocks
+                .iter()
+                .map(|block| reopened.is_data_block_allocated(&mut reopened_device, *block))
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
+            assert!(
+                states.iter().all(|allocated| *allocated == states[0]),
+                "batch-free recovery must not expose mixed allocation bits"
+            );
+            assert!(
+                reopened
+                    .validate_allocation_bitmap(&mut reopened_device)
+                    .is_ok(),
+                "recovered bitmap must remain structurally valid"
+            );
+        }
+        fs::remove_file(path).unwrap();
     }
 }
