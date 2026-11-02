@@ -858,37 +858,36 @@ pub fn mount_image(
     mount_device(device, image_bytes, mount_point, block_size, block_size)
 }
 
-/// Mount an already formatted whole-disk OpenFS volume from an offline USB disk.
+/// Mount an already formatted whole-disk OpenFS volume from a physical disk.
 ///
-/// The caller must have verified the disk identity and that Windows has taken it
-/// offline. The device is opened read/write because journal recovery and file
-/// operations may write to it.
-pub fn mount_usb_device(
+/// Mounted host volumes are dismounted during preflight; the physical disk remains
+/// online. The exclusive raw-device handle is retained for the lifetime of the mount.
+pub fn mount_disk_device(
     disk_index: u32,
     unique_id: &str,
     mount_point: &str,
     block_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
     let (size_bytes, logical_sector_size) =
-        super::windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+        super::windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
     if block_size < logical_sector_size || block_size % logical_sector_size != 0 {
         return Err(format!(
-            "OpenFS block size {block_size} must be a multiple of the USB disk logical sector size {logical_sector_size}"
+            "OpenFS block size {block_size} must be a multiple of the disk logical sector size {logical_sector_size}"
         ).into());
     }
     if size_bytes % u64::from(block_size) != 0 {
         return Err(
-            "USB disk capacity is not a whole multiple of the selected OpenFS block size".into(),
+            "disk capacity is not a whole multiple of the selected OpenFS block size".into(),
         );
     }
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck after opening the handle so a disk-index change during the
     // preflight/open window cannot silently redirect the mount to another disk.
-    let confirmed = super::windows_device::verify_offline_usb_disk(disk_index, unique_id)?;
+    let confirmed = super::windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
-            "USB disk identity or geometry changed while opening it; refusing to mount".into(),
+            "disk identity or geometry changed while opening it; refusing to mount".into(),
         );
     }
     mount_device(
