@@ -1468,6 +1468,6 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 
 ### API de session — lecture par identifiant stable (2026-11-02)
 
-- Commit ca e9d996496374775412e2f2848ac113a8930d24 : ajout de stat_persistent_object() au volume ouvert et de VolumeSession::stat_object(). Les adaptateurs peuvent relire les métadonnées d'un handle ObjectId après renommage/déplacement sans conserver un chemin potentiellement périmé.
+- Commit cae9d996496374775412e2f2848ac113a8930d24 : ajout de stat_persistent_object() au volume ouvert et de VolumeSession::stat_object(). Les adaptateurs peuvent relire les métadonnées d'un handle ObjectId après renommage/déplacement sans conserver un chemin potentiellement périmé.
 - Le test de cycle de vie vérifie que l'identifiant 3 retrouve toujours ses métadonnées et sa taille après le renommage de /docs/draft.txt en /docs/final.txt.
 - Aucun test local ni statut CI exacte-SHA n'a encore été confirmé; progression P0/P1/P2/P3 et globale inchangée (73 %) jusqu'à validation.
