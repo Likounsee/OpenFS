@@ -545,15 +545,16 @@ impl PersistentJournal {
         // A journal handle is a snapshot of the durable writer epoch. Another
         // handle may have committed (or left an uncertain append) since this one
         // was opened; never reuse its transaction ID or ring slots.
-        let (persisted_checkpoint, persisted_copy) =
-            match read_checkpoint_pair(device, self.region) {
-                Ok(state) => state,
-                Err(error) => {
-                    self.recovery_required = true;
-                    return Err(error);
-                }
-            };
-        if persisted_checkpoint != self.checkpoint || persisted_copy != self.active_checkpoint_copy {
+        let (persisted_checkpoint, persisted_copy) = match read_checkpoint_pair(device, self.region)
+        {
+            Ok(state) => state,
+            Err(error) => {
+                self.recovery_required = true;
+                return Err(error);
+            }
+        };
+        if persisted_checkpoint != self.checkpoint || persisted_copy != self.active_checkpoint_copy
+        {
             self.recovery_required = true;
             return Err(Error::InvalidInput(
                 "journal writer is stale; reopen before committing",
@@ -3089,5 +3090,4 @@ mod tests {
         assert_eq!(read_home(&mut device), vec![0xC3; BS as usize]);
         assert_eq!(recovered.checkpoint().next_transaction_id, 2);
     }
-
 }
