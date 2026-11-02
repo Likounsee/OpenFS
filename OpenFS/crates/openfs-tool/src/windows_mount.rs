@@ -442,10 +442,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         // Keep lookup and the resulting create/truncate under one session lock.
         // Otherwise two concurrent CREATE_NEW/OPEN_ALWAYS callbacks can both observe
         // a missing path before either publishes it (a filesystem-level TOCTOU race).
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let existing = session.stat(&path);
         let (is_dir, new_file_created, object_id, registered_handle) = match existing {
             Ok(record) => {
@@ -646,10 +643,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
         self.require_handle_access(*context, FILE_READ_DATA)?;
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let path = session
             .path_for_object(context.object_id)
             .map_err(map_core_error)?;
@@ -712,10 +706,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
         self.require_handle_access(*context, DELETE)?;
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let path = session
             .path_for_object(context.object_id)
             .map_err(map_core_error)?;
@@ -744,10 +735,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         self.require_handle_access(*context, DELETE)?;
         let new_path = path_from_windows(new_file_name)?;
         let (new_parent, new_name) = split_parent(&new_path)?;
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let old_path = session
             .path_for_object(context.object_id)
             .map_err(map_core_error)?;
@@ -796,10 +784,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         &'b self,
         _info: &OperationInfo<'a, 'b, Self>,
     ) -> Result<DiskSpaceInfo, OperationError> {
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let free = session
             .free_data_blocks()
             .map_err(map_core_error)?
