@@ -4461,7 +4461,7 @@ impl OpenedVolume {
         // Validate the persisted ownership graph even for an empty or out-of-EOF
         // range. A no-byte read must not become a way to bypass corruption detection.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
+        let map = validate_file_extent_map(record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps already validates every extent map against the
         // allocation bitmap and global ownership graph; do not scan the same bits again.
@@ -4614,7 +4614,7 @@ impl OpenedVolume {
         // Validate the persisted ownership graph even for an empty or out-of-EOF
         // range. A no-byte read must not become a way to bypass corruption detection.
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
+        let map = validate_file_extent_map(record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps already validates every extent map against the
         // allocation bitmap and global ownership graph; do not scan the same bits again.
@@ -4768,7 +4768,7 @@ impl OpenedVolume {
         }
 
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
-        let map = validate_file_extent_map(&record, &extent_maps, object_id)?;
+        let map = validate_file_extent_map(record, &extent_maps, object_id)?;
 
         // read_namespace_extent_maps has already checked all roots, physical ranges,
         // allocation bits and cross-file aliases before any bytes are emitted.
@@ -5241,7 +5241,7 @@ impl OpenedVolume {
                     };
                     *self = recovered;
                     let old_generation_is_active =
-                        self.is_active_generation(device, object_id, &record);
+                        self.is_active_generation(device, object_id, record);
                     if !old_generation_is_active {
                         return Err(Error::Corrupt(
                             "sparse extension tail scrub failed and the active file generation is uncertain",
@@ -6367,7 +6367,7 @@ impl OpenedVolume {
                     };
                     *self = recovered;
                     let old_generation_is_active =
-                        self.is_active_generation(device, object_id, &record);
+                        self.is_active_generation(device, object_id, record);
                     if !old_generation_is_active {
                         return Err(Error::Corrupt(
                             "append data write failed and the active file generation is uncertain",
@@ -6400,7 +6400,7 @@ impl OpenedVolume {
                             )
                         })?;
                         let old_generation_is_active =
-                            self.is_active_generation(device, object_id, &record);
+                            self.is_active_generation(device, object_id, record);
                         if !old_generation_is_active {
                             return Err(Error::Corrupt(
                                 "append data cleanup failed and the old generation could not be verified; preserve the image",
@@ -6526,7 +6526,7 @@ impl OpenedVolume {
                                 })?;
                                 *self = recovered;
                                 let old_generation_is_active =
-                                    self.is_active_generation(device, object_id, &record);
+                                    self.is_active_generation(device, object_id, record);
                                 if !old_generation_is_active {
                                     return Err(Error::Corrupt(
                                         "append publication failed and the old generation could not be verified; preserve the image",
@@ -6711,7 +6711,7 @@ impl OpenedVolume {
                         })?;
                         *self = recovered;
                         let old_generation_is_active =
-                            self.is_active_generation(device, object_id, &record);
+                            self.is_active_generation(device, object_id, record);
                         if !old_generation_is_active {
                             return Err(Error::Corrupt(
                                 "append staging failed and the old file generation could not be verified; preserve staged blocks",
@@ -6749,7 +6749,7 @@ impl OpenedVolume {
                                 )
                             })?;
                             let old_generation_is_active =
-                                self.is_active_generation(device, object_id, &record);
+                                self.is_active_generation(device, object_id, record);
                             if !old_generation_is_active {
                                 return Err(Error::Corrupt(
                                     "append staging rollback failed and the old generation is uncertain; preserve the image",
@@ -6783,7 +6783,7 @@ impl OpenedVolume {
                                         )
                                     })?;
                                     let old_generation_is_active =
-                                        self.is_active_generation(device, object_id, &record);
+                                        self.is_active_generation(device, object_id, record);
                                     if !old_generation_is_active {
                                         return Err(Error::Corrupt(
                                             "append staging rollback retry left the active generation uncertain; preserve the image",
@@ -6868,7 +6868,7 @@ impl OpenedVolume {
                             })?;
                             *self = recovered;
                             let old_generation_is_active =
-                                self.is_active_generation(device, object_id, &record);
+                                self.is_active_generation(device, object_id, record);
                             if !old_generation_is_active {
                                 return Err(Error::Corrupt(
                                     "append metadata preparation failed and the old generation could not be verified; preserve staged blocks",
@@ -6980,7 +6980,7 @@ impl OpenedVolume {
                                         )
                                     })?;
                                     let old_generation_is_active =
-                                        self.is_active_generation(device, object_id, &record);
+                                        self.is_active_generation(device, object_id, record);
                                     if !old_generation_is_active {
                                         return Err(Error::Corrupt(
                                             "append publication rollback could not verify the old generation; preserve staged blocks",
@@ -7022,7 +7022,7 @@ impl OpenedVolume {
                                             })?;
                                         }
                                         let old_generation_is_active =
-                                            self.is_active_generation(device, object_id, &record);
+                                            self.is_active_generation(device, object_id, record);
                                         if !old_generation_is_active {
                                             return Err(Error::Corrupt(
                                                 "append publication rollback retry left the active generation uncertain; preserve the image",

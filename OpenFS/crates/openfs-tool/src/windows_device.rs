@@ -345,10 +345,7 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
 
 /// Require positive Windows evidence that the selected physical disk uses USB transport.
 #[cfg(windows)]
-pub fn verify_usb_transport(
-    index: u32,
-    expected_unique_id: &str,
-) -> Result<(), Box<dyn StdError>> {
+pub fn verify_usb_transport(index: u32, expected_unique_id: &str) -> Result<(), Box<dyn StdError>> {
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $index = [int]$env:OPENFS_DISK_INDEX
@@ -377,7 +374,12 @@ if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
 [Console]::Out.WriteLine('USB')
 "#;
 
-    let output = run_disk_script(SCRIPT, index, expected_unique_id, "USB transport verification")?;
+    let output = run_disk_script(
+        SCRIPT,
+        index,
+        expected_unique_id,
+        "USB transport verification",
+    )?;
     if output.trim() != "USB" {
         return Err("Windows did not confirm USB transport; refusing to format".into());
     }

@@ -17,10 +17,7 @@ fn bitmap_pages_to_redo(
     for (bitmap_block, _, image) in pages {
         redo.push(RedoUpdate {
             target_block: *bitmap_block,
-            contents: try_copy_slice(
-                image,
-                "allocation failed while copying bitmap redo image",
-            )?,
+            contents: try_copy_slice(image, "allocation failed while copying bitmap redo image")?,
         });
     }
     Ok(redo)
@@ -564,7 +561,10 @@ impl OpenedVolume {
                 }
                 let _ = bitmap_block;
             }
-            let redo = bitmap_pages_to_redo(&pages, "allocation failed while preparing batch redo images")?;
+            let redo = bitmap_pages_to_redo(
+                &pages,
+                "allocation failed while preparing batch redo images",
+            )?;
             self.journal.required_record_count(device, redo.len())?;
             clear_stale_descriptor_magic(device, self.volume.block_size, &selected)?;
 
@@ -1156,7 +1156,10 @@ impl OpenedVolume {
 
             // The complete redo set is preflighted before any data-block contents are
             // scrubbed, so a journal-capacity rejection has no side effects.
-            let redo = bitmap_pages_to_redo(&pages, "unable to reserve contiguous allocation redo images")?;
+            let redo = bitmap_pages_to_redo(
+                &pages,
+                "unable to reserve contiguous allocation redo images",
+            )?;
             self.journal.required_record_count(device, redo.len())?;
             clear_stale_descriptor_magic_range(device, self.volume.block_size, start, end)?;
 
@@ -1592,7 +1595,8 @@ impl OpenedVolume {
             pages.push((bitmap_block, base, image));
         }
 
-        let redo = bitmap_pages_to_redo(&pages, "unable to reserve best-fit allocation redo images")?;
+        let redo =
+            bitmap_pages_to_redo(&pages, "unable to reserve best-fit allocation redo images")?;
         self.journal.required_record_count(device, redo.len())?;
         clear_stale_descriptor_magic_range(
             device,
