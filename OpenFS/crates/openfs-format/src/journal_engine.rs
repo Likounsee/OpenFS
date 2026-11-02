@@ -426,48 +426,6 @@ impl PersistentJournal {
             ));
         }
         self.region.validate(device)?;
-        // A journal handle is a snapshot of the durable writer epoch. Another
-        // handle may have committed (or left an uncertain append) since this one
-        // was opened; never reuse its transaction ID or ring slots.
-        let (persisted_checkpoint, persisted_copy) =
-            match read_checkpoint_pair(device, self.region) {
-                Ok(state) => state,
-                Err(error) => {
-                    self.recovery_required = true;
-                    return Err(error);
-                }
-            };
-        if persisted_checkpoint != self.checkpoint || persisted_copy != self.active_checkpoint_copy {
-            self.recovery_required = true;
-            return Err(Error::InvalidInput(
-                "journal writer is stale; reopen before committing",
-            ));
-        }
-        let pending = match scan_uncheckpointed_records(
-            device,
-            self.region,
-            self.checkpoint.checkpoint_sequence,
-            self.checkpoint.next_transaction_id,
-        ) {
-            Ok(scanned) => scanned,
-            Err(error) => {
-                self.recovery_required = true;
-                return Err(error);
-            }
-        };
-        if !pending.records.is_empty() || pending.first_malformed_slot.is_some() {
-            self.recovery_required = true;
-            return Err(Error::InvalidInput(
-                "journal has uncheckpointed records; reopen before committing",
-            ));
-        }
-
-        let block_size =
-            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-
-        // Reject transactions that cannot fit before walking every target or
-        // allocating the duplicate-detection set. The journal has a fixed ring, so
-        // an oversized caller-provided slice must not trigger unbounded extra work.
         let required_records = self.required_record_count(device, updates.len())?;
 
         // A contiguous vector avoids one tree-node allocation per target. Sort
@@ -584,6 +542,48 @@ impl PersistentJournal {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
 
+        // A journal handle is a snapshot of the durable writer epoch. Another
+        // handle may have committed (or left an uncertain append) since this one
+        // was opened; never reuse its transaction ID or ring slots.
+        let (persisted_checkpoint, persisted_copy) =
+            match read_checkpoint_pair(device, self.region) {
+                Ok(state) => state,
+                Err(error) => {
+                    self.recovery_required = true;
+                    return Err(error);
+                }
+            };
+        if persisted_checkpoint != self.checkpoint || persisted_copy != self.active_checkpoint_copy {
+            self.recovery_required = true;
+            return Err(Error::InvalidInput(
+                "journal writer is stale; reopen before committing",
+            ));
+        }
+        let pending = match scan_uncheckpointed_records(
+            device,
+            self.region,
+            self.checkpoint.checkpoint_sequence,
+            self.checkpoint.next_transaction_id,
+        ) {
+            Ok(scanned) => scanned,
+            Err(error) => {
+                self.recovery_required = true;
+                return Err(error);
+            }
+        };
+        if !pending.records.is_empty() || pending.first_malformed_slot.is_some() {
+            self.recovery_required = true;
+            return Err(Error::InvalidInput(
+                "journal has uncheckpointed records; reopen before committing",
+            ));
+        }
+
+        let block_size =
+            usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+
+        // Reject transactions that cannot fit before walking every target or
+        // allocating the duplicate-detection set. The journal has a fixed ring, so
+        // an oversized caller-provided slice must not trigger unbounded extra work.
         // From here on persistence may be uncertain after any error.
         self.recovery_required = true;
         for (slot, block) in encoded.iter().take(encoded.len() - 1).enumerate() {
@@ -1622,7 +1622,7 @@ mod tests {
 
         // The five pre-COMMIT records are durable, but the flush that would
         // precede the COMMIT fails. Reopening must discard this incomplete tail.
-        let mut failing = FailAt::new(device, 5);
+        let mut failing = FailAt::new(device, 15);
         assert!(matches!(
             journal.commit(&mut failing, &long_updates),
             Err(Error::Io(_))
@@ -1729,7 +1729,7 @@ mod tests {
 
         // A single-block redo image uses BEGIN + two UPDATE chunks + COMMIT.
         // Fail the first home write, after COMMIT is durable but before checkpointing.
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -2126,7 +2126,7 @@ mod tests {
     fn ignores_uncommitted_transaction_after_commit_write_failure() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        let mut failing = FailAt::new(device.clone(), 4);
+        let mut failing = FailAt::new(device.clone(), 14);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -2515,7 +2515,7 @@ mod tests {
         let mut journal = open_journal(&mut device, REGION).unwrap();
         // Two full-block redo images occupy four UPDATE records: BEGIN and UPDATE
         // writes are 0..=4, flush is 5, COMMIT write/flush are 6/7, HOME is 8.
-        let mut failing = FailAt::new(device.clone(), 8);
+        let mut failing = FailAt::new(device.clone(), 18);
         assert!(matches!(
             journal.commit(&mut failing, &updates),
             Err(Error::Io(_))
@@ -2578,7 +2578,7 @@ mod tests {
             let mut journal = open_journal(&mut device, REGION).unwrap();
 
             // Leave a durable commit whose first home-block write fails.
-            let mut failing_commit = FailAt::new(device.clone(), 6);
+            let mut failing_commit = FailAt::new(device.clone(), 16);
             assert!(matches!(
                 journal.commit(&mut failing_commit, &[update(0xA5)]),
                 Err(Error::Io(_))
@@ -3068,7 +3068,7 @@ mod tests {
         let mut device = formatted();
         let mut interrupted = open_journal(&mut device, REGION).unwrap();
         let mut stale = open_journal(&mut device, REGION).unwrap();
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             interrupted.commit(&mut failing, &[update(0xC3)]),
             Err(Error::Io(_))
