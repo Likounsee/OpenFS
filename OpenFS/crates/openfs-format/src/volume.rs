@@ -1033,13 +1033,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut valid_mask = u8::MAX;
-                if byte_index == first_byte {
-                    valid_mask &= u8::MAX << (local_start % 8);
-                }
-                if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
-                }
+                let valid_mask =
+                    bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                 let available = !*byte & valid_mask;
                 if available != 0 {
                     candidate = Some((byte_index, available.trailing_zeros()));
@@ -1294,13 +1289,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut valid_mask = u8::MAX;
-                if byte_index == first_byte {
-                    valid_mask &= u8::MAX << (local_start % 8);
-                }
-                if byte_index + 1 == end_byte && local_end % 8 != 0 {
-                    valid_mask &= (1_u8 << (local_end % 8)) - 1;
-                }
+                let valid_mask =
+                    bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                 let available = !*byte & valid_mask;
                 if available != 0 {
                     let local = (byte_index as u64) * 8 + u64::from(available.trailing_zeros());
