@@ -257,10 +257,22 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().unwrap_or_else(|| "/".to_owned());
+            let limit = args
+                .next()
+                .map(|value| value.parse::<usize>())
+                .transpose()?
+                .unwrap_or(256);
+            let after_name = args.next();
             if args.next().is_some() {
                 return Err("too many arguments".into());
             }
-            list_namespace(Path::new(&path), block_size, &target)
+            list_namespace(
+                Path::new(&path),
+                block_size,
+                &target,
+                after_name.as_deref(),
+                limit,
+            )
         }
         Some("tree") => {
             let path = args.next().ok_or("missing image path")?;
@@ -848,7 +860,16 @@ fn create_namespace_directories(
     Ok(())
 }
 
-fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
+fn list_namespace(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    after_name: Option<&str>,
+    limit: usize,
+) -> Result<(), Box<dyn StdError>> {
+    if limit == 0 {
+        return Err("directory page limit must be greater than zero".into());
+    }
     let mut device = ImageDevice::open(path, block_size)?;
     let volume = open_volume(&mut device)?;
     let (_, namespace) = volume
@@ -861,7 +882,8 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
     if record.kind != ObjectKind::Directory {
         return Err("path is not a directory".into());
     }
-    for entry in namespace.children(directory_id) {
+    let page = namespace.list_directory(directory_id, after_name, limit)?;
+    for entry in &page {
         let kind = match entry.kind {
             ObjectKind::Directory => "dir ",
             ObjectKind::File => "file",
@@ -873,6 +895,11 @@ fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<
             "{kind}\t{}\t{} bytes\tgeneration {}\t{}",
             entry.object_id, record.size, record.generation, entry.name
         );
+    }
+    if page.len() == limit {
+        if let Some(last) = page.last() {
+            println!("--after-name {} (next page)", last.name);
+        }
     }
     Ok(())
 }
