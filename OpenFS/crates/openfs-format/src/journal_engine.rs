@@ -1621,7 +1621,7 @@ mod tests {
         ];
 
         // The five pre-COMMIT records are durable, but the flush that would
-        // precede the COMMIT fails. Reopening must discard this incomplete tail.
+        // precede the COMMIT fails (operation 15 after the writer-epoch reads). Reopening must discard this incomplete tail.
         let mut failing = FailAt::new(device, 15);
         assert!(matches!(
             journal.commit(&mut failing, &long_updates),
@@ -1728,7 +1728,7 @@ mod tests {
         let mut journal = open_journal(&mut device, REGION).unwrap();
 
         // A single-block redo image uses BEGIN + two UPDATE chunks + COMMIT.
-        // Fail the first home write, after COMMIT is durable but before checkpointing.
+        // Fail the first home write (operation 16 after the writer-epoch reads).
         let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
@@ -2064,7 +2064,7 @@ mod tests {
         let mut journal = open_journal(&mut device, REGION).unwrap();
 
         // Leave a durable COMMIT but fail the first home write.
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -2110,7 +2110,7 @@ mod tests {
     fn replays_durable_commit_if_home_write_fails() {
         let mut device = formatted();
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -2146,7 +2146,7 @@ mod tests {
 
         // Fail the first home write after COMMIT is durable. This leaves a committed,
         // uncheckpointed transaction while preserving the old home image.
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[update(0xA5)]),
             Err(Error::Io(_))
@@ -2515,6 +2515,7 @@ mod tests {
         let mut journal = open_journal(&mut device, REGION).unwrap();
         // Two full-block redo images occupy four UPDATE records: BEGIN and UPDATE
         // writes are 0..=4, flush is 5, COMMIT write/flush are 6/7, HOME is 8.
+        // The writer-epoch guard adds ten read operations before this sequence.
         let mut failing = FailAt::new(device.clone(), 18);
         assert!(matches!(
             journal.commit(&mut failing, &updates),
@@ -2555,7 +2556,7 @@ mod tests {
         // flush have succeeded. The durable redo must not overwrite block zero
         // when the volume is reopened with its control blocks protected.
         let mut journal = open_journal(&mut device, REGION).unwrap();
-        let mut failing = FailAt::new(device.clone(), 6);
+        let mut failing = FailAt::new(device.clone(), 16);
         assert!(matches!(
             journal.commit(&mut failing, &[bad]),
             Err(Error::Io(_))
@@ -2802,7 +2803,7 @@ mod tests {
 
             // Fail the first home write after the COMMIT record is durable,
             // leaving the committed transaction in the ring for recovery.
-            let mut failing = FailAt::new(device.clone(), 6);
+            let mut failing = FailAt::new(device.clone(), 16);
             assert!(matches!(
                 journal.commit(&mut failing, &[update(0xA5)]),
                 Err(Error::Io(_))
