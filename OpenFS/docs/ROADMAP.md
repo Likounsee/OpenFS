@@ -1450,3 +1450,11 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Inventaire lexical mis à jour : 1 297 déclarations sur 18 fichiers Rust; les lignes des tests de récupération déplacés ont également été réalignées.
 - Les tests n'ont pas été exécutés localement dans cette session. Aucun statut CI exploitable n'est disponible pour les commits concernés; ne pas considérer cette étape comme validée sur disque réel.
 - Progression conservée : P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 %. Il s'agit de rendre les primitives atomiques existantes accessibles dans l'API de session, pas de revendiquer la prise en charge des hard links ou la fin de R3.
+
+
+### Régression de libération atomique après échec de flush (2026-11-02)
+
+- Commit de test 12046019c598ba9f5055322948c68ff2043f60e9 : ajout d'un scénario d'erreur injectée pendant free_blocks() pour un lot de quatre blocs.
+- Le test réouvre l'image après l'échec et vérifie que le bitmap expose l'ancien lot entièrement alloué ou le nouveau lot entièrement libéré, jamais un état mixte. Il contrôle aussi la validité structurelle du bitmap.
+- Couverture paramétrée sur les cinq tailles de blocs prises en charge : 4, 8, 16, 32 et 64 KiB. Le CSV lexical n'est pas modifié : le générateur exclut les déclarations de tests sous cfg(test).
+- Aucun résultat de tests local ni CI exacte-SHA n'est disponible dans cette session; ce test est publié mais non déclaré réussi. P0/P1/P2/P3 et le global restent inchangés (73 %) en attente de validation.
