@@ -276,6 +276,12 @@ struct OpenFsHandler<D: BlockDevice> {
 }
 
 impl<D: BlockDevice> OpenFsHandler<D> {
+    fn lock_session(&self) -> Result<MutexGuard<'_, VolumeSession<D>>, OperationError> {
+        self.session
+            .lock()
+            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))
+    }
+
     fn new(session: VolumeSession<D>, total_bytes: u64) -> Self {
         Self {
             session: Mutex::new(session),
@@ -290,10 +296,7 @@ impl<D: BlockDevice> OpenFsHandler<D> {
         context: &FileHandle,
         operation: impl FnOnce(&mut VolumeSession<D>, &str) -> openfs_core::Result<T>,
     ) -> Result<T, OperationError> {
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let mut session = self.lock_session()?;
         let path = session
             .path_for_object(context.object_id)
             .map_err(map_core_error)?;
@@ -343,11 +346,7 @@ impl<D: BlockDevice> OpenFsHandler<D> {
     }
 
     fn stat(&self, path: &str) -> Result<openfs_format::MetadataRecord, OperationError> {
-        self.session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .stat(path)
-            .map_err(map_core_error)
+        self.lock_session()?.stat(path).map_err(map_core_error)
     }
 }
 
@@ -625,11 +624,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         context: &'a Self::Context,
     ) -> Result<(), OperationError> {
         self.require_handle_access(*context, FILE_WRITE_DATA)?;
-        self.session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?
-            .flush()
-            .map_err(map_core_error)
+        self.lock_session()?.flush().map_err(map_core_error)
     }
 
     fn get_file_information(
@@ -820,10 +815,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         &'b self,
         _info: &OperationInfo<'a, 'b, Self>,
     ) -> Result<VolumeInfo, OperationError> {
-        let session = self
-            .session
-            .lock()
-            .map_err(|_| OperationError::Win32(ERROR_GEN_FAILURE))?;
+        let session = self.lock_session()?;
         let uuid = session.uuid();
         Ok(VolumeInfo {
             name: U16CString::from_str("OpenFS")
