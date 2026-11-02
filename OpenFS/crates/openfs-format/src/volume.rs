@@ -4577,6 +4577,169 @@ impl OpenedVolume {
         Ok(written)
     }
 
+    /// Stream a bounded range from a file addressed by stable object ID.
+    ///
+    /// The object may be renamed or moved without invalidating the handle.
+    pub fn stream_persistent_object_range_to_writer<D: BlockDevice, W: std::io::Write>(
+        &self,
+        device: &mut D,
+        object_id: ObjectId,
+        offset: u64,
+        length: u64,
+        writer: &mut W,
+    ) -> Result<u64> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent file reads require a published inventory",
+            ));
+        };
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("file metadata is missing"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("object is not a regular file"));
+        }
+        // Validate the persisted ownership graph even for an empty or out-of-EOF
+        // range. A no-byte read must not become a way to bypass corruption detection.
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        let map = extent_maps.get(&object_id);
+        if record.extent_root_block.is_some() && map.is_none() {
+            return Err(Error::Corrupt(
+                "file extent map is missing from loaded inventory",
+            ));
+        }
+        if record.extent_root_block.is_none() && map.is_some_and(|value| !value.is_empty()) {
+            return Err(Error::Corrupt(
+                "file has extents without a persistent extent-map root",
+            ));
+        }
+
+        // read_namespace_extent_maps already validates every extent map against the
+        // allocation bitmap and global ownership graph; do not scan the same bits again.
+        let block_size = u64::from(self.volume.block_size);
+        if length == 0 || offset >= record.size {
+            writer.flush()?;
+            return Ok(0);
+        }
+
+        let remaining_len = (record.size - offset).min(length);
+        let end = offset
+            .checked_add(remaining_len)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let first_logical = offset / block_size;
+        let last_logical = (end - 1) / block_size;
+        let block_len = usize::try_from(block_size).map_err(|_| Error::ArithmeticOverflow)?;
+        // One block-sized buffer is enough for both allocated and sparse ranges.
+        // Reusing it avoids a second allocation proportional to the filesystem block size.
+        // Batch contiguous full-block reads while keeping memory bounded.
+        // Partial first/last blocks are emitted separately to preserve range boundaries.
+        // Keep each streaming scratch buffer near 1 MiB regardless of the
+        // filesystem block size, avoiding tiny device requests on 4 KiB volumes.
+        const STREAM_BATCH_BYTES: usize = 1024 * 1024;
+        const MAX_STREAM_BATCH_BLOCKS: usize = 64;
+        let stream_batch_blocks = (STREAM_BATCH_BYTES / block_len)
+            .clamp(1, MAX_STREAM_BATCH_BLOCKS)
+            .min(usize::try_from(last_logical - first_logical + 1).unwrap_or(usize::MAX));
+        let batch_capacity = block_len
+            .checked_mul(stream_batch_blocks)
+            .ok_or(Error::ArithmeticOverflow)?;
+        // The batch buffer is at least one block long, so partial-block reads
+        // reuse its first block instead of allocating a second full-sized buffer.
+        let mut batch_buffer = try_zeroed_block(
+            batch_capacity,
+            "unable to allocate persistent object read batch",
+        )?;
+        let mut written = 0_u64;
+        let mut logical = first_logical;
+        while logical <= last_logical {
+            let block_start = logical
+                .checked_mul(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let block_end = block_start
+                .checked_add(block_size)
+                .ok_or(Error::ArithmeticOverflow)?;
+            let copy_start = offset.max(block_start);
+            let copy_end = end.min(block_end);
+            let within_start =
+                usize::try_from(copy_start - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            let within_end =
+                usize::try_from(copy_end - block_start).map_err(|_| Error::ArithmeticOverflow)?;
+            if within_start == 0 && within_end == block_len {
+                let first_physical = map.and_then(|value| value.physical_block(logical));
+                let max_blocks =
+                    usize::try_from((last_logical - logical + 1).min(stream_batch_blocks as u64))
+                        .map_err(|_| Error::ArithmeticOverflow)?;
+                let mut run_blocks = 1_usize;
+                while run_blocks < max_blocks {
+                    let delta = u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                    let next_logical = logical
+                        .checked_add(delta)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let next_start = next_logical
+                        .checked_mul(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    let next_end = next_start
+                        .checked_add(block_size)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                    if next_start < offset || next_end > end {
+                        break;
+                    }
+                    match first_physical {
+                        Some(physical) => {
+                            let expected = physical
+                                .checked_add(delta)
+                                .ok_or(Error::ArithmeticOverflow)?;
+                            if map.and_then(|value| value.physical_block(next_logical))
+                                != Some(expected)
+                            {
+                                break;
+                            }
+                        }
+                        None if map
+                            .and_then(|value| value.physical_block(next_logical))
+                            .is_none() => {}
+                        None => break,
+                    }
+                    run_blocks += 1;
+                }
+                let run_bytes = run_blocks
+                    .checked_mul(block_len)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                if let Some(physical) = first_physical {
+                    device.read_blocks(physical, &mut batch_buffer[..run_bytes])?;
+                } else {
+                    batch_buffer[..run_bytes].fill(0);
+                }
+                writer.write_all(&batch_buffer[..run_bytes])?;
+                let run_blocks =
+                    u64::try_from(run_blocks).map_err(|_| Error::ArithmeticOverflow)?;
+                written = written
+                    .checked_add(u64::try_from(run_bytes).map_err(|_| Error::ArithmeticOverflow)?)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                logical = logical
+                    .checked_add(run_blocks)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            } else {
+                if let Some(physical) = map.and_then(|value| value.physical_block(logical)) {
+                    device.read_blocks(physical, &mut batch_buffer[..block_len])?;
+                } else {
+                    batch_buffer[..block_len].fill(0);
+                }
+                writer.write_all(&batch_buffer[within_start..within_end])?;
+                written = written
+                    .checked_add(
+                        u64::try_from(within_end - within_start)
+                            .map_err(|_| Error::ArithmeticOverflow)?,
+                    )
+                    .ok_or(Error::ArithmeticOverflow)?;
+                logical = logical.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            }
+        }
+        writer.flush()?;
+        Ok(written)
+    }
+
     /// Stream a persistent file to a host writer after validating its metadata once.
     ///
     /// Unlike repeated calls to `read_persistent_path_range`, this checks the published
@@ -8651,6 +8814,25 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.stream_persistent_path_range_to_writer(
             &mut self.device,
             path,
+            offset,
+            length,
+            writer,
+        )
+    }
+
+    /// Stream a bounded file range through a stable object handle.
+    ///
+    /// Renaming or moving the file does not invalidate the handle.
+    pub fn stream_file_range_by_id_to_writer<W: std::io::Write>(
+        &mut self,
+        object_id: ObjectId,
+        offset: u64,
+        length: u64,
+        writer: &mut W,
+    ) -> Result<u64> {
+        self.opened.stream_persistent_object_range_to_writer(
+            &mut self.device,
+            object_id,
             offset,
             length,
             writer,
@@ -18017,6 +18199,19 @@ mod tests {
                 mounted.read_file_range_by_id(ObjectId(3), 7, 8).unwrap(),
                 b"ounted s"
             );
+            let mut streamed_by_id = Vec::new();
+            assert_eq!(
+                mounted
+                    .stream_file_range_by_id_to_writer(
+                        ObjectId(3),
+                        7,
+                        8,
+                        &mut streamed_by_id,
+                    )
+                    .unwrap(),
+                8
+            );
+            assert_eq!(streamed_by_id, b"ounted s");
             assert!(matches!(
                 mounted.read_file_range_by_id(ObjectId(2), 0, 1),
                 Err(Error::InvalidInput("object is not a regular file"))
