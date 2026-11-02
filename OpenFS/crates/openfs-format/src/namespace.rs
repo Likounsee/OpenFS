@@ -1827,6 +1827,9 @@ impl Namespace {
         if parent.kind != ObjectKind::Directory {
             return Err(Error::InvalidInput("object is not a directory"));
         }
+        // A locally consistent child list is not enough: never expose entries from a
+        // disconnected directory whose ancestry no longer reaches the namespace root.
+        self.validate_directory_ancestry(parent_id, None)?;
         for entry in self.children(parent_id) {
             let record = self
                 .objects
@@ -1916,6 +1919,53 @@ mod directory_visit_tests {
         assert!(matches!(
             namespace.visit_directory(ObjectId(2), |_, _| true),
             Err(Error::InvalidInput("object is not a directory"))
+        ));
+
+        let mut nested = Namespace::new(ObjectId(10)).unwrap();
+        nested
+            .insert(
+                DirectoryEntry {
+                    parent_id: 10,
+                    object_id: 11,
+                    kind: ObjectKind::Directory,
+                    name: "nested".to_owned(),
+                },
+                MetadataRecord {
+                    id: ObjectId(11),
+                    parent_id: 10,
+                    kind: ObjectKind::Directory,
+                    flags: 0,
+                    size: 0,
+                    extent_root_block: None,
+                    generation: 1,
+                },
+            )
+            .unwrap();
+        nested
+            .insert(
+                DirectoryEntry {
+                    parent_id: 11,
+                    object_id: 12,
+                    kind: ObjectKind::File,
+                    name: "child".to_owned(),
+                },
+                MetadataRecord {
+                    id: ObjectId(12),
+                    parent_id: 11,
+                    kind: ObjectKind::File,
+                    flags: 0,
+                    size: 1,
+                    extent_root_block: None,
+                    generation: 1,
+                },
+            )
+            .unwrap();
+        nested
+            .parents
+            .insert(ObjectId(11), (ObjectId(99), "nested".to_owned()));
+        assert!(matches!(
+            nested.visit_directory(ObjectId(11), |_, _| true),
+            Err(Error::Corrupt(_))
         ));
     }
 }
