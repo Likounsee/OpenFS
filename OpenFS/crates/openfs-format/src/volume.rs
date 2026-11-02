@@ -18017,6 +18017,14 @@ mod tests {
                 mounted.read_file_range_by_id(ObjectId(3), 7, 8).unwrap(),
                 b"ounted s"
             );
+            assert!(matches!(
+                mounted.read_file_range_by_id(ObjectId(2), 0, 1),
+                Err(Error::InvalidInput("object is not a regular file"))
+            ));
+            assert!(mounted
+                .read_file_range_by_id(ObjectId(3), 10_000, 32)
+                .unwrap()
+                .is_empty());
             let renamed_directory_entries = mounted
                 .read_directory_by_id(ObjectId(2), None, 16)
                 .unwrap();
