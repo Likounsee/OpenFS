@@ -2643,6 +2643,7 @@ fn probe_read_only_device(
     Ok(())
 }
 
+#[cfg(any(windows, test))]
 fn ensure_disk_geometry_unchanged(
     expected: (u64, u32),
     actual: (u64, u32),
