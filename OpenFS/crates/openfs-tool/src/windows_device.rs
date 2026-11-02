@@ -343,7 +343,6 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
     .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
-
 /// Verify a physical USB disk using a composite identity, not Windows UniqueId alone.
 ///
 /// Some USB bridges report the generic UniqueId "USB". The model, hardware serial and
@@ -355,10 +354,7 @@ pub fn verify_usb_identity(
     expected_serial: &str,
     expected_size: u64,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
-    if expected_model.trim().is_empty()
-        || expected_serial.trim().is_empty()
-        || expected_size == 0
-    {
+    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
         return Err("exact non-empty USB model, serial number and capacity are required".into());
     }
     const SCRIPT: &str = r#"
@@ -390,7 +386,13 @@ if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
 "#;
     use std::process::Command;
     let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
         .env("OPENFS_DISK_INDEX", index.to_string())
         .env("OPENFS_EXPECTED_MODEL", expected_model)
         .env("OPENFS_EXPECTED_SERIAL", expected_serial)
@@ -400,7 +402,8 @@ if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
         return Err(format!(
             "composite USB identity verification failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
-        ).into());
+        )
+        .into());
     }
     parse_verified_geometry(&String::from_utf8(output.stdout)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
@@ -408,10 +411,7 @@ if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
 
 /// Require positive Windows evidence that the selected physical disk uses USB transport.
 #[cfg(windows)]
-pub fn verify_usb_transport(
-    index: u32,
-    expected_unique_id: &str,
-) -> Result<(), Box<dyn StdError>> {
+pub fn verify_usb_transport(index: u32, expected_unique_id: &str) -> Result<(), Box<dyn StdError>> {
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $index = [int]$env:OPENFS_DISK_INDEX
