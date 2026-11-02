@@ -631,7 +631,7 @@ OpenFS/crates/openfs-format/src/metadata.rs,377,function,packed_metadata_invento
 OpenFS/crates/openfs-format/src/metadata.rs,396,function,packed_metadata_inventory_accepts_empty_inventory,fn packed_metadata_inventory_accepts_empty_inventory() {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-format/src/namespace.rs,12,function,try_clone_name,fn try_clone_name(value: &str) -> Result<String> {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-format/src/namespace.rs,26,struct,Namespace,pub struct Namespace {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
-OpenFS/crates/openfs-format/src/namespace.rs,1779,impl,Namespace,impl Namespace {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
+OpenFS/crates/openfs-format/src/namespace.rs,37,impl,Namespace,impl Namespace {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-format/src/namespace.rs,39,function,new,pub fn new(root_id: ObjectId) -> Result<Self> {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-format/src/namespace.rs,62,function,root_id,pub fn root_id(&self) -> ObjectId {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-format/src/namespace.rs,72,function,from_records,pub fn from_records(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
