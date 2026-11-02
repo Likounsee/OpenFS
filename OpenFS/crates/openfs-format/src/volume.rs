@@ -17385,6 +17385,15 @@ mod tests {
             assert!(volume
                 .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut RejectWrites,)
                 .is_err());
+            assert!(volume
+                .stream_persistent_object_range_to_writer(
+                    &mut device,
+                    ObjectId(2),
+                    0,
+                    1,
+                    &mut RejectWrites,
+                )
+                .is_err());
 
             // A writer that reports zero progress must become WriteZero rather
             // than silently returning a short successful stream.
@@ -17429,6 +17438,15 @@ mod tests {
                 .stream_persistent_path_range_to_writer(
                     &mut device,
                     "/large.bin",
+                    u64::MAX,
+                    u64::MAX,
+                    &mut RejectFlush,
+                )
+                .is_err());
+            assert!(volume
+                .stream_persistent_object_range_to_writer(
+                    &mut device,
+                    ObjectId(2),
                     u64::MAX,
                     u64::MAX,
                     &mut RejectFlush,
