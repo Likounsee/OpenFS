@@ -2234,13 +2234,12 @@ impl OpenedVolume {
 }
 
 /// Resolve the exact byte span and edge masks for a half-open bitmap range.
+/// Resolve the exact byte span for a half-open bitmap range.
 fn bitmap_range_span(bitmap_len: usize, start_bit: u64, end_bit: u64) -> Result<(usize, usize)> {
     if start_bit > end_bit {
         return Err(Error::InvalidInput("bitmap range start exceeds end"));
     }
-    let first_byte = usize::try_from(start_bit / 8).map_err(|_| Error::ArithmeticOverflow)?;
-    let end_byte = usize::try_from(end_bit.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-        .map_err(|_| Error::ArithmeticOverflow)?;
+    let (first_byte, end_byte) = bitmap_byte_bounds(start_bit, end_bit)?;
     if end_byte > bitmap_len {
         return Err(Error::InvalidInput("bitmap range exceeds bitmap size"));
     }
