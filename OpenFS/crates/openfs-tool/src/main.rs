@@ -2630,6 +2630,9 @@ fn format_disk_device(
     unique_id: &str,
     block_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
+    // Physical formatting is deliberately restricted to positively identified USB media.
+    // An exact UniqueId alone is not sufficient: it could identify an internal secondary SSD.
+    windows_device::verify_usb_transport(disk_index, unique_id)?;
     let (initial_size, initial_sector_size) =
         windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
     if block_size < initial_sector_size || block_size % initial_sector_size != 0 {
@@ -2647,6 +2650,8 @@ fn format_disk_device(
         windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
+    // Recheck transport after acquiring the exclusive PhysicalDrive handle.
+    windows_device::verify_usb_transport(disk_index, unique_id)?;
     let confirmed = windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
