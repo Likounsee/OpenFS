@@ -2685,7 +2685,8 @@ fn format_disk_device(
     volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
     device.flush()?;
     println!("OpenFS physical disk formatted and initialized.");
-    println!("All previous data and partition metadata on this physical disk have been erased.");
+    println!("OpenFS metadata has been initialized on the physical disk.");
+    println!("Previous file contents outside the new filesystem metadata may remain recoverable; this is not a secure erase.");
     println!("The physical disk remains online; use mount-disk with the same disk index and exact UniqueId.");
     Ok(())
 }
