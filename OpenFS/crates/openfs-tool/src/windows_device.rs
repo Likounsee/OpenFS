@@ -333,6 +333,49 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
+/// Revalidate the disk identity and geometry after the exclusive raw handle is open.
+///
+/// This check intentionally does not enumerate or dismount partitions: the caller already
+/// completed that work before opening PhysicalDrive, and Windows may deny new volume opens
+/// while the exclusive raw handle is held.
+#[cfg(windows)]
+pub fn verify_disk_identity_geometry(
+    index: u32,
+    expected_unique_id: &str,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    use std::process::Command;
+
+    if expected_unique_id.trim().is_empty() {
+        return Err("an exact non-empty disk UniqueId is required".into());
+    }
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$disk = Get-Disk -Number ([int]$env:OPENFS_DISK_INDEX) -ErrorAction Stop
+if ([string]$disk.UniqueId -cne [string]$env:OPENFS_DISK_UNIQUE_ID) {
+    throw 'disk UniqueId changed while opening it; refusing raw access'
+}
+if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk safety state changed while opening it; refusing raw access'
+}
+if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
+    throw 'Windows returned invalid physical disk geometry'
+}
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
+        .output()?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("physical disk identity recheck failed: {}", detail.trim()).into());
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    parse_verified_geometry(&stdout)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
 #[cfg(all(not(windows), test))]
 pub fn prepare_disk_for_raw_access(
     _index: u32,
