@@ -40,9 +40,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let image = args.next().ok_or("missing image path")?;
             let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
                 windows_mount::mount_image(Path::new(&image), &mount_point, block_size)
@@ -55,9 +53,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
         }
         Some("unmount") => {
             let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
                 windows_mount::unmount_drive(&mount_point)
@@ -81,9 +77,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 );
             }
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
                 format_disk_device(disk_index, &unique_id, block_size)
@@ -102,9 +96,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let unique_id = args.next().ok_or("missing exact physical disk UniqueId")?;
             let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
                 windows_mount::mount_disk_device(disk_index, &unique_id, &mount_point, block_size)
@@ -125,45 +117,35 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             probe_read_only_device(Path::new(&path), block_size, block_count)
         }
         Some("inspect-device") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             inspect_raw_gpt(Path::new(&path), block_size, block_count)
         }
         Some("diagnose-device") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             diagnose_raw_gpt(Path::new(&path), block_size, block_count)
         }
         Some("inspect-device-json") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             inspect_raw_gpt_json(Path::new(&path), block_size, block_count)
         }
         Some("scan-device") => {
             let path = args.next().ok_or("missing device path")?;
             let block_size = parse_probe_block_size(args.next())?;
             let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             let (checksum, bytes) =
                 scan_read_only_device(Path::new(&path), block_size, block_count)?;
             println!("Read-only full-device scan: OK");
@@ -178,16 +160,12 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .next()
                 .ok_or("missing image size in MiB")?
                 .parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             create_image(Path::new(&path), size_mib)
         }
         Some("inspect-image") => {
             let path = args.next().ok_or("missing image path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             inspect_image(Path::new(&path))
         }
         Some("check-image") => {
@@ -196,17 +174,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 // Reject unsupported sizes before opening or mutating an image.
                 args.next(),
             )?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             check_image(Path::new(&path), block_size)
         }
         Some("audit-image") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             audit_image(Path::new(&path), block_size)
         }
         Some("recover-image") => {
@@ -215,9 +189,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 // Reject unsupported sizes before opening or mutating an image.
                 args.next(),
             )?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             recover_image(Path::new(&path), block_size)
         }
         Some("init-namespace") => {
@@ -226,18 +198,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 // Reject unsupported sizes before opening or mutating an image.
                 args.next(),
             )?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             initialize_namespace_image(Path::new(&path), block_size)
         }
         Some(command @ ("mkdir" | "touch")) => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             if command == "mkdir" {
                 create_namespace_entry(Path::new(&path), block_size, &target, true)
             } else {
@@ -248,9 +216,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             create_namespace_directories(Path::new(&path), block_size, &target)
         }
         Some("ls") => {
@@ -263,9 +229,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .transpose()?
                 .unwrap_or(256);
             let after_name = args.next();
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             list_namespace(
                 Path::new(&path),
                 block_size,
@@ -278,9 +242,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().unwrap_or_else(|| "/".to_owned());
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             tree_namespace(Path::new(&path), block_size, &target)
         }
         Some("find") => {
@@ -288,26 +250,20 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let root = args.next().ok_or("missing root namespace path")?;
             let needle = args.next().ok_or("missing search text")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             find_namespace_entries(Path::new(&path), block_size, &root, &needle)
         }
         Some("du") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().unwrap_or_else(|| "/".to_owned());
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             report_namespace_usage(Path::new(&path), block_size, &target)
         }
         Some("space") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             report_space(Path::new(&path), block_size)
         }
         Some(command @ ("cat" | "checksum" | "verify-file")) => {
@@ -315,9 +271,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
             let expected_crc32c = args.next();
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             let expected_crc32c = expected_crc32c
                 .map(|value| parse_crc32c(&value))
                 .transpose()?;
@@ -336,9 +290,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let target = args.next().ok_or("missing file path")?;
             let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
             let length = args.next().ok_or("missing byte length")?.parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             read_namespace_file_range(Path::new(&path), block_size, &target, offset, length)
         }
         Some("checksum-range") => {
@@ -348,9 +300,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let offset = args.next().ok_or("missing byte offset")?.parse::<u64>()?;
             let length = args.next().ok_or("missing byte length")?.parse::<u64>()?;
             let expected_crc32c = args.next().map(|value| parse_crc32c(&value)).transpose()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             checksum_namespace_file_range(
                 Path::new(&path),
                 block_size,
@@ -365,9 +315,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let source = args.next().ok_or("missing source file path")?;
             let destination = args.next().ok_or("missing destination file path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             copy_namespace_file(Path::new(&image), block_size, &source, &destination)
         }
         Some("export") => {
@@ -375,9 +323,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace file path")?;
             let output = args.next().ok_or("missing host output path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             export_namespace_file(Path::new(&path), block_size, &target, Path::new(&output))
         }
         Some("import") => {
@@ -385,18 +331,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let input = args.next().ok_or("missing host input path")?;
             let target = args.next().ok_or("missing namespace file path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             import_host_file(Path::new(&path), block_size, Path::new(&input), &target)
         }
         Some("stat") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             stat_namespace_entry(Path::new(&path), block_size, &target)
         }
         Some("write") => {
@@ -424,9 +366,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing file path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             write_namespace_file_from_stdin(Path::new(&path), block_size, &target)
         }
         Some("append") => {
@@ -444,18 +384,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .next()
                 .ok_or("missing new file size in bytes")?
                 .parse::<u64>()?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             truncate_namespace_file(Path::new(&path), block_size, &target, new_size)
         }
         Some("rm") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             remove_namespace_entry(Path::new(&path), block_size, &target)
         }
         Some("mv") => {
@@ -463,9 +399,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let block_size = parse_block_size(args.next())?;
             let old_path = args.next().ok_or("missing source path")?;
             let new_path = args.next().ok_or("missing destination path")?;
-            if args.next().is_some() {
-                return Err("too many arguments".into());
-            }
+            ensure_no_args(&mut args)?;
             move_namespace_entry(Path::new(&path), block_size, &old_path, &new_path)
         }
         Some("help" | "--help" | "-h") => {
@@ -690,6 +624,14 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     println!("The check validates superblocks, geometry, bitmap invariants, journal framing, and the persistent inventory descriptor.");
     println!("A present descriptor is not a substitute for full namespace and file-data ownership validation.");
     Ok(())
+}
+
+fn ensure_no_args(args: &mut impl Iterator<Item = String>) -> Result<(), Box<dyn StdError>> {
+    if args.next().is_some() {
+        Err("too many arguments".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn parse_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError>> {
