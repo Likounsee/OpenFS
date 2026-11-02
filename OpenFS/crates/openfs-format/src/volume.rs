@@ -636,7 +636,7 @@ impl OpenedVolume {
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
                 let valid_mask =
-                        bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
+                    bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                 let free_bits = (!*byte & valid_mask).count_ones() as u64;
                 free = free
                     .checked_add(free_bits)
