@@ -275,7 +275,32 @@ foreach ($partition in $partitions) {
     if ($mountPoints.Count -gt 0) {
         # fsutil volume dismount accepts a drive-letter path. Refuse folder-only
         # mounts rather than using mountvol /p, which forcibly closes open handles.
-        $drivePath = @($mountPoints | Where-Object { $_ -match '^[A-Za-z]:\\
+        $drivePath = @($mountPoints | Where-Object { $_ -match '^[A-Za-z]:\\' } | Select-Object -First 1)
+        if ($drivePath.Count -eq 0) {
+            throw "partition $($partition.PartitionNumber) has a directory-only mount point; remove it or assign a temporary drive letter before raw access"
+        }
+        $volumePlans += [pscustomobject]@{
+            DrivePath = ([string]$drivePath[0]).Substring(0, 2)
+            MountPoints = $mountPoints
+        }
+    }
+}
+
+# Dismount only after validating every mounted partition has a supported path.
+foreach ($plan in $volumePlans) {
+    & "$env:SystemRoot\System32\fsutil.exe" volume dismount $plan.DrivePath 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "could not safely dismount volume $($plan.DrivePath); close applications using it and retry"
+    }
+    # Remove every drive-letter or directory mount path so Windows does not
+    # immediately remount the volume while OpenFS owns the physical disk.
+    foreach ($mountPoint in $plan.MountPoints) {
+        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint /d 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not remove mount path '$mountPoint' after dismounting $($plan.DrivePath)"
+        }
+    }
+}
 
 # Re-read identity and geometry after dismounting; disk numbers are not stable IDs.
 $disk = Get-Disk -Number $index -ErrorAction Stop
