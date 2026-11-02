@@ -71,7 +71,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .parse::<u32>()?;
             let expected_model = args.next().ok_or("missing exact physical disk model")?;
             let expected_serial = args.next().ok_or("missing exact physical disk serial number")?;
-            let expected_size = args.next().ok_or("missing exact physical disk capacity in bytes")?.parse::<u64>()?;
+            let expected_size = args
+                .next()
+                .ok_or("missing exact physical disk capacity in bytes")?
+                .parse::<u64>()?;
             let confirmation = args.next().ok_or("missing ERASE-ALL-DATA confirmation")?;
             if confirmation != "ERASE-ALL-DATA" {
                 return Err(
@@ -83,7 +86,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
-                format_disk_device(disk_index, &expected_model, &expected_serial, expected_size, block_size)
+                format_disk_device(
+                    disk_index,
+                    &expected_model,
+                    &expected_serial,
+                    expected_size,
+                    block_size,
+                )
             }
             #[cfg(not(windows))]
             {
@@ -2647,7 +2656,10 @@ fn format_disk_device(
     // A Windows UniqueId can be a generic value (for example "USB"). Require the
     // model + hardware serial + exact capacity as a composite physical-media identity.
     let (initial_size, initial_sector_size) = windows_device::verify_usb_identity(
-        disk_index, expected_model, expected_serial, expected_size,
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
     )?;
     if block_size < initial_sector_size || block_size % initial_sector_size != 0 {
         return Err(format!(
@@ -2662,7 +2674,12 @@ fn format_disk_device(
 
     let (size_bytes, logical_sector_size) =
         windows_device::prepare_disk_for_raw_access(disk_index, "USB")?;
-    windows_device::verify_usb_identity(disk_index, expected_model, expected_serial, expected_size)?;
+    windows_device::verify_usb_identity(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
     // The disk may have changed between the initial check and volume dismount.
     // Never derive the raw-device geometry from a different snapshot.
     ensure_disk_geometry_unchanged(
@@ -2673,7 +2690,10 @@ fn format_disk_device(
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck transport after acquiring the exclusive PhysicalDrive handle.
     let confirmed = windows_device::verify_usb_identity(
-        disk_index, expected_model, expected_serial, expected_size,
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
     )?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
