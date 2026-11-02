@@ -655,6 +655,16 @@ fn split_parent_path(path: &str) -> Result<(&str, &str), Box<dyn StdError>> {
     Ok((parent, name))
 }
 
+fn open_persistent_namespace(
+    device: &mut ImageDevice,
+) -> Result<(openfs_format::OpenedVolume, openfs_format::Namespace), Box<dyn StdError>> {
+    let volume = open_volume(device)?;
+    let (_, namespace) = volume
+        .reconstruct_discovered_namespace(device)?
+        .ok_or("no persistent namespace; run init-namespace first")?;
+    Ok((volume, namespace))
+}
+
 fn create_namespace_entry(
     path: &Path,
     block_size: u32,
@@ -662,10 +672,7 @@ fn create_namespace_entry(
     directory: bool,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let mut volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (mut volume, namespace) = open_persistent_namespace(&mut device)?;
     let (parent_path, name) = split_parent_path(target)?;
     let parent_id = namespace.resolve_path(parent_path)?;
     let next_id = namespace
@@ -808,10 +815,7 @@ fn list_namespace(
         return Err("directory page limit must be greater than zero".into());
     }
     let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (volume, namespace) = open_persistent_namespace(&mut device)?;
     let directory_id = namespace.resolve_path(target)?;
     let record = namespace
         .object(directory_id)
@@ -851,10 +855,7 @@ fn list_namespace(
 /// validated by the same path used by ls/stat before traversal begins.
 fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (volume, namespace) = open_persistent_namespace(&mut device)?;
     let root_id = namespace.resolve_path(target)?;
     let root_record = namespace
         .object(root_id)
@@ -907,10 +908,7 @@ fn find_namespace_entries(
         return Err("search text must not be empty".into());
     }
     let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (volume, namespace) = open_persistent_namespace(&mut device)?;
     let root_id = namespace.resolve_path(root)?;
     let mut pending = vec![root_id];
     let mut matches = 0_u64;
@@ -950,10 +948,7 @@ fn report_namespace_usage(
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (volume, namespace) = open_persistent_namespace(&mut device)?;
     let root_id = namespace.resolve_path(target)?;
     let extent_maps = volume.read_namespace_extent_maps(&mut device, &namespace)?;
     let mut pending = vec![root_id];
@@ -1288,10 +1283,7 @@ fn stat_namespace_entry(
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (volume, namespace) = open_persistent_namespace(&mut device)?;
     let object_id = namespace.resolve_path(target)?;
     let record = namespace
         .object(object_id)
@@ -1495,10 +1487,7 @@ fn append_namespace_file(
     data: &[u8],
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let mut volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (mut volume, namespace) = open_persistent_namespace(&mut device)?;
     let object_id = namespace.resolve_path(target)?;
     let record = namespace
         .object(object_id)
@@ -1542,10 +1531,7 @@ fn remove_namespace_entry(
     target: &str,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let mut volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (mut volume, namespace) = open_persistent_namespace(&mut device)?;
     let object_id = namespace.resolve_path(target)?;
     if object_id == namespace.root_id() {
         return Err("cannot remove the namespace root".into());
@@ -1570,10 +1556,7 @@ fn move_namespace_entry(
     destination: &str,
 ) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
-    let mut volume = open_volume(&mut device)?;
-    let (_, namespace) = volume
-        .reconstruct_discovered_namespace(&mut device)?
-        .ok_or("no persistent namespace; run init-namespace first")?;
+    let (mut volume, namespace) = open_persistent_namespace(&mut device)?;
     let object_id = namespace.resolve_path(source)?;
     if object_id == namespace.root_id() {
         return Err("cannot move the namespace root".into());
