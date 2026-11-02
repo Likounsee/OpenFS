@@ -1488,3 +1488,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Commit `6a0f741e26a3612a514000fb412f8596f16884a3` : ajout de `OpenedVolume::read_persistent_object_range()` et `VolumeSession::read_file_range_by_id()`. Les adaptateurs peuvent lire une plage d'un fichier par son ObjectId, sans dépendre d'un chemin mis en cache après renommage ou déplacement.
 - Régression étendue dans `8ec4c9587cb6718d4e06e6b259b2fb8dd0de3617` et `c8a1379991f76ccb6bd22cca871c160082e6bf2a` : lecture d'une plage après renommage, rejet d'un identifiant de dossier comme fichier et lecture au-delà de l'EOF retournant une plage vide.
 - Tests locaux, rustfmt et statut CI exacte-SHA non confirmés dans cette session. Les pourcentages restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 % en attendant validation.
+
+
+### API de streaming par identifiant stable (2026-11-02)
+
+- Commit `3351924979e4397eb202c81b4a3cef5097c11f45` : ajout de `OpenedVolume::stream_persistent_object_range_to_writer()` et `VolumeSession::stream_file_range_by_id_to_writer()`. Les adaptateurs peuvent désormais transmettre une plage de fichier vers un writer par ObjectId, avec mémoire bornée et sans dépendance à un chemin.
+- Le test du cycle de vie vérifie la lecture streamée des mêmes octets après renommage, via l'identifiant stable du fichier.
+- Tests locaux, rustfmt et statut CI exacte-SHA non confirmés dans cette session. Les pourcentages restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 % en attendant validation.
