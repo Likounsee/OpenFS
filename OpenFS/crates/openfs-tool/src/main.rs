@@ -73,7 +73,8 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let confirmation = args.next().ok_or("missing ERASE-ALL-DATA confirmation")?;
             if confirmation != "ERASE-ALL-DATA" {
                 return Err(
-                    "refusing to format physical disk: type ERASE-ALL-DATA exactly to confirm".into(),
+                    "refusing to format physical disk: type ERASE-ALL-DATA exactly to confirm"
+                        .into(),
                 );
             }
             let block_size = parse_block_size(args.next())?;
