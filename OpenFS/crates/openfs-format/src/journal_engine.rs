@@ -8,7 +8,7 @@ use crate::{
     plan_recovery, JournalCheckpoint, JournalRecord, JournalRecordKind, JOURNAL_HEADER_SIZE,
 };
 use openfs_block::BlockDevice;
-use openfs_core::{Error, Result};
+use openfs_core::{try_zeroed_bytes, Error, Result};
 
 const UPDATE_CHUNK_HEADER_SIZE: usize = 12;
 const MIN_RING_BLOCKS: u64 = 4;
@@ -99,7 +99,7 @@ pub struct PersistentJournal {
 pub fn format_journal<D: BlockDevice>(device: &mut D, region: JournalRegion) -> Result<()> {
     region.validate(device)?;
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    let zero = try_zeroed_vec(block_size, "unable to allocate journal format buffer")?;
+    let zero = try_zeroed_bytes(block_size, "unable to allocate journal format buffer")?;
     for slot in 0..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -496,7 +496,7 @@ impl PersistentJournal {
                         .checked_add(chunk_size)
                         .ok_or(Error::ArithmeticOverflow)?,
                 );
-                let mut payload = try_zeroed_vec(
+                let mut payload = try_zeroed_bytes(
                     UPDATE_CHUNK_HEADER_SIZE + end - start,
                     "unable to allocate journal redo chunk",
                 )?;
@@ -634,15 +634,6 @@ impl PersistentJournal {
     }
 }
 
-fn try_zeroed_vec(length: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(length)
-        .map_err(|_| Error::AllocationFailed(allocation_error))?;
-    bytes.resize(length, 0);
-    Ok(bytes)
-}
-
 struct ScannedRecords {
     records: Vec<JournalRecord>,
     first_malformed_slot: Option<u64>,
@@ -657,7 +648,7 @@ fn clear_journal_ring_from<D: BlockDevice>(
         return Ok(());
     }
     let block_size = usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
-    let zero = try_zeroed_vec(block_size, "unable to allocate journal ring cleanup block")?;
+    let zero = try_zeroed_bytes(block_size, "unable to allocate journal ring cleanup block")?;
     for slot in first_slot..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -686,7 +677,7 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
     let mut first_malformed_slot = None;
     // Reuse one scratch block for the bounded ring scan. Decoding owns its payload,
     // so the next read can safely overwrite this buffer without cloning the block.
-    let mut block = try_zeroed_vec(block_size, "unable to allocate journal scratch block")?;
+    let mut block = try_zeroed_bytes(block_size, "unable to allocate journal scratch block")?;
     for slot in 0..region.ring_blocks {
         let block_number = region
             .ring_start
@@ -903,7 +894,7 @@ fn read_checkpoint_block<D: BlockDevice>(
             "device block is too small for journal checkpoints",
         ));
     }
-    let mut block = try_zeroed_vec(block_size, "unable to allocate checkpoint read buffer")?;
+    let mut block = try_zeroed_bytes(block_size, "unable to allocate checkpoint read buffer")?;
     device.read_blocks(block_number, &mut block)?;
     if block[crate::JOURNAL_CHECKPOINT_SIZE..]
         .iter()
@@ -926,7 +917,7 @@ fn write_checkpoint_block<D: BlockDevice>(
             "device block is too small for journal checkpoints",
         ));
     }
-    let mut block = try_zeroed_vec(block_size, "unable to allocate checkpoint write buffer")?;
+    let mut block = try_zeroed_bytes(block_size, "unable to allocate checkpoint write buffer")?;
     block[..encoded.len()].copy_from_slice(&encoded);
     device.write_blocks(block_number, &block)
 }
@@ -993,7 +984,7 @@ fn encode_redo_chunks(update: &RedoUpdate, block_size: usize) -> Result<Vec<Vec<
     for index in 0..count {
         let start = index * chunk_size;
         let end = update.contents.len().min(start + chunk_size);
-        let mut payload = try_zeroed_vec(
+        let mut payload = try_zeroed_bytes(
             UPDATE_CHUNK_HEADER_SIZE + end - start,
             "unable to allocate redo chunk",
         )?;
