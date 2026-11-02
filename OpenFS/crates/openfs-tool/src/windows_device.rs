@@ -266,7 +266,6 @@ fn run_disk_script(
 /// their existing drive-letter/directory mount-point configuration. The caller must
 /// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
 /// Boot and system disks are always rejected.
-
 #[cfg(windows)]
 pub fn prepare_disk_for_raw_access(
     index: u32,
