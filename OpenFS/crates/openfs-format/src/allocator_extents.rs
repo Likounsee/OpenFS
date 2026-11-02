@@ -7,6 +7,16 @@ use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
 use openfs_core::{try_copy_slice, try_zeroed_bytes, Error, Result};
 
+/// Return the half-open bitmap byte range covering a local block range.
+fn bitmap_byte_bounds(first_local: u64, end_local: u64) -> Result<(usize, usize)> {
+    let first = usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
+    let end = usize::try_from(
+        end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
+    )
+    .map_err(|_| Error::ArithmeticOverflow)?;
+    Ok((first, end))
+}
+
 /// Build the mask of valid data bits covered by one bitmap byte.
 fn bitmap_byte_mask(byte_index: usize, first_local: u64, end_local: u64) -> Result<u8> {
     let byte_start = u64::try_from(byte_index)
@@ -1004,11 +1014,7 @@ impl OpenedVolume {
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let (first_byte, end_byte) = bitmap_byte_bounds(first_local, end_local)?;
             // Ignore bitmap bytes outside this segment's usable data range.
             // Enumerating the slice avoids repeatedly walking the whole prefix.
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
@@ -1264,11 +1270,7 @@ impl OpenedVolume {
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let (first_byte, end_byte) = bitmap_byte_bounds(first_local, end_local)?;
             // Inspect only bytes intersecting usable data in this segment.
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
                 let byte_index = first_byte
@@ -1330,11 +1332,7 @@ impl OpenedVolume {
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let (first_byte, end_byte) = bitmap_byte_bounds(first_local, end_local)?;
             // Start at the first relevant bitmap byte; avoid revisiting the
             // unused prefix on the first segment.
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
@@ -1451,11 +1449,7 @@ impl OpenedVolume {
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let (first_byte, end_byte) = bitmap_byte_bounds(first_local, end_local)?;
 
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
                 let byte_index = first_byte
@@ -1856,11 +1850,7 @@ impl OpenedVolume {
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
-            let first_byte =
-                usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-            let end_byte =
-                usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
-                    .map_err(|_| Error::ArithmeticOverflow)?;
+            let (first_byte, end_byte) = bitmap_byte_bounds(first_local, end_local)?;
             for (byte_offset, bitmap_byte) in bitmap[first_byte..end_byte].iter().enumerate() {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
