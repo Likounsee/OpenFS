@@ -21,6 +21,7 @@ A capacity rejection must occur before persistent bytes change. Ring capacity is
 
 - Writable open must recover the journal before returning a volume handle.
 - After an uncertain commit, home write or checkpoint result, do not retry mutations through the same possibly stale instance.
+- Before every commit, compare the persisted checkpoint epoch and scan for uncheckpointed or malformed records. A stale handle must fail closed and be reopened; this is a stale-handle guard, not a cross-process lock, so callers must still enforce one writer at a time.
 - A caller must not infer abort solely from an I/O error after COMMIT may have reached storage.
 - Recovery failure means no writable volume may be exposed.
 - Redo targets must be unique, in-range home blocks and must not overlap the superblocks, checkpoints or journal ring.
