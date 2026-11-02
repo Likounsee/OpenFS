@@ -1476,6 +1476,6 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 ### API de session — pagination par identifiant stable (2026-11-02)
 
 - Commit `caf19a3fe881785e91930aa216956294fd25ae62` : ajout de `OpenedVolume::list_persistent_directory_by_id()` et `VolumeSession::read_directory_by_id()`. Les adaptateurs peuvent paginer un répertoire avec son ObjectId même après un renommage ou déplacement, sans résoudre un chemin mis en cache.
-- Le test de cycle de vie vérifie que le dossier `ObjectId(2)` retourne bien `final.txt` après renommage de son enfant, et qu'un identifiant de fichier est rejeté comme cible de listing.
+- Le test de cycle de vie vérifie que le dossier `ObjectId(2)` retourne bien `final.txt` après renommage de son enfant, et qu'un identifiant de fichier est rejeté comme cible de listing. Le commit `bbe7236b9937b9d4da5fcd2a39e051e599cf5ee7` étend le test : le dossier lui-même est renommé en `/documents`, reste listable via le même ID, puis retrouve son chemin initial.
 - Le changement réutilise le contrôle de type, l'ordre lexical et le curseur exclusif de `Namespace::list_directory()`; aucun format disque n'est modifié.
 - Tests locaux, rustfmt et statut CI exacte-SHA non confirmés dans cette session. Les pourcentages restent P0 100 %, P1 79 %, P2 69 %, P3 5 %, global 73 % en attendant validation.
