@@ -39,11 +39,7 @@ struct BitmapByteMask {
 }
 
 /// Build the mask and retain the byte's physical range for extent scanning.
-fn bitmap_byte_mask(
-    byte_index: usize,
-    first_local: u64,
-    end_local: u64,
-) -> Result<BitmapByteMask> {
+fn bitmap_byte_mask(byte_index: usize, first_local: u64, end_local: u64) -> Result<BitmapByteMask> {
     let byte_start = u64::try_from(byte_index)
         .map_err(|_| Error::ArithmeticOverflow)?
         .checked_mul(8)
