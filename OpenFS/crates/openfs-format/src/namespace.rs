@@ -1828,9 +1828,12 @@ impl Namespace {
                 .ok_or(Error::Corrupt("directory entry points to a missing object"))?;
             if record.parent_id != parent_id.0
                 || record.kind != entry.kind
-                || self.parents.get(&ObjectId(entry.object_id)).map_or(true, |(indexed_parent, indexed_name)| {
-                    *indexed_parent != parent_id || indexed_name != &entry.name
-                })
+                || self.parents.get(&ObjectId(entry.object_id)).map_or(
+                    true,
+                    |(indexed_parent, indexed_name)| {
+                        *indexed_parent != parent_id || indexed_name != &entry.name
+                    },
+                )
             {
                 return Err(Error::Corrupt(
                     "directory entry does not match its object metadata or reverse parent index",
@@ -1897,9 +1900,17 @@ mod directory_visit_tests {
             })
             .unwrap();
         assert_eq!(count, 2);
-        namespace.parents.insert(ObjectId(2), (ObjectId(99), "alpha".to_owned()));
-        assert!(matches!(namespace.visit_directory(ObjectId(1), |_, _| true), Err(Error::Corrupt(_))));
-        assert!(matches!(namespace.visit_directory(ObjectId(2), |_, _| true), Err(Error::InvalidInput("object is not a directory"))));
+        namespace
+            .parents
+            .insert(ObjectId(2), (ObjectId(99), "alpha".to_owned()));
+        assert!(matches!(
+            namespace.visit_directory(ObjectId(1), |_, _| true),
+            Err(Error::Corrupt(_))
+        ));
+        assert!(matches!(
+            namespace.visit_directory(ObjectId(2), |_, _| true),
+            Err(Error::InvalidInput("object is not a directory"))
+        ));
     }
 }
 
