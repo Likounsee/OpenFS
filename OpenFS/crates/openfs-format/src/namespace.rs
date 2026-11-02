@@ -240,7 +240,7 @@ impl Namespace {
             }
             let entry = self
                 .names
-                .get(&(*parent_id, name.clone()))
+                .get(&(*parent_id, try_clone_name(name)?))
                 .ok_or(Error::Corrupt("path directory entry is missing"))?;
             if entry.parent_id != parent_id.0
                 || entry.object_id != current.0
@@ -541,7 +541,7 @@ impl Namespace {
         let indexed_name = self.entry_name_for(parent_id, object_id)?;
         let entry = self
             .names
-            .get(&(parent_id, indexed_name.clone()))
+            .get(&(parent_id, try_clone_name(&indexed_name)?))
             .ok_or(Error::Corrupt("file directory entry is missing"))?;
         if entry.object_id != object_id.0
             || entry.parent_id != parent_id.0
@@ -755,7 +755,7 @@ impl Namespace {
             let name = self.entry_name_for(parent_id, current)?;
             let entry = self
                 .names
-                .get(&(parent_id, name.clone()))
+                .get(&(parent_id, try_clone_name(&name)?))
                 .ok_or(Error::Corrupt("directory ancestor entry is missing"))?;
             if entry.object_id != current.0
                 || entry.parent_id != parent_id.0
@@ -780,7 +780,7 @@ impl Namespace {
                 "parent index disagrees with object metadata",
             ));
         }
-        Ok(name.clone())
+        try_clone_name(name)
     }
 
     /// Validate both namespace indexes and prove that every object is reachable from root.
@@ -881,7 +881,9 @@ impl Namespace {
                     "directory entry disagrees with object metadata",
                 ));
             }
-            if self.parents.get(&object_id) != Some(&(*parent_id, key_name.clone())) {
+            if !self.parents.get(&object_id).is_some_and(|(indexed_parent, indexed_name)| {
+                *indexed_parent == *parent_id && indexed_name == key_name
+            }) {
                 return Err(Error::Corrupt("object-to-parent index is inconsistent"));
             }
             if !referenced.insert(object_id) {
