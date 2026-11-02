@@ -721,16 +721,19 @@ impl Namespace {
         forbidden: Option<ObjectId>,
     ) -> Result<()> {
         let mut current = start_id;
-        let mut visited = std::collections::BTreeSet::new();
+        // A valid ancestry visits at most every object once before reaching root.
+        // This bound detects cycles without allocating a tree set on each mutation.
+        let mut traversed = 0_usize;
         loop {
             if forbidden == Some(current) {
                 return Err(Error::InvalidInput("directory move would create a cycle"));
             }
-            if !visited.insert(current) {
+            if traversed >= self.objects.len() {
                 return Err(Error::Corrupt(
                     "directory ancestry already contains a cycle",
                 ));
             }
+            traversed += 1;
             let record = self
                 .objects
                 .get(&current)
@@ -1386,6 +1389,29 @@ mod tests {
         ));
         assert_eq!(ns.lookup(ObjectId(3), "after.txt").unwrap().object_id, 4);
         assert_eq!(ns.object(ObjectId(4)).unwrap().parent_id, 3);
+    }
+
+    #[test]
+    fn directory_ancestry_cycle_detection_does_not_allocate_a_visited_set() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "child", ObjectKind::Directory),
+            record(2, 1, ObjectKind::Directory),
+        )
+        .unwrap();
+
+        ns.objects.get_mut(&ObjectId(2)).unwrap().parent_id = 2;
+        ns.parents.insert(ObjectId(2), (ObjectId(2), "self".to_owned()));
+        ns.names.remove(&(ObjectId(1), "child".to_owned()));
+        ns.names.insert(
+            (ObjectId(2), "self".to_owned()),
+            entry(2, 2, "self", ObjectKind::Directory),
+        );
+
+        assert!(matches!(
+            ns.validate_directory_ancestry(ObjectId(2), None),
+            Err(Error::Corrupt("directory ancestry already contains a cycle"))
+        ));
     }
 
     #[test]
