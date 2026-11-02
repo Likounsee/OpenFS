@@ -1772,6 +1772,25 @@ impl OpenedVolume {
         namespace.list_directory(directory_id, after_name, limit)
     }
 
+    /// List one page of a persistent directory using its stable object identifier.
+    ///
+    /// This remains usable after the directory is renamed or moved. The namespace
+    /// lookup validates that the object exists and is a directory before paging.
+    pub fn list_persistent_directory_by_id<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        directory_id: ObjectId,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        namespace.list_directory(directory_id, after_name, limit)
+    }
+
     /// Create an empty file beneath a directory resolved by its persistent path.
     ///
     /// This path-oriented entry point complements the object-ID API for callers such as
@@ -8530,6 +8549,23 @@ impl<D: BlockDevice> VolumeSession<D> {
     ) -> Result<Vec<DirectoryEntry>> {
         self.opened
             .list_persistent_directory(&mut self.device, path, after_name, limit)
+    }
+
+    /// List one lexical page of a directory addressed by its stable object ID.
+    ///
+    /// The directory can be renamed or moved without invalidating the caller's handle.
+    pub fn read_directory_by_id(
+        &mut self,
+        directory_id: ObjectId,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        self.opened.list_persistent_directory_by_id(
+            &mut self.device,
+            directory_id,
+            after_name,
+            limit,
+        )
     }
 
     /// Read a complete regular file into memory.
@@ -17925,6 +17961,16 @@ mod tests {
             let renamed_metadata = mounted.stat_object(ObjectId(3)).unwrap();
             assert_eq!(renamed_metadata.id, ObjectId(3));
             assert_eq!(renamed_metadata.size, 27);
+            let renamed_directory_entries = mounted
+                .read_directory_by_id(ObjectId(2), None, 16)
+                .unwrap();
+            assert_eq!(renamed_directory_entries.len(), 1);
+            assert_eq!(renamed_directory_entries[0].name, "final.txt");
+            assert_eq!(renamed_directory_entries[0].object_id, ObjectId(3).0);
+            assert!(matches!(
+                mounted.read_directory_by_id(ObjectId(3), None, 16),
+                Err(Error::InvalidInput(_))
+            ));
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
