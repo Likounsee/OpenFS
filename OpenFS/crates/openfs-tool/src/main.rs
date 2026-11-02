@@ -767,7 +767,8 @@ fn touch_namespace_file(
                 }
                 true
             }
-            Err(_) => false,
+            Err(openfs_core::Error::InvalidInput("path component does not exist")) => false,
+            Err(error) => return Err(error.into()),
         }
     };
 
@@ -2932,6 +2933,9 @@ mod tests {
         }
         super::create_namespace_entry(&path, BLOCK_SIZE, "/folder", true).unwrap();
         assert!(super::touch_namespace_file(&path, BLOCK_SIZE, "/folder").is_err());
+        // Invalid path syntax must not be treated as a missing file and retried as
+        // a creation request; only a genuine missing component is eligible for touch.
+        assert!(super::touch_namespace_file(&path, BLOCK_SIZE, "/./invalid").is_err());
         fs::remove_file(path).unwrap();
     }
 
