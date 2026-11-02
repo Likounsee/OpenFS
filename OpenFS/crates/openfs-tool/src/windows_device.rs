@@ -343,6 +343,47 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
     .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
+/// Require positive Windows evidence that the selected physical disk uses USB transport.
+#[cfg(windows)]
+pub fn verify_usb_transport(
+    index: u32,
+    expected_unique_id: &str,
+) -> Result<(), Box<dyn StdError>> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$index = [int]$env:OPENFS_DISK_INDEX
+$expectedId = [string]$env:OPENFS_DISK_UNIQUE_ID
+$disk = Get-Disk -Number $index -ErrorAction Stop
+if ([string]$disk.UniqueId -cne $expectedId) {
+    throw 'disk UniqueId changed; re-run list-devices and verify the target'
+}
+if ($disk.IsBoot -or $disk.IsSystem) {
+    throw 'refusing raw access to a boot or system disk'
+}
+if ($disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk is read-only or offline; refusing raw access'
+}
+$drive = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+    Where-Object { [int]$_.Index -eq $index } |
+    Select-Object -First 1
+if ($null -eq $drive) {
+    throw 'Windows could not confirm the physical disk PnP identity'
+}
+$pnpId = [string]$drive.PNPDeviceID
+$busType = [string]$disk.BusType
+if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
+    throw 'refusing to format: target is not positively identified as a USB device'
+}
+[Console]::Out.WriteLine('USB')
+"#;
+
+    let output = run_disk_script(SCRIPT, index, expected_unique_id, "USB transport verification")?;
+    if output.trim() != "USB" {
+        return Err("Windows did not confirm USB transport; refusing to format".into());
+    }
+    Ok(())
+}
+
 /// Revalidate the disk identity and geometry after the exclusive raw handle is open.
 ///
 /// This check intentionally does not enumerate or dismount partitions: the caller already
