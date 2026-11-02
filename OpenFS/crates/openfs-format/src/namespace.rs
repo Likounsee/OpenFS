@@ -115,10 +115,7 @@ impl Namespace {
                 ));
             }
             if parents
-                .insert(
-                    object_id,
-                    (parent_id, parent_name),
-                )
+                .insert(object_id, (parent_id, parent_name))
                 .is_some()
             {
                 return Err(Error::Corrupt(
@@ -1872,7 +1869,6 @@ mod directory_visit_tests {
         ));
     }
 }
-
 
 fn try_clone_directory_entry(entry: &DirectoryEntry) -> Result<DirectoryEntry> {
     Ok(DirectoryEntry {
