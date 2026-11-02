@@ -8647,8 +8647,13 @@ impl<D: BlockDevice> VolumeSession<D> {
     fn discover_next_object_id(&mut self) -> Result<u128> {
         use std::collections::{HashSet, VecDeque};
 
-        let Some((_, namespace)) = self.opened.reconstruct_discovered_namespace(&mut self.device)? else {
-            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+        let Some((_, namespace)) = self
+            .opened
+            .reconstruct_discovered_namespace(&mut self.device)?
+        else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
         };
         let root_id = namespace.root_id();
         let mut maximum = root_id.0;
