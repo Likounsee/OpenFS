@@ -17971,6 +17971,19 @@ mod tests {
                 mounted.read_directory_by_id(ObjectId(3), None, 16),
                 Err(Error::InvalidInput(_))
             ));
+            mounted.rename("/docs", "/", "documents").unwrap();
+            assert_eq!(
+                mounted.path_for_object(ObjectId(2)).unwrap(),
+                "/documents"
+            );
+            assert_eq!(
+                mounted
+                    .read_directory_by_id(ObjectId(2), None, 16)
+                    .unwrap()[0]
+                    .name,
+                "final.txt"
+            );
+            mounted.rename("/documents", "/", "docs").unwrap();
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
