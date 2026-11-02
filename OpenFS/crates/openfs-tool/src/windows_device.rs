@@ -247,7 +247,13 @@ fn run_disk_script(
         return Err("an exact non-empty disk UniqueId is required".into());
     }
     let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ])
         .env("OPENFS_DISK_INDEX", index.to_string())
         .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
         .output()?;
@@ -255,7 +261,8 @@ fn run_disk_script(
         return Err(format!(
             "{operation} failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
-        ).into());
+        )
+        .into());
     }
     Ok(String::from_utf8(output.stdout)?)
 }
