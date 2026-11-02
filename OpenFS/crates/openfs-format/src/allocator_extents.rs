@@ -16,7 +16,7 @@ fn try_zeroed_buffer(len: usize, allocation_error: &'static str) -> Result<Vec<u
     Ok(buffer)
 }
 
-fn try_copy_blocks(blocks: &[u64], allocation_error: &'static str) -> Result<Vec<u64>> {
+fn try_copy_slice<T: Copy>(blocks: &[T], allocation_error: &'static str) -> Result<Vec<T>> {
     let mut copy = Vec::new();
     copy.try_reserve_exact(blocks.len())
         .map_err(|_| Error::AllocationFailed(allocation_error))?;
@@ -517,7 +517,10 @@ impl OpenedVolume {
             for (bitmap_block, _, image) in &pages {
                 redo.push(RedoUpdate {
                     target_block: *bitmap_block,
-                    contents: image.clone(),
+                    contents: try_copy_slice(
+                        image,
+                        "allocation failed while copying bitmap redo image",
+                    )?,
                 });
             }
             self.journal.required_record_count(device, redo.len())?;
@@ -606,7 +609,7 @@ impl OpenedVolume {
         if blocks.windows(2).all(|pair| pair[0] < pair[1]) {
             return self.free_blocks_sorted(device, blocks);
         }
-        let mut sorted = try_copy_blocks(blocks, "allocation failed while sorting blocks to free")?;
+        let mut sorted = try_copy_slice(blocks, "allocation failed while sorting blocks to free")?;
         sorted.sort_unstable();
         if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::InvalidInput("batch free list contains duplicates"));
@@ -746,7 +749,10 @@ impl OpenedVolume {
         for (bitmap_block, _, image) in &pages {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
-                contents: image.clone(),
+                contents: try_copy_slice(
+                        image,
+                        "allocation failed while copying bitmap redo image",
+                    )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
@@ -891,7 +897,10 @@ impl OpenedVolume {
         for (bitmap_block, _, image) in &pages {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
-                contents: image.clone(),
+                contents: try_copy_slice(
+                        image,
+                        "allocation failed while copying bitmap redo image",
+                    )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
@@ -1157,7 +1166,10 @@ impl OpenedVolume {
             for (bitmap_block, _, image) in &pages {
                 redo.push(RedoUpdate {
                     target_block: *bitmap_block,
-                    contents: image.clone(),
+                    contents: try_copy_slice(
+                        image,
+                        "allocation failed while copying bitmap redo image",
+                    )?,
                 });
             }
             self.journal.required_record_count(device, redo.len())?;
@@ -1668,7 +1680,10 @@ impl OpenedVolume {
         for (bitmap_block, _, image) in &pages {
             redo.push(RedoUpdate {
                 target_block: *bitmap_block,
-                contents: image.clone(),
+                contents: try_copy_slice(
+                        image,
+                        "allocation failed while copying bitmap redo image",
+                    )?,
             });
         }
         self.journal.required_record_count(device, redo.len())?;
@@ -2142,7 +2157,7 @@ impl OpenedVolume {
     ) -> Result<AllocationOwnershipReport> {
         validate_device(self, device)?;
         let layout = self.volume.layout;
-        let mut owned = try_copy_blocks(
+        let mut owned = try_copy_slice(
             owned_data_blocks,
             "allocation failed while building ownership inventory",
         )?;
