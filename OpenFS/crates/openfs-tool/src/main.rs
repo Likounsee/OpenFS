@@ -114,38 +114,23 @@ fn run() -> Result<(), Box<dyn StdError>> {
             windows_device::list_devices()
         }
         Some("probe-device") => {
-            let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_probe_block_size(args.next())?;
-            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            ensure_no_args(&mut args)?;
+            let (path, block_size, block_count) = parse_device_arguments(&mut args)?;
             probe_read_only_device(Path::new(&path), block_size, block_count)
         }
         Some("inspect-device") => {
-            let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_probe_block_size(args.next())?;
-            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            ensure_no_args(&mut args)?;
+            let (path, block_size, block_count) = parse_device_arguments(&mut args)?;
             inspect_raw_gpt(Path::new(&path), block_size, block_count)
         }
         Some("diagnose-device") => {
-            let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_probe_block_size(args.next())?;
-            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            ensure_no_args(&mut args)?;
+            let (path, block_size, block_count) = parse_device_arguments(&mut args)?;
             diagnose_raw_gpt(Path::new(&path), block_size, block_count)
         }
         Some("inspect-device-json") => {
-            let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_probe_block_size(args.next())?;
-            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            ensure_no_args(&mut args)?;
+            let (path, block_size, block_count) = parse_device_arguments(&mut args)?;
             inspect_raw_gpt_json(Path::new(&path), block_size, block_count)
         }
         Some("scan-device") => {
-            let path = args.next().ok_or("missing device path")?;
-            let block_size = parse_probe_block_size(args.next())?;
-            let block_count = args.next().ok_or("missing block count")?.parse::<u64>()?;
-            ensure_no_args(&mut args)?;
+            let (path, block_size, block_count) = parse_device_arguments(&mut args)?;
             let (checksum, bytes) =
                 scan_read_only_device(Path::new(&path), block_size, block_count)?;
             println!("Read-only full-device scan: OK");
@@ -624,6 +609,16 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     println!("The check validates superblocks, geometry, bitmap invariants, journal framing, and the persistent inventory descriptor.");
     println!("A present descriptor is not a substitute for full namespace and file-data ownership validation.");
     Ok(())
+}
+
+fn parse_device_arguments(
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(String, u32, u64), Box<dyn StdError>> {
+    let path = args.next().ok_or("missing device path")?;
+    let block_size = parse_probe_block_size(args.next())?;
+    let block_count = args.next().ok_or("missing block count")?.parse()?;
+    ensure_no_args(args)?;
+    Ok((path, block_size, block_count))
 }
 
 fn ensure_no_args(args: &mut impl Iterator<Item = String>) -> Result<(), Box<dyn StdError>> {
