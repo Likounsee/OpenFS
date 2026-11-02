@@ -1733,6 +1733,41 @@ impl OpenedVolume {
             .ok_or(Error::InvalidInput("object does not exist"))
     }
 
+    /// Read a bounded range from a persistent file using its stable object identifier.
+    ///
+    /// The object can be renamed or moved without invalidating the caller's handle.
+    /// Namespace and extent ownership are reconstructed and validated from disk.
+    pub fn read_persistent_object_range<D: BlockDevice>(
+        &self,
+        device: &mut D,
+        object_id: ObjectId,
+        offset: u64,
+        length: usize,
+    ) -> Result<Vec<u8>> {
+        self.validate_device(device)?;
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent object reads require a published inventory",
+            ));
+        };
+        let record = namespace
+            .object(object_id)
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("object is not a regular file"));
+        }
+        let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
+        self.read_file_range_from_validated_namespace(
+            device,
+            &namespace,
+            &extent_maps,
+            object_id,
+            offset,
+            length,
+            false,
+        )
+    }
+
     /// Resolve the current path of a persistent object identifier.
     ///
     /// Object IDs remain stable across rename/move operations. OS adapters should
@@ -8530,6 +8565,23 @@ impl<D: BlockDevice> VolumeSession<D> {
     pub fn stat_object(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
         self.opened
             .stat_persistent_object(&mut self.device, object_id)
+    }
+
+    /// Read a bounded range from a regular file addressed by stable object ID.
+    ///
+    /// This remains valid after rename or move and avoids path caching in adapters.
+    pub fn read_file_range_by_id(
+        &mut self,
+        object_id: ObjectId,
+        offset: u64,
+        length: usize,
+    ) -> Result<Vec<u8>> {
+        self.opened.read_persistent_object_range(
+            &mut self.device,
+            object_id,
+            offset,
+            length,
+        )
     }
 
     /// Resolve the current path of an open object handle.
@@ -17961,6 +18013,10 @@ mod tests {
             let renamed_metadata = mounted.stat_object(ObjectId(3)).unwrap();
             assert_eq!(renamed_metadata.id, ObjectId(3));
             assert_eq!(renamed_metadata.size, 27);
+            assert_eq!(
+                mounted.read_file_range_by_id(ObjectId(3), 7, 8).unwrap(),
+                b"tch.txt "
+            );
             let renamed_directory_entries = mounted
                 .read_directory_by_id(ObjectId(2), None, 16)
                 .unwrap();
