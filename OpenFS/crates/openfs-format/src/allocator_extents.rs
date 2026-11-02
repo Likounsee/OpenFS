@@ -7,6 +7,23 @@ use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
 use openfs_core::{try_copy_slice, try_zeroed_bytes, Error, Result};
 
+/// Build the mask of valid data bits covered by one bitmap byte.
+fn bitmap_byte_mask(byte_index: usize, first_local: u64, end_local: u64) -> Result<u8> {
+    let byte_start = u64::try_from(byte_index)
+        .map_err(|_| Error::ArithmeticOverflow)?
+        .checked_mul(8)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
+    let valid_bits = end_local.saturating_sub(byte_start).min(8);
+    let lower_mask = u8::MAX << first_valid_bit;
+    let upper_mask = if valid_bits == 8 {
+        u8::MAX
+    } else {
+        (1_u8 << valid_bits) - 1
+    };
+    Ok(lower_mask & upper_mask)
+}
+
 /// Scrub descriptor signatures from one bounded contiguous batch.
 ///
 /// Only blocks bearing the stale signature are written back; clean blocks are read
@@ -998,19 +1015,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & valid_mask;
                 if free_bits == 0 {
                     // An allocated byte is a real gap. Reset the carried run so a
                     // later bitmap page cannot accidentally join across this gap.
@@ -1268,19 +1274,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & valid_mask;
                 free.try_reserve(free_bits.count_ones() as usize)
                     .map_err(|_| Error::AllocationFailed("unable to grow free-block inventory"))?;
                 while free_bits != 0 {
@@ -1346,19 +1341,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & valid_mask;
                 // Consume contiguous free-bit runs a byte at a time. Walking every
                 // free block individually makes inventory scans scale with free capacity,
                 // even when the entire bitmap is one large extent.
@@ -1477,19 +1461,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*bitmap_byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & valid_mask;
 
                 while free_bits != 0 {
                     let first_bit = free_bits.trailing_zeros();
@@ -1800,19 +1773,8 @@ impl OpenedVolume {
                 let byte_index = first_data_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut free_bits = !*byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*byte & valid_mask;
 
                 while free_bits != 0 {
                     let first_bit = free_bits.trailing_zeros();
@@ -1903,19 +1865,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let byte_start = u64::try_from(byte_index)
-                    .map_err(|_| Error::ArithmeticOverflow)?
-                    .checked_mul(8)
-                    .ok_or(Error::ArithmeticOverflow)?;
-                let first_valid_bit = first_local.saturating_sub(byte_start).min(8);
-                let valid_bits = end_local.saturating_sub(byte_start).min(8);
-                let lower_mask = u8::MAX << first_valid_bit;
-                let upper_mask = if valid_bits == 8 {
-                    u8::MAX
-                } else {
-                    (1_u8 << valid_bits) - 1
-                };
-                let mut bits = *bitmap_byte & lower_mask & upper_mask;
+                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut bits = *bitmap_byte & valid_mask;
                 allocated
                     .try_reserve(bits.count_ones() as usize)
                     .map_err(|_| {
