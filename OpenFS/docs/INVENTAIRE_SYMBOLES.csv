@@ -1345,4 +1345,3 @@ OpenFS/crates/openfs-tool/src/windows_mount.rs,1127,function,concurrent_open_clo
 OpenFS/crates/openfs-tool/src/windows_mount.rs,1152,function,unknown_or_already_closed_handle_is_rejected,fn unknown_or_already_closed_handle_is_rejected() {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/windows_mount.rs,1167,function,unsupported_share_bits_are_rejected,fn unsupported_share_bits_are_rejected() {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/windows_mount.rs,1174,function,deferred_error_latch_retains_all_cleanup_failures_until_taken,fn deferred_error_latch_retains_all_cleanup_failures_until_taken() {,Indexed,"Lexical index; declaration and line detected, behavior not validated."
-source_file,line,symbol_kind,symbol,declaration,status,analysis_note
