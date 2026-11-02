@@ -27,10 +27,8 @@ fn bitmap_segment_range(
 /// Return the half-open bitmap byte range covering a local block range.
 fn bitmap_byte_bounds(first_local: u64, end_local: u64) -> Result<(usize, usize)> {
     let first = usize::try_from(first_local / 8).map_err(|_| Error::ArithmeticOverflow)?;
-    let end = usize::try_from(
-        end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8,
-    )
-    .map_err(|_| Error::ArithmeticOverflow)?;
+    let end = usize::try_from(end_local.checked_add(7).ok_or(Error::ArithmeticOverflow)? / 8)
+        .map_err(|_| Error::ArithmeticOverflow)?;
     Ok((first, end))
 }
 
