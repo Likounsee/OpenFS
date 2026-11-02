@@ -884,7 +884,7 @@ pub fn mount_disk_device(
     let device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck after opening the handle so a disk-index change during the
     // preflight/open window cannot silently redirect the mount to another disk.
-    let confirmed = super::windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
+    let confirmed = super::windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
             "disk identity or geometry changed while opening it; refusing to mount".into(),
