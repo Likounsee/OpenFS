@@ -2735,7 +2735,7 @@ fn format_disk_device(
 
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
-    let confirmed = windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
+    let confirmed = windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err(
             "disk identity or geometry changed while opening it; refusing to format".into(),
