@@ -5,24 +5,7 @@
 
 use crate::{OpenedVolume, RedoUpdate, VolumeLayout, INVENTORY_DESCRIPTOR_MAGIC};
 use openfs_block::BlockDevice;
-use openfs_core::{Error, Result};
-
-fn try_zeroed_buffer(len: usize, allocation_error: &'static str) -> Result<Vec<u8>> {
-    let mut buffer = Vec::new();
-    buffer
-        .try_reserve_exact(len)
-        .map_err(|_| Error::AllocationFailed(allocation_error))?;
-    buffer.resize(len, 0);
-    Ok(buffer)
-}
-
-fn try_copy_slice<T: Copy>(blocks: &[T], allocation_error: &'static str) -> Result<Vec<T>> {
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(blocks.len())
-        .map_err(|_| Error::AllocationFailed(allocation_error))?;
-    copy.extend_from_slice(blocks);
-    Ok(copy)
-}
+use openfs_core::{try_copy_slice, try_zeroed_bytes, Error, Result};
 
 /// Scrub descriptor signatures from one bounded contiguous batch.
 ///
@@ -402,7 +385,7 @@ impl OpenedVolume {
                                 "batch allocation exceeds the journal's atomic bitmap-update capacity",
                             ));
                         }
-                        let mut image = try_zeroed_buffer(
+                        let mut image = try_zeroed_bytes(
                             self.volume.block_size as usize,
                             "allocation failed while preparing allocator bitmap",
                         )?;
@@ -533,7 +516,7 @@ impl OpenedVolume {
                     )
                 })?;
                 let mut allocated_count = 0usize;
-                let mut recovered = try_zeroed_buffer(
+                let mut recovered = try_zeroed_bytes(
                     self.volume.block_size as usize,
                     "allocation failed while verifying recovered batch allocation",
                 )?;
@@ -705,7 +688,7 @@ impl OpenedVolume {
             let position = if pages.last().is_some_and(|page| page.0 == bitmap_block) {
                 pages.len() - 1
             } else {
-                let mut image = try_zeroed_buffer(
+                let mut image = try_zeroed_bytes(
                     self.volume.block_size as usize,
                     "allocation failed while preparing batch free bitmap",
                 )?;
@@ -760,7 +743,7 @@ impl OpenedVolume {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("batch free failed and journal recovery could not be completed")
             })?;
-            let mut recovered = try_zeroed_buffer(
+            let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered batch free",
             )?;
@@ -858,7 +841,7 @@ impl OpenedVolume {
                 .bitmap_start
                 .checked_add(index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut image = try_zeroed_buffer(
+            let mut image = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while preparing contiguous free bitmap pages",
             )?;
@@ -908,7 +891,7 @@ impl OpenedVolume {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("contiguous free failed and journal recovery could not be completed")
             })?;
-            let mut recovered = try_zeroed_buffer(
+            let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered contiguous free",
             )?;
@@ -978,7 +961,7 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("volume has no usable data blocks"))?;
         let last_bitmap = last_data_block / bits_per_block;
         // Reuse the same block-sized buffer while inspecting each bitmap segment.
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             self.volume.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -1132,7 +1115,7 @@ impl OpenedVolume {
                     .bitmap_start
                     .checked_add(index)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let mut image = try_zeroed_buffer(
+                let mut image = try_zeroed_bytes(
                     self.volume.block_size as usize,
                     "allocation failed while preparing contiguous bitmap pages",
                 )?;
@@ -1181,7 +1164,7 @@ impl OpenedVolume {
                         "contiguous allocation failed and journal recovery could not be completed",
                     )
                 })?;
-                let mut recovered = try_zeroed_buffer(
+                let mut recovered = try_zeroed_bytes(
                     self.volume.block_size as usize,
                     "allocation failed while verifying recovered contiguous allocation",
                 )?;
@@ -1254,7 +1237,7 @@ impl OpenedVolume {
         let mut free = Vec::new();
         // Reuse one bitmap page while walking the inventory to avoid allocating a
         // fresh block-sized buffer for every segment.
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -1328,7 +1311,7 @@ impl OpenedVolume {
         let mut extents = Vec::new();
         // The same scratch page is reused for every segment; inventory is read-only
         // and does not need to retain bitmap images after each scan.
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -1462,7 +1445,7 @@ impl OpenedVolume {
         let last_bitmap = last_data_block / bits_per_block;
         let mut best: Option<FreeExtent> = None;
         let mut current: Option<FreeExtent> = None;
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -1651,7 +1634,7 @@ impl OpenedVolume {
                 .bitmap_start
                 .checked_add(index)
                 .ok_or(Error::ArithmeticOverflow)?;
-            let mut image = try_zeroed_buffer(
+            let mut image = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while preparing best-fit bitmap pages",
             )?;
@@ -1700,7 +1683,7 @@ impl OpenedVolume {
                     "best-fit allocation failed and journal recovery could not be completed",
                 )
             })?;
-            let mut recovered = try_zeroed_buffer(
+            let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered best-fit allocation",
             )?;
@@ -1771,7 +1754,7 @@ impl OpenedVolume {
         let mut run_start_block = 0_u64;
         // Fragmentation diagnostics may scan the entire volume; allocate the
         // bitmap buffer once instead of once per segment.
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -1890,7 +1873,7 @@ impl OpenedVolume {
         let first_bitmap = layout.data_start / bits_per_block;
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut allocated = Vec::new();
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -2023,7 +2006,7 @@ impl OpenedVolume {
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut range_index = 0_usize;
         let mut report = AllocationOwnershipReport::default();
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -2182,7 +2165,7 @@ impl OpenedVolume {
         let last_bitmap = (layout.backup_superblock - 1) / bits_per_block;
         let mut owner_index = 0_usize;
         let mut report = AllocationOwnershipReport::default();
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
@@ -2288,7 +2271,7 @@ impl OpenedVolume {
         let mut report = AllocationBitmapReport::default();
         // Reuse the read buffer across all bitmap blocks so the bounded diagnostic
         // remains allocation-light even on large volumes.
-        let mut bitmap = try_zeroed_buffer(
+        let mut bitmap = try_zeroed_bytes(
             layout.block_size as usize,
             "allocation failed while preparing allocator bitmap",
         )?;
