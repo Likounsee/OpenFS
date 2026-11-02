@@ -1458,3 +1458,10 @@ La CI Linux et Windows exécute désormais `scripts/generate_symbol_inventory.py
 - Le test réouvre l'image après l'échec et vérifie que le bitmap expose l'ancien lot entièrement alloué ou le nouveau lot entièrement libéré, jamais un état mixte. Il contrôle aussi la validité structurelle du bitmap.
 - Couverture paramétrée sur les cinq tailles de blocs prises en charge : 4, 8, 16, 32 et 64 KiB. Le CSV lexical n'est pas modifié : le générateur exclut les déclarations de tests sous cfg(test).
 - Aucun résultat de tests local ni CI exacte-SHA n'est disponible dans cette session; ce test est publié mais non déclaré réussi. P0/P1/P2/P3 et le global restent inchangés (73 %) en attente de validation.
+
+### Reprise de session — 2026-11-02 (récupération de libération contiguë)
+
+- Ajout d'une régression pour free_contiguous_blocks : injection d'un échec de flush au commit, fermeture du handle, réouverture de l'image et vérification que les quatre bits concernés sont tous anciens ou tous nouveaux, sans état mixte.
+- Matrice exécutée par le test sur les tailles de blocs 4, 8, 16, 32 et 64 Kio; le bitmap doit aussi rester structurellement valide.
+- Commit de test : ec802c46ec7b5ce0eec3e8caaae991dd15d99307.
+- Statut CI exacte-SHA au moment de la mise à jour : aucun statut ni run retourné par l'API GitHub; tests Rust et rustfmt non exécutés localement. Cette régression reste donc en attente de validation, sans hausse des pourcentages.
