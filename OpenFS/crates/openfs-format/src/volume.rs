@@ -18193,7 +18193,7 @@ mod tests {
             assert_eq!(renamed_metadata.size, 27);
             assert_eq!(
                 mounted.read_file_range_by_id(ObjectId(3), 7, 8).unwrap(),
-                b"ounted s"
+                b"mounted "
             );
             let mut streamed_by_id = Vec::new();
             assert_eq!(
@@ -18202,7 +18202,7 @@ mod tests {
                     .unwrap(),
                 8
             );
-            assert_eq!(streamed_by_id, b"ounted s");
+            assert_eq!(streamed_by_id, b"mounted ");
             assert!(matches!(
                 mounted.read_file_range_by_id(ObjectId(2), 0, 1),
                 Err(Error::InvalidInput("object is not a regular file"))
