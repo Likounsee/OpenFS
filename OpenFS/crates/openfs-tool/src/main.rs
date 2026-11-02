@@ -434,12 +434,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
-fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
-    // Keep inspection strictly read-only. open_volume() replays the journal and may
-    // write recovered home blocks/checkpoints, which is inappropriate for an inspector.
-    let mut device = ImageDevice::open(path, BLOCK_SIZE)?;
-    let report = check_volume(&mut device)?;
-    println!("OpenFS volume inspected (read-only; no recovery performed).");
+fn print_volume_geometry(path: &Path, report: &openfs_format::VolumeCheckReport) {
     println!("Path: {}", path.display());
     println!("Block size: {} bytes", report.block_size);
     println!("Total blocks: {}", report.total_blocks);
@@ -456,6 +451,15 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     println!("Allocated data blocks: {}", report.allocated_data_blocks);
     println!("Free data blocks: {}", report.free_data_blocks);
     println!("UUID: {}", format_uuid(report.uuid));
+}
+
+fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
+    // Keep inspection strictly read-only. open_volume() replays the journal and may
+    // write recovered home blocks/checkpoints, which is inappropriate for an inspector.
+    let mut device = ImageDevice::open(path, BLOCK_SIZE)?;
+    let report = check_volume(&mut device)?;
+    println!("OpenFS volume inspected (read-only; no recovery performed).");
+    print_volume_geometry(path, &report);
     println!("Format: OpenFS journaled filesystem");
     println!(
         "Pending journal records: {}",
@@ -561,22 +565,7 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     let mut device = ImageDevice::open(path, block_size)?;
     let report = check_volume(&mut device)?;
     println!("OpenFS volume check completed (read-only; no recovery performed).");
-    println!("Path: {}", path.display());
-    println!("Block size: {} bytes", report.block_size);
-    println!("Total blocks: {}", report.total_blocks);
-    println!(
-        "Bitmap: blocks {}..{}",
-        report.bitmap_start,
-        report.bitmap_start + report.bitmap_blocks
-    );
-    println!(
-        "Data region: blocks {}..{}",
-        report.data_start, report.backup_superblock
-    );
-    println!("Data blocks: {}", report.data_blocks);
-    println!("Allocated data blocks: {}", report.allocated_data_blocks);
-    println!("Free data blocks: {}", report.free_data_blocks);
-    println!("UUID: {}", format_uuid(report.uuid));
+    print_volume_geometry(path, &report);
     println!("Journal generation: {}", report.journal_generation);
     println!(
         "Journal checkpoint sequence: {}",
