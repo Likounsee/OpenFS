@@ -1097,7 +1097,7 @@ OpenFS/crates/openfs-tool/src/main.rs,705,function,split_parent_path,"fn split_p
 OpenFS/crates/openfs-tool/src/main.rs,721,function,create_namespace_entry,fn create_namespace_entry(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/main.rs,759,function,touch_namespace_file,fn touch_namespace_file(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/main.rs,799,function,create_namespace_directories,fn create_namespace_directories(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
-OpenFS/crates/openfs-tool/src/main.rs,863,function,list_namespace,"fn list_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {",Indexed,"Lexical index; declaration and line detected, behavior not validated."
+OpenFS/crates/openfs-tool/src/main.rs,863,function,list_namespace,fn list_namespace(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/main.rs,910,function,tree_namespace,"fn tree_namespace(path: &Path, block_size: u32, target: &str) -> Result<(), Box<dyn StdError>> {",Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/main.rs,958,function,find_namespace_entries,fn find_namespace_entries(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
 OpenFS/crates/openfs-tool/src/main.rs,1005,function,report_namespace_usage,fn report_namespace_usage(,Indexed,"Lexical index; declaration and line detected, behavior not validated."
