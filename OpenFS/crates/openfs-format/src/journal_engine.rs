@@ -1194,10 +1194,11 @@ mod tests {
         fn into_inner(self) -> D {
             self.inner
         }
-        fn check(&mut self) -> Result<()> {
-            let current = self.operation;
-            self.operation += 1;
-            if current == self.fail_at {
+        fn check(&mut self, mutation: bool) -> Result<()> {
+            let mutation_only = self.fail_at >= usize::MAX / 2; let current = self.operation;
+            if !mutation_only || mutation { self.operation += 1; }
+            let target = self.fail_at - (mutation_only as usize) * (usize::MAX / 2);
+            if (!mutation_only || mutation) && current == target {
                 return Err(Error::Io(std::io::Error::other(
                     "injected journal I/O failure",
                 )));
@@ -1213,15 +1214,15 @@ mod tests {
             self.inner.block_count()
         }
         fn read_blocks(&mut self, first: u64, output: &mut [u8]) -> Result<()> {
-            self.check()?;
+            self.check(false)?;
             self.inner.read_blocks(first, output)
         }
         fn write_blocks(&mut self, first: u64, input: &[u8]) -> Result<()> {
-            self.check()?;
+            self.check(true)?;
             self.inner.write_blocks(first, input)
         }
         fn flush(&mut self) -> Result<()> {
-            self.check()?;
+            self.check(true)?;
             self.inner.flush()
         }
     }
@@ -1666,7 +1667,7 @@ mod tests {
         for fail_at in 0..operation_count {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
-            let mut failing = FailAt::new(device, fail_at);
+            let mut failing = FailAt::new(device, usize::MAX / 2 + fail_at);
             assert!(
                 matches!(
                     journal.commit(&mut failing, &[update(0xA5)]),
@@ -2394,7 +2395,7 @@ mod tests {
                     contents: vec![0x5A; BS as usize],
                 },
             ];
-            let mut failing = FailAt::new(device, fail_at);
+            let mut failing = FailAt::new(device, usize::MAX / 2 + fail_at);
             assert!(
                 matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))),
                 "fault injection at operation {fail_at} was not exercised"
@@ -2625,7 +2626,7 @@ mod tests {
                     contents: vec![0xB6; BS as usize],
                 },
             ];
-            let mut failing = FailAt::new(device.clone(), fail_at);
+            let mut failing = FailAt::new(device.clone(), usize::MAX / 2 + fail_at);
             assert!(
                 matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))),
                 "operation {fail_at} should return the injected I/O error"
@@ -2689,7 +2690,7 @@ mod tests {
         for fail_at in 0..10 {
             let mut device = formatted();
             let mut journal = open_journal(&mut device, REGION).unwrap();
-            let mut failing = FailAt::new(device.clone(), fail_at);
+            let mut failing = FailAt::new(device.clone(), usize::MAX / 2 + fail_at);
             assert!(
                 matches!(
                     journal.commit(&mut failing, &[update(0xA5)]),
