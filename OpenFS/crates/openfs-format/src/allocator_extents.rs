@@ -32,8 +32,18 @@ fn bitmap_byte_bounds(first_local: u64, end_local: u64) -> Result<(usize, usize)
     Ok((first, end))
 }
 
-/// Build the mask of valid data bits covered by one bitmap byte.
-fn bitmap_byte_mask(byte_index: usize, first_local: u64, end_local: u64) -> Result<u8> {
+struct BitmapByteMask {
+    byte_start: u64,
+    valid_bits: u64,
+    mask: u8,
+}
+
+/// Build the mask and retain the byte's physical range for extent scanning.
+fn bitmap_byte_mask(
+    byte_index: usize,
+    first_local: u64,
+    end_local: u64,
+) -> Result<BitmapByteMask> {
     let byte_start = u64::try_from(byte_index)
         .map_err(|_| Error::ArithmeticOverflow)?
         .checked_mul(8)
@@ -46,7 +56,11 @@ fn bitmap_byte_mask(byte_index: usize, first_local: u64, end_local: u64) -> Resu
     } else {
         (1_u8 << valid_bits) - 1
     };
-    Ok(lower_mask & upper_mask)
+    Ok(BitmapByteMask {
+        byte_start,
+        valid_bits,
+        mask: lower_mask & upper_mask,
+    })
 }
 
 /// Scrub descriptor signatures from one bounded contiguous batch.
@@ -1029,8 +1043,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut free_bits = !*bitmap_byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & byte_mask.mask;
                 if free_bits == 0 {
                     // An allocated byte is a real gap. Reset the carried run so a
                     // later bitmap page cannot accidentally join across this gap.
@@ -1042,7 +1056,7 @@ impl OpenedVolume {
                 // rather than enumerating each bit on the common contiguous-space path.
                 if free_bits == u8::MAX {
                     let block = base
-                        .checked_add(byte_start)
+                        .checked_add(byte_mask.byte_start)
                         .ok_or(Error::ArithmeticOverflow)?;
                     if previous_free.and_then(|previous: u64| previous.checked_add(1))
                         == Some(block)
@@ -1061,7 +1075,7 @@ impl OpenedVolume {
                 while free_bits != 0 {
                     let bit = u64::from(free_bits.trailing_zeros());
                     let block = base
-                        .checked_add(byte_start)
+                        .checked_add(byte_mask.byte_start)
                         .and_then(|value| value.checked_add(bit))
                         .ok_or(Error::ArithmeticOverflow)?;
                     if previous_free.and_then(|previous: u64| previous.checked_add(1))
@@ -1277,14 +1291,14 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut free_bits = !*bitmap_byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & byte_mask.mask;
                 free.try_reserve(free_bits.count_ones() as usize)
                     .map_err(|_| Error::AllocationFailed("unable to grow free-block inventory"))?;
                 while free_bits != 0 {
                     let bit = u64::from(free_bits.trailing_zeros());
                     free.push(
-                        base.checked_add(byte_start)
+                        base.checked_add(byte_mask.byte_start)
                             .and_then(|block| block.checked_add(bit))
                             .ok_or(Error::ArithmeticOverflow)?,
                     );
@@ -1333,8 +1347,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut free_bits = !*bitmap_byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & byte_mask.mask;
                 // Consume contiguous free-bit runs a byte at a time. Walking every
                 // free block individually makes inventory scans scale with free capacity,
                 // even when the entire bitmap is one large extent.
@@ -1342,7 +1356,7 @@ impl OpenedVolume {
                     let first_bit = free_bits.trailing_zeros();
                     let run_width = (free_bits >> first_bit).trailing_ones();
                     let block = base
-                        .checked_add(byte_start)
+                        .checked_add(byte_mask.byte_start)
                         .and_then(|value| value.checked_add(u64::from(first_bit)))
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
@@ -1442,14 +1456,14 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut free_bits = !*bitmap_byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*bitmap_byte & byte_mask.mask;
 
                 while free_bits != 0 {
                     let first_bit = free_bits.trailing_zeros();
                     let run_width = (free_bits >> first_bit).trailing_ones();
                     let block = base
-                        .checked_add(byte_start)
+                        .checked_add(byte_mask.byte_start)
                         .and_then(|value| value.checked_add(u64::from(first_bit)))
                         .ok_or(Error::ArithmeticOverflow)?;
                     match current {
@@ -1496,7 +1510,7 @@ impl OpenedVolume {
                 // long allocated region would remain pending until another free run
                 // appeared (or the complete volume scan ended).
                 let last_valid_bit_is_free =
-                    valid_bits != 0 && (*bitmap_byte & (1_u8 << (valid_bits - 1))) == 0;
+                    byte_mask.valid_bits != 0 && (*bitmap_byte & (1_u8 << (valid_bits - 1))) == 0;
                 if !last_valid_bit_is_free {
                     if let Some(extent) = current.take() {
                         if extent.block_count == count {
@@ -1754,8 +1768,8 @@ impl OpenedVolume {
                 let byte_index = first_data_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut free_bits = !*byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut free_bits = !*byte & byte_mask.mask;
 
                 while free_bits != 0 {
                     let first_bit = free_bits.trailing_zeros();
@@ -1769,7 +1783,7 @@ impl OpenedVolume {
                             stats.record_extent(run_start_block, run_len)?;
                         }
                         run_start_block = base
-                            .checked_add(byte_start)
+                            .checked_add(byte_mask.byte_start)
                             .and_then(|value| value.checked_add(u64::from(first_bit)))
                             .ok_or(Error::ArithmeticOverflow)?;
                         run_len = u64::from(width);
@@ -1778,7 +1792,7 @@ impl OpenedVolume {
                     let after_run = first_bit + width;
                     let run_mask = ((u16::from(u8::MAX) >> (8 - width)) << first_bit) as u8;
                     free_bits &= !run_mask;
-                    if u64::from(after_run) < valid_bits {
+                    if u64::from(after_run) < byte_mask.valid_bits {
                         stats.record_extent(run_start_block, run_len)?;
                         run_len = 0;
                     }
@@ -1787,7 +1801,7 @@ impl OpenedVolume {
                 // A free suffix may continue into the next byte. Any allocated suffix
                 // terminates the current run immediately.
                 let last_valid_bit_is_free =
-                    valid_bits != 0 && (*byte & (1_u8 << (valid_bits - 1))) == 0;
+                    byte_mask.valid_bits != 0 && (*byte & (1_u8 << (valid_bits - 1))) == 0;
                 if !last_valid_bit_is_free && run_len != 0 {
                     stats.record_extent(run_start_block, run_len)?;
                     run_len = 0;
@@ -1835,8 +1849,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
-                let mut bits = *bitmap_byte & valid_mask;
+                let byte_mask = bitmap_byte_mask(byte_index, first_local, end_local)?;
+                let mut bits = *bitmap_byte & byte_mask.mask;
                 allocated
                     .try_reserve(bits.count_ones() as usize)
                     .map_err(|_| {
@@ -1845,7 +1859,7 @@ impl OpenedVolume {
                 while bits != 0 {
                     let bit = u64::from(bits.trailing_zeros());
                     allocated.push(
-                        base.checked_add(byte_start)
+                        base.checked_add(byte_mask.byte_start)
                             .and_then(|block| block.checked_add(bit))
                             .ok_or(Error::ArithmeticOverflow)?,
                     );
