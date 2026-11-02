@@ -105,16 +105,16 @@ impl Namespace {
             entry.encode().map_err(|_| {
                 Error::Corrupt("invalid directory entry during namespace reconstruction")
             })?;
-            let key = (ObjectId::new(entry.parent_id)?, entry.name.clone());
-            if names.insert(key.clone(), entry.clone()).is_some() {
+            let key = (ObjectId::new(entry.parent_id)?, try_clone_name(&entry.name)?); let parent_name = try_clone_name(&entry.name)?; let object_id = ObjectId::new(entry.object_id)?;
+            if names.insert(key, entry).is_some() {
                 return Err(Error::Corrupt(
                     "duplicate directory name in metadata inventory",
                 ));
             }
             if parents
                 .insert(
-                    ObjectId::new(entry.object_id)?,
-                    (ObjectId(entry.parent_id), entry.name),
+                    object_id,
+                    (ObjectId(entry.parent_id), parent_name),
                 )
                 .is_some()
             {
@@ -311,7 +311,7 @@ impl Namespace {
             .take_while(|((candidate_parent, _), _)| *candidate_parent == parent_id)
             .take(limit)
         {
-            page.push(entry.clone());
+            page.push(DirectoryEntry { parent_id: entry.parent_id, object_id: entry.object_id, kind: entry.kind, name: try_clone_name(&entry.name)? });
         }
         Ok(page)
     }
