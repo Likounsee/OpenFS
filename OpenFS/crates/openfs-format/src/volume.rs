@@ -8669,21 +8669,6 @@ impl<D: BlockDevice> VolumeSession<D> {
 
         maximum.checked_add(1).ok_or(Error::ArithmeticOverflow)
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     /// Create an empty regular file beneath an existing directory.
     ///
     /// Object identifiers are supplied by the adapter so it can use its chosen
