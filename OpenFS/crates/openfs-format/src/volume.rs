@@ -472,7 +472,8 @@ impl OpenedVolume {
                         .map_err(|_| Error::ArithmeticOverflow)?
                         .checked_mul(8)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    let valid_mask = bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
+                    let valid_mask =
+                        bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                     let available = !*byte & valid_mask;
                     if available != 0 {
                         let bit = u64::from(available.trailing_zeros());
@@ -634,7 +635,8 @@ impl OpenedVolume {
                 let byte_index = first_byte
                     .checked_add(byte_offset)
                     .ok_or(Error::ArithmeticOverflow)?;
-                let valid_mask = bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
+                let valid_mask =
+                        bitmap_valid_mask(byte_index, first_byte, end_byte, local_start, local_end);
                 let free_bits = (!*byte & valid_mask).count_ones() as u64;
                 free = free
                     .checked_add(free_bits)
