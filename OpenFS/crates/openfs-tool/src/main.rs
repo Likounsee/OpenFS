@@ -882,7 +882,12 @@ fn list_namespace(
     if record.kind != ObjectKind::Directory {
         return Err("path is not a directory".into());
     }
-    let page = namespace.list_directory(directory_id, after_name, limit)?;
+    let fetch_limit = limit
+        .checked_add(1)
+        .ok_or("directory page limit is too large")?;
+    let mut page = namespace.list_directory(directory_id, after_name, fetch_limit)?;
+    let has_more = page.len() > limit;
+    page.truncate(limit);
     for entry in &page {
         let kind = match entry.kind {
             ObjectKind::Directory => "dir ",
@@ -896,7 +901,7 @@ fn list_namespace(
             entry.object_id, record.size, record.generation, entry.name
         );
     }
-    if page.len() == limit {
+    if has_more {
         if let Some(last) = page.last() {
             println!("--after-name {} (next page)", last.name);
         }
