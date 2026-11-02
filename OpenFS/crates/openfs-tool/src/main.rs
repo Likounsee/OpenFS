@@ -2735,20 +2735,6 @@ fn format_disk_device(
 
     let (size_bytes, logical_sector_size) =
         windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
-    if (size_bytes, logical_sector_size) != (initial_size, initial_sector_size) {
-        return Err("disk geometry changed during volume dismount; refusing raw access".into());
-    }
-    if block_size < logical_sector_size || block_size % logical_sector_size != 0 {
-        return Err(format!(
-            "OpenFS block size {block_size} must be a multiple of the disk logical sector size {logical_sector_size}"
-        ).into());
-    }
-    if size_bytes % u64::from(block_size) != 0 {
-        return Err(
-            "disk capacity is not a whole multiple of the selected OpenFS block size".into(),
-        );
-    }
-
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     let confirmed = windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
