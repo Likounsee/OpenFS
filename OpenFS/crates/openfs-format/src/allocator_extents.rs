@@ -1020,7 +1020,7 @@ impl OpenedVolume {
                 .checked_add(index)
                 .ok_or(Error::ArithmeticOverflow)?;
             device.read_blocks(bitmap_block, &mut bitmap)?;
-            let (base, start, end) = bitmap_segment_range(layout, index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, index, bits_per_block)?;
             validate_bitmap_reserved_bits(&bitmap, base, start, end)?;
             let first_local = start - base;
             let end_local = end - base;
@@ -1264,7 +1264,7 @@ impl OpenedVolume {
             "allocation failed while preparing allocator bitmap",
         )?;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -1319,7 +1319,7 @@ impl OpenedVolume {
         // indexing boundary, not a physical discontinuity in the data region.
         let mut current: Option<FreeExtent> = None;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -1429,7 +1429,7 @@ impl OpenedVolume {
         )?;
 
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -1823,7 +1823,7 @@ impl OpenedVolume {
             "allocation failed while preparing allocator bitmap",
         )?;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -1935,7 +1935,7 @@ impl OpenedVolume {
         )?;
 
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
@@ -2086,7 +2086,7 @@ impl OpenedVolume {
             "allocation failed while preparing allocator bitmap",
         )?;
         for bitmap_index in first_bitmap..=last_bitmap {
-            let (base, start, end) = bitmap_segment_range(layout, bitmap_index, bits_per_block)?;
+            let (base, start, end) = bitmap_segment_range(&layout, bitmap_index, bits_per_block)?;
             let bitmap_block = layout
                 .bitmap_start
                 .checked_add(bitmap_index)
