@@ -208,7 +208,7 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
 /// Validate the selected physical disk, dismount its mounted volumes, and report geometry.
 ///
 /// OpenFS deliberately does not require the physical disk to be Offline. Instead, every
-/// non-GUID mount point on its partitions is removed before raw access.
+/// mounted filesystem volumes are dismounted and their mount points removed before raw access.
 /// The caller must then acquire an exclusive PhysicalDrive handle; failure to do so aborts
 /// the operation. Boot and system disks are always rejected.
 #[cfg(any(windows, test))]
@@ -244,7 +244,7 @@ pub fn prepare_disk_for_raw_access(
     }
 
     // Values supplied by the caller are environment data, never interpolated into
-    // PowerShell source. mountvol dismounts each mounted partition without changing
+    // PowerShell source. fsutil dismounts mounted filesystems without changing
     // the physical disk's IsOffline state.
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
@@ -266,20 +266,212 @@ if ($disk.IsOffline) {
 }
 
 $partitions = @(Get-Partition -DiskNumber $index -ErrorAction SilentlyContinue)
+$volumePlans = @()
 foreach ($partition in $partitions) {
-    # Volume GUID paths are identifiers, not mount points. Dismount through one
-    # actual drive-letter or directory mount point when one exists.
+    # Volume GUID paths are identifiers, not mount points.
     $mountPoints = @($partition.AccessPaths | Where-Object {
         $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
     })
-    for ($mountIndex = 0; $mountIndex -lt $mountPoints.Count; $mountIndex++) {
-        $mountPoint = [string]$mountPoints[$mountIndex]
-        # Remove secondary mount paths first, then dismount the volume via its
-        # final path so no stale drive-letter or directory mount remains.
-        $mountAction = if ($mountIndex -eq ($mountPoints.Count - 1)) { '/p' } else { '/d' }
-        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint $mountAction 2>&1 | Out-Null
+    if ($mountPoints.Count -gt 0) {
+        # fsutil volume dismount accepts a drive-letter path. Refuse folder-only
+        # mounts rather than using mountvol /p, which forcibly closes open handles.
+        $drivePath = @($mountPoints | Where-Object { $_ -match '^[A-Za-z]:\\
+
+# Re-read identity and geometry after dismounting; disk numbers are not stable IDs.
+$disk = Get-Disk -Number $index -ErrorAction Stop
+if ([string]$disk.UniqueId -cne $expectedId) {
+    throw 'disk identity changed during volume dismount; refusing raw access'
+}
+if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk safety state changed during volume dismount; refusing raw access'
+}
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
+        .output()?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("physical disk preflight failed: {}", detail.trim()).into());
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    parse_verified_geometry(&stdout)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
+#[cfg(all(not(windows), test))]
+pub fn prepare_disk_for_raw_access(
+    _index: u32,
+    _expected_unique_id: &str,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    Err("raw physical disk access currently requires Windows".into())
+}
+
+#[cfg(windows)]
+fn nonempty(value: &str) -> &str {
+    if value.is_empty() {
+        "(not reported)"
+    } else {
+        value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_inventory;
+
+    fn row(index: u32, bus: &str, pnp: &str, boot: &str, system: &str) -> String {
+        format!(
+            "{index}\tTest disk\tSERIAL-{index}\t123009761280\t{bus}\t512\tUNIQUE-{index}\t{pnp}\t{boot}\t{system}"
+        )
+    }
+
+    #[test]
+    fn parses_and_sorts_multiple_physical_disks() {
+        let output = format!(
+            "{}\n{}\n",
+            row(2, "USB", r"USBSTOR\DISK&VEN_SANDISK", "False", "False"),
+            row(0, "NVMe", r"SCSI\DISK&VEN_NVME", "True", "True")
+        );
+        let disks = parse_inventory(&output).unwrap();
+
+        assert_eq!(disks.len(), 2);
+        assert_eq!(disks[0].index, 0);
+        assert!(disks[0].is_boot && disks[0].is_system);
+        assert_eq!(disks[1].index, 2);
+        assert_eq!(disks[1].size_bytes, 123_009_761_280);
+        assert_eq!(disks[1].logical_sector_size, 512);
+        assert!(disks[1].is_usb_transport());
+        assert!(!disks[0].is_usb_transport());
+    }
+
+    #[test]
+    fn identifies_uasp_usb_from_pnp_id_even_when_bus_is_scsi() {
+        let disks =
+            parse_inventory(&row(3, "SCSI", r"USB\VID_0781&PID_5581", "False", "False")).unwrap();
+        assert!(disks[0].is_usb_transport());
+    }
+
+    #[test]
+    fn rejects_malformed_rows_and_invalid_numbers() {
+        assert!(parse_inventory("1\ttoo-few-fields").is_err());
+        assert!(
+            parse_inventory("x\tModel\tSerial\t1024\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err()
+        );
+        assert!(parse_inventory("1\tModel\tSerial\tNaN\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(parse_inventory("1\tModel\tSerial\t0\tUSB\t512\tID\tPNP\tFalse\tFalse").is_err());
+        assert!(parse_inventory("1\tModel\tSerial\t1024\tUSB\t0\tID\tPNP\tFalse\tFalse").is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_disk_indices_and_invalid_safety_flags() {
+        let duplicate = format!(
+            "{}\n{}\n",
+            row(1, "USB", "USBSTOR", "False", "False"),
+            row(1, "USB", "USBSTOR", "False", "False")
+        );
+        assert!(parse_inventory(&duplicate).is_err());
+        assert!(parse_inventory(&row(0, "USB", "USBSTOR", "unknown", "False")).is_err());
+    }
+
+    #[test]
+    fn accepts_an_empty_inventory() {
+        assert!(parse_inventory("").unwrap().is_empty());
+        assert!(parse_inventory("\r\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn usb_classification_uses_bus_type_or_pnp_identity() {
+        let via_bus = parse_inventory(&row(0, "USB", "", "False", "False")).unwrap();
+        let via_pnp = parse_inventory(&row(1, "SCSI", r"USBSTOR\DISK", "False", "False")).unwrap();
+        assert!(via_bus[0].is_usb_transport());
+        assert!(via_pnp[0].is_usb_transport());
+    }
+
+    #[test]
+    fn empty_optional_identity_fields_are_preserved_as_empty() {
+        let disks = parse_inventory(&row(0, "USB", "", "False", "False")).unwrap();
+        assert_eq!(disks[0].serial_number, "SERIAL-0");
+        assert_eq!(disks[0].unique_id, "UNIQUE-0");
+        assert_eq!(disks[0].pnp_device_id, "");
+    }
+
+    #[test]
+    fn safety_metadata_is_available_for_target_review() {
+        let disks = parse_inventory(&row(0, "USB", "USBSTOR", "True", "False")).unwrap();
+        assert!(disks[0].is_boot);
+        assert!(!disks[0].is_system);
+    }
+
+    #[test]
+    fn boolean_parser_is_case_insensitive_and_strict() {
+        assert_eq!(super::parse_bool("TRUE"), Some(true));
+        assert_eq!(super::parse_bool("false"), Some(false));
+        assert_eq!(super::parse_bool("yes"), None);
+    }
+
+    #[test]
+    fn verified_disk_geometry_parser_accepts_supported_sector_sizes() {
+        assert_eq!(
+            super::parse_verified_geometry("64000000000\t512\n").unwrap(),
+            (64_000_000_000, 512)
+        );
+        assert_eq!(
+            super::parse_verified_geometry("64000000000\t4096").unwrap(),
+            (64_000_000_000, 4096)
+        );
+    }
+
+    #[test]
+    fn verified_disk_geometry_parser_rejects_ambiguous_or_unsupported_values() {
+        assert!(super::parse_verified_geometry("").is_err());
+        assert!(super::parse_verified_geometry("64000000000").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t512\textra").is_err());
+        assert!(super::parse_verified_geometry("0\t512").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t0").is_err());
+        assert!(super::parse_verified_geometry("64000000000\t520").is_err());
+        assert!(super::parse_verified_geometry("unknown\t512").is_err());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn physical_disk_preflight_is_explicitly_unsupported_on_non_windows_hosts() {
+        let error = super::prepare_disk_for_raw_access(0, "DISK-UNIQUE-ID").unwrap_err();
+        assert!(error.to_string().contains("currently requires Windows"));
+    }
+}
+ } | Select-Object -First 1)
+        if ($drivePath.Count -eq 0) {
+            throw "partition $($partition.PartitionNumber) has a directory-only mount point; remove it or assign a temporary drive letter before raw access"
+        }
+        $volumePlans += [pscustomobject]@{
+            DrivePath = ([string]$drivePath[0]).Substring(0, 2)
+            MountPoints = $mountPoints
+        }
+    }
+}
+
+# First ask Windows to dismount each filesystem volume. Do not force-close handles.
+foreach ($plan in $volumePlans) {
+    & "$env:SystemRoot\System32\fsutil.exe" volume dismount $plan.DrivePath 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "could not safely dismount volume $($plan.DrivePath); close applications using it and retry"
+    }
+    # Remove every drive-letter or directory mount path so Windows does not
+    # immediately remount the volume while OpenFS owns the physical disk.
+    foreach ($mountPoint in $plan.MountPoints) {
+        & "$env:SystemRoot\System32\mountvol.exe" $mountPoint /d 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            throw "could not safely remove mount path '$mountPoint' (mountvol exit $LASTEXITCODE); close applications using the volume and retry"
+            throw "could not remove mount path '$mountPoint' after dismounting $($plan.DrivePath)"
         }
     }
 }
