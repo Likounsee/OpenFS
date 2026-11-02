@@ -17386,6 +17386,30 @@ mod tests {
                 .stream_persistent_file_to_writer(&mut device, "/large.bin", &mut RejectWrites,)
                 .is_err());
 
+            // A writer that reports zero progress must become WriteZero rather
+            // than silently returning a short successful stream.
+            struct ZeroWrites;
+            impl std::io::Write for ZeroWrites {
+                fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                    Ok(0)
+                }
+
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            assert!(matches!(
+                volume.stream_persistent_object_range_to_writer(
+                    &mut device,
+                    ObjectId(2),
+                    0,
+                    1,
+                    &mut ZeroWrites,
+                ),
+                Err(openfs_core::Error::Io(error))
+                    if error.kind() == std::io::ErrorKind::WriteZero
+            ));
+
             // Empty ranges still flush the destination, and a flush error must
             // not be hidden just because no payload bytes were emitted.
             struct RejectFlush;
