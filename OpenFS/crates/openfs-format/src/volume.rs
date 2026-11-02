@@ -17303,6 +17303,23 @@ mod tests {
             assert_eq!(streamed_count, 3);
             assert_eq!(streamed_suffix, expected[suffix_start..]);
 
+            // Stable object IDs must expose the same bounded range as path-based
+            // streaming without requiring callers to retain a namespace path.
+            let mut streamed_by_id = Vec::new();
+            assert_eq!(
+                volume
+                    .stream_persistent_object_range_to_writer(
+                        &mut device,
+                        ObjectId(2),
+                        suffix_start as u64,
+                        u64::MAX,
+                        &mut streamed_by_id,
+                    )
+                    .unwrap(),
+                3
+            );
+            assert_eq!(streamed_by_id, expected[suffix_start..]);
+
             // Exercise the whole-file streaming entry point independently,
             // including Write::write implementations that accept short chunks.
             struct ChunkedWriter(Vec<u8>);
