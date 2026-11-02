@@ -8647,42 +8647,42 @@ impl<D: BlockDevice> VolumeSession<D> {
     fn discover_next_object_id(&mut self) -> Result<u128> {
         use std::collections::{HashSet, VecDeque};
 
-        const PAGE_SIZE: usize = 1024;
-        let root = self.stat("/")?;
-        let mut maximum = root.id.0;
-        let mut pending = VecDeque::from([("/".to_owned(), root.id.0)]);
-        let mut visited_directories = HashSet::from([root.id.0]);
+        let Some((_, namespace)) = self.opened.reconstruct_discovered_namespace(&mut self.device)? else {
+            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+        };
+        let root_id = namespace.root_id();
+        let mut maximum = root_id.0;
+        let mut pending = VecDeque::from([root_id]);
+        let mut visited_directories = HashSet::from([root_id.0]);
 
-        while let Some((directory_path, _directory_id)) = pending.pop_front() {
-            let mut after_name: Option<String> = None;
-            loop {
-                let entries =
-                    self.read_directory(&directory_path, after_name.as_deref(), PAGE_SIZE)?;
-                if entries.is_empty() {
-                    break;
+        while let Some(directory_id) = pending.pop_front() {
+            namespace.visit_directory(directory_id, |entry, _record| {
+                maximum = maximum.max(entry.object_id);
+                if entry.kind == crate::ObjectKind::Directory
+                    && visited_directories.insert(entry.object_id)
+                {
+                    pending.push_back(crate::ObjectId(entry.object_id));
                 }
-                for entry in &entries {
-                    maximum = maximum.max(entry.object_id);
-                    if entry.kind == crate::ObjectKind::Directory
-                        && visited_directories.insert(entry.object_id)
-                    {
-                        let child_path = if directory_path == "/" {
-                            format!("/{name}", name = entry.name)
-                        } else {
-                            format!("{directory_path}/{name}", name = entry.name)
-                        };
-                        pending.push_back((child_path, entry.object_id));
-                    }
-                }
-                if entries.len() < PAGE_SIZE {
-                    break;
-                }
-                after_name = entries.last().map(|entry| entry.name.clone());
-            }
+                true
+            })?;
         }
 
         maximum.checked_add(1).ok_or(Error::ArithmeticOverflow)
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     /// Create an empty regular file beneath an existing directory.
     ///
