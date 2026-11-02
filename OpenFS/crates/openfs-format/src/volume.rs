@@ -17984,6 +17984,14 @@ mod tests {
                 "final.txt"
             );
             mounted.rename("/documents", "/", "docs").unwrap();
+            let mut visited = Vec::new();
+            mounted
+                .visit_directory_by_id(ObjectId(2), |entry, metadata| {
+                    visited.push((entry.name.clone(), metadata.size));
+                    false
+                })
+                .unwrap();
+            assert_eq!(visited, [("final.txt".to_owned(), 27)]);
             mounted.set_file_len("/docs/final.txt", 12).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/final.txt").unwrap(),
@@ -18302,6 +18310,26 @@ impl OpenedVolume {
         let directory_id = namespace.resolve_path(directory_path)?;
         namespace.visit_directory(directory_id, visitor)
     }
+
+    /// Visit a persistent directory by stable object ID from one validated snapshot.
+    ///
+    /// This avoids path resolution for open directory handles and remains valid after
+    /// the directory is renamed or moved.
+    pub fn visit_persistent_directory_by_id<D, F>(
+        &self,
+        device: &mut D,
+        directory_id: ObjectId,
+        visitor: F,
+    ) -> Result<()>
+    where
+        D: BlockDevice,
+        F: FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
+    {
+        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput("persistent namespace is not initialized"));
+        };
+        namespace.visit_directory(directory_id, visitor)
+    }
 }
 
 impl<D: BlockDevice> VolumeSession<D> {
@@ -18316,5 +18344,18 @@ impl<D: BlockDevice> VolumeSession<D> {
     ) -> Result<()> {
         self.opened
             .visit_persistent_directory(&mut self.device, directory_path, visitor)
+    }
+
+    /// Visit a directory by stable object ID from one validated disk snapshot.
+    ///
+    /// The callback receives lexical entries and their metadata; returning false stops
+    /// iteration early. The handle remains valid after directory rename or move.
+    pub fn visit_directory_by_id(
+        &mut self,
+        directory_id: ObjectId,
+        visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
+    ) -> Result<()> {
+        self.opened
+            .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)
     }
 }
