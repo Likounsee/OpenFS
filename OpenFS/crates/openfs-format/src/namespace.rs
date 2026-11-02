@@ -881,9 +881,13 @@ impl Namespace {
                     "directory entry disagrees with object metadata",
                 ));
             }
-            if !self.parents.get(&object_id).is_some_and(|(indexed_parent, indexed_name)| {
-                *indexed_parent == *parent_id && indexed_name == key_name
-            }) {
+            if !self
+                .parents
+                .get(&object_id)
+                .is_some_and(|(indexed_parent, indexed_name)| {
+                    *indexed_parent == *parent_id && indexed_name == key_name
+                })
+            {
                 return Err(Error::Corrupt("object-to-parent index is inconsistent"));
             }
             if !referenced.insert(object_id) {
