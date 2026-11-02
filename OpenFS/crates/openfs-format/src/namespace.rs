@@ -105,7 +105,7 @@ impl Namespace {
             entry.encode().map_err(|_| {
                 Error::Corrupt("invalid directory entry during namespace reconstruction")
             })?;
-            let key = (ObjectId::new(entry.parent_id)?, try_clone_name(&entry.name)?); let parent_name = try_clone_name(&entry.name)?; let object_id = ObjectId::new(entry.object_id)?;
+            let parent_id = ObjectId::new(entry.parent_id)?; let key = (parent_id, try_clone_name(&entry.name)?); let parent_name = try_clone_name(&entry.name)?; let object_id = ObjectId::new(entry.object_id)?;
             if names.insert(key, entry).is_some() {
                 return Err(Error::Corrupt(
                     "duplicate directory name in metadata inventory",
@@ -114,7 +114,7 @@ impl Namespace {
             if parents
                 .insert(
                     object_id,
-                    (ObjectId(entry.parent_id), parent_name),
+                    (parent_id, parent_name),
                 )
                 .is_some()
             {
