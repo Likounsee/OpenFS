@@ -70,7 +70,9 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .ok_or("missing physical disk index")?
                 .parse::<u32>()?;
             let expected_model = args.next().ok_or("missing exact physical disk model")?;
-            let expected_serial = args.next().ok_or("missing exact physical disk serial number")?;
+            let expected_serial = args
+                .next()
+                .ok_or("missing exact physical disk serial number")?;
             let expected_size = args
                 .next()
                 .ok_or("missing exact physical disk capacity in bytes")?
@@ -96,7 +98,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
             }
             #[cfg(not(windows))]
             {
-                let _ = (disk_index, expected_model, expected_serial, expected_size, block_size);
+                let _ = (
+                    disk_index,
+                    expected_model,
+                    expected_serial,
+                    expected_size,
+                    block_size,
+                );
                 Err("format-disk currently requires Windows".into())
             }
         }
