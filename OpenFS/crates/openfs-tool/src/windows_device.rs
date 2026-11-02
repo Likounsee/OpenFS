@@ -232,17 +232,39 @@ fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
 /// their existing drive-letter/directory mount-point configuration. The caller must
 /// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
 /// Boot and system disks are always rejected.
+
+/// Run a static PowerShell disk script with caller values passed only through the environment.
 #[cfg(windows)]
-pub fn prepare_disk_for_raw_access(
+fn run_disk_script(
+    script: &str,
     index: u32,
     expected_unique_id: &str,
-) -> Result<(u64, u32), Box<dyn StdError>> {
+    operation: &str,
+) -> Result<String, Box<dyn StdError>> {
     use std::process::Command;
 
     if expected_unique_id.trim().is_empty() {
         return Err("an exact non-empty disk UniqueId is required".into());
     }
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "{operation} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ).into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
 
+#[cfg(windows)]
+pub fn prepare_disk_for_raw_access(
+    index: u32,
+    expected_unique_id: &str,
+) -> Result<(u64, u32), Box<dyn StdError>> {
     // Values supplied by the caller are environment data, never interpolated into
     // PowerShell source. fsutil dismounts mounted filesystems without changing
     // the physical disk's IsOffline state.
@@ -306,24 +328,13 @@ if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
 [Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
 "#;
 
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            SCRIPT,
-        ])
-        .env("OPENFS_DISK_INDEX", index.to_string())
-        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
-        .output()?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("physical disk preflight failed: {}", detail.trim()).into());
-    }
-    let stdout = String::from_utf8(output.stdout)?;
-    parse_verified_geometry(&stdout)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+    parse_verified_geometry(&run_disk_script(
+        SCRIPT,
+        index,
+        expected_unique_id,
+        "physical disk preflight",
+    )?)
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
 /// Revalidate the disk identity and geometry after the exclusive raw handle is open.
@@ -336,11 +347,6 @@ pub fn verify_disk_identity_geometry(
     index: u32,
     expected_unique_id: &str,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
-    use std::process::Command;
-
-    if expected_unique_id.trim().is_empty() {
-        return Err("an exact non-empty disk UniqueId is required".into());
-    }
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $disk = Get-Disk -Number ([int]$env:OPENFS_DISK_INDEX) -ErrorAction Stop
@@ -355,18 +361,13 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
 }
 [Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
 "#;
-    let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .env("OPENFS_DISK_INDEX", index.to_string())
-        .env("OPENFS_DISK_UNIQUE_ID", expected_unique_id)
-        .output()?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("physical disk identity recheck failed: {}", detail.trim()).into());
-    }
-    let stdout = String::from_utf8(output.stdout)?;
-    parse_verified_geometry(&stdout)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+    parse_verified_geometry(&run_disk_script(
+        SCRIPT,
+        index,
+        expected_unique_id,
+        "physical disk identity recheck",
+    )?)
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
 #[cfg(all(not(windows), test))]
