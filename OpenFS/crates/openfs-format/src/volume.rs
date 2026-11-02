@@ -17960,6 +17960,11 @@ mod tests {
                 ObjectId(14)
             );
 
+            // Reopening must discover IDs throughout nested directories before allocating.
+            let post_remount_auto = mounted.create_file_auto("/docs", "post-remount.txt").unwrap();
+            assert_eq!(post_remount_auto.0, cross_parent_ids[1].0 + 1);
+            mounted.remove("/docs/post-remount.txt").unwrap();
+
             // Cross-directory renames are committed together and retain stable IDs.
             mounted
                 .rename_objects(&[
