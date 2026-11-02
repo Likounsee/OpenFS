@@ -2624,6 +2624,16 @@ fn probe_read_only_device(
     Ok(())
 }
 
+fn ensure_disk_geometry_unchanged(
+    expected: (u64, u32),
+    actual: (u64, u32),
+) -> Result<(), &'static str> {
+    if actual != expected {
+        return Err("disk identity or geometry changed during preflight; refusing to format");
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn format_disk_device(
     disk_index: u32,
@@ -2648,6 +2658,12 @@ fn format_disk_device(
 
     let (size_bytes, logical_sector_size) =
         windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
+    // The disk may have changed between the initial check and volume dismount.
+    // Never derive the raw-device geometry from a different snapshot.
+    ensure_disk_geometry_unchanged(
+        (initial_size, initial_sector_size),
+        (size_bytes, logical_sector_size),
+    )?;
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let mut device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck transport after acquiring the exclusive PhysicalDrive handle.
@@ -2788,6 +2804,25 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn physical_format_preflight_rejects_changed_disk_geometry() {
+        assert!(super::ensure_disk_geometry_unchanged(
+            (123_009_761_280, 512),
+            (123_009_761_280, 512),
+        )
+        .is_ok());
+        assert!(super::ensure_disk_geometry_unchanged(
+            (123_009_761_280, 512),
+            (64_000_000_000, 512),
+        )
+        .is_err());
+        assert!(super::ensure_disk_geometry_unchanged(
+            (123_009_761_280, 512),
+            (123_009_761_280, 4096),
+        )
+        .is_err());
     }
 
     #[test]
