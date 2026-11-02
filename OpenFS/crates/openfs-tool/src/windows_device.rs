@@ -205,12 +205,6 @@ pub fn list_devices() -> Result<(), Box<dyn StdError>> {
     Err("list-devices currently requires Windows (Get-Disk and Win32_DiskDrive via CIM)".into())
 }
 
-/// Validate the selected physical disk, dismount its mounted volumes, and report geometry.
-///
-/// OpenFS deliberately does not require the physical disk to be Offline. Instead, every
-/// mounted filesystem volumes are dismounted and their mount points removed before raw access.
-/// The caller must then acquire an exclusive PhysicalDrive handle; failure to do so aborts
-/// the operation. Boot and system disks are always rejected.
 #[cfg(any(windows, test))]
 fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
     let fields: Vec<&str> = output.trim().split('\t').collect();
@@ -232,6 +226,12 @@ fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
     Ok((size_bytes, logical_sector_size))
 }
 
+/// Validate a selected physical disk, dismount its mounted filesystem volumes, and report geometry.
+///
+/// The physical disk remains Online. OpenFS dismounts mounted filesystem volumes and removes
+/// their drive-letter/directory mount points before opening the raw device. The caller must
+/// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
+/// Boot and system disks are always rejected.
 #[cfg(windows)]
 pub fn prepare_disk_for_raw_access(
     index: u32,
