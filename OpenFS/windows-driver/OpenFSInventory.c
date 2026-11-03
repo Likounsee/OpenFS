@@ -1,4 +1,5 @@
 #include "OpenFSInventory.h"
+#include "OpenFSNamespace.h"
 
 #ifdef OPENFS_HOST_TEST
 #include <stdlib.h>
