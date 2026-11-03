@@ -49,7 +49,7 @@ OpenFsDecodeSuperblock(
     SIZE_T reservedStart;
     SIZE_T index;
 
-    if (RtlCompareMemory(Bytes, "OPENFS\\0\\0", 8) != 8) {
+    if (RtlCompareMemory(Bytes, "OPENFS\0\0", 8) != 8) {
         return STATUS_UNRECOGNIZED_VOLUME;
     }
 
