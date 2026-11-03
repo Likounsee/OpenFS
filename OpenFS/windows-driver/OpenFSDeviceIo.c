@@ -473,10 +473,127 @@ Exit:
     return status;
 }
 
+
+/* Inspect one allocated block for the persistent inventory descriptor. */
+static NTSTATUS
+OpenFsInspectInventoryCandidate(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ ULONGLONG DeviceLength,
+    _In_ const OPENFS_VOLUME_LAYOUT* Layout,
+    _In_ ULONGLONG Block,
+    _In_reads_bytes_(BlockSize) const UCHAR* Candidate,
+    _Inout_ ULONGLONG* DiscoveredBlock
+    )
+{
+    ULONGLONG bitsPerBitmapBlock =
+        (ULONGLONG)Geometry->BlockSize * 8u;
+    NTSTATUS status;
+    OPENFS_INVENTORY_DESCRIPTOR descriptor;
+    ULONG listIndex;
+
+    if (RtlCompareMemory(Candidate, OPENFS_INVENTORY_DESCRIPTOR_MAGIC, 8) != 8)
+        return STATUS_SUCCESS;
+    status = OpenFsDecodeInventoryDescriptor(
+        Candidate, Geometry->BlockSize, &descriptor);
+    if (!NT_SUCCESS(status)) return status;
+    status = OpenFsValidateInventoryDescriptorRanges(
+        &descriptor, Block, Geometry->TotalBlocks,
+        Layout->DataStartBlock, Layout->BackupSuperblockBlock);
+    if (!NT_SUCCESS(status)) return status;
+    if (*DiscoveredBlock != MAXULONGLONG) return STATUS_DISK_CORRUPT_ERROR;
+    *DiscoveredBlock = Block;
+
+    /* Validate allocation of the descriptor and every referenced block. */
+    for (listIndex = 0; listIndex < 2; ++listIndex) {
+        const UCHAR* list = listIndex == 0
+            ? descriptor.MetadataBlockList : descriptor.DirectoryBlockList;
+        ULONG count = listIndex == 0
+            ? descriptor.MetadataBlockCount : descriptor.DirectoryBlockCount;
+        ULONG index;
+        PUCHAR bitmap = (PUCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, Geometry->BlockSize, OPENFS_DEVICE_IO_TAG);
+        if (bitmap == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+        for (index = 0; index <= count; ++index) {
+            ULONGLONG referenced = index == count
+                ? Block
+                : OpenFsInventoryDescriptorReadBlock(
+                    list + ((SIZE_T)index * 8u));
+            ULONGLONG refBitmapIndex = referenced / bitsPerBitmapBlock;
+            if (refBitmapIndex > MAXULONGLONG / Geometry->BlockSize - 1u) {
+                status = STATUS_INTEGER_OVERFLOW;
+                break;
+            }
+            status = OpenFsReadAtOffset(
+                DeviceObject, (refBitmapIndex + 1u) * Geometry->BlockSize,
+                DeviceLength, bitmap, Geometry->BlockSize);
+            if (!NT_SUCCESS(status)) break;
+            status = OpenFsValidateInventoryDescriptorBitmapPage(
+                &descriptor, Block, bitmap, Geometry->BlockSize,
+                refBitmapIndex * bitsPerBitmapBlock, Geometry->TotalBlocks);
+            if (!NT_SUCCESS(status)) break;
+        }
+        ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
+        if (!NT_SUCCESS(status)) return status;
+    }
+    return OpenFsValidateDiscoveredNamespace(
+        DeviceObject, DeviceLength, Geometry, Layout, &descriptor);
+}
+
+/*
+ * Candidate blocks are collected only while physically contiguous. Read up to
+ * 64 adjacent blocks in one IRP, matching the bounded discovery strategy used
+ * by the canonical format implementation instead of issuing one IRP per block.
+ */
+static NTSTATUS
+OpenFsFlushInventoryScanBatch(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ ULONGLONG DeviceLength,
+    _In_ const OPENFS_VOLUME_LAYOUT* Layout,
+    _In_reads_(BlockCount) const ULONGLONG* Blocks,
+    _In_ ULONG BlockCount,
+    _Out_writes_bytes_(BatchBytes) UCHAR* Batch,
+    _In_ ULONG BatchBytes,
+    _Inout_ ULONGLONG* DiscoveredBlock
+    )
+{
+    ULONG expectedBytes;
+    ULONG index;
+    NTSTATUS status;
+    ULONGLONG byteOffset;
+
+    if (BlockCount == 0) return STATUS_SUCCESS;
+    if (Blocks == NULL || Batch == NULL || DiscoveredBlock == NULL ||
+        BlockCount > 64u ||
+        BlockCount > MAXULONG / Geometry->BlockSize) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    expectedBytes = BlockCount * Geometry->BlockSize;
+    if (BatchBytes < expectedBytes ||
+        Blocks[0] > MAXULONGLONG / Geometry->BlockSize) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+    byteOffset = Blocks[0] * Geometry->BlockSize;
+    status = OpenFsReadAtOffset(
+        DeviceObject, byteOffset, DeviceLength, Batch, expectedBytes);
+    if (!NT_SUCCESS(status)) return status;
+
+    for (index = 0; index < BlockCount; ++index) {
+        if (index != 0 && Blocks[index] != Blocks[index - 1u] + 1u)
+            return STATUS_INVALID_PARAMETER;
+        status = OpenFsInspectInventoryCandidate(
+            DeviceObject, Geometry, DeviceLength, Layout, Blocks[index],
+            Batch + ((SIZE_T)index * Geometry->BlockSize), DiscoveredBlock);
+        if (!NT_SUCCESS(status)) return status;
+    }
+    return STATUS_SUCCESS;
+}
+
 /*
  * Scan allocated data blocks for the unique persistent inventory descriptor.
- * The scan is authoritative: the superblock hint is only an optimization and
- * is deliberately not trusted as proof of uniqueness.
+ * Bitmap bits are gathered into bounded contiguous batches; the superblock
+ * hint remains non-authoritative, so uniqueness is established by full scan.
  */
 static NTSTATUS
 OpenFsDiscoverInventoryDescriptor(
@@ -487,12 +604,13 @@ OpenFsDiscoverInventoryDescriptor(
 {
     OPENFS_VOLUME_LAYOUT layout;
     ULONGLONG bitsPerBitmapBlock;
-    ULONGLONG firstBitmap;
-    ULONGLONG lastBitmap;
-    ULONGLONG bitmapIndex;
+    ULONGLONG firstBitmap, lastBitmap, bitmapIndex;
     ULONGLONG discoveredBlock = MAXULONGLONG;
+    ULONGLONG pendingBlocks[64];
+    ULONG pendingCount = 0;
+    ULONG batchBytes;
     PUCHAR bitmap;
-    PUCHAR candidate;
+    PUCHAR batch;
     NTSTATUS status;
 
     status = OpenFsCalculateVolumeLayout(
@@ -504,35 +622,41 @@ OpenFsDiscoverInventoryDescriptor(
     if (layout.BackupSuperblockBlock == 0) return STATUS_DISK_CORRUPT_ERROR;
     lastBitmap = (layout.BackupSuperblockBlock - 1u) / bitsPerBitmapBlock;
 
+    if (Geometry->BlockSize > MAXULONG / 64u)
+        return STATUS_INTEGER_OVERFLOW;
+    batchBytes = Geometry->BlockSize * 64u;
     bitmap = (PUCHAR)ExAllocatePool2(
         POOL_FLAG_NON_PAGED, Geometry->BlockSize, OPENFS_DEVICE_IO_TAG);
-    candidate = (PUCHAR)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED, Geometry->BlockSize, OPENFS_DEVICE_IO_TAG);
-    if (bitmap == NULL || candidate == NULL) {
+    batch = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, batchBytes, OPENFS_DEVICE_IO_TAG);
+    if (bitmap == NULL || batch == NULL) {
         if (bitmap != NULL) ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
-        if (candidate != NULL) ExFreePoolWithTag(candidate, OPENFS_DEVICE_IO_TAG);
+        if (batch != NULL) ExFreePoolWithTag(batch, OPENFS_DEVICE_IO_TAG);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     status = STATUS_SUCCESS;
     for (bitmapIndex = firstBitmap; bitmapIndex <= lastBitmap; ++bitmapIndex) {
         ULONGLONG base = bitmapIndex * bitsPerBitmapBlock;
-        ULONGLONG start = layout.DataStartBlock > base ? layout.DataStartBlock : base;
+        ULONGLONG start = layout.DataStartBlock > base
+            ? layout.DataStartBlock : base;
         ULONGLONG end = layout.BackupSuperblockBlock;
-        ULONGLONG pageEnd = base + bitsPerBitmapBlock;
+        ULONGLONG pageEnd;
         ULONGLONG block;
 
+        if (base > MAXULONGLONG - bitsPerBitmapBlock) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        pageEnd = base + bitsPerBitmapBlock;
         if (end > pageEnd) end = pageEnd;
         if (bitmapIndex > MAXULONGLONG / Geometry->BlockSize - 1u) {
             status = STATUS_INTEGER_OVERFLOW;
             goto Exit;
         }
         status = OpenFsReadAtOffset(
-            DeviceObject,
-            (bitmapIndex + 1u) * Geometry->BlockSize,
-            DeviceLength,
-            bitmap,
-            Geometry->BlockSize);
+            DeviceObject, (bitmapIndex + 1u) * Geometry->BlockSize,
+            DeviceLength, bitmap, Geometry->BlockSize);
         if (!NT_SUCCESS(status)) goto Exit;
 
         for (block = start; block < end; ++block) {
@@ -540,78 +664,35 @@ OpenFsDiscoverInventoryDescriptor(
             if ((bitmap[(SIZE_T)(local / 8u)] &
                 (UCHAR)(1u << (local % 8u))) == 0) continue;
 
-            if (block > MAXULONGLONG / Geometry->BlockSize) {
-                status = STATUS_INTEGER_OVERFLOW;
-                goto Exit;
+            if (pendingCount != 0 &&
+                pendingBlocks[pendingCount - 1u] != block - 1u) {
+                status = OpenFsFlushInventoryScanBatch(
+                    DeviceObject, Geometry, DeviceLength, &layout,
+                    pendingBlocks, pendingCount, batch, batchBytes,
+                    &discoveredBlock);
+                if (!NT_SUCCESS(status)) goto Exit;
+                pendingCount = 0;
             }
-            status = OpenFsReadAtOffset(
-                DeviceObject,
-                block * Geometry->BlockSize,
-                DeviceLength,
-                candidate,
-                Geometry->BlockSize);
-            if (!NT_SUCCESS(status)) goto Exit;
-
-            if (RtlCompareMemory(candidate, OPENFS_INVENTORY_DESCRIPTOR_MAGIC, 8) != 8) {
-                continue;
-            }
-            {
-                OPENFS_INVENTORY_DESCRIPTOR descriptor;
-                ULONG listIndex;
-                status = OpenFsDecodeInventoryDescriptor(
-                    candidate, Geometry->BlockSize, &descriptor);
+            pendingBlocks[pendingCount++] = block;
+            if (pendingCount == RTL_NUMBER_OF(pendingBlocks)) {
+                status = OpenFsFlushInventoryScanBatch(
+                    DeviceObject, Geometry, DeviceLength, &layout,
+                    pendingBlocks, pendingCount, batch, batchBytes,
+                    &discoveredBlock);
                 if (!NT_SUCCESS(status)) goto Exit;
-                status = OpenFsValidateInventoryDescriptorRanges(
-                    &descriptor, block, Geometry->TotalBlocks,
-                    layout.DataStartBlock, layout.BackupSuperblockBlock);
-                if (!NT_SUCCESS(status)) goto Exit;
-                if (discoveredBlock != MAXULONGLONG) {
-                    status = STATUS_DISK_CORRUPT_ERROR;
-                    goto Exit;
-                }
-                discoveredBlock = block;
-
-                /* Validate allocation of the descriptor and every referenced block.
-                 * Each referenced bitmap page is read independently; this is correct
-                 * but intentionally conservative until a bounded page cache is added.
-                 */
-                for (listIndex = 0; listIndex < 2; ++listIndex) {
-                    const UCHAR* list = listIndex == 0
-                        ? descriptor.MetadataBlockList : descriptor.DirectoryBlockList;
-                    ULONG count = listIndex == 0
-                        ? descriptor.MetadataBlockCount : descriptor.DirectoryBlockCount;
-                    ULONG index;
-                    for (index = 0; index <= count; ++index) {
-                        ULONGLONG referenced = index == count
-                            ? block
-                            : OpenFsInventoryDescriptorReadBlock(list + ((SIZE_T)index * 8u));
-                        ULONGLONG refBitmapIndex = referenced / bitsPerBitmapBlock;
-                        if (refBitmapIndex > MAXULONGLONG / Geometry->BlockSize - 1u) {
-                            status = STATUS_INTEGER_OVERFLOW;
-                            goto Exit;
-                        }
-                        status = OpenFsReadAtOffset(
-                            DeviceObject,
-                            (refBitmapIndex + 1u) * Geometry->BlockSize,
-                            DeviceLength,
-                            bitmap,
-                            Geometry->BlockSize);
-                        if (!NT_SUCCESS(status)) goto Exit;
-                        status = OpenFsValidateInventoryDescriptorBitmapPage(
-                            &descriptor, block, bitmap, Geometry->BlockSize,
-                            refBitmapIndex * bitsPerBitmapBlock, Geometry->TotalBlocks);
-                        if (!NT_SUCCESS(status)) goto Exit;
-                    }
-                }
-                status = OpenFsValidateDiscoveredNamespace(
-                    DeviceObject, DeviceLength, Geometry, &layout, &descriptor);
-                if (!NT_SUCCESS(status)) goto Exit;
+                pendingCount = 0;
             }
         }
     }
+    if (pendingCount != 0) {
+        status = OpenFsFlushInventoryScanBatch(
+            DeviceObject, Geometry, DeviceLength, &layout,
+            pendingBlocks, pendingCount, batch, batchBytes,
+            &discoveredBlock);
+    }
 
 Exit:
-    ExFreePoolWithTag(candidate, OPENFS_DEVICE_IO_TAG);
+    ExFreePoolWithTag(batch, OPENFS_DEVICE_IO_TAG);
     ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
     return status;
 }
