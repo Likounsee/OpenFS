@@ -2,7 +2,7 @@
 
 #include "OpenFSSuperblock.h"
 
-#define OPENFS_INVENTORY_DESCRIPTOR_MAGIC "OFSMINV\\0"
+#define OPENFS_INVENTORY_DESCRIPTOR_MAGIC "OFSMINV\0"
 #define OPENFS_INVENTORY_DESCRIPTOR_HEADER_BYTES 48u
 #define OPENFS_INVENTORY_DESCRIPTOR_CHECKSUM_OFFSET 40u
 
@@ -28,7 +28,8 @@ OpenFsDecodeInventoryDescriptor(
 NTSTATUS
 OpenFsValidateInventoryDescriptorRanges(
     _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
-    _In_ ULONGLONG DescriptorBlock,\n    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG DescriptorBlock,
+    _In_ ULONGLONG TotalBlocks,
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock
     );
