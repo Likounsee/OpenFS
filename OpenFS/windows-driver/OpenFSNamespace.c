@@ -196,3 +196,149 @@ OpenFsDecodeDirectoryEntry(
     *Entry = decoded;
     return STATUS_SUCCESS;
 }
+
+static BOOLEAN
+OpenFsNamespaceIdEqual(
+    _In_ ULONGLONG LeftLow, _In_ ULONGLONG LeftHigh,
+    _In_ ULONGLONG RightLow, _In_ ULONGLONG RightHigh
+    )
+{
+    return LeftLow == RightLow && LeftHigh == RightHigh;
+}
+
+static LONG
+OpenFsNamespaceFindRecord(
+    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_ ULONG RecordCount,
+    _In_ ULONGLONG IdLow,
+    _In_ ULONGLONG IdHigh
+    )
+{
+    ULONG index;
+    for (index = 0; index < RecordCount; ++index) {
+        if (OpenFsNamespaceIdEqual(Records[index].ObjectIdLow,
+                Records[index].ObjectIdHigh, IdLow, IdHigh)) {
+            return (LONG)index;
+        }
+    }
+    return -1;
+}
+
+NTSTATUS
+OpenFsValidateNamespaceRecords(
+    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(EntryCount) const OPENFS_DIRECTORY_ENTRY* Entries,
+    _In_ ULONG EntryCount,
+    _In_ ULONGLONG RootIdLow,
+    _In_ ULONGLONG RootIdHigh,
+    _In_ ULONGLONG DataStartBlock,
+    _In_ ULONGLONG BackupSuperblockBlock
+    )
+{
+    LONG rootIndex;
+    ULONG index, other;
+    ULONGLONG expectedEntries;
+
+    if ((RecordCount != 0 && Records == NULL) ||
+        (EntryCount != 0 && Entries == NULL) ||
+        RecordCount == 0 || RootIdLow == 0 && RootIdHigh == 0 ||
+        DataStartBlock >= BackupSuperblockBlock) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    expectedEntries = (ULONGLONG)RecordCount - 1u;
+    if (expectedEntries != EntryCount) return STATUS_DISK_CORRUPT_ERROR;
+
+    rootIndex = OpenFsNamespaceFindRecord(
+        Records, RecordCount, RootIdLow, RootIdHigh);
+    if (rootIndex < 0) return STATUS_DISK_CORRUPT_ERROR;
+    if (Records[rootIndex].Kind != 2u ||
+        Records[rootIndex].ParentIdLow != 0 ||
+        Records[rootIndex].ParentIdHigh != 0 ||
+        Records[rootIndex].Size != 0 || Records[rootIndex].HasExtent) {
+        return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    for (index = 0; index < RecordCount; ++index) {
+        const OPENFS_METADATA_RECORD* record = &Records[index];
+        if (index != (ULONG)rootIndex &&
+            OpenFsNamespaceIdEqual(record->ObjectIdLow, record->ObjectIdHigh,
+                RootIdLow, RootIdHigh)) return STATUS_DISK_CORRUPT_ERROR;
+        for (other = index + 1; other < RecordCount; ++other) {
+            const OPENFS_METADATA_RECORD* candidate = &Records[other];
+            if (OpenFsNamespaceIdEqual(record->ObjectIdLow, record->ObjectIdHigh,
+                    candidate->ObjectIdLow, candidate->ObjectIdHigh)) {
+                return STATUS_DISK_CORRUPT_ERROR;
+            }
+            if (record->HasExtent && candidate->HasExtent &&
+                record->ExtentRootBlock == candidate->ExtentRootBlock) {
+                return STATUS_DISK_CORRUPT_ERROR;
+            }
+        }
+        if (record->Kind == 2u && record->HasExtent) return STATUS_DISK_CORRUPT_ERROR;
+        if (record->Kind == 1u && record->Size == 0 && record->HasExtent)
+            return STATUS_DISK_CORRUPT_ERROR;
+        if (record->HasExtent) {
+            if (record->ExtentRootBlock < DataStartBlock ||
+                record->ExtentRootBlock >= BackupSuperblockBlock) {
+                return STATUS_DISK_CORRUPT_ERROR;
+            }
+        }
+    }
+
+    for (index = 0; index < EntryCount; ++index) {
+        const OPENFS_DIRECTORY_ENTRY* entry = &Entries[index];
+        LONG parentIndex = OpenFsNamespaceFindRecord(
+            Records, RecordCount, entry->ParentIdLow, entry->ParentIdHigh);
+        LONG objectIndex = OpenFsNamespaceFindRecord(
+            Records, RecordCount, entry->ObjectIdLow, entry->ObjectIdHigh);
+        if (parentIndex < 0 || objectIndex < 0 ||
+            (ULONG)objectIndex == (ULONG)rootIndex ||
+            Records[parentIndex].Kind != 2u ||
+            Records[objectIndex].ParentIdLow != entry->ParentIdLow ||
+            Records[objectIndex].ParentIdHigh != entry->ParentIdHigh ||
+            Records[objectIndex].Kind != entry->Kind) {
+            return STATUS_DISK_CORRUPT_ERROR;
+        }
+        for (other = index + 1; other < EntryCount; ++other) {
+            const OPENFS_DIRECTORY_ENTRY* candidate = &Entries[other];
+            if (OpenFsNamespaceIdEqual(entry->ObjectIdLow, entry->ObjectIdHigh,
+                    candidate->ObjectIdLow, candidate->ObjectIdHigh)) {
+                return STATUS_DISK_CORRUPT_ERROR;
+            }
+            if (OpenFsNamespaceIdEqual(entry->ParentIdLow, entry->ParentIdHigh,
+                    candidate->ParentIdLow, candidate->ParentIdHigh) &&
+                entry->NameLength == candidate->NameLength &&
+                memcmp(entry->Name, candidate->Name, entry->NameLength) == 0) {
+                return STATUS_DISK_CORRUPT_ERROR;
+            }
+        }
+    }
+
+    /* Every non-root object must be reachable by following directory parents. */
+    for (index = 0; index < RecordCount; ++index) {
+        LONG current = (LONG)index;
+        ULONG depth;
+        if (index == (ULONG)rootIndex) continue;
+        for (depth = 0; depth < RecordCount; ++depth) {
+            LONG parentIndex;
+            const OPENFS_METADATA_RECORD* currentRecord = &Records[current];
+            parentIndex = OpenFsNamespaceFindRecord(
+                Records, RecordCount,
+                currentRecord->ParentIdLow, currentRecord->ParentIdHigh);
+            if (parentIndex < 0 || Records[parentIndex].Kind != 2u)
+                return STATUS_DISK_CORRUPT_ERROR;
+            if (parentIndex == rootIndex) break;
+            current = parentIndex;
+        }
+        if (depth == RecordCount) return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    /* Extent-map roots cannot alias inventory stream blocks. */
+    for (index = 0; index < RecordCount; ++index) {
+        if (!Records[index].HasExtent) continue;
+        /* The physical inventory alias check is performed by the caller, which
+         * owns the descriptor's two block lists. */
+    }
+    return STATUS_SUCCESS;
+}
