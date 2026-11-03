@@ -39,7 +39,7 @@ OpenFsCreateVolumeDevice(
      * StackSize is a signed CCHAR. Refuse an impossible stack depth instead
      * of allowing the addition to wrap and corrupt future IRP forwarding.
      */
-    if (RealDeviceObject->StackSize >= MAXIMUM_CCHAR) {
+    if (RealDeviceObject->StackSize >= (CCHAR)0x7f) {
         return STATUS_INVALID_DEVICE_STATE;
     }
 
