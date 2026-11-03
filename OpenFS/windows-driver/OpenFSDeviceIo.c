@@ -151,6 +151,7 @@ OpenFsProbeVolume(
     _Out_ POPENFS_VOLUME_GEOMETRY Geometry
     )
 {
+    PDEVICE_OBJECT targetDeviceObject;
     PUCHAR records;
     PUCHAR primary;
     PUCHAR backup;
@@ -167,20 +168,27 @@ OpenFsProbeVolume(
     }
     RtlZeroMemory(Geometry, sizeof(*Geometry));
 
-    status = OpenFsQueryDeviceLength(VolumeDeviceObject, &deviceLength);
+    targetDeviceObject = IoGetAttachedDeviceReference(VolumeDeviceObject);
+    if (targetDeviceObject == NULL) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    status = OpenFsQueryDeviceLength(targetDeviceObject, &deviceLength);
     if (!NT_SUCCESS(status)) {
+        ObDereferenceObject(targetDeviceObject);
         return status;
     }
 
     records = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
         OPENFS_SUPERBLOCK_BYTES * 2u, OPENFS_PROBE_BUFFER_TAG);
     if (records == NULL) {
+        ObDereferenceObject(targetDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     primary = records;
     backup = records + OPENFS_SUPERBLOCK_BYTES;
 
-    status = OpenFsReadAtOffset(VolumeDeviceObject, 0, primary,
+    status = OpenFsReadAtOffset(targetDeviceObject, 0, primary,
         OPENFS_SUPERBLOCK_BYTES);
     if (!NT_SUCCESS(status)) {
         goto Exit;
@@ -219,7 +227,7 @@ OpenFsProbeVolume(
         goto Exit;
     }
 
-    status = OpenFsReadAtOffset(VolumeDeviceObject, backupOffset, backup,
+    status = OpenFsReadAtOffset(targetDeviceObject, backupOffset, backup,
         OPENFS_SUPERBLOCK_BYTES);
     if (!NT_SUCCESS(status)) {
         goto Exit;
@@ -229,5 +237,6 @@ OpenFsProbeVolume(
 
 Exit:
     ExFreePoolWithTag(records, OPENFS_PROBE_BUFFER_TAG);
+    ObDereferenceObject(targetDeviceObject);
     return status;
 }
