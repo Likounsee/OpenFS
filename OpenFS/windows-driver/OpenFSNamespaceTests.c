@@ -1,0 +1,192 @@
+#include <stdio.h>
+#include <string.h>
+#include "OpenFSNamespace.h"
+
+static unsigned int g_Checks;
+static unsigned int g_Failures;
+
+static void
+Check(int Condition, const char* Name)
+{
+    ++g_Checks;
+    if (!Condition) {
+        ++g_Failures;
+        fprintf(stderr, "FAIL: %s\n", Name);
+    }
+}
+
+static void
+WriteU32Le(UCHAR* Bytes, ULONG Value)
+{
+    Bytes[0] = (UCHAR)Value;
+    Bytes[1] = (UCHAR)(Value >> 8);
+    Bytes[2] = (UCHAR)(Value >> 16);
+    Bytes[3] = (UCHAR)(Value >> 24);
+}
+
+static void
+WriteU64Le(UCHAR* Bytes, ULONGLONG Value)
+{
+    ULONG index;
+    for (index = 0; index < 8; ++index) {
+        Bytes[index] = (UCHAR)(Value >> (index * 8));
+    }
+}
+
+static void
+Seal(UCHAR* Bytes, SIZE_T ChecksumOffset, SIZE_T ChecksumLength)
+{
+    WriteU32Le(Bytes + ChecksumOffset,
+        OpenFsCrc32C(Bytes, ChecksumLength));
+}
+
+static void
+MakeMetadata(UCHAR* Bytes, UCHAR Kind, ULONGLONG Id, ULONGLONG Parent,
+    ULONGLONG Size, ULONGLONG Extent)
+{
+    memset(Bytes, 0, OPENFS_METADATA_RECORD_BYTES);
+    memcpy(Bytes, "OFSMETA\0", 8);
+    Bytes[8] = 1;
+    Bytes[10] = Kind;
+    WriteU64Le(Bytes + 12, Id);
+    WriteU64Le(Bytes + 28, Parent);
+    WriteU64Le(Bytes + 44, Size);
+    WriteU64Le(Bytes + 52, Extent);
+    WriteU32Le(Bytes + 60, 7);
+    Seal(Bytes, 76, 76);
+}
+
+static void
+MakeDirectoryEntry(UCHAR* Bytes, const UCHAR* Name, UCHAR NameLength,
+    ULONGLONG Parent, ULONGLONG Id)
+{
+    memset(Bytes, 0, OPENFS_DIRECTORY_ENTRY_BYTES);
+    memcpy(Bytes, "OFSDENT\0", 8);
+    Bytes[8] = 1;
+    Bytes[10] = 1;
+    Bytes[11] = NameLength;
+    WriteU64Le(Bytes + 12, Parent);
+    WriteU64Le(Bytes + 28, Id);
+    memcpy(Bytes + 44, Name, NameLength);
+    Seal(Bytes, 124, 124);
+}
+
+int
+main(void)
+{
+    UCHAR bytes[OPENFS_DIRECTORY_ENTRY_BYTES];
+    OPENFS_METADATA_RECORD metadata;
+    OPENFS_DIRECTORY_ENTRY entry;
+    static const UCHAR fileName[] = "file.txt";
+    static const UCHAR utf8Name[] = { 'c', 'a', 'f', 0xC3, 0xA9 };
+
+    MakeMetadata(bytes, 2, 1, 0, 0, OPENFS_METADATA_NO_EXTENT);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_SUCCESS,
+        "root directory metadata decodes");
+    Check(metadata.ObjectIdLow == 1 && metadata.ParentIdLow == 0 &&
+        metadata.Kind == 2 && !metadata.HasExtent,
+        "root metadata fields decoded");
+
+    MakeMetadata(bytes, 1, 42, 1, 8192, 17);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_SUCCESS,
+        "file metadata with extent decodes");
+    Check(metadata.Size == 8192 && metadata.ExtentRootBlock == 17 &&
+        metadata.Generation == 7,
+        "file metadata fields decoded");
+
+    MakeMetadata(bytes, 1, 42, 1, 8192, 17);
+    bytes[11] ^= 1;
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_CRC_ERROR,
+        "metadata checksum corruption rejected");
+
+    MakeMetadata(bytes, 1, 42, 1, 8192, 17);
+    bytes[64] = 1;
+    Seal(bytes, 76, 76);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_DISK_CORRUPT_ERROR,
+        "metadata reserved bytes rejected");
+
+    MakeMetadata(bytes, 1, 0, 1, 1, 17);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_DISK_CORRUPT_ERROR,
+        "zero metadata object ID rejected");
+
+    MakeMetadata(bytes, 1, 42, 42, 1, 17);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_DISK_CORRUPT_ERROR,
+        "self-parent metadata rejected");
+
+    MakeMetadata(bytes, 2, 42, 1, 0, 17);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_DISK_CORRUPT_ERROR,
+        "directory metadata cannot own extents");
+
+    MakeMetadata(bytes, 1, 42, 1, 0, 17);
+    Check(OpenFsDecodeMetadataRecord(bytes, &metadata) == STATUS_DISK_CORRUPT_ERROR,
+        "empty file metadata cannot own extents");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_SUCCESS,
+        "directory entry decodes");
+    Check(entry.ParentIdLow == 1 && entry.ObjectIdLow == 42 &&
+        entry.NameLength == sizeof(fileName) - 1 &&
+        memcmp(entry.Name, fileName, sizeof(fileName) - 1) == 0,
+        "directory entry fields decoded");
+
+    MakeDirectoryEntry(bytes, utf8Name, (UCHAR)sizeof(utf8Name), 1, 43);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_SUCCESS,
+        "valid multibyte UTF-8 name decodes");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[44] = '/';
+    Seal(bytes, 124, 124);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "path separator in name rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[44] = 0xC0;
+    bytes[45] = 0xAF;
+    Seal(bytes, 124, 124);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "overlong UTF-8 rejected");
+
+    MakeDirectoryEntry(bytes, (const UCHAR*)"..", 2, 1, 42);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "dot-dot path component rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[44 + sizeof(fileName)] = 1;
+    Seal(bytes, 124, 124);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "directory name padding rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[108] = 1;
+    Seal(bytes, 124, 124);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "directory reserved bytes rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[11] = 0;
+    Seal(bytes, 124, 124);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "empty directory name rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 0, 42);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "zero directory parent ID rejected");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 42, 42);
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_DISK_CORRUPT_ERROR,
+        "directory entry cannot reference its parent as itself");
+
+    MakeDirectoryEntry(bytes, fileName, (UCHAR)(sizeof(fileName) - 1), 1, 42);
+    bytes[12] ^= 1;
+    Check(OpenFsDecodeDirectoryEntry(bytes, &entry) == STATUS_CRC_ERROR,
+        "directory entry checksum corruption rejected");
+
+    Check(OpenFsDecodeMetadataRecord(NULL, &metadata) == STATUS_INVALID_PARAMETER,
+        "null metadata input rejected");
+    Check(OpenFsDecodeDirectoryEntry(NULL, &entry) == STATUS_INVALID_PARAMETER,
+        "null directory input rejected");
+
+    printf("OpenFS namespace codec tests: %u checks, %u failures\n",
+        g_Checks, g_Failures);
+    return g_Failures == 0 ? 0 : 1;
+}
