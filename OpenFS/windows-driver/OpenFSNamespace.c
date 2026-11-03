@@ -225,6 +225,15 @@ OpenFsNamespaceFree(void* Buffer)
 #endif
 }
 
+static BOOLEAN
+OpenFsNamespaceIdEqual(
+    _In_ ULONGLONG LeftLow, _In_ ULONGLONG LeftHigh,
+    _In_ ULONGLONG RightLow, _In_ ULONGLONG RightHigh
+    )
+{
+    return LeftLow == RightLow && LeftHigh == RightHigh;
+}
+
 static ULONGLONG
 OpenFsNamespaceHashId(_In_ ULONGLONG Low, _In_ ULONGLONG High)
 {
@@ -249,7 +258,7 @@ OpenFsNamespaceHashName(_In_ const OPENFS_DIRECTORY_ENTRY* Entry)
 
 static ULONG
 OpenFsNamespaceFindRecord(
-    _In_reads_(Capacity) const OPENFS_METADATA_RECORD* Records,
+    _In_ const OPENFS_METADATA_RECORD* Records,
     _In_reads_(Capacity) const ULONG* Slots,
     _In_ SIZE_T Capacity,
     _In_ ULONGLONG IdLow,
