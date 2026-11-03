@@ -137,7 +137,7 @@ OpenFsDecodeInventoryDescriptor(
 NTSTATUS
 OpenFsValidateInventoryDescriptorRanges(
     _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
-    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG DescriptorBlock,\n    _In_ ULONGLONG TotalBlocks,
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock
     )
@@ -173,7 +173,7 @@ OpenFsValidateInventoryDescriptorRanges(
         for (index = 0; index < lengths[list]; ++index) {
             ULONGLONG block = OpenFsInventoryDescriptorReadBlock(lists[list] + ((SIZE_T)index * 8));
             SIZE_T slot = (SIZE_T)((block ^ (block >> 32)) * 11400714819323198485ull) & (capacity - 1);
-            if (block < DataStartBlock || block >= BackupSuperblockBlock || block >= TotalBlocks) {
+            if (block == DescriptorBlock || block < DataStartBlock ||\n                block >= BackupSuperblockBlock || block >= TotalBlocks) {
                 OPENFS_FREE(slots);
                 return STATUS_DISK_CORRUPT_ERROR;
             }
