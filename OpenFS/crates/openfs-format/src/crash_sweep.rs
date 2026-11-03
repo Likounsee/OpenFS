@@ -520,7 +520,6 @@ fn reclamation_never_frees_referenced_storage() {
     assert_clean(&volume, &mut device, "after no-op reclamation");
 }
 
-
 /// A second power cut during orphan reclamation must be recoverable as well.
 /// The cleanup transaction itself is journaled, so reopening and retrying it must
 /// eventually produce a clean inventory without freeing any published object.
