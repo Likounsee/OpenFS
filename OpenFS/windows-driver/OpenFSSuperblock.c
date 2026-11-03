@@ -1,4 +1,3 @@
-#include <ntifs.h>
 #include "OpenFSSuperblock.h"
 
 static ULONG
@@ -50,13 +49,13 @@ OpenFsDecodeSuperblock(
     SIZE_T reservedStart;
     SIZE_T index;
 
-    if (RtlCompareMemory(Bytes, "OPENFS\0\0", 8) != 8) {
+    if (RtlCompareMemory(Bytes, "OPENFS\\0\\0", 8) != 8) {
         return STATUS_UNRECOGNIZED_VOLUME;
     }
 
     version = (USHORT)(Bytes[8] | ((USHORT)Bytes[9] << 8));
     headerSize = (USHORT)(Bytes[10] | ((USHORT)Bytes[11] << 8));
-    if (version < 2 || version > 4 || headerSize != 48) {
+    if ((version != 2 && version != 3 && version != 4) || headerSize != 48) {
         return STATUS_UNRECOGNIZED_VOLUME;
     }
 
@@ -85,12 +84,12 @@ OpenFsDecodeSuperblock(
     if (totalBlocks > MAXULONGLONG / blockSize) {
         return STATUS_INTEGER_OVERFLOW;
     }
+
     Geometry->BlockSize = blockSize;
     Geometry->TotalBlocks = totalBlocks;
     Geometry->Features = OpenFsReadU64Le(Bytes + 24);
     Geometry->Version = version;
     RtlCopyMemory(Geometry->Uuid, Bytes + 32, sizeof(Geometry->Uuid));
-
     return STATUS_SUCCESS;
 }
 
@@ -127,8 +126,7 @@ OpenFsValidateSuperblocks(
         return STATUS_DISK_CORRUPT_ERROR;
     }
 
-    if (primaryGeometry.TotalBlocks >
-        MAXULONGLONG / primaryGeometry.BlockSize) {
+    if (primaryGeometry.TotalBlocks > MAXULONGLONG / primaryGeometry.BlockSize) {
         return STATUS_INTEGER_OVERFLOW;
     }
     if (primaryGeometry.TotalBlocks * primaryGeometry.BlockSize != DeviceLengthBytes) {
@@ -136,17 +134,14 @@ OpenFsValidateSuperblocks(
     }
 
     /*
-     * Validate the version-specific reserved layout before accepting the
-     * volume. the newest supported on-disk layout reserves two checkpoints plus a
-     * 16-block journal; older layouts retain the historical four-block journal.
+     * VolumeLayout::calculate_for_version in the Rust format crate reserves
+     * two checkpoint blocks plus a 16-block ring for revision 4, and a
+     * two-checkpoint plus four-block ring for revisions 2 and 3.
      */
     {
-        ULONGLONG bitsPerBitmapBlock =
-            (ULONGLONG)primaryGeometry.BlockSize * 8u;
-        ULONGLONG bitmapBlocks =
-            primaryGeometry.TotalBlocks / bitsPerBitmapBlock;
-        ULONGLONG reservedJournalBlocks =
-            (primaryGeometry.Version == 4) ? 18u : 6u;
+        ULONGLONG bitsPerBitmapBlock = (ULONGLONG)primaryGeometry.BlockSize * 8u;
+        ULONGLONG bitmapBlocks = primaryGeometry.TotalBlocks / bitsPerBitmapBlock;
+        ULONGLONG reservedJournalBlocks = (primaryGeometry.Version == 4) ? 18u : 6u;
         ULONGLONG dataStart;
 
         if ((primaryGeometry.TotalBlocks % bitsPerBitmapBlock) != 0) {
@@ -162,9 +157,8 @@ OpenFsValidateSuperblocks(
     }
 
     /*
-     * For the newer on-disk layout, the locator hint at offset 48 may differ between independently
-     * checksummed copies after an interrupted hint update. The stable fields,
-     * reserved bytes, and decoded geometry are compared above.
+     * Revision 3 and 4 have a mutable inventory locator at bytes 48..55.
+     * Its value may differ between independently checksummed copies.
      */
     if (primaryGeometry.Version < 3 &&
         RtlCompareMemory(Primary, Backup, OPENFS_SUPERBLOCK_BYTES) != OPENFS_SUPERBLOCK_BYTES) {
