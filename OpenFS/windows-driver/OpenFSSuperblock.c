@@ -46,7 +46,6 @@ OpenFsDecodeSuperblock(
     USHORT headerSize;
     ULONG blockSize;
     ULONGLONG totalBlocks;
-    ULONGLONG byteLength;
     ULONG storedCrc;
     SIZE_T reservedStart;
     SIZE_T index;
@@ -86,15 +85,12 @@ OpenFsDecodeSuperblock(
     if (totalBlocks > MAXULONGLONG / blockSize) {
         return STATUS_INTEGER_OVERFLOW;
     }
-    byteLength = totalBlocks * blockSize;
-
     Geometry->BlockSize = blockSize;
     Geometry->TotalBlocks = totalBlocks;
     Geometry->Features = OpenFsReadU64Le(Bytes + 24);
     Geometry->Version = version;
     RtlCopyMemory(Geometry->Uuid, Bytes + 32, sizeof(Geometry->Uuid));
 
-    UNREFERENCED_PARAMETER(byteLength);
     return STATUS_SUCCESS;
 }
 
@@ -137,6 +133,32 @@ OpenFsValidateSuperblocks(
     }
     if (primaryGeometry.TotalBlocks * primaryGeometry.BlockSize != DeviceLengthBytes) {
         return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    /*
+     * Validate the version-specific reserved layout before accepting the
+     * volume. v4 reserves two checkpoints plus a 16-block journal; v2/v3
+     * retain the historical four-block journal.
+     */
+    {
+        ULONGLONG bitsPerBitmapBlock =
+            (ULONGLONG)primaryGeometry.BlockSize * 8u;
+        ULONGLONG bitmapBlocks =
+            primaryGeometry.TotalBlocks / bitsPerBitmapBlock;
+        ULONGLONG reservedJournalBlocks =
+            (primaryGeometry.Version == 4) ? 18u : 6u;
+        ULONGLONG dataStart;
+
+        if ((primaryGeometry.TotalBlocks % bitsPerBitmapBlock) != 0) {
+            ++bitmapBlocks;
+        }
+        if (bitmapBlocks > MAXULONGLONG - 1u - reservedJournalBlocks) {
+            return STATUS_INTEGER_OVERFLOW;
+        }
+        dataStart = 1u + bitmapBlocks + reservedJournalBlocks;
+        if (dataStart >= primaryGeometry.TotalBlocks - 1u) {
+            return STATUS_DISK_CORRUPT_ERROR;
+        }
     }
 
     /*
