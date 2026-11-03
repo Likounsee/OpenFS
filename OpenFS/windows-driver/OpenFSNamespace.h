@@ -41,3 +41,19 @@ OpenFsDecodeDirectoryEntry(
     _In_reads_bytes_(OPENFS_DIRECTORY_ENTRY_BYTES) const UCHAR* Bytes,
     _Out_ POPENFS_DIRECTORY_ENTRY Entry
     );
+
+/*
+ * Validate the complete in-memory namespace reconstructed from decoded records.
+ * Records and entries are caller-owned arrays; no allocation is performed here.
+ */
+NTSTATUS
+OpenFsValidateNamespaceRecords(
+    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(EntryCount) const OPENFS_DIRECTORY_ENTRY* Entries,
+    _In_ ULONG EntryCount,
+    _In_ ULONGLONG RootIdLow,
+    _In_ ULONGLONG RootIdHigh,
+    _In_ ULONGLONG DataStartBlock,
+    _In_ ULONGLONG BackupSuperblockBlock
+    );
