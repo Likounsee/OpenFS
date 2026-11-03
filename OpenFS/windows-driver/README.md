@@ -56,6 +56,19 @@ The output is a development driver only. Production installation requires a prop
 No milestone is considered complete merely because the driver loads. Each requires tests against real Windows I/O paths and image-backed regression tests.
 
 
+## Native namespace record codecs
+
+`OpenFSNamespace.c` now contains kernel-safe, allocation-free decoders for the current
+80-byte metadata record and 128-byte directory-entry record. They validate record magic
+and version, CRC32C, reserved/padding bytes, object identity and kind constraints, and
+strict UTF-8 directory names with the format's path-component restrictions. The codecs
+are shared by the WDK driver and strict host-side C tests.
+
+These are record codecs only: they do not yet discover the persistent inventory descriptor,
+load the complete namespace, implement directory indexing, or expose file operations.
+The mount path must not publish a volume until those layers and the root directory are
+initialized.
+
 ## Superblock recognition implementation
 
 `OpenFSSuperblock.c` implements a read-only kernel-safe decoder for the current Rust format's superblock record:
