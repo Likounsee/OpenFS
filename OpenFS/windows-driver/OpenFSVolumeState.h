@@ -26,3 +26,10 @@ OpenFsVolumeStateTryTransition(
     OPENFS_VOLUME_STATE Expected,
     OPENFS_VOLUME_STATE Next
     );
+
+/* A private VDO can be destroyed only before VPB ownership or mount. */
+int
+OpenFsVolumeStateCanDestroy(
+    OPENFS_VOLUME_STATE State,
+    int HasVpb
+    );
