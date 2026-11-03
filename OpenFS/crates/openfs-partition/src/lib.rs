@@ -169,6 +169,9 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
         return Err(Error::InvalidInput("GPT layout no longer matches device geometry"));
     }
     validate_sector_size(layout.sector_size)?;
+    if layout.block_count < 6 {
+        return Err(Error::InvalidInput("device is too small for GPT"));
+    }
     if layout.entry_count == 0 || layout.entry_count > 4096
         || layout.entry_size < 128 || layout.entry_size % 8 != 0
     {
@@ -188,13 +191,17 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
         return Err(Error::InvalidInput("GPT entry array exceeds the 16 MiB safety limit"));
     }
     let entries_blocks = div_ceil(entries_bytes, u64::from(layout.sector_size))?;
-    let backup_header_lba = layout.block_count - 1;
+    let backup_header_lba = layout
+        .block_count
+        .checked_sub(1)
+        .ok_or(Error::ArithmeticOverflow)?;
     let backup_entries_lba = backup_header_lba
         .checked_sub(entries_blocks)
         .ok_or(Error::ArithmeticOverflow)?;
     if layout.first_usable_lba < 2 + entries_blocks
         || layout.first_usable_lba > layout.last_usable_lba
         || layout.last_usable_lba >= backup_entries_lba
+        || layout.last_usable_lba >= layout.block_count
     {
         return Err(Error::InvalidInput("GPT usable-LBA range overlaps GPT metadata"));
     }
