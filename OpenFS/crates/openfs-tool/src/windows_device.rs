@@ -611,7 +611,8 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn physical_disk_preflight_is_explicitly_unsupported_on_non_windows_hosts() {
-        let error = super::prepare_disk_for_raw_access(0, "USB Model", "SERIAL", 64_000_000_000).unwrap_err();
+        let error = super::prepare_disk_for_raw_access(0, "USB Model", "SERIAL", 64_000_000_000)
+            .unwrap_err();
         assert!(error.to_string().contains("currently requires Windows"));
     }
 }
