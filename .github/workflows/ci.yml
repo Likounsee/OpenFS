@@ -86,6 +86,12 @@ jobs:
       - name: Run native volume lifecycle tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-volume-state-tests
+      - name: Compile native namespace codec tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror OpenFSSuperblock.c OpenFSLayout.c OpenFSNamespace.c OpenFSNamespaceTests.c -o openfs-namespace-tests
+      - name: Run native namespace codec tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-namespace-tests
 
   windows-driver-wdk:
     name: Native Windows filesystem driver (WDK x64)
