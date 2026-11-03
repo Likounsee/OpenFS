@@ -22,12 +22,10 @@ use winapi::shared::winerror::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS,
     ERROR_FILE_NOT_FOUND, ERROR_GEN_FAILURE, ERROR_INVALID_PARAMETER, ERROR_SHARING_VIOLATION,
 };
-use winapi::um::fileapi::{
-    CREATE_ALWAYS, CREATE_NEW, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
-};
 use winapi::um::winnt::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_CASE_PRESERVED_NAMES,
-    FILE_CASE_SENSITIVE_SEARCH, FILE_UNICODE_ON_DISK,
+    FILE_CASE_SENSITIVE_SEARCH, FILE_CREATE, FILE_OPEN, FILE_OPEN_IF, FILE_OVERWRITE,
+    FILE_OVERWRITE_IF, FILE_UNICODE_ON_DISK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -450,7 +448,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 if self.is_delete_pending(record.id)? {
                     return Err(OperationError::Win32(ERROR_ACCESS_DENIED));
                 }
-                if create_disposition == CREATE_NEW {
+                if create_disposition == FILE_CREATE {
                     return Err(OperationError::Win32(ERROR_FILE_EXISTS));
                 }
                 // FILE_DIRECTORY_FILE is a constraint, not a requirement that
@@ -460,7 +458,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 }
                 let is_dir = record.kind == ObjectKind::Directory;
                 let handle = self.register_open_handle(record.id, desired_access, share_access)?;
-                if create_disposition == CREATE_ALWAYS || create_disposition == TRUNCATE_EXISTING {
+                if create_disposition == FILE_OVERWRITE || create_disposition == FILE_OVERWRITE_IF {
                     if is_dir {
                         let _ = self.open_handles.close(handle, false);
                         return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
@@ -483,10 +481,10 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 (is_dir, false, record.id, Some(handle))
             }
             Err(CoreError::InvalidInput("path component does not exist")) => {
-                if create_disposition == OPEN_EXISTING || create_disposition == TRUNCATE_EXISTING {
+                if create_disposition == FILE_OPEN || create_disposition == FILE_OVERWRITE {
                     return Err(OperationError::Win32(ERROR_FILE_NOT_FOUND));
                 }
-                if !matches!(create_disposition, CREATE_NEW | CREATE_ALWAYS | OPEN_ALWAYS) {
+                if !matches!(create_disposition, FILE_CREATE | FILE_OPEN_IF | FILE_OVERWRITE_IF) {
                     return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                 }
                 let (parent, name) = split_parent(&path)?;
