@@ -831,6 +831,9 @@ pub fn mount_image(
 pub fn mount_disk_device(
     disk_index: u32,
     unique_id: &str,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
     mount_point: &str,
     block_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
@@ -848,7 +851,12 @@ pub fn mount_disk_device(
     }
 
     let (size_bytes, logical_sector_size) =
-        super::windows_device::prepare_disk_for_raw_access(disk_index, unique_id)?;
+        super::windows_device::prepare_disk_for_raw_access(
+            disk_index,
+            expected_model,
+            expected_serial,
+            expected_size,
+        )?;
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
     let device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
     // Recheck after opening the handle so a disk-index change during the
