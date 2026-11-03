@@ -74,6 +74,33 @@ main(void)
         == STATUS_DISK_CORRUPT_ERROR);
     SetBit(bitmap, 50u, TRUE);
 
+    /* Exercise reserved bits and padding on a second bitmap page. */
+    SetAllAllocated(bitmap, sizeof(bitmap));
+    for (ULONGLONG block = 21u; block < 32768u; ++block) {
+        SetBit(bitmap, block, FALSE);
+    }
+    CHECK(OpenFsValidateBitmapBlock(
+        bitmap, sizeof(bitmap), 0u, 33000u, 3u, 3u, 5u, 21u)
+        == STATUS_SUCCESS);
+
+    SetAllAllocated(bitmap, sizeof(bitmap));
+    for (ULONGLONG block = 0u; block < 33000u - 32768u - 1u; ++block) {
+        SetBit(bitmap, block, FALSE);
+    }
+    CHECK(OpenFsValidateBitmapBlock(
+        bitmap, sizeof(bitmap), 32768u, 33000u, 3u, 3u, 5u, 21u)
+        == STATUS_SUCCESS);
+    SetBit(bitmap, 33000u - 32768u - 1u, FALSE);
+    CHECK(OpenFsValidateBitmapBlock(
+        bitmap, sizeof(bitmap), 32768u, 33000u, 3u, 3u, 5u, 21u)
+        == STATUS_DISK_CORRUPT_ERROR);
+    SetBit(bitmap, 33000u - 32768u - 1u, TRUE);
+    SetBit(bitmap, 33000u - 32768u, FALSE);
+    CHECK(OpenFsValidateBitmapBlock(
+        bitmap, sizeof(bitmap), 32768u, 33000u, 3u, 3u, 5u, 21u)
+        == STATUS_DISK_CORRUPT_ERROR);
+    SetBit(bitmap, 33000u - 32768u, TRUE);
+
     CHECK(OpenFsValidateBitmapBlock(
         bitmap, sizeof(bitmap), 0u, 50u, 2u, 3u, 4u, 6u)
         == STATUS_INVALID_PARAMETER);
