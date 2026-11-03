@@ -113,8 +113,7 @@ OpenFsDecodeInventoryDescriptor(
             OPENFS_DIRECTORY_ENTRY_BYTES, BlockSize, &directoryBlocks))
         return STATUS_DISK_CORRUPT_ERROR;
 
-    requiredBytes = (ULONGLONG)metadataBlocks + directoryBlocks;
-    requiredBytes *= sizeof(ULONGLONG);
+    requiredBytes = ((ULONGLONG)metadataBlocks + directoryBlocks) * sizeof(ULONGLONG);
     usedEnd = OPENFS_INVENTORY_DESCRIPTOR_HEADER_BYTES + requiredBytes;
     if (usedEnd > BlockSize) return STATUS_DISK_CORRUPT_ERROR;
     if (!OpenFsInventoryAllZero(Bytes + (SIZE_T)usedEnd, BlockSize - (SIZE_T)usedEnd))
@@ -124,35 +123,44 @@ OpenFsDecodeInventoryDescriptor(
     decoded.DirectoryBlockCount = directoryBlocks;
     decoded.MetadataBlockList = Bytes + OPENFS_INVENTORY_DESCRIPTOR_HEADER_BYTES;
     decoded.DirectoryBlockList = decoded.MetadataBlockList + ((SIZE_T)metadataBlocks * 8);
-
     *Descriptor = decoded;
     return STATUS_SUCCESS;
 }
 
 /*
- * The on-disk format permits block lists in arbitrary order. Validate uniqueness with
- * a bounded open-addressed hash table, avoiding quadratic scans of attacker-controlled
- * descriptor lists. This also rejects blocks outside the allocatable data region.
+ * Lists are allowed in arbitrary order. Open addressing checks uniqueness in O(n)
+ * expected time and also rejects the descriptor block appearing in its own lists.
  */
 NTSTATUS
 OpenFsValidateInventoryDescriptorRanges(
     _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
-    _In_ ULONGLONG DescriptorBlock,\n    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG DescriptorBlock,
+    _In_ ULONGLONG TotalBlocks,
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock
     )
 {
-    SIZE_T count, capacity = 1, bytes;
+    SIZE_T count, capacity = 1, bytes, i;
     ULONGLONG* slots;
-    SIZE_T i;
     const UCHAR* lists[2];
     ULONG lengths[2];
+    ULONG list;
 
-    if (Descriptor == NULL || Descriptor->BlockSize == 0 ||
-        DataStartBlock >= BackupSuperblockBlock ||
-        BackupSuperblockBlock >= TotalBlocks) return STATUS_INVALID_PARAMETER;
+    if (Descriptor == NULL || Descriptor->BlockSize < 4096 ||
+        Descriptor->BlockSize > OPENFS_INVENTORY_MAX_BLOCK_SIZE ||
+        (Descriptor->BlockSize & (Descriptor->BlockSize - 1)) != 0 ||
+        (Descriptor->MetadataBlockCount != 0 && Descriptor->MetadataBlockList == NULL) ||
+        (Descriptor->DirectoryBlockCount != 0 && Descriptor->DirectoryBlockList == NULL) ||
+        DataStartBlock >= BackupSuperblockBlock || BackupSuperblockBlock >= TotalBlocks)
+        return STATUS_INVALID_PARAMETER;
+
+    if (DescriptorBlock < DataStartBlock || DescriptorBlock >= BackupSuperblockBlock ||
+        DescriptorBlock >= TotalBlocks) return STATUS_DISK_CORRUPT_ERROR;
+    if ((SIZE_T)Descriptor->MetadataBlockCount > ((SIZE_T)-1) - Descriptor->DirectoryBlockCount)
+        return STATUS_INTEGER_OVERFLOW;
     count = (SIZE_T)Descriptor->MetadataBlockCount + Descriptor->DirectoryBlockCount;
     if (count == 0) return STATUS_SUCCESS;
+    if (count > ((SIZE_T)-1) / 2) return STATUS_INTEGER_OVERFLOW;
     while (capacity < count * 2) {
         if (capacity > ((SIZE_T)-1) / 2) return STATUS_INTEGER_OVERFLOW;
         capacity *= 2;
@@ -168,12 +176,15 @@ OpenFsValidateInventoryDescriptorRanges(
     lengths[0] = Descriptor->MetadataBlockCount;
     lengths[1] = Descriptor->DirectoryBlockCount;
 
-    for (ULONG list = 0; list < 2; ++list) {
+    for (list = 0; list < 2; ++list) {
         ULONG index;
         for (index = 0; index < lengths[list]; ++index) {
-            ULONGLONG block = OpenFsInventoryDescriptorReadBlock(lists[list] + ((SIZE_T)index * 8));
-            SIZE_T slot = (SIZE_T)((block ^ (block >> 32)) * 11400714819323198485ull) & (capacity - 1);
-            if (block == DescriptorBlock || block < DataStartBlock ||\n                block >= BackupSuperblockBlock || block >= TotalBlocks) {
+            ULONGLONG block = OpenFsInventoryDescriptorReadBlock(
+                lists[list] + ((SIZE_T)index * 8));
+            SIZE_T slot = (SIZE_T)((block ^ (block >> 32)) *
+                11400714819323198485ull) & (capacity - 1);
+            if (block == DescriptorBlock || block < DataStartBlock ||
+                block >= BackupSuperblockBlock || block >= TotalBlocks) {
                 OPENFS_FREE(slots);
                 return STATUS_DISK_CORRUPT_ERROR;
             }
@@ -187,7 +198,6 @@ OpenFsValidateInventoryDescriptorRanges(
             slots[slot] = block;
         }
     }
-
     OPENFS_FREE(slots);
     return STATUS_SUCCESS;
 }
