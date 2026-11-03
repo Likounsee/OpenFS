@@ -45,6 +45,15 @@ OpenFsReadAtOffset(
         return STATUS_INVALID_PARAMETER;
     }
 
+    /*
+     * LARGE_INTEGER offsets are signed. Reject values that cannot be
+     * represented before narrowing ByteOffset into the IRP offset.
+     */
+    if (ByteOffset > (ULONGLONG)MAXLONGLONG ||
+        (ULONGLONG)Length > (ULONGLONG)MAXLONGLONG - ByteOffset) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+
     if (DeviceObject->SectorSize != 0 &&
         ((ByteOffset % DeviceObject->SectorSize) != 0 ||
          (Length % DeviceObject->SectorSize) != 0)) {
@@ -85,8 +94,19 @@ OpenFsReadAtOffset(
     status = IoCallDriver(DeviceObject, irp);
     if (status == STATUS_PENDING) {
         KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(status)) {
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(ioStatus.Status)) {
+        /*
+         * Some lower drivers fail the dispatch without updating the
+         * supplied IO_STATUS_BLOCK. Preserve the returned failure rather
+         * than accidentally treating the zero-initialized status as success.
+         */
+        ioStatus.Status = status;
+    } else {
+        status = ioStatus.Status;
     }
-    status = ioStatus.Status;
     if (NT_SUCCESS(status)) {
         if (ioStatus.Information != Length) {
             status = STATUS_DEVICE_DATA_ERROR;
@@ -133,8 +153,14 @@ OpenFsQueryDeviceLength(
     status = IoCallDriver(DeviceObject, irp);
     if (status == STATUS_PENDING) {
         KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(status)) {
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(ioStatus.Status)) {
+        ioStatus.Status = status;
+    } else {
+        status = ioStatus.Status;
     }
-    status = ioStatus.Status;
     if (!NT_SUCCESS(status)) {
         return status;
     }
