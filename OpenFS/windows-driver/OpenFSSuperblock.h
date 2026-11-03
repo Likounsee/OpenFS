@@ -12,9 +12,7 @@ typedef uint64_t ULONGLONG;
 typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
 
-#define POPENFS_VOLUME_GEOMETRY OPENFS_VOLUME_GEOMETRY*
 #define MAXULONGLONG UINT64_MAX
-
 #define _In_
 #define _Out_
 #define _In_reads_bytes_(Length)
@@ -53,7 +51,7 @@ typedef struct _OPENFS_VOLUME_GEOMETRY {
     ULONGLONG Features;
     USHORT Version;
     UCHAR Uuid[16];
-} OPENFS_VOLUME_GEOMETRY;\ntypedef OPENFS_VOLUME_GEOMETRY* POPENFS_VOLUME_GEOMETRY;
+} OPENFS_VOLUME_GEOMETRY, *POPENFS_VOLUME_GEOMETRY;
 
 ULONG
 OpenFsCrc32C(
