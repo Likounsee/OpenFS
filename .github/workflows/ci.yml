@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile native parser tests
         working-directory: OpenFS/windows-driver
-        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSSuperblockTests.c -o openfs-superblock-tests
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSSuperblockTests.c -o openfs-superblock-tests
       - name: Run native parser tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-superblock-tests
