@@ -343,6 +343,10 @@ OpenFsValidateNamespaceRecords(
     /* Build the object-ID index and reject duplicate metadata IDs. */
     for (index = 0; index < RecordCount; ++index) {
         const OPENFS_METADATA_RECORD* record = &Records[index];
+        if (record->ObjectIdLow == 0 && record->ObjectIdHigh == 0) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
         slot = (SIZE_T)(OpenFsNamespaceHashId(
             record->ObjectIdLow, record->ObjectIdHigh) & (capacity - 1u));
         while (recordSlots[slot] != 0) {
