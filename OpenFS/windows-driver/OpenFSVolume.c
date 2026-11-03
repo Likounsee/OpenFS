@@ -106,23 +106,28 @@ OpenFsDestroyVolumeDevice(
     }
 
     /*
-     * This helper is for unpublished objects only. Once VPB ownership or
-     * mounted-volume references exist, teardown must go through dismount.
+     * Serialize teardown against mount-state updates. Only Initializing is
+     * eligible: accepting Dead here would let two concurrent destroy callers
+     * both attempt to delete the same ERESOURCE and device object.
      */
-    if (vcb->Vpb != NULL ||
-        (vcb->State != OpenFsVolumeInitializing &&
-         vcb->State != OpenFsVolumeDead)) {
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->Vpb != NULL || vcb->State != OpenFsVolumeInitializing) {
+        ExReleaseResourceLite(&vcb->Resource);
         return STATUS_DEVICE_BUSY;
     }
 
-    if (vcb->State == OpenFsVolumeInitializing) {
-        if (!OpenFsVolumeStateTryTransition(
-                &vcb->State,
-                OpenFsVolumeInitializing,
-                OpenFsVolumeDead)) {
-            return STATUS_INVALID_DEVICE_STATE;
-        }
+    if (!OpenFsVolumeStateTryTransition(
+            &vcb->State,
+            OpenFsVolumeInitializing,
+            OpenFsVolumeDead)) {
+        ExReleaseResourceLite(&vcb->Resource);
+        return STATUS_INVALID_DEVICE_STATE;
     }
+
+    ExReleaseResourceLite(&vcb->Resource);
 
     status = ExDeleteResourceLite(&vcb->Resource);
     if (!NT_SUCCESS(status)) {
