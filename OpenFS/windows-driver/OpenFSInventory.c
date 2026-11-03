@@ -157,9 +157,9 @@ OpenFsValidateInventoryDescriptorRanges(
 
     if (DescriptorBlock < DataStartBlock || DescriptorBlock >= BackupSuperblockBlock ||
         DescriptorBlock >= TotalBlocks) return STATUS_DISK_CORRUPT_ERROR;
-    if ((SIZE_T)Descriptor->MetadataBlockCount > ((SIZE_T)-1) - Descriptor->DirectoryBlockCount)
+    count = (SIZE_T)Descriptor->MetadataBlockCount + (SIZE_T)Descriptor->DirectoryBlockCount;
+    if (count < (SIZE_T)Descriptor->MetadataBlockCount)
         return STATUS_INTEGER_OVERFLOW;
-    count = (SIZE_T)Descriptor->MetadataBlockCount + Descriptor->DirectoryBlockCount;
     if (count == 0) return STATUS_SUCCESS;
     if (count > ((SIZE_T)-1) / 2) return STATUS_INTEGER_OVERFLOW;
     while (capacity < count * 2) {
