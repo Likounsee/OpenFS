@@ -204,8 +204,12 @@ OpenFsProbeVolume(
     blockSize = OpenFsDeviceReadU32Le(primary + 12);
     totalBlocks = OpenFsDeviceReadU64Le(primary + 16);
 
-    if ((version != 2 && version != 3 && version != 4) ||
-        headerSize != 48 ||
+    if (version != 2 && version != 3 && version != 4) {
+        status = STATUS_UNRECOGNIZED_VOLUME;
+        goto Exit;
+    }
+
+    if (headerSize != 48 ||
         blockSize < OPENFS_SUPERBLOCK_BYTES ||
         blockSize > 65536 ||
         (blockSize & (blockSize - 1)) != 0 ||
