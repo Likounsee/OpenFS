@@ -1,4 +1,4 @@
-name: Apply Rust formatting
+name: Apply Rust formatting (temporary)
 
 on:
   push:
