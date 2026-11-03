@@ -9,8 +9,5 @@ rust-version.workspace = true
 openfs-core = { path = "../openfs-core" }
 openfs-block = { path = "../openfs-block" }
 
-[dev-dependencies]
-openfs-block = { path = "../openfs-block" }
-
 [lints]
 workspace = true
