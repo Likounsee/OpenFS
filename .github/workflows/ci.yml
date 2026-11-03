@@ -81,6 +81,20 @@ jobs:
         shell: pwsh
         run: |
           winget install --id Microsoft.WindowsWDK.10.0.28000 --exact --silent --accept-package-agreements --accept-source-agreements
+      - name: Add WDK tools to PATH
+        shell: pwsh
+        run: |
+          $wdkRoots = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'),
+            (Join-Path $env:ProgramFiles 'Windows Kits\10')
+          ) | Where-Object { Test-Path $_ }
+          $stampInf = Get-ChildItem -Path $wdkRoots -Filter stampinf.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $stampInf) {
+            throw "stampinf.exe was not found under the installed Windows Kits directories."
+          }
+          $toolDirectory = $stampInf.Directory.FullName
+          Write-Host "Adding WDK tool directory to PATH: $toolDirectory"
+          Add-Content -Path $env:GITHUB_PATH -Value $toolDirectory
       - name: Restore WDK NuGet packages and build driver
         shell: pwsh
         run: |
