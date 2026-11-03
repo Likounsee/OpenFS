@@ -188,8 +188,8 @@ main(void)
 
 
     {
-        OPENFS_METADATA_RECORD records[2];
-        OPENFS_DIRECTORY_ENTRY entries[1];
+        OPENFS_METADATA_RECORD records[3];
+        OPENFS_DIRECTORY_ENTRY entries[2];
         memset(records, 0, sizeof(records));
         memset(entries, 0, sizeof(entries));
         records[0].ObjectIdLow = 1;
@@ -202,32 +202,66 @@ main(void)
         records[1].Generation = 1;
         records[1].HasExtent = TRUE;
         records[1].ExtentRootBlock = 17;
+        records[2].ObjectIdLow = 43;
+        records[2].ParentIdLow = 1;
+        records[2].Kind = 1;
+        records[2].Size = 4096;
+        records[2].Generation = 1;
+        records[2].HasExtent = TRUE;
+        records[2].ExtentRootBlock = 18;
         entries[0].ParentIdLow = 1;
         entries[0].ObjectIdLow = 42;
         entries[0].Kind = 1;
         entries[0].NameLength = 8;
         memcpy(entries[0].Name, "file.txt", 8);
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_SUCCESS,
-            "valid root and file namespace accepted");
-        entries[0].ObjectIdLow = 99;
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+        entries[1].ParentIdLow = 1;
+        entries[1].ObjectIdLow = 43;
+        entries[1].Kind = 1;
+        entries[1].NameLength = 9;
+        memcpy(entries[1].Name, "other.txt", 9);
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_SUCCESS,
+            "valid root and two-file namespace accepted");
+
+        memcpy(entries[1].Name, "file.txt", 8);
+        entries[1].NameLength = 8;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "duplicate sibling names rejected");
+        memcpy(entries[1].Name, "other.txt", 9);
+        entries[1].NameLength = 9;
+
+        records[2].ExtentRootBlock = 17;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "duplicate extent-root ownership rejected");
+        records[2].ExtentRootBlock = 18;
+
+        entries[1].ObjectIdLow = 99;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "directory entry to missing object rejected");
-        entries[0].ObjectIdLow = 42;
-        records[1].ParentIdLow = 77;
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+        entries[1].ObjectIdLow = 43;
+
+        records[2].ParentIdLow = 77;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "orphan parent chain rejected");
-        records[1].ParentIdLow = 1;
-        records[1].ExtentRootBlock = 100;
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+        records[2].ParentIdLow = 1;
+
+        records[2].ExtentRootBlock = 100;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "extent root outside data region rejected");
-        records[1].ExtentRootBlock = 17;
-        records[1].ObjectIdLow = 1;
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+        records[2].ExtentRootBlock = 18;
+
+        records[2].ObjectIdLow = 42;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "duplicate object ID rejected");
-        records[1].ObjectIdLow = 42;
+        records[2].ObjectIdLow = 43;
+
         records[1].ParentIdLow = 42;
-        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "namespace parent cycle rejected");
+        records[1].ParentIdLow = 1;
+
+        records[0].Kind = 1;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "root must be a directory");
     }
 
     printf("OpenFS namespace codec tests: %u checks, %u failures\n",
