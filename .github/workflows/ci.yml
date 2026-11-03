@@ -88,12 +88,14 @@ jobs:
             (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'),
             (Join-Path $env:ProgramFiles 'Windows Kits\10')
           ) | Where-Object { Test-Path $_ }
-          $stampInf = Get-ChildItem -Path $wdkRoots -Filter stampinf.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $stampInf = Get-ChildItem -Path $wdkRoots -Filter stampinf.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Name -eq 'x64' } |
+            Select-Object -First 1
           if ($null -eq $stampInf) {
-            throw "stampinf.exe was not found under the installed Windows Kits directories."
+            throw "The x64 WDK stampinf.exe was not found under the installed Windows Kits directories."
           }
           $toolDirectory = $stampInf.Directory.FullName
-          Write-Host "Adding WDK tool directory to PATH: $toolDirectory"
+          Write-Host "Using x64 WDK tool directory: $toolDirectory"
           Add-Content -Path $env:GITHUB_PATH -Value $toolDirectory
       - name: Restore WDK NuGet packages and build driver
         shell: pwsh
