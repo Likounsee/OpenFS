@@ -13,6 +13,7 @@ path = "src/main.rs"
 openfs-core = { path = "../openfs-core" }
 openfs-block = { path = "../openfs-block" }
 openfs-format = { path = "../openfs-format" }
+openfs-partition = { path = "../openfs-partition" }
 
 [dev-dependencies]
 openfs-core = { path = "../openfs-core" }
