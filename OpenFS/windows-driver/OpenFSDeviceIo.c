@@ -186,7 +186,7 @@ OpenFsProbeVolume(
         goto Exit;
     }
 
-    if (RtlCompareMemory(primary, "OPENFS\\0\\0", 8) != 8) {
+    if (RtlCompareMemory(primary, "OPENFS\0\0", 8) != 8) {
         status = STATUS_UNRECOGNIZED_VOLUME;
         goto Exit;
     }
