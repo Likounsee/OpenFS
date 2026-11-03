@@ -95,7 +95,9 @@ pub fn plan_openfs_gpt<D: BlockDevice>(
         || partition_guid.iter().all(|byte| *byte == 0)
         || disk_guid == partition_guid
     {
-        return Err(Error::InvalidInput("GPT disk and partition GUIDs must be non-zero and distinct"));
+        return Err(Error::InvalidInput(
+            "GPT disk and partition GUIDs must be non-zero and distinct",
+        ));
     }
 
     let entries_bytes = u64::from(GPT_ENTRY_COUNT) * u64::from(GPT_ENTRY_SIZE);
@@ -257,7 +259,13 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
     let entries_crc = crc32_ieee(&entries);
 
     let primary_header = build_header(layout, 1, backup_header_lba, 2, entries_crc)?;
-    let backup_header = build_header(layout, backup_header_lba, 1, backup_entries_lba, entries_crc)?;
+    let backup_header = build_header(
+        layout,
+        backup_header_lba,
+        1,
+        backup_entries_lba,
+        entries_crc,
+    )?;
 
     // Publish the backup copy first.
     device.write_blocks(backup_entries_lba, &padded_entries)?;
@@ -583,7 +591,8 @@ fn decode_partitions(
             return Err(Error::Corrupt("GPT partition range is outside usable LBAs"));
         }
         let attributes = get_u64(entry, 48)?;
-        let name_end = GPT_NAME_OFFSET + GPT_NAME_BYTES.min(entry.len().saturating_sub(GPT_NAME_OFFSET));
+        let name_end = GPT_NAME_OFFSET
+            + GPT_NAME_BYTES.min(entry.len().saturating_sub(GPT_NAME_OFFSET));
         let name = decode_name(&entry[GPT_NAME_OFFSET..name_end]);
         ranges.push((first_lba, last_lba));
         partitions.push(GptPartition {
@@ -674,7 +683,9 @@ fn validate_filesystem_block_size(block_size: u32, sector_size: u32) -> Result<(
         || !block_size.is_power_of_two()
         || block_size % sector_size != 0
     {
-        return Err(Error::InvalidInput("OpenFS block size must be 4 KiB..64 KiB and a multiple of sector size"));
+        return Err(Error::InvalidInput(
+            "OpenFS block size must be 4 KiB..64 KiB and a multiple of sector size",
+        ));
     }
     Ok(())
 }
