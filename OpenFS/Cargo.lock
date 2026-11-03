@@ -84,6 +84,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "openfs-partition"
+version = "0.1.0"
+dependencies = [
+ "openfs-block",
+ "openfs-core",
+]
+
+[[package]]
 name = "openfs-tool"
 version = "0.1.0"
 dependencies = [
@@ -91,6 +99,7 @@ dependencies = [
  "openfs-block",
  "openfs-core",
  "openfs-format",
+ "openfs-partition",
  "widestring",
  "winapi",
 ]
