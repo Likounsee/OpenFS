@@ -12,8 +12,10 @@ The first milestone is only a loadable filesystem-driver skeleton:
 
 - registers an OpenFS filesystem device with the Windows I/O manager;
 - receives filesystem mount notifications;
-- returns `STATUS_UNRECOGNIZED_VOLUME` until native OpenFS volume recognition and mount support are implemented;
-- does **not** mount, format, read, or write OpenFS media yet.
+- queries the target volume length and performs aligned, read-only reads of the primary and backup superblocks;
+- validates magic, internal format revision, CRC32C, geometry, reserved bytes, and the exact volume length;
+- reports a valid OpenFS volume as recognized but returns `STATUS_NOT_IMPLEMENTED` until VCB/VPB mounting and teardown are implemented;
+- does **not** expose a mounted volume, format media, or read/write files yet.
 
 Do not install this development skeleton on a machine that needs a working OpenFS volume. It is not a replacement for the Dokany mount path.
 
@@ -63,4 +65,8 @@ No milestone is considered complete merely because the driver loads. Each requir
 - primary/backup geometry, UUID and stable-field consistency;
 - exact volume byte-length validation.
 
-This parser is not yet called by the mount dispatch routine. That wiring requires safe synchronous reads from the target volume device and a complete VPB/VCB lifecycle. The driver intentionally continues to decline mount requests until that lifecycle is implemented; it must not report a successful mount without a working root directory and teardown path.
+The parser is called by the mount dispatch routine through `OpenFSDeviceIo.c`. The probe obtains the target device length with `IOCTL_DISK_GET_LENGTH_INFO`, reads the primary superblock at byte offset zero, derives the backup-superblock offset from the validated candidate block geometry, reads the backup copy, then validates both copies. Read buffers are nonpaged and aligned to the target device's alignment requirement; reads must respect its logical sector size.
+
+A successful probe is only recognition, not a mount. The dispatch returns `STATUS_NOT_IMPLEMENTED` for a valid OpenFS volume until a VCB/VPB lifecycle, root directory, and teardown path are implemented. It must not report a successful mount before those pieces exist.
+
+The host-side parser tests are built with strict C warnings in CI. They exercise supported revisions, CRC32C's standard test vector, differing revision-3/4 inventory hints, invalid magic/version/header, corrupt checksums, mismatched copies, invalid geometry, and device-length mismatch. These tests do not compile the WDK driver itself.
