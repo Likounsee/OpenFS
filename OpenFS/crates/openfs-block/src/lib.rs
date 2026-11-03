@@ -496,7 +496,6 @@ impl ReadOnlyRawDevice {
     }
 }
 
-
 // Implement the common block-device interface so read-only filesystem checkers can
 // inspect this handle. Mutation remains impossible: writes are rejected and flush is
 // a harmless no-op because this handle never opens the underlying file for writing.

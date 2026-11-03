@@ -846,7 +846,13 @@ pub fn mount_image(
                 partition.sector_count()?,
                 block_size,
             )?;
-            return mount_device(device, partition_bytes, mount_point, block_size, sector_size);
+            return mount_device(
+                device,
+                partition_bytes,
+                mount_point,
+                block_size,
+                sector_size,
+            );
         }
     }
 
@@ -943,7 +949,8 @@ pub fn mount_disk_device(
             if has_protective_mbr {
                 return Err(format!(
                     "disk has a protective MBR but its GPT is invalid: {gpt_error}"
-                ).into());
+                )
+                .into());
             }
             drop(disk);
             let raw_block_count = size_bytes / u64::from(block_size);

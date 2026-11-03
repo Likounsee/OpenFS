@@ -19,8 +19,7 @@ const MIB: u64 = 1024 * 1024;
 /// OpenFS partition type GUID, encoded in GPT on-disk byte order.
 /// Canonical GUID: 4F50454E-4653-4F50-454E-465300000001.
 pub const OPENFS_PARTITION_TYPE_GUID: [u8; 16] = [
-    0x4e, 0x45, 0x50, 0x4f, 0x53, 0x46, 0x50, 0x4f,
-    0x45, 0x4e, 0x46, 0x53, 0x00, 0x00, 0x00, 0x01,
+    0x4e, 0x45, 0x50, 0x4f, 0x53, 0x46, 0x50, 0x4f, 0x45, 0x4e, 0x46, 0x53, 0x00, 0x00, 0x00, 0x01,
 ];
 
 /// One validated GPT partition entry. LBA values are inclusive.
@@ -89,7 +88,9 @@ pub fn plan_openfs_gpt<D: BlockDevice>(
     validate_sector_size(sector_size)?;
     validate_filesystem_block_size(filesystem_block_size, sector_size)?;
     if device.block_count() < 4096 {
-        return Err(Error::InvalidInput("disk is too small for a GPT OpenFS partition"));
+        return Err(Error::InvalidInput(
+            "disk is too small for a GPT OpenFS partition",
+        ));
     }
     if disk_guid.iter().all(|byte| *byte == 0)
         || partition_guid.iter().all(|byte| *byte == 0)
@@ -126,7 +127,9 @@ pub fn plan_openfs_gpt<D: BlockDevice>(
         alignment_sectors,
     );
     if end_exclusive <= first_lba {
-        return Err(Error::InvalidInput("disk has no usable space for an OpenFS partition"));
+        return Err(Error::InvalidInput(
+            "disk has no usable space for an OpenFS partition",
+        ));
     }
     let last_lba = end_exclusive - 1;
     let partition = GptPartition {
@@ -145,7 +148,9 @@ pub fn plan_openfs_gpt<D: BlockDevice>(
     if partition_bytes < u64::from(filesystem_block_size) * 64
         || partition_bytes % u64::from(filesystem_block_size) != 0
     {
-        return Err(Error::InvalidInput("planned OpenFS partition is too small or misaligned"));
+        return Err(Error::InvalidInput(
+            "planned OpenFS partition is too small or misaligned",
+        ));
     }
 
     Ok(GptLayout {
@@ -168,19 +173,25 @@ pub fn plan_openfs_gpt<D: BlockDevice>(
 /// power-loss guarantees.
 pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<()> {
     if device.block_size() != layout.sector_size || device.block_count() != layout.block_count {
-        return Err(Error::InvalidInput("GPT layout no longer matches device geometry"));
+        return Err(Error::InvalidInput(
+            "GPT layout no longer matches device geometry",
+        ));
     }
     validate_sector_size(layout.sector_size)?;
     if layout.block_count < 6 {
         return Err(Error::InvalidInput("device is too small for GPT"));
     }
-    if layout.entry_count == 0 || layout.entry_count > 4096
-        || layout.entry_size < 128 || layout.entry_size % 8 != 0
+    if layout.entry_count == 0
+        || layout.entry_count > 4096
+        || layout.entry_size < 128
+        || layout.entry_size % 8 != 0
     {
         return Err(Error::InvalidInput("GPT entry geometry is invalid"));
     }
     if layout.partitions.is_empty() {
-        return Err(Error::InvalidInput("GPT writer requires at least one partition"));
+        return Err(Error::InvalidInput(
+            "GPT writer requires at least one partition",
+        ));
     }
     if layout.disk_guid.iter().all(|byte| *byte == 0) {
         return Err(Error::InvalidInput("GPT disk GUID must be non-zero"));
@@ -190,7 +201,9 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
         .checked_mul(u64::from(layout.entry_size))
         .ok_or(Error::ArithmeticOverflow)?;
     if entries_bytes > GPT_MAX_ENTRY_BYTES {
-        return Err(Error::InvalidInput("GPT entry array exceeds the 16 MiB safety limit"));
+        return Err(Error::InvalidInput(
+            "GPT entry array exceeds the 16 MiB safety limit",
+        ));
     }
     let entries_blocks = div_ceil(entries_bytes, u64::from(layout.sector_size))?;
     let backup_header_lba = layout
@@ -205,7 +218,9 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
         || layout.last_usable_lba >= backup_entries_lba
         || layout.last_usable_lba >= layout.block_count
     {
-        return Err(Error::InvalidInput("GPT usable-LBA range overlaps GPT metadata"));
+        return Err(Error::InvalidInput(
+            "GPT usable-LBA range overlaps GPT metadata",
+        ));
     }
 
     let entries_len = usize::try_from(entries_bytes).map_err(|_| Error::ArithmeticOverflow)?;
@@ -214,7 +229,8 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
     let mut seen_guids = HashSet::new();
     let mut ranges = Vec::new();
     for partition in &layout.partitions {
-        if partition.entry_index == 0 || partition.entry_index > layout.entry_count
+        if partition.entry_index == 0
+            || partition.entry_index > layout.entry_count
             || !seen_indices.insert(partition.entry_index)
             || partition.type_guid.iter().all(|byte| *byte == 0)
             || partition.unique_guid.iter().all(|byte| *byte == 0)
@@ -285,7 +301,10 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
     mbr[446 + 4] = 0xee;
     mbr[446 + 5..446 + 8].copy_from_slice(&[0xff, 0xff, 0xff]);
     mbr[446 + 8..446 + 12].copy_from_slice(&1_u32.to_le_bytes());
-    let protective_size = layout.block_count.saturating_sub(1).min(u64::from(u32::MAX)) as u32;
+    let protective_size = layout
+        .block_count
+        .saturating_sub(1)
+        .min(u64::from(u32::MAX)) as u32;
     mbr[446 + 12..446 + 16].copy_from_slice(&protective_size.to_le_bytes());
     mbr[510] = 0x55;
     mbr[511] = 0xaa;
@@ -361,7 +380,9 @@ impl<D: BlockDevice> PartitionDevice<D> {
             || sector_count == 0
             || sector_count % sectors_per_filesystem_block != 0
         {
-            return Err(Error::InvalidInput("partition boundaries are not OpenFS-block aligned"));
+            return Err(Error::InvalidInput(
+                "partition boundaries are not OpenFS-block aligned",
+            ));
         }
         Ok(Self {
             inner,
@@ -458,7 +479,9 @@ fn read_gpt_copy<D: BlockDevice>(
     }
     let header_size = get_u32(&header, 12)?;
     if !(GPT_HEADER_SIZE as u32..=sector_size).contains(&header_size) {
-        return Err(Error::Corrupt("GPT header size is outside supported bounds"));
+        return Err(Error::Corrupt(
+            "GPT header size is outside supported bounds",
+        ));
     }
     if get_u32(&header, 20)? != 0 {
         return Err(Error::Corrupt("GPT reserved header field is non-zero"));
@@ -489,7 +512,9 @@ fn read_gpt_copy<D: BlockDevice>(
         || last_usable_lba >= block_count
         || disk_guid.iter().all(|byte| *byte == 0)
     {
-        return Err(Error::Corrupt("GPT header geometry or disk GUID is invalid"));
+        return Err(Error::Corrupt(
+            "GPT header geometry or disk GUID is invalid",
+        ));
     }
     if entry_count == 0 || entry_count > 4096 || entry_size < 128 || entry_size % 8 != 0 {
         return Err(Error::Corrupt("GPT partition-entry geometry is invalid"));
@@ -505,16 +530,10 @@ fn read_gpt_copy<D: BlockDevice>(
         .checked_add(entries_blocks)
         .ok_or(Error::ArithmeticOverflow)?;
     if header_lba == 1 {
-        if backup_lba != block_count - 1
-            || entries_lba < 2
-            || entries_end > first_usable_lba
-        {
+        if backup_lba != block_count - 1 || entries_lba < 2 || entries_end > first_usable_lba {
             return Err(Error::Corrupt("primary GPT entry array is misplaced"));
         }
-    } else if backup_lba != 1
-        || entries_lba <= last_usable_lba
-        || entries_end != header_lba
-    {
+    } else if backup_lba != 1 || entries_lba <= last_usable_lba || entries_end != header_lba {
         return Err(Error::Corrupt("backup GPT entry array is misplaced"));
     }
 
@@ -569,7 +588,9 @@ fn decode_partitions(
         let end = start
             .checked_add(entry_size as usize)
             .ok_or(Error::ArithmeticOverflow)?;
-        let entry = entries.get(start..end).ok_or(Error::Corrupt("GPT entry is truncated"))?;
+        let entry = entries
+            .get(start..end)
+            .ok_or(Error::Corrupt("GPT entry is truncated"))?;
         let type_guid: [u8; 16] = entry[0..16]
             .try_into()
             .map_err(|_| Error::Corrupt("GPT type GUID is truncated"))?;
@@ -591,8 +612,8 @@ fn decode_partitions(
             return Err(Error::Corrupt("GPT partition range is outside usable LBAs"));
         }
         let attributes = get_u64(entry, 48)?;
-        let name_end = GPT_NAME_OFFSET
-            + GPT_NAME_BYTES.min(entry.len().saturating_sub(GPT_NAME_OFFSET));
+        let name_end =
+            GPT_NAME_OFFSET + GPT_NAME_BYTES.min(entry.len().saturating_sub(GPT_NAME_OFFSET));
         let name = decode_name(&entry[GPT_NAME_OFFSET..name_end]);
         ranges.push((first_lba, last_lba));
         partitions.push(GptPartition {
@@ -629,16 +650,21 @@ fn validate_protective_mbr(mbr: &[u8], block_count: u64) -> Result<()> {
             }
             continue;
         }
-        if entry[4] != 0xee || entry[0] != 0
+        if entry[4] != 0xee
+            || entry[0] != 0
             || u32::from_le_bytes(entry[8..12].try_into().unwrap()) != 1
             || u32::from_le_bytes(entry[12..16].try_into().unwrap()) != expected_sectors
         {
-            return Err(Error::Corrupt("MBR is hybrid or has invalid protective coverage"));
+            return Err(Error::Corrupt(
+                "MBR is hybrid or has invalid protective coverage",
+            ));
         }
         protective_entries += 1;
     }
     if protective_entries != 1 {
-        return Err(Error::Corrupt("MBR must contain exactly one protective 0xEE entry"));
+        return Err(Error::Corrupt(
+            "MBR must contain exactly one protective 0xEE entry",
+        ));
     }
     Ok(())
 }
@@ -673,7 +699,9 @@ fn build_header(
 
 fn validate_sector_size(sector_size: u32) -> Result<()> {
     if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
-        return Err(Error::InvalidInput("GPT logical sector size must be 512, 1024, 2048 or 4096"));
+        return Err(Error::InvalidInput(
+            "GPT logical sector size must be 512, 1024, 2048 or 4096",
+        ));
     }
     Ok(())
 }
@@ -777,7 +805,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("openfs-gpt-{label}-{}-{stamp}.img", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "openfs-gpt-{label}-{}-{stamp}.img",
+            std::process::id()
+        ))
     }
 
     fn ids() -> ([u8; 16], [u8; 16]) {
@@ -842,10 +873,12 @@ mod tests {
 
         let mut disk = view.into_inner();
         let mut adjacent = vec![0xff; 512];
-        disk.read_blocks(partition.first_lba - 1, &mut adjacent).unwrap();
+        disk.read_blocks(partition.first_lba - 1, &mut adjacent)
+            .unwrap();
         assert!(adjacent.iter().all(|byte| *byte == 0));
         let mut first_partition_block = vec![0; 4096];
-        disk.read_blocks(partition.first_lba, &mut first_partition_block).unwrap();
+        disk.read_blocks(partition.first_lba, &mut first_partition_block)
+            .unwrap();
         assert_eq!(first_partition_block, expected);
 
         drop(disk);

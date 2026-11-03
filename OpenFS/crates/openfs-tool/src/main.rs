@@ -519,7 +519,9 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
         .ok_or("GPT planner did not create an OpenFS partition")?;
     let first_lba = partition.first_lba;
     let sector_count = partition.sector_count()?;
-    let partition_bytes = sector_count.checked_mul(512).ok_or("partition size overflow")?;
+    let partition_bytes = sector_count
+        .checked_mul(512)
+        .ok_or("partition size overflow")?;
 
     let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
     format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
@@ -2006,8 +2008,7 @@ fn diagnose_raw_gpt(
                 );
                 println!(
                     "  Allocation bitmap: {} blocks at LBA {}",
-                    report.bitmap_blocks,
-                    report.bitmap_start
+                    report.bitmap_blocks, report.bitmap_start
                 );
                 println!(
                     "  Data region: LBA {}..{}",
@@ -2017,9 +2018,18 @@ fn diagnose_raw_gpt(
                 println!("  Allocated data blocks: {}", report.allocated_data_blocks);
                 println!("  Free data blocks: {}", report.free_data_blocks);
                 println!("  Journal generation: {}", report.journal_generation);
-                println!("  Journal checkpoint sequence: {}", report.journal_checkpoint_sequence);
-                println!("  Pending journal records: {}", report.pending_journal_records);
-                println!("  Recoverable transactions: {}", report.recoverable_transactions);
+                println!(
+                    "  Journal checkpoint sequence: {}",
+                    report.journal_checkpoint_sequence
+                );
+                println!(
+                    "  Pending journal records: {}",
+                    report.pending_journal_records
+                );
+                println!(
+                    "  Recoverable transactions: {}",
+                    report.recoverable_transactions
+                );
                 println!(
                     "  Persistent namespace inventory: {}",
                     if report.persistent_inventory_present {
@@ -2900,7 +2910,6 @@ fn format_disk_device(
     Ok(())
 }
 
-
 #[cfg(windows)]
 fn format_gpt_disk_device(
     disk_index: u32,
@@ -2951,7 +2960,9 @@ fn format_gpt_disk_device(
         expected_size,
     )?;
     if confirmed != (size_bytes, logical_sector_size) {
-        return Err("disk identity or geometry changed while opening it; refusing to format".into());
+        return Err(
+            "disk identity or geometry changed while opening it; refusing to format".into(),
+        );
     }
 
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
@@ -2985,7 +2996,10 @@ fn format_gpt_disk_device(
     write_gpt(&mut disk, &layout)?;
     disk.flush()?;
     println!("OpenFS GPT physical disk formatted and initialized.");
-    println!("GPT partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
+    println!(
+        "GPT partition: LBA {first_lba}..={}",
+        first_lba + sector_count - 1
+    );
     println!("OpenFS partition capacity: {partition_bytes} bytes");
     println!("Primary GPT, backup GPT and protective MBR: written and flushed");
     println!("Mount it with mount-disk using the same exact disk identity.");
