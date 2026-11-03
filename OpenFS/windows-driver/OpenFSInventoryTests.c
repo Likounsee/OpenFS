@@ -117,6 +117,34 @@ int main(void) {
     Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_SUCCESS,
         "empty inventory has no invalid block references");
 
+    Make(bytes,sizeof(bytes),40,40);
+    Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
+        "bitmap fixture descriptor decodes");
+    {
+        UCHAR bitmap[4096];
+        memset(bitmap, 0, sizeof(bitmap));
+        /* One 4096-byte bitmap page covers blocks 0..32767. */
+        bitmap[99 / 8] |= (UCHAR)(1u << (99 % 8));
+        bitmap[100 / 8] |= (UCHAR)(1u << (100 % 8));
+        bitmap[200 / 8] |= (UCHAR)(1u << (200 % 8));
+        bitmap[201 / 8] |= (UCHAR)(1u << (201 % 8));
+        Check(OpenFsValidateInventoryDescriptorBitmapPage(&d,99,bitmap,
+            sizeof(bitmap),0,1000)==STATUS_SUCCESS,
+            "descriptor and referenced blocks must be allocated");
+        bitmap[200 / 8] &= (UCHAR)~(1u << (200 % 8));
+        Check(OpenFsValidateInventoryDescriptorBitmapPage(&d,99,bitmap,
+            sizeof(bitmap),0,1000)==STATUS_DISK_CORRUPT_ERROR,
+            "free directory inventory block rejected");
+        bitmap[200 / 8] |= (UCHAR)(1u << (200 % 8));
+        bitmap[99 / 8] &= (UCHAR)~(1u << (99 % 8));
+        Check(OpenFsValidateInventoryDescriptorBitmapPage(&d,99,bitmap,
+            sizeof(bitmap),0,1000)==STATUS_DISK_CORRUPT_ERROR,
+            "free descriptor block rejected");
+        Check(OpenFsValidateInventoryDescriptorBitmapPage(&d,99,bitmap,
+            sizeof(bitmap),1,1000)==STATUS_INVALID_PARAMETER,
+            "misaligned bitmap page rejected");
+    }
+
     printf("OpenFS inventory descriptor tests: %u checks, %u failures\n",checks,failures);
     return failures==0?0:1;
 }
