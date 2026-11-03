@@ -1,0 +1,16 @@
+[package]
+name = "openfs-partition"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+openfs-core = { path = "../openfs-core" }
+openfs-block = { path = "../openfs-block" }
+
+[dev-dependencies]
+openfs-block = { path = "../openfs-block" }
+
+[lints]
+workspace = true
