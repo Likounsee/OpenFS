@@ -268,6 +268,210 @@ Exit:
 }
 
 
+
+static NTSTATUS
+OpenFsReadPackedInventory(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const UCHAR* BlockList,
+    _In_ ULONG BlockCount,
+    _In_ ULONG RecordCount,
+    _In_ ULONG RecordBytes,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG DeviceLength,
+    _Out_writes_bytes_(DestinationBytes) UCHAR* Destination,
+    _In_ SIZE_T DestinationBytes
+    )
+{
+    ULONGLONG requiredBytes = (ULONGLONG)RecordCount * RecordBytes;
+    ULONGLONG requiredBlocks;
+    ULONG index;
+    SIZE_T copied = 0;
+    PUCHAR blockBuffer;
+
+    if (BlockSize == 0 || RecordBytes == 0 ||
+        (requiredBytes != 0 && Destination == NULL) ||
+        requiredBytes != DestinationBytes) return STATUS_INVALID_PARAMETER;
+    requiredBlocks = requiredBytes / BlockSize;
+    if ((requiredBytes % BlockSize) != 0) ++requiredBlocks;
+    if (requiredBlocks != BlockCount || (BlockCount != 0 && BlockList == NULL))
+        return STATUS_DISK_CORRUPT_ERROR;
+    if (BlockCount == 0) return STATUS_SUCCESS;
+
+    blockBuffer = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, BlockSize, OPENFS_DEVICE_IO_TAG);
+    if (blockBuffer == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+
+    for (index = 0; index < BlockCount; ++index) {
+        ULONGLONG block = OpenFsInventoryDescriptorReadBlock(
+            BlockList + ((SIZE_T)index * 8u));
+        SIZE_T remaining = DestinationBytes - copied;
+        ULONG take = (ULONG)(remaining < BlockSize ? remaining : BlockSize);
+        if (block > MAXULONGLONG / BlockSize) {
+            ExFreePoolWithTag(blockBuffer, OPENFS_DEVICE_IO_TAG);
+            return STATUS_INTEGER_OVERFLOW;
+        }
+        {
+            NTSTATUS status = OpenFsReadAtOffset(
+                DeviceObject, block * BlockSize, DeviceLength, blockBuffer, BlockSize);
+            if (!NT_SUCCESS(status)) {
+                ExFreePoolWithTag(blockBuffer, OPENFS_DEVICE_IO_TAG);
+                return status;
+            }
+        }
+        RtlCopyMemory(Destination + copied, blockBuffer, take);
+        copied += take;
+    }
+    ExFreePoolWithTag(blockBuffer, OPENFS_DEVICE_IO_TAG);
+    return copied == DestinationBytes ? STATUS_SUCCESS : STATUS_DISK_CORRUPT_ERROR;
+}
+
+static NTSTATUS
+OpenFsValidateDiscoveredNamespace(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ ULONGLONG DeviceLength,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ const OPENFS_VOLUME_LAYOUT* Layout,
+    _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor
+    )
+{
+    SIZE_T metadataBytes, directoryBytes, recordsBytes, entriesBytes;
+    PUCHAR metadataRaw = NULL, directoryRaw = NULL;
+    POPENFS_METADATA_RECORD records = NULL;
+    POPENFS_DIRECTORY_ENTRY entries = NULL;
+    ULONG index, other;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (Descriptor->MetadataRecordCount == 0 ||
+        Descriptor->MetadataRecordCount > MAXULONG / sizeof(OPENFS_METADATA_RECORD) ||
+        Descriptor->DirectoryEntryCount > MAXULONG / sizeof(OPENFS_DIRECTORY_ENTRY) ||
+        (SIZE_T)Descriptor->MetadataRecordCount >
+            ((SIZE_T)-1) / OPENFS_METADATA_RECORD_BYTES ||
+        (SIZE_T)Descriptor->DirectoryEntryCount >
+            ((SIZE_T)-1) / OPENFS_DIRECTORY_ENTRY_BYTES) {
+        return STATUS_DISK_CORRUPT_ERROR;
+    }
+    metadataBytes = (SIZE_T)Descriptor->MetadataRecordCount *
+        OPENFS_METADATA_RECORD_BYTES;
+    directoryBytes = (SIZE_T)Descriptor->DirectoryEntryCount *
+        OPENFS_DIRECTORY_ENTRY_BYTES;
+    recordsBytes = (SIZE_T)Descriptor->MetadataRecordCount *
+        sizeof(OPENFS_METADATA_RECORD);
+    entriesBytes = (SIZE_T)Descriptor->DirectoryEntryCount *
+        sizeof(OPENFS_DIRECTORY_ENTRY);
+
+    metadataRaw = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, metadataBytes, OPENFS_DEVICE_IO_TAG);
+    records = (POPENFS_METADATA_RECORD)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, recordsBytes, OPENFS_DEVICE_IO_TAG);
+    if (directoryBytes != 0) {
+        directoryRaw = (PUCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, directoryBytes, OPENFS_DEVICE_IO_TAG);
+        entries = (POPENFS_DIRECTORY_ENTRY)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, entriesBytes, OPENFS_DEVICE_IO_TAG);
+    }
+    if (metadataRaw == NULL || records == NULL ||
+        (directoryBytes != 0 && (directoryRaw == NULL || entries == NULL))) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Exit;
+    }
+
+    status = OpenFsReadPackedInventory(
+        DeviceObject, Descriptor->MetadataBlockList,
+        Descriptor->MetadataBlockCount, Descriptor->MetadataRecordCount,
+        OPENFS_METADATA_RECORD_BYTES, Geometry->BlockSize, DeviceLength,
+        metadataRaw, metadataBytes);
+    if (!NT_SUCCESS(status)) goto Exit;
+    if (directoryBytes != 0) {
+        status = OpenFsReadPackedInventory(
+            DeviceObject, Descriptor->DirectoryBlockList,
+            Descriptor->DirectoryBlockCount, Descriptor->DirectoryEntryCount,
+            OPENFS_DIRECTORY_ENTRY_BYTES, Geometry->BlockSize, DeviceLength,
+            directoryRaw, directoryBytes);
+        if (!NT_SUCCESS(status)) goto Exit;
+    }
+
+    for (index = 0; index < Descriptor->MetadataRecordCount; ++index) {
+        status = OpenFsDecodeMetadataRecord(
+            metadataRaw + ((SIZE_T)index * OPENFS_METADATA_RECORD_BYTES),
+            &records[index]);
+        if (!NT_SUCCESS(status)) goto Exit;
+        if (records[index].HasExtent) {
+            for (other = 0; other < Descriptor->MetadataBlockCount; ++other) {
+                if (records[index].ExtentRootBlock ==
+                    OpenFsInventoryDescriptorReadBlock(
+                        Descriptor->MetadataBlockList + ((SIZE_T)other * 8u))) {
+                    status = STATUS_DISK_CORRUPT_ERROR;
+                    goto Exit;
+                }
+            }
+            for (other = 0; other < Descriptor->DirectoryBlockCount; ++other) {
+                if (records[index].ExtentRootBlock ==
+                    OpenFsInventoryDescriptorReadBlock(
+                        Descriptor->DirectoryBlockList + ((SIZE_T)other * 8u))) {
+                    status = STATUS_DISK_CORRUPT_ERROR;
+                    goto Exit;
+                }
+            }
+        }
+    }
+    for (index = 0; index < Descriptor->DirectoryEntryCount; ++index) {
+        status = OpenFsDecodeDirectoryEntry(
+            directoryRaw + ((SIZE_T)index * OPENFS_DIRECTORY_ENTRY_BYTES),
+            &entries[index]);
+        if (!NT_SUCCESS(status)) goto Exit;
+    }
+
+    status = OpenFsValidateNamespaceRecords(
+        records, Descriptor->MetadataRecordCount,
+        entries, Descriptor->DirectoryEntryCount,
+        Descriptor->RootIdLow, Descriptor->RootIdHigh,
+        Layout->DataStartBlock, Layout->BackupSuperblockBlock);
+    if (!NT_SUCCESS(status)) goto Exit;
+
+    /* Every extent-map root must be allocated, not just physically in range. */
+    for (index = 0; index < Descriptor->MetadataRecordCount; ++index) {
+        ULONGLONG root, bitmapIndex, bitmapBlock, localBit;
+        PUCHAR bitmap;
+        if (!records[index].HasExtent) continue;
+        root = records[index].ExtentRootBlock;
+        bitmapIndex = root / ((ULONGLONG)Geometry->BlockSize * 8u);
+        if (bitmapIndex > MAXULONGLONG - Layout->BitmapStartBlock) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        bitmapBlock = Layout->BitmapStartBlock + bitmapIndex;
+        if (bitmapBlock > MAXULONGLONG / Geometry->BlockSize) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        bitmap = (PUCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, Geometry->BlockSize, OPENFS_DEVICE_IO_TAG);
+        if (bitmap == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
+        }
+        status = OpenFsReadAtOffset(
+            DeviceObject, bitmapBlock * Geometry->BlockSize,
+            DeviceLength, bitmap, Geometry->BlockSize);
+        if (NT_SUCCESS(status)) {
+            localBit = root % ((ULONGLONG)Geometry->BlockSize * 8u);
+            if ((bitmap[(SIZE_T)(localBit / 8u)] &
+                (UCHAR)(1u << (localBit % 8u))) == 0) {
+                status = STATUS_DISK_CORRUPT_ERROR;
+            }
+        }
+        ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
+        if (!NT_SUCCESS(status)) goto Exit;
+    }
+
+Exit:
+    if (metadataRaw != NULL) ExFreePoolWithTag(metadataRaw, OPENFS_DEVICE_IO_TAG);
+    if (directoryRaw != NULL) ExFreePoolWithTag(directoryRaw, OPENFS_DEVICE_IO_TAG);
+    if (records != NULL) ExFreePoolWithTag(records, OPENFS_DEVICE_IO_TAG);
+    if (entries != NULL) ExFreePoolWithTag(entries, OPENFS_DEVICE_IO_TAG);
+    return status;
+}
+
 /*
  * Scan allocated data blocks for the unique persistent inventory descriptor.
  * The scan is authoritative: the superblock hint is only an optimization and
@@ -398,6 +602,9 @@ OpenFsDiscoverInventoryDescriptor(
                         if (!NT_SUCCESS(status)) goto Exit;
                     }
                 }
+                status = OpenFsValidateDiscoveredNamespace(
+                    DeviceObject, DeviceLength, Geometry, &layout, &descriptor);
+                if (!NT_SUCCESS(status)) goto Exit;
             }
         }
     }
