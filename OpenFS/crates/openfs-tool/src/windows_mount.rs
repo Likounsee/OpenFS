@@ -1045,6 +1045,15 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dokan_create_disposition_constants_use_native_nt_values() {
+        assert_eq!(super::FILE_OPEN, 1);
+        assert_eq!(super::FILE_CREATE, 2);
+        assert_eq!(super::FILE_OPEN_IF, 3);
+        assert_eq!(super::FILE_OVERWRITE, 4);
+        assert_eq!(super::FILE_OVERWRITE_IF, 5);
+    }
+
     use super::{
         access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
         ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
