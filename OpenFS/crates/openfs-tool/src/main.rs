@@ -40,7 +40,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
         Some("mount") => {
             let image = args.next().ok_or("missing image path")?;
             let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
-            let block_size = parse_block_size(args.next())?;
+            let block_size = parse_optional_block_size(args.next())?;
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
@@ -85,7 +85,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                         .into(),
                 );
             }
-            let block_size = parse_block_size(args.next())?;
+            let block_size = parse_optional_block_size(args.next())?;
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
@@ -133,7 +133,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .ok_or("missing exact physical disk capacity in bytes")?
                 .parse::<u64>()?;
             let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
-            let block_size = parse_block_size(args.next())?;
+            let block_size = parse_optional_block_size(args.next())?;
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
@@ -735,6 +735,13 @@ fn ensure_no_args(args: &mut impl Iterator<Item = String>) -> Result<(), Box<dyn
         Err("too many arguments".into())
     } else {
         Ok(())
+    }
+}
+
+fn parse_optional_block_size(value: Option<String>) -> Result<u32, Box<dyn StdError>> {
+    match value {
+        Some(value) => parse_block_size(Some(value)),
+        None => Ok(BLOCK_SIZE),
     }
 }
 
@@ -3123,6 +3130,16 @@ mod tests {
             "openfs-tool-{label}-{}-{nonce}.img",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn optional_block_size_defaults_to_the_experimental_default() {
+        assert_eq!(super::parse_optional_block_size(None).unwrap(), BLOCK_SIZE);
+        assert_eq!(
+            super::parse_optional_block_size(Some("8192".to_owned())).unwrap(),
+            8192
+        );
+        assert!(super::parse_optional_block_size(Some("1234".to_owned())).is_err());
     }
 
     #[test]
