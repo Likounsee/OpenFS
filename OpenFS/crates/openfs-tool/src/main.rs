@@ -1903,7 +1903,8 @@ fn diagnose_raw_gpt(
         match check_volume(&mut device) {
             Ok(report) => {
                 println!("OpenFS read-only volume check: OK");
-                println!("  Format version: read from validated superblock");
+                let version = u16::from_le_bytes([mbr[8], mbr[9]]);
+                println!("  Format version: {version}");
                 println!("  Block size: {} bytes", report.block_size);
                 println!("  Total blocks: {}", report.total_blocks);
                 println!("  Capacity: {} bytes", u64::from(report.block_size) * report.total_blocks);
@@ -3797,7 +3798,7 @@ mod gpt_tests {
     #[test]
     fn recognizes_openfs_raw_superblock_signature() {
         let mut openfs = vec![0_u8; 4096];
-        openfs[..8].copy_from_slice(b"OPENFS\\0\\0");
+        openfs[..8].copy_from_slice(b"OPENFS\0\0");
         assert_eq!(identify_filesystem_signature(&openfs), "OpenFS");
 
         // A partial or damaged magic must not be reported as an OpenFS volume.
