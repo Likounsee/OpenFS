@@ -190,7 +190,9 @@ TestRejectsBadGeometryAndMagic(void)
 int
 main(void)
 {
-    CHECK(TestCrc32cKnownVector() == 0);\n    CHECK(TestRejectsUnsupportedVersionAndHeader() == 0);\n    CHECK(TestValidRevisions() == 0);
+    CHECK(TestCrc32cKnownVector() == 0);
+    CHECK(TestRejectsUnsupportedVersionAndHeader() == 0);
+    CHECK(TestValidRevisions() == 0);
     CHECK(TestRejectsCorruption() == 0);
     CHECK(TestRejectsBadGeometryAndMagic() == 0);
     printf("OpenFS superblock host tests: %u checks passed\n", g_tests);
