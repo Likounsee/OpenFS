@@ -1717,11 +1717,15 @@ fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> 
     let mut device = ImageDevice::open(path, block_size)?;
     println!("WARNING: recover-image may modify the image while replaying the journal.");
     println!("Path: {}", path.display());
-    let volume = open_volume(&mut device)?;
+    let mut volume = open_volume(&mut device)?;
+    device.flush()?;
+    // A crash can leave blocks that were allocated but never published; free them.
+    let reclaimed_orphans = volume.reclaim_orphaned_blocks(&mut device)?;
     device.flush()?;
     let report = check_volume(&mut device)?;
 
     println!("OpenFS image recovery path completed.");
+    println!("Orphaned blocks reclaimed: {reclaimed_orphans}");
     println!("UUID: {}", format_uuid(volume.volume.uuid));
     println!(
         "Journal records remaining after recovery: {}",

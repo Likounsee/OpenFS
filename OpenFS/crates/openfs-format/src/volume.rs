@@ -543,7 +543,12 @@ impl OpenedVolume {
                             self.volume.layout.journal,
                             &[0, self.volume.layout.backup_superblock],
                         )
-                        .map_err(|_| Error::Corrupt("allocator journal recovery failed"))?;
+                        .map_err(|recovery| match recovery {
+                            // An I/O failure while recovering is still an I/O failure: the
+                            // volume was not proven corrupt, and the caller must reopen it.
+                            Error::Io(_) => recovery,
+                            _ => Error::Corrupt("allocator journal recovery failed"),
+                        })?;
                         existing.fill(0);
                         device.read_blocks(bitmap_block, &mut existing)?;
                         let local = block % bits_per_block;
@@ -1693,7 +1698,6 @@ impl OpenedVolume {
             }
         }
         inspect_batch(&pending_blocks, device)?;
-        drop(inspect_batch);
         Ok(discovered)
     }
 
@@ -8595,7 +8599,11 @@ pub struct VolumeSession<D: BlockDevice> {
 impl<D: BlockDevice> VolumeSession<D> {
     /// Open a volume session and complete journal recovery before exposing file APIs.
     pub fn open(mut device: D) -> Result<Self> {
-        let opened = open_volume(&mut device)?;
+        let mut opened = open_volume(&mut device)?;
+        // Journal recovery restores the last committed state; a crash can still have left
+        // blocks that were allocated but never published. Reclaim them before any writer
+        // can allocate, so a mounted volume never starts with orphaned storage.
+        opened.reclaim_orphaned_blocks(&mut device)?;
         let mut session = Self {
             device,
             opened,
@@ -18498,6 +18506,51 @@ mod tests {
 }
 
 impl OpenedVolume {
+    /// Free blocks that are allocated in the bitmap but owned by nothing published.
+    ///
+    /// Several mutations allocate storage before the namespace that references it is
+    /// published, and reclaim retired storage only after publication is confirmed. A
+    /// power cut between those steps therefore leaves allocated-but-unreferenced blocks.
+    /// After journal recovery there is no in-flight operation (the writer is exclusive),
+    /// so every block that the discovered inventory does not own is unreachable garbage.
+    ///
+    /// The routine refuses to free anything while dangling references exist (a block
+    /// that is referenced but marked free means the ownership graph itself is suspect),
+    /// and every batch goes through the same ownership-checked reclamation used by file
+    /// removal. It returns the number of blocks freed. With no published namespace
+    /// nothing is provably unreferenced, so nothing is freed.
+    pub fn reclaim_orphaned_blocks<D: BlockDevice>(&mut self, device: &mut D) -> Result<u64> {
+        self.validate_device(device)?;
+        let mut freed = 0_u64;
+        loop {
+            let Some(report) = self.verify_discovered_persistent_inventory(device)? else {
+                return Ok(freed);
+            };
+            if report.dangling_reference_count() != 0 {
+                return Err(Error::Corrupt(
+                    "refusing to reclaim orphaned blocks while dangling references exist",
+                ));
+            }
+            if report.orphaned_block_count() == 0 {
+                return Ok(freed);
+            }
+            // The report samples a bounded number of orphans; loop until none remain.
+            // Each pass frees at least one block or fails, so the loop terminates.
+            let mut batch = try_copy_slice(
+                &report.allocation.orphaned_allocations,
+                "allocation failed while staging orphaned block reclamation",
+            )?;
+            if batch.is_empty() {
+                return Err(Error::Corrupt(
+                    "orphaned block count is nonzero but no orphan was reported",
+                ));
+            }
+            let count = u64::try_from(batch.len()).map_err(|_| Error::ArithmeticOverflow)?;
+            self.reclaim_persistent_blocks_in_place(device, &mut batch)?;
+            freed = freed.checked_add(count).ok_or(Error::ArithmeticOverflow)?;
+        }
+    }
+
     /// Visit a discovered persistent directory from one validated namespace snapshot.
     ///
     /// Unlike repeated paginated lookups, this discovers and reconstructs the namespace

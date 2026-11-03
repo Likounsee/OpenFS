@@ -17,6 +17,18 @@ A capacity rejection must occur before persistent bytes change. Ring capacity is
 5. **Checkpoint:** persist and flush the checkpoint only after home application; do not reuse covered ring slots before the checkpoint is durable.
 6. **Ready:** continue only after successful completion. If an I/O failure leaves state uncertain, the current writer must not be reused; reopen and recover.
 
+## Torn-prepare tolerance (power cut inside the unflushed window)
+
+BEGIN and UPDATE records are written before the first flush, so a power cut may persist them in any order or only in part. Recovery therefore treats valid post-checkpoint records that follow an empty, stale or malformed ring slot as an **unacknowledged torn prepare** and ignores and clears them, **provided none of them is a COMMIT**. COMMIT is only written after every earlier record of its transaction is durable, so a COMMIT that follows a gap cannot be produced by a crash and still fails closed (`Corrupt`). Records in the contiguous prefix are interpreted exactly as before.
+
+## Orphan reclamation after a crash
+
+Operations may allocate storage before the namespace that references it is published, and reclaim retired storage only after publication is confirmed. A power cut between those steps leaves allocated-but-unreferenced blocks. `OpenedVolume::reclaim_orphaned_blocks` frees them after journal recovery: it requires a published namespace, refuses to run while any dangling reference exists, and frees through the ownership-checked batch reclamation used by file removal. `VolumeSession::open` (the mount lifecycle) and `recover-image` run it; `audit-image` does not, because an audit reports instead of repairing.
+
+## Power-cut sweep
+
+`crash_sweep.rs` models a volatile write cache (a write is durable only after a successful flush) and injects a power cut at **every** write/flush event of each mutation (create file/directory, content write, range write, append, sparse extension, streamed import, truncate shrink/zero/grow, rename, replace, remove, tree remove). The surviving image is built under four cache-loss scenarios (nothing, everything, even pending blocks, second half of pending blocks). After each cut the volume must reopen, show exactly the old or the new state, have zero orphans and zero dangling references, keep acknowledged operations durable, and remain writable. The full matrix runs with `cargo test --release -p openfs-format crash_sweep`; debug builds run a smoke subset.
+
 ## Error and retry rules
 
 - Writable open must recover the journal before returning a volume handle.

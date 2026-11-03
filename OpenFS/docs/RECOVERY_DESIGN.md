@@ -24,6 +24,10 @@ Persistent namespace and file APIs are implemented in `volume.rs`. Do not descri
 
 The critical ordering rule is that old blocks cannot be reclaimed while the discoverable inventory may still reference them, and new references cannot become visible before their contents are sufficiently durable. When an I/O error makes publication uncertain, recover and rediscover before retrying.
 
+## Crash-time leftovers
+
+A torn BEGIN/UPDATE tail (valid records after a gap, no COMMIT) is ignored and cleared at open. Blocks allocated but never published are reclaimed by `reclaim_orphaned_blocks`, which `VolumeSession::open` and `recover-image` run after journal recovery. A COMMIT after a gap, or any reclamation attempt with dangling references present, fails closed.
+
 ## Corruption policy
 
 Reject invalid record framing, sequence discontinuities, invalid transaction boundaries, duplicate/protected targets, malformed committed redo payloads and impossible checkpoint state. A terminal torn append may only be tolerated where the implementation can prove it is an incomplete terminal record and no valid committed transaction depends on it. Never silently skip corruption that may conceal an acknowledged transaction.

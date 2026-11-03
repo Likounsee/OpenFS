@@ -703,6 +703,36 @@ fn scan_uncheckpointed_records<D: BlockDevice>(
             }
         }
     }
+    // A transaction writes BEGIN and UPDATE records, flushes, and only then writes
+    // COMMIT. Before that first flush the device may persist those records in any
+    // order, or only some of them, so a power cut can leave valid records after an
+    // empty, stale or malformed slot. Such a stray tail cannot contain a COMMIT (COMMIT
+    // is written only after every earlier record is durable), therefore it is an
+    // unacknowledged transaction: ignore it and let recovery clear it. A COMMIT after a
+    // gap can never be produced by this protocol and still fails closed.
+    newer.sort_unstable_by_key(|(slot, _)| *slot);
+    let contiguous_prefix = newer
+        .iter()
+        .enumerate()
+        .take_while(|(index, (slot, _))| u64::try_from(*index).is_ok_and(|i| i == *slot))
+        .count();
+    if contiguous_prefix < newer.len() {
+        if newer[contiguous_prefix..]
+            .iter()
+            .any(|(_, record)| record.kind == JournalRecordKind::Commit)
+        {
+            return Err(Error::Corrupt(if first_malformed_slot.is_some() {
+                "malformed journal block appears before a later valid record"
+            } else {
+                "post-checkpoint journal records are not contiguous from ring start"
+            }));
+        }
+        newer.truncate(contiguous_prefix);
+        let prefix_slot =
+            u64::try_from(contiguous_prefix).map_err(|_| Error::ArithmeticOverflow)?;
+        first_malformed_slot =
+            Some(first_malformed_slot.map_or(prefix_slot, |first: u64| first.min(prefix_slot)));
+    }
     // Sequence numbers are validated for strict continuity by recovery planning;
     // an unstable in-place sort avoids the scratch allocation of stable sorting.
     newer.sort_unstable_by_key(|(_, record)| record.sequence);
@@ -1318,7 +1348,9 @@ mod tests {
     }
 
     #[test]
-    fn open_rejects_post_checkpoint_record_after_empty_ring_slot() {
+    fn open_ignores_and_clears_uncommitted_record_after_empty_ring_slot() {
+        // A power cut inside the unflushed BEGIN/UPDATE window may persist a later slot
+        // without an earlier one. With no COMMIT the transaction was never acknowledged.
         let mut device = formatted();
         let record = crate::JournalRecord {
             kind: crate::JournalRecordKind::Begin,
@@ -1330,6 +1362,35 @@ mod tests {
             .write_blocks(
                 REGION.ring_start + 1,
                 &record.encode_block(BS as usize).unwrap(),
+            )
+            .unwrap();
+        device.flush().unwrap();
+
+        let mut journal = open_journal(&mut device, REGION).unwrap();
+        assert_eq!(read_home(&mut device), vec![0x11; BS as usize]);
+        // The stray record is erased so a later transaction cannot interleave with it.
+        assert!(read_block(&mut device, REGION.ring_start + 1)
+            .iter()
+            .all(|byte| *byte == 0));
+        journal.commit(&mut device, &[update(0x5A)]).unwrap();
+        assert_eq!(read_home(&mut device), vec![0x5A; BS as usize]);
+    }
+
+    #[test]
+    fn open_rejects_commit_record_after_empty_ring_slot() {
+        // COMMIT is written only after every earlier record is durable, so a COMMIT that
+        // follows a gap cannot be produced by a crash and must fail closed.
+        let mut device = formatted();
+        let commit = crate::JournalRecord {
+            kind: crate::JournalRecordKind::Commit,
+            sequence: 1,
+            transaction_id: 1,
+            payload: Vec::new(),
+        };
+        device
+            .write_blocks(
+                REGION.ring_start + 1,
+                &commit.encode_block(BS as usize).unwrap(),
             )
             .unwrap();
         device.flush().unwrap();

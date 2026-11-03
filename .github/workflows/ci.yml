@@ -33,6 +33,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Test workspace (all features)
         run: cargo test --workspace --all-features
+      - name: Full crash-consistency sweep (release)
+        run: cargo test --release -p openfs-format crash_sweep
       - name: Clippy (all targets and features)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 

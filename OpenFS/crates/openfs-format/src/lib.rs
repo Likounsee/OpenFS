@@ -157,6 +157,8 @@ pub(crate) fn crc32c(bytes: &[u8]) -> u32 {
 }
 mod allocator_extents;
 mod checkpoint;
+#[cfg(test)]
+mod crash_sweep;
 mod directory_entry;
 mod extent_map;
 mod inventory_descriptor;
