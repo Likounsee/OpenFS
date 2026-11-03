@@ -238,6 +238,27 @@ OpenFsQueryVolumeState(
  * Hold the VCB's rundown reference and resource while reserving the VPB.
  * The I/O manager owns the VPB; OpenFS only records the reservation here.
  */
+/*
+ * VPB fields that describe the real-device association must be inspected
+ * while holding the I/O manager's VPB spin lock. Keep this short: acquiring
+ * the lock raises IRQL to DISPATCH_LEVEL, so no ERESOURCE may be held here.
+ */
+static BOOLEAN
+OpenFsVpbBelongsToRealDevice(
+    _In_ PVPB Vpb,
+    _In_ PDEVICE_OBJECT RealDeviceObject
+    )
+{
+    KIRQL oldIrql;
+    BOOLEAN matches;
+
+    IoAcquireVpbSpinLock(&oldIrql);
+    matches = (Vpb->RealDevice == RealDeviceObject);
+    IoReleaseVpbSpinLock(oldIrql);
+
+    return matches;
+}
+
 NTSTATUS
 OpenFsReserveVolumeVpb(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
@@ -256,6 +277,15 @@ OpenFsReserveVolumeVpb(
         return STATUS_INVALID_DEVICE_STATE;
     }
 
+    /*
+     * RealDevice is an I/O-manager-owned VPB field. Validate it under the
+     * VPB spin lock before taking the VCB resource (the spin lock raises
+     * IRQL to DISPATCH_LEVEL and must never be nested with an ERESOURCE).
+     */
+    if (!OpenFsVpbBelongsToRealDevice(Vpb, vcb->RealDeviceObject)) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
     if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
         return STATUS_DELETE_PENDING;
     }
@@ -268,8 +298,6 @@ OpenFsReserveVolumeVpb(
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
         vcb->State != OpenFsVolumeInitializing) {
         status = STATUS_INVALID_DEVICE_STATE;
-    } else if (Vpb->RealDevice != vcb->RealDeviceObject) {
-        status = STATUS_INVALID_PARAMETER;
     } else if (vcb->Vpb != NULL) {
         status = STATUS_DEVICE_BUSY;
     } else {
