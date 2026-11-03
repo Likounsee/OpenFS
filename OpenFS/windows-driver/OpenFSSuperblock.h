@@ -11,6 +11,7 @@ typedef uint32_t ULONG;
 typedef uint64_t ULONGLONG;
 typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
+typedef int32_t LONG;
 typedef int BOOLEAN;
 
 #define TRUE 1
@@ -18,6 +19,7 @@ typedef int BOOLEAN;
 
 #define MAXULONGLONG UINT64_MAX
 #define MAXLONGLONG INT64_MAX
+#define _In_reads_(Length)
 #define _In_
 #define _Out_
 #define _In_reads_bytes_(Length)
