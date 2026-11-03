@@ -800,6 +800,34 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         })
     }
 
+    fn set_allocation_size(
+        &'b self,
+        _file_name: &U16CStr,
+        allocation_size: i64,
+        _info: &OperationInfo<'a, 'b, Self>,
+        context: &'a Self::Context,
+    ) -> Result<(), OperationError> {
+        if allocation_size < 0 {
+            return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
+        }
+        self.require_handle_access(*context, FILE_WRITE_DATA)?;
+        self.with_path(context, |session, path| {
+            let current_size = session.stat(path)?.size;
+            let requested_size =
+                u64::try_from(allocation_size).map_err(|_| CoreError::ArithmeticOverflow)?;
+
+            // OpenFS currently allocates data blocks on demand and has no separate
+            // preallocation operation. Windows may nevertheless send
+            // FileAllocationInformation while truncating/replacing a file. Honor
+            // allocation reductions that would truncate past EOF, but do not change
+            // the logical EOF when Windows asks for extra allocation capacity.
+            if requested_size < current_size {
+                session.set_file_len(path, requested_size)?;
+            }
+            Ok(())
+        })
+    }
+
     fn get_disk_free_space(
         &'b self,
         _info: &OperationInfo<'a, 'b, Self>,
