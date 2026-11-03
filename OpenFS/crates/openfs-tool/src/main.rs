@@ -17,6 +17,7 @@ use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(test)]
 use openfs_format::VolumeSession;
 use openfs_format::{check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind};
+use openfs_partition::{plan_openfs_gpt, write_gpt, PartitionDevice};
 
 mod windows_device;
 #[cfg(windows)]
@@ -64,7 +65,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 Err("unmount is currently supported only on Windows through Dokany".into())
             }
         }
-        Some("format-disk") | Some("format-usb") => {
+        Some(command @ ("format-disk" | "format-usb" | "format-gpt-disk")) => {
             let disk_index = args
                 .next()
                 .ok_or("missing physical disk index")?
@@ -88,24 +89,35 @@ fn run() -> Result<(), Box<dyn StdError>> {
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
-                format_disk_device(
-                    disk_index,
-                    &expected_model,
-                    &expected_serial,
-                    expected_size,
-                    block_size,
-                )
+                if command == "format-gpt-disk" {
+                    format_gpt_disk_device(
+                        disk_index,
+                        &expected_model,
+                        &expected_serial,
+                        expected_size,
+                        block_size,
+                    )
+                } else {
+                    format_disk_device(
+                        disk_index,
+                        &expected_model,
+                        &expected_serial,
+                        expected_size,
+                        block_size,
+                    )
+                }
             }
             #[cfg(not(windows))]
             {
                 let _ = (
+                    command,
                     disk_index,
                     expected_model,
                     expected_serial,
                     expected_size,
                     block_size,
                 );
-                Err("format-disk currently requires Windows".into())
+                Err("physical disk formatting currently requires Windows".into())
             }
         }
         Some("mount-disk") | Some("mount-usb") => {
@@ -189,6 +201,15 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .parse::<u64>()?;
             ensure_no_args(&mut args)?;
             create_image(Path::new(&path), size_mib)
+        }
+        Some("create-gpt-image") => {
+            let path = args.next().ok_or("missing image path")?;
+            let size_mib = args
+                .next()
+                .ok_or("missing image size in MiB")?
+                .parse::<u64>()?;
+            ensure_no_args(&mut args)?;
+            create_gpt_image(Path::new(&path), size_mib)
         }
         Some("inspect-image") => {
             let path = args.next().ok_or("missing image path")?;
@@ -474,6 +495,68 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     println!("Format: OpenFS journaled filesystem (versioned journal + persistent root namespace)");
     println!("The image is ready to mount; this command created a regular image file, not a physical USB volume.");
     Ok(())
+}
+
+
+fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
+    if size_mib < 8 || size_mib > MAX_IMAGE_SIZE_MIB {
+        return Err("GPT image size must be between 8 MiB and 1 TiB".into());
+    }
+    let byte_len = size_mib
+        .checked_mul(BYTES_PER_MIB)
+        .ok_or("image size overflows the supported range")?;
+    let block_count = byte_len / 512;
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let disk_guid = make_gpt_guid(timestamp ^ 0x4f50_454e_4653_0001_u128);
+    let partition_guid = make_gpt_guid(timestamp ^ 0x4f50_454e_4653_0002_u128);
+
+    let result = (|| -> Result<(), Box<dyn StdError>> {
+        let disk = ImageDevice::create(path, 512, block_count)?;
+        let layout = plan_openfs_gpt(&disk, BLOCK_SIZE, disk_guid, partition_guid)?;
+        let partition = layout
+            .partitions
+            .first()
+            .ok_or("GPT planner did not create an OpenFS partition")?;
+        let first_lba = partition.first_lba;
+        let sector_count = partition.sector_count()?;
+        let partition_bytes = sector_count.checked_mul(512).ok_or("partition size overflow")?;
+
+        let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
+        format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+        let mut volume = open_volume(&mut filesystem)?;
+        volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
+        drop(volume);
+        filesystem.flush()?;
+
+        let mut disk = filesystem.into_inner();
+        write_gpt(&mut disk, &layout)?;
+        disk.flush()?;
+        println!("OpenFS GPT development image created.");
+        println!("Path: {}", path.display());
+        println!("Disk size: {size_mib} MiB");
+        println!("Logical sector size: 512 bytes");
+        println!("OpenFS partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
+        println!("OpenFS partition capacity: {partition_bytes} bytes");
+        println!("Primary and backup GPT copies: written and flushed");
+        println!("The image can be mounted with: openfs mount <image> <drive-letter>");
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = fs::remove_file(path);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn make_gpt_guid(seed: u128) -> [u8; 16] {
+    let mut guid = seed.to_le_bytes();
+    if guid.iter().all(|byte| *byte == 0) {
+        guid[0] = 1;
+    }
+    guid[6] = (guid[6] & 0x0f) | 0x40;
+    guid[8] = (guid[8] & 0x3f) | 0x80;
+    guid
 }
 
 fn print_volume_geometry(path: &Path, report: &openfs_format::VolumeCheckReport) {
@@ -2815,12 +2898,107 @@ fn format_disk_device(
     Ok(())
 }
 
+
+#[cfg(windows)]
+fn format_gpt_disk_device(
+    disk_index: u32,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
+    block_size: u32,
+) -> Result<(), Box<dyn StdError>> {
+    let (initial_size, initial_sector_size) = windows_device::verify_usb_identity(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
+    if block_size < initial_sector_size || block_size % initial_sector_size != 0 {
+        return Err(format!(
+            "OpenFS block size {block_size} must be a multiple of the disk logical sector size {initial_sector_size}"
+        ).into());
+    }
+    if initial_size % u64::from(initial_sector_size) != 0 {
+        return Err("disk capacity is not a whole multiple of its logical sector size".into());
+    }
+
+    let (size_bytes, logical_sector_size) = windows_device::prepare_disk_for_raw_access(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
+    windows_device::verify_usb_identity(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
+    ensure_disk_geometry_unchanged(
+        (initial_size, initial_sector_size),
+        (size_bytes, logical_sector_size),
+    )?;
+
+    let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
+    let raw_sector_count = size_bytes / u64::from(logical_sector_size);
+    let disk = RawDevice::open(&device_path, logical_sector_size, raw_sector_count)?;
+    let confirmed = windows_device::verify_usb_identity(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
+    if confirmed != (size_bytes, logical_sector_size) {
+        return Err("disk identity or geometry changed while opening it; refusing to format".into());
+    }
+
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let mut disk_seed = timestamp ^ (u128::from(disk_index) << 64) ^ 0x4f50_454e_4653_0011_u128;
+    if disk_seed == 0 {
+        disk_seed = 1;
+    }
+    let disk_guid = make_gpt_guid(disk_seed);
+    let partition_guid = make_gpt_guid(disk_seed ^ 0x4f50_454e_4653_0022_u128);
+    let layout = plan_openfs_gpt(&disk, block_size, disk_guid, partition_guid)?;
+    let partition = layout
+        .partitions
+        .first()
+        .ok_or("GPT planner did not create an OpenFS partition")?;
+    let first_lba = partition.first_lba;
+    let sector_count = partition.sector_count()?;
+    let partition_bytes = sector_count
+        .checked_mul(u64::from(logical_sector_size))
+        .ok_or("partition byte length overflow")?;
+
+    // Initialize OpenFS before publishing GPT metadata so an interrupted
+    // initialization is not exposed as a valid, mountable partition.
+    let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, block_size)?;
+    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    let mut volume = open_volume(&mut filesystem)?;
+    volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
+    drop(volume);
+    filesystem.flush()?;
+    let mut disk = filesystem.into_inner();
+
+    write_gpt(&mut disk, &layout)?;
+    disk.flush()?;
+    println!("OpenFS GPT physical disk formatted and initialized.");
+    println!("GPT partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
+    println!("OpenFS partition capacity: {partition_bytes} bytes");
+    println!("Primary GPT, backup GPT and protective MBR: written and flushed");
+    println!("Mount it with mount-disk using the same exact disk identity.");
+    println!("Previous data may remain recoverable; this operation is not a secure erase.");
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  openfs list-devices  (read-only physical disk inventory; Windows only)");
     eprintln!(
         "  openfs create-image <path> <size-MiB>  (formats and initializes a mount-ready image)"
     );
+    eprintln!("  openfs create-gpt-image <path> <size-MiB>  (creates GPT + one OpenFS partition)");
+    eprintln!("  openfs format-gpt-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; GPT + OpenFS partition; Windows only)");
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
     eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
     eprintln!("  openfs format-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
