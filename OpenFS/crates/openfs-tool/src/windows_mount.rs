@@ -24,8 +24,7 @@ use winapi::shared::winerror::{
 };
 use winapi::um::winnt::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_CASE_PRESERVED_NAMES,
-    FILE_CASE_SENSITIVE_SEARCH, FILE_CREATE, FILE_OPEN, FILE_OPEN_IF, FILE_OVERWRITE,
-    FILE_OVERWRITE_IF, FILE_UNICODE_ON_DISK,
+    FILE_CASE_SENSITIVE_SEARCH, FILE_UNICODE_ON_DISK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +32,15 @@ struct FileHandle {
     object_id: ObjectId,
     handle_id: u64,
 }
+
+// Dokan's CreateFile callback supplies the native NT FILE_* disposition values,
+ // not the Win32 CREATE_* values (which use a different numbering).
+const FILE_SUPERSEDE: u32 = 0;
+const FILE_OPEN: u32 = 1;
+const FILE_CREATE: u32 = 2;
+const FILE_OPEN_IF: u32 = 3;
+const FILE_OVERWRITE: u32 = 4;
+const FILE_OVERWRITE_IF: u32 = 5;
 
 const SHARE_READ: u32 = 1;
 const SHARE_WRITE: u32 = 2;
