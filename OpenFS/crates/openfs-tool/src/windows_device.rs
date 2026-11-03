@@ -314,7 +314,20 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
     throw 'Windows reported invalid physical disk geometry'
 }
 
-$partitions = @(Get-Partition -DiskNumber $index -ErrorAction Stop)
+# Win32_DiskPartition reliably reports an empty disk as zero rows. On some
+# Windows Storage providers, Get-Partition -DiskNumber throws when there are
+# no partitions at all, so only call it when CIM confirms partitions exist.
+# Errors from the CIM query itself remain fatal; we never treat provider errors
+# as an empty disk.
+$cimPartitions = @(Get-CimInstance -ClassName Win32_DiskPartition -Filter "DiskIndex = $index" -ErrorAction Stop)
+if ($cimPartitions.Count -eq 0) {
+    $partitions = @()
+} else {
+    $partitions = @(Get-Partition -DiskNumber $index -ErrorAction Stop)
+    if ($partitions.Count -ne $cimPartitions.Count) {
+        throw 'Windows partition inventories disagree; refusing raw access'
+    }
+}
 $volumePlans = @()
 foreach ($partition in $partitions) {
     # Volume GUID paths are identifiers, not mount points.
