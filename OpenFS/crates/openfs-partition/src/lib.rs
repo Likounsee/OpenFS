@@ -273,7 +273,9 @@ pub fn write_gpt<D: BlockDevice>(device: &mut D, layout: &GptLayout) -> Result<(
         layout.sector_size as usize,
         "unable to allocate protective MBR",
     )?;
+    mbr[446 + 1..446 + 4].copy_from_slice(&[0x00, 0x02, 0x00]);
     mbr[446 + 4] = 0xee;
+    mbr[446 + 5..446 + 8].copy_from_slice(&[0xff, 0xff, 0xff]);
     mbr[446 + 8..446 + 12].copy_from_slice(&1_u32.to_le_bytes());
     let protective_size = layout.block_count.saturating_sub(1).min(u64::from(u32::MAX)) as u32;
     mbr[446 + 12..446 + 16].copy_from_slice(&protective_size.to_le_bytes());
@@ -786,6 +788,25 @@ mod tests {
         assert_eq!(parsed.partitions, vec![partition]);
         assert_eq!(parsed.partitions[0].name, "OpenFS");
         assert!(parsed.partitions[0].is_openfs());
+
+        drop(disk);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn writes_and_reads_gpt_with_4k_logical_sectors() {
+        let path = image_path("roundtrip-4k");
+        let mut disk = ImageDevice::create(&path, 4096, 16_384).unwrap();
+        let (disk_guid, partition_guid) = ids();
+        let layout = plan_openfs_gpt(&disk, 4096, disk_guid, partition_guid).unwrap();
+        let partition = layout.partitions[0].clone();
+        assert_eq!((partition.first_lba * 4096) % (1024 * 1024), 0);
+        write_gpt(&mut disk, &layout).unwrap();
+
+        let parsed = read_gpt(&mut disk).unwrap();
+        assert_eq!(parsed.sector_size, 4096);
+        assert_eq!(parsed.disk_guid, disk_guid);
+        assert_eq!(parsed.partitions, vec![partition]);
 
         drop(disk);
         fs::remove_file(path).unwrap();
