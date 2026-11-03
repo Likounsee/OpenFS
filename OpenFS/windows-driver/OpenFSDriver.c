@@ -16,8 +16,23 @@ OpenFsCompleteIrp(
     return Status;
 }
 
+/*
+ * The filesystem control device is not a mounted volume. Until a volume
+ * device object and root FCB exist, accepting CREATE here would falsely
+ * advertise file access that the driver cannot service.
+ */
 static NTSTATUS
-OpenFsDispatchCreateClose(
+OpenFsDispatchCreate(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+}
+
+static NTSTATUS
+OpenFsDispatchClose(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
     )
@@ -114,8 +129,8 @@ DriverEntry(
         return status;
     }
 
-    DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] =
         OpenFsDispatchFileSystemControl;
 
