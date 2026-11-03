@@ -319,7 +319,7 @@ $volumePlans = @()
 foreach ($partition in $partitions) {
     # Volume GUID paths are identifiers, not mount points.
     $mountPoints = @($partition.AccessPaths | Where-Object {
-        $_ -and ($_ -notmatch '^\\\?\Volume\{')
+        $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
     })
     if ($mountPoints.Count -gt 0) {
         # fsutil volume dismount accepts a drive-letter path. Refuse folder-only
