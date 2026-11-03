@@ -313,16 +313,13 @@ OpenFsValidateNamespaceRecords(
     }
     if ((ULONGLONG)RecordCount - 1u != EntryCount)
         return STATUS_DISK_CORRUPT_ERROR;
-    if ((SIZE_T)RecordCount > ((SIZE_T)-1) / 2u)
-        return STATUS_INTEGER_OVERFLOW;
     required = (SIZE_T)RecordCount * 2u;
     while (capacity < required) {
         if (capacity > ((SIZE_T)-1) / 2u) return STATUS_INTEGER_OVERFLOW;
         capacity <<= 1;
     }
     if (capacity > ((SIZE_T)-1) / sizeof(ULONG) ||
-        capacity > ((SIZE_T)-1) / sizeof(ULONGLONG) ||
-        (SIZE_T)RecordCount > ((SIZE_T)-1) / sizeof(ULONG)) {
+        capacity > ((SIZE_T)-1) / sizeof(ULONGLONG)) {
         return STATUS_INTEGER_OVERFLOW;
     }
 
