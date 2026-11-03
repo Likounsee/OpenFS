@@ -8,7 +8,7 @@ This driver is being developed for the **OpenFS 1.0** release. The `Version` fie
 
 ## Current status
 
-The first milestone is only a loadable filesystem-driver skeleton:
+The driver is still an early development skeleton, but it now has a read-only native volume-recognition path:
 
 - registers an OpenFS filesystem device with the Windows I/O manager;
 - receives filesystem mount notifications;
@@ -44,7 +44,7 @@ The output is a development driver only. Production installation requires a prop
 ## Milestones
 
 1. **Driver loading and registration** — this scaffold.
-2. **Volume recognition** — validate OpenFS superblock, version, checksums, geometry, and sector size through the mounted storage device; reject malformed or unsupported media without writes.
+2. **Volume recognition** — probe code is implemented: query device length, read both superblocks at their format-defined offsets, and validate revisions 2–4 without writes. WDK compilation and device-level verification are still pending.
 3. **Mount lifecycle** — create/tear down VCB and VPB state, verify/dismount, volume information and filesystem control requests.
 4. **Read-only filesystem** — open/create semantics for existing objects, directory enumeration, file reads, metadata queries.
 5. **Writable filesystem** — create, write, truncate, rename, delete, flush, sharing and locking semantics.
@@ -69,4 +69,4 @@ The parser is called by the mount dispatch routine through `OpenFSDeviceIo.c`. T
 
 A successful probe is only recognition, not a mount. The dispatch returns `STATUS_NOT_IMPLEMENTED` for a valid OpenFS volume until a VCB/VPB lifecycle, root directory, and teardown path are implemented. It must not report a successful mount before those pieces exist.
 
-The host-side parser tests are built with strict C warnings in CI. They exercise supported revisions, CRC32C's standard test vector, differing revision-3/4 inventory hints, invalid magic/version/header, corrupt checksums, mismatched copies, invalid geometry, and device-length mismatch. These tests do not compile the WDK driver itself.
+The host-side parser tests are built with strict C warnings in CI (34 assertions currently pass). They exercise supported revisions, CRC32C's standard test vector, differing revision-3/4 inventory hints, invalid magic/version/header, corrupt checksums, mismatched copies, invalid geometry, and device-length mismatch. These tests do not compile the WDK driver itself.
