@@ -186,6 +186,50 @@ main(void)
     Check(OpenFsDecodeDirectoryEntry(NULL, &entry) == STATUS_INVALID_PARAMETER,
         "null directory input rejected");
 
+
+    {
+        OPENFS_METADATA_RECORD records[2];
+        OPENFS_DIRECTORY_ENTRY entries[1];
+        memset(records, 0, sizeof(records));
+        memset(entries, 0, sizeof(entries));
+        records[0].ObjectIdLow = 1;
+        records[0].Kind = 2;
+        records[0].Generation = 1;
+        records[1].ObjectIdLow = 42;
+        records[1].ParentIdLow = 1;
+        records[1].Kind = 1;
+        records[1].Size = 8192;
+        records[1].Generation = 1;
+        records[1].HasExtent = TRUE;
+        records[1].ExtentRootBlock = 17;
+        entries[0].ParentIdLow = 1;
+        entries[0].ObjectIdLow = 42;
+        entries[0].Kind = 1;
+        entries[0].NameLength = 8;
+        memcpy(entries[0].Name, "file.txt", 8);
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_SUCCESS,
+            "valid root and file namespace accepted");
+        entries[0].ObjectIdLow = 99;
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "directory entry to missing object rejected");
+        entries[0].ObjectIdLow = 42;
+        records[1].ParentIdLow = 77;
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "orphan parent chain rejected");
+        records[1].ParentIdLow = 1;
+        records[1].ExtentRootBlock = 100;
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "extent root outside data region rejected");
+        records[1].ExtentRootBlock = 17;
+        records[1].ObjectIdLow = 1;
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "duplicate object ID rejected");
+        records[1].ObjectIdLow = 42;
+        records[1].ParentIdLow = 42;
+        Check(OpenFsValidateNamespaceRecords(records,2,entries,1,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "namespace parent cycle rejected");
+    }
+
     printf("OpenFS namespace codec tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
     return g_Failures == 0 ? 0 : 1;
