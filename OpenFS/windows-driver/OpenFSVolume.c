@@ -114,7 +114,7 @@ OpenFsDestroyVolumeDevice(
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    if (vcb->Vpb != NULL || vcb->State != OpenFsVolumeInitializing) {
+    if (!OpenFsVolumeStateCanDestroy(vcb->State, vcb->Vpb != NULL)) {
         ExReleaseResourceLite(&vcb->Resource);
         return STATUS_DEVICE_BUSY;
     }
