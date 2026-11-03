@@ -143,3 +143,74 @@ OpenFsDestroyVolumeDevice(
     IoDeleteDevice(VolumeDeviceObject);
     return STATUS_SUCCESS;
 }
+
+/*
+ * Serialize lifecycle transitions through the VCB resource. The expected
+ * state is checked while exclusively locked, so competing mount/dismount
+ * workers cannot both claim the same transition.
+ */
+NTSTATUS
+OpenFsTransitionVolumeState(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ OPENFS_VOLUME_STATE Expected,
+    _In_ OPENFS_VOLUME_STATE Next
+    )
+{
+    POPENFS_VCB vcb;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else if (!OpenFsVolumeStateTryTransition(&vcb->State, Expected, Next)) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    }
+
+    ExReleaseResourceLite(&vcb->Resource);
+    return status;
+}
+
+/* Return a consistent state snapshot without exposing the VCB layout. */
+NTSTATUS
+OpenFsQueryVolumeState(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _Out_ OPENFS_VOLUME_STATE* State
+    )
+{
+    POPENFS_VCB vcb;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || State == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else {
+        *State = vcb->State;
+    }
+
+    ExReleaseResourceLite(&vcb->Resource);
+    return status;
+}
