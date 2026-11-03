@@ -342,6 +342,11 @@ OpenFsValidateDiscoveredNamespace(
     ULONG index, other;
     NTSTATUS status = STATUS_SUCCESS;
 
+    /* An empty descriptor is valid before the first namespace publication. */
+    if (Descriptor->MetadataRecordCount == 0 &&
+        Descriptor->DirectoryEntryCount == 0) {
+        return STATUS_SUCCESS;
+    }
     if (Descriptor->MetadataRecordCount == 0 ||
         Descriptor->MetadataRecordCount > MAXULONG / sizeof(OPENFS_METADATA_RECORD) ||
         Descriptor->DirectoryEntryCount > MAXULONG / sizeof(OPENFS_DIRECTORY_ENTRY) ||
