@@ -243,20 +243,33 @@ OpenFsQueryVolumeState(
  * while holding the I/O manager's VPB spin lock. Keep this short: acquiring
  * the lock raises IRQL to DISPATCH_LEVEL, so no ERESOURCE may be held here.
  */
-static BOOLEAN
-OpenFsVpbBelongsToRealDevice(
+static NTSTATUS
+OpenFsValidateMountVpb(
     _In_ PVPB Vpb,
     _In_ PDEVICE_OBJECT RealDeviceObject
     )
 {
     KIRQL oldIrql;
-    BOOLEAN matches;
+    NTSTATUS status = STATUS_SUCCESS;
 
     IoAcquireVpbSpinLock(&oldIrql);
-    matches = (Vpb->RealDevice == RealDeviceObject);
-    IoReleaseVpbSpinLock(oldIrql);
 
-    return matches;
+    if (Vpb->RealDevice != RealDeviceObject) {
+        status = STATUS_INVALID_PARAMETER;
+    } else if ((Vpb->Flags & VPB_REMOVE_PENDING) != 0) {
+        status = STATUS_DELETE_PENDING;
+    } else if ((Vpb->Flags & VPB_MOUNTED) != 0 ||
+               Vpb->DeviceObject != NULL) {
+        /*
+         * Do not reserve a VPB already published for another mounted
+         * filesystem. The I/O manager owns VPB_MOUNTED; this code only
+         * observes it while holding the VPB spin lock.
+         */
+        status = STATUS_DEVICE_BUSY;
+    }
+
+    IoReleaseVpbSpinLock(oldIrql);
+    return status;
 }
 
 NTSTATUS
@@ -282,8 +295,9 @@ OpenFsReserveVolumeVpb(
      * VPB spin lock before taking the VCB resource (the spin lock raises
      * IRQL to DISPATCH_LEVEL and must never be nested with an ERESOURCE).
      */
-    if (!OpenFsVpbBelongsToRealDevice(Vpb, vcb->RealDeviceObject)) {
-        return STATUS_INVALID_PARAMETER;
+    status = OpenFsValidateMountVpb(Vpb, vcb->RealDeviceObject);
+    if (!NT_SUCCESS(status)) {
+        return status;
     }
 
     if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
