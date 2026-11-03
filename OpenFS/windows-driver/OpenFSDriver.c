@@ -90,7 +90,7 @@ OpenFsDispatchFileSystemControl(
             DbgPrintEx(
                 DPFLTR_IHVDRIVER_ID,
                 DPFLTR_INFO_LEVEL,
-                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\\n",
+                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\n",
                 (ULONG)geometry.Version,
                 geometry.BlockSize,
                 geometry.TotalBlocks
