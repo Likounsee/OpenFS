@@ -11,6 +11,10 @@ typedef uint32_t ULONG;
 typedef uint64_t ULONGLONG;
 typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
+typedef int BOOLEAN;
+
+#define TRUE 1
+#define FALSE 0
 
 #define MAXULONGLONG UINT64_MAX
 #define _In_
@@ -19,6 +23,7 @@ typedef int32_t NTSTATUS;
 #define _Out_writes_bytes_(Length)
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)
 #define STATUS_UNRECOGNIZED_VOLUME ((NTSTATUS)0xC000014FL)
 #define STATUS_CRC_ERROR ((NTSTATUS)0xC000003FL)
 #define STATUS_DISK_CORRUPT_ERROR ((NTSTATUS)0xC0000032L)

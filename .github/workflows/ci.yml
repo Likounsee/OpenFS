@@ -68,6 +68,12 @@ jobs:
       - name: Run native parser tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-superblock-tests
+      - name: Compile native bitmap tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSBitmap.c OpenFSBitmapTests.c -o openfs-bitmap-tests
+      - name: Run native bitmap tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-bitmap-tests
 
   windows-driver-wdk:
     name: Native Windows filesystem driver (WDK x64)
