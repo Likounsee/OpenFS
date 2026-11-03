@@ -80,6 +80,12 @@ jobs:
       - name: Run native volume layout tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-layout-tests
+      - name: Compile native volume lifecycle tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror OpenFSVolumeState.c OpenFSVolumeStateTests.c -o openfs-volume-state-tests
+      - name: Run native volume lifecycle tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-volume-state-tests
 
   windows-driver-wdk:
     name: Native Windows filesystem driver (WDK x64)
