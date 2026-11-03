@@ -3143,6 +3143,41 @@ mod tests {
     }
 
     #[test]
+    fn create_gpt_image_initializes_openfs_inside_a_valid_partition() {
+        let path = unique_path("gpt-image-roundtrip");
+        super::create_gpt_image(&path, 16).unwrap();
+
+        let disk = ImageDevice::open(&path, 512).unwrap();
+        let mut disk = disk;
+        let layout = openfs_partition::read_gpt(&mut disk).unwrap();
+        assert_eq!(layout.partitions.len(), 1);
+        let partition = layout.partitions[0].clone();
+        assert!(partition.is_openfs());
+        assert_eq!(partition.name, "OpenFS");
+
+        let mut filesystem = openfs_partition::PartitionDevice::new(
+            disk,
+            partition.first_lba,
+            partition.sector_count().unwrap(),
+            BLOCK_SIZE,
+        )
+        .unwrap();
+        assert!(super::check_volume(&mut filesystem).is_ok());
+
+        drop(filesystem);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn create_gpt_image_never_overwrites_an_existing_file() {
+        let path = unique_path("gpt-image-no-overwrite");
+        fs::write(&path, b"keep existing data").unwrap();
+        assert!(super::create_gpt_image(&path, 16).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"keep existing data");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn raw_device_backend_formats_and_preserves_files_across_reopen() {
         let path = unique_path("raw-device-roundtrip");
         let byte_len = 8 * 1024 * 1024;
