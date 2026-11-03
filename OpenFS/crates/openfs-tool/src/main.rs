@@ -1896,6 +1896,11 @@ fn diagnose_raw_gpt(
             "INVALID / MISSING"
         }
     );
+    let raw_signature = identify_filesystem_signature(&mbr);
+    if raw_signature == "OpenFS" {
+        println!("Raw-device filesystem signature: OpenFS superblock magic at byte offset 0");
+        println!("  Detection status: signature candidate only; superblock CRC and volume metadata have not been validated");
+    }
     for index in 0..4 {
         let offset = 446 + index * 16;
         let entry = &mbr[offset..offset + 16];
@@ -2146,6 +2151,12 @@ fn probe_partition_filesystem(
 
 /// Identify a few well-known on-disk signatures; this is not full filesystem validation.
 fn identify_filesystem_signature(bytes: &[u8]) -> &'static str {
+    // OpenFS volumes are raw block devices: their primary superblock starts at
+    // byte offset zero and therefore has no MBR/boot-sector signature.
+    if bytes.get(0..8) == Some(b"OPENFS\\0\\0") {
+        return "OpenFS";
+    }
+
     let boot_signature = bytes.get(510..512) == Some(&[0x55, 0xaa]);
     if boot_signature && bytes.get(3..11) == Some(b"NTFS    ") {
         return "NTFS";
@@ -2817,6 +2828,27 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn identifies_openfs_superblock_at_device_or_partition_start() {
+        let mut bytes = vec![0_u8; 4096];
+        bytes[..8].copy_from_slice(b"OPENFS\\0\\0");
+        assert_eq!(super::identify_filesystem_signature(&bytes), "OpenFS");
+    }
+
+    #[test]
+    fn does_not_identify_truncated_or_unrelated_openfs_magic() {
+        assert_eq!(
+            super::identify_filesystem_signature(b"OPENFS"),
+            "unknown / unsupported signature"
+        );
+        let mut bytes = vec![0_u8; 4096];
+        bytes[..8].copy_from_slice(b"OPENFX\\0\\0");
+        assert_eq!(
+            super::identify_filesystem_signature(&bytes),
+            "unknown / unsupported signature"
+        );
+    }
 
     struct FailWriteAt<D> {
         inner: D,
