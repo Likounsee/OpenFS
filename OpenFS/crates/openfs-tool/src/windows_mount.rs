@@ -1005,7 +1005,11 @@ fn mount_device<D: BlockDevice + Send + 'static>(
         .mount_point(&mount_point)
         .sector_size(sector_size)
         .allocation_unit_size(block_size)
-        .flags(MountFlags::CURRENT_SESSION | MountFlags::ENABLE_FCB_GARBAGE_COLLECTION);
+        .flags(
+            MountFlags::MOUNT_MANAGER
+                | MountFlags::CURRENT_SESSION
+                | MountFlags::ENABLE_FCB_GARBAGE_COLLECTION,
+        );
 
     // Drive::mount blocks until the Dokan volume is unmounted. Always attempt
     // the final flush, even if the mount loop reports an error.
