@@ -145,6 +145,168 @@ OpenFsQueryDeviceLength(
     return STATUS_SUCCESS;
 }
 
+
+static BOOLEAN
+OpenFsBitmapBitIsAllocated(
+    _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
+    _In_ ULONGLONG BitmapBytes,
+    _In_ ULONGLONG LocalBit
+    )
+{
+    ULONGLONG byteIndex = LocalBit / 8u;
+
+    if (byteIndex >= BitmapBytes) {
+        return FALSE;
+    }
+    return (Bitmap[byteIndex] & (UCHAR)(1u << (LocalBit % 8u))) != 0;
+}
+
+/*
+ * Match volume.rs::validate_bitmap: every metadata/reserved block and every
+ * padding bit beyond the end of the volume must be marked allocated.
+ * Data-region bits are deliberately unconstrained here.
+ */
+static NTSTATUS
+OpenFsValidateAllocationBitmap(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry
+    )
+{
+    ULONGLONG bitsPerBitmapBlock;
+    ULONGLONG bitmapBlocks;
+    ULONGLONG bitmapEnd;
+    ULONGLONG journalStart;
+    ULONGLONG ringBlocks;
+    ULONGLONG ringStart;
+    ULONGLONG ringEnd;
+    ULONGLONG bitmapIndex;
+    ULONGLONG bitmapBytes;
+    ULONGLONG* reservedStarts = NULL;
+    ULONGLONG* reservedEnds = NULL;
+    UCHAR* bitmap = NULL;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    bitsPerBitmapBlock = (ULONGLONG)Geometry->BlockSize * 8u;
+    bitmapBlocks = Geometry->TotalBlocks / bitsPerBitmapBlock;
+    if ((Geometry->TotalBlocks % bitsPerBitmapBlock) != 0) {
+        ++bitmapBlocks;
+    }
+
+    if (bitmapBlocks > MAXULONGLONG - 1u) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+    bitmapEnd = 1u + bitmapBlocks;
+    journalStart = bitmapEnd;
+    ringBlocks = (Geometry->Version == 4) ? 16u : 4u;
+    if (journalStart > MAXULONGLONG - 2u ||
+        journalStart + 2u > MAXULONGLONG - ringBlocks) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+    ringStart = journalStart + 2u;
+    ringEnd = ringStart + ringBlocks;
+
+    if (ringEnd >= Geometry->TotalBlocks - 1u) {
+        return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    bitmapBytes = Geometry->BlockSize;
+    bitmap = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
+        (SIZE_T)bitmapBytes,
+        OPENFS_DEVICE_IO_TAG
+        );
+    if (bitmap == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    for (bitmapIndex = 0; bitmapIndex < bitmapBlocks; ++bitmapIndex) {
+        ULONGLONG bitmapBase;
+        ULONGLONG bitmapLimit;
+        ULONGLONG bitmapDeviceBlock;
+        ULONGLONG bitmapOffset;
+        ULONGLONG rangeStarts[5];
+        ULONGLONG rangeEnds[5];
+        ULONG rangeIndex;
+
+        if (bitmapIndex > MAXULONGLONG / bitsPerBitmapBlock) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        bitmapBase = bitmapIndex * bitsPerBitmapBlock;
+        if (bitmapBase > MAXULONGLONG - bitsPerBitmapBlock) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        bitmapLimit = bitmapBase + bitsPerBitmapBlock;
+
+        if (bitmapIndex > Geometry->TotalBlocks - 1u) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
+        bitmapDeviceBlock = 1u + bitmapIndex;
+        if (bitmapDeviceBlock > MAXULONGLONG / Geometry->BlockSize) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto Exit;
+        }
+        bitmapOffset = bitmapDeviceBlock * Geometry->BlockSize;
+
+        status = OpenFsReadAtOffset(
+            DeviceObject,
+            bitmapOffset,
+            bitmap,
+            (ULONG)bitmapBytes
+            );
+        if (!NT_SUCCESS(status)) {
+            goto Exit;
+        }
+
+        rangeStarts[0] = 0u;
+        rangeEnds[0] = 1u;
+        rangeStarts[1] = 1u;
+        rangeEnds[1] = bitmapEnd;
+        rangeStarts[2] = journalStart;
+        rangeEnds[2] = journalStart + 2u;
+        rangeStarts[3] = ringStart;
+        rangeEnds[3] = ringEnd;
+        rangeStarts[4] = Geometry->TotalBlocks - 1u;
+        rangeEnds[4] = Geometry->TotalBlocks;
+
+        for (rangeIndex = 0; rangeIndex < RTL_NUMBER_OF(rangeStarts); ++rangeIndex) {
+            ULONGLONG first = (bitmapBase > rangeStarts[rangeIndex])
+                ? bitmapBase : rangeStarts[rangeIndex];
+            ULONGLONG end = (bitmapLimit < rangeEnds[rangeIndex])
+                ? bitmapLimit : rangeEnds[rangeIndex];
+            ULONGLONG block;
+
+            for (block = first; block < end; ++block) {
+                if (!OpenFsBitmapBitIsAllocated(bitmap, bitmapBytes, block - bitmapBase)) {
+                    status = STATUS_DISK_CORRUPT_ERROR;
+                    goto Exit;
+                }
+            }
+        }
+
+        if (Geometry->TotalBlocks < bitmapLimit) {
+            ULONGLONG block;
+            ULONGLONG firstPadding = (Geometry->TotalBlocks > bitmapBase)
+                ? Geometry->TotalBlocks : bitmapBase;
+
+            for (block = firstPadding; block < bitmapLimit; ++block) {
+                if (!OpenFsBitmapBitIsAllocated(bitmap, bitmapBytes, block - bitmapBase)) {
+                    status = STATUS_DISK_CORRUPT_ERROR;
+                    goto Exit;
+                }
+            }
+        }
+    }
+
+Exit:
+    ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
+    UNREFERENCED_PARAMETER(reservedStarts);
+    UNREFERENCED_PARAMETER(reservedEnds);
+    return status;
+}
+
 NTSTATUS
 OpenFsProbeVolume(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
@@ -238,6 +400,9 @@ OpenFsProbeVolume(
     }
 
     status = OpenFsValidateSuperblocks(primary, backup, deviceLength, Geometry);
+    if (NT_SUCCESS(status)) {
+        status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry);
+    }
 
 Exit:
     ExFreePoolWithTag(records, OPENFS_PROBE_BUFFER_TAG);
