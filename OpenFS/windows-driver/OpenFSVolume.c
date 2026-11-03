@@ -313,6 +313,84 @@ OpenFsReserveVolumeVpb(
 }
 
 /*
+ * Publish a fully initialized VDO through the I/O manager's VPB. The caller
+ * must have completed all volume/root initialization before invoking this
+ * final mount-commit operation. VPB_MOUNTED is intentionally left to the
+ * I/O manager after IRP_MN_MOUNT_VOLUME completes successfully.
+ */
+NTSTATUS
+OpenFsPublishVolumeVpb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PVPB Vpb
+    )
+{
+    POPENFS_VCB vcb;
+    KIRQL oldIrql;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || Vpb == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    /* The caller must hold a valid reference while entering this routine. */
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeInitializing ||
+        vcb->Vpb != Vpb) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else {
+        /*
+         * Validation and publication must be one VPB-spin-lock transaction:
+         * otherwise another filesystem could claim this VPB between the
+         * checks and the DeviceObject assignment.
+         */
+        IoAcquireVpbSpinLock(&oldIrql);
+
+        if (Vpb->RealDevice != vcb->RealDeviceObject) {
+            status = STATUS_INVALID_PARAMETER;
+        } else if ((Vpb->Flags & VPB_REMOVE_PENDING) != 0) {
+            status = STATUS_DELETE_PENDING;
+        } else if ((Vpb->Flags & VPB_MOUNTED) != 0 ||
+                   Vpb->DeviceObject != NULL) {
+            status = STATUS_DEVICE_BUSY;
+        } else {
+            /*
+             * All dispatch-visible state must already be initialized.
+             * Clear this flag immediately before making the VDO reachable.
+             */
+            VolumeDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+            Vpb->DeviceObject = VolumeDeviceObject;
+            vcb->State = OpenFsVolumeMounted;
+        }
+
+        IoReleaseVpbSpinLock(oldIrql);
+    }
+
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+
+/*
  * Roll back only our own reservation and only before the volume is mounted.
  * A mounted VPB must be detached through the dedicated dismount path.
  */
