@@ -114,16 +114,38 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 .ok_or("missing physical disk index")?
                 .parse::<u32>()?;
             let unique_id = args.next().ok_or("missing exact physical disk UniqueId")?;
+            let expected_model = args.next().ok_or("missing exact physical disk model")?;
+            let expected_serial = args.next().ok_or("missing exact physical disk serial")?;
+            let expected_size = args
+                .next()
+                .ok_or("missing exact physical disk capacity in bytes")?
+                .parse::<u64>()?;
             let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
             let block_size = parse_block_size(args.next())?;
             ensure_no_args(&mut args)?;
             #[cfg(windows)]
             {
-                windows_mount::mount_disk_device(disk_index, &unique_id, &mount_point, block_size)
+                windows_mount::mount_disk_device(
+                    disk_index,
+                    &unique_id,
+                    &expected_model,
+                    &expected_serial,
+                    expected_size,
+                    &mount_point,
+                    block_size,
+                )
             }
             #[cfg(not(windows))]
             {
-                let _ = (disk_index, unique_id, mount_point, block_size);
+                let _ = (
+                    disk_index,
+                    unique_id,
+                    expected_model,
+                    expected_serial,
+                    expected_size,
+                    mount_point,
+                    block_size,
+                );
                 Err("mount-disk currently requires Windows + Dokany".into())
             }
         }
@@ -2739,7 +2761,7 @@ fn print_usage() {
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
     eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
     eprintln!("  openfs format-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
-    eprintln!("  openfs mount-disk <disk-index> <exact-UniqueId> <drive-letter> [block-size]  (Windows + Dokany; mounted volumes are dismounted)");
+    eprintln!("  openfs mount-disk <disk-index> <exact-UniqueId> <exact-model> <exact-serial> <exact-size-bytes> <drive-letter> [block-size]  (Windows + Dokany; mounted volumes are dismounted)");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
