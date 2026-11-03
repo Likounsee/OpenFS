@@ -825,7 +825,7 @@ pub fn mount_image(
     // GPT images use 512-byte logical sectors independently of the OpenFS
     // allocation block size. Probe GPT first, then retain compatibility with
     // legacy whole-image Raw volumes.
-    for sector_size in [512_u32, 4096_u32] {
+    for sector_size in [512_u32, 1024_u32, 2048_u32, 4096_u32] {
         if image_bytes % u64::from(sector_size) != 0 {
             continue;
         }
