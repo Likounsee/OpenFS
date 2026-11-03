@@ -68,3 +68,25 @@ jobs:
       - name: Run native parser tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-superblock-tests
+
+  windows-driver-wdk:
+    name: Native Windows filesystem driver (WDK x64)
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+      - name: Restore WDK NuGet packages and build driver
+        shell: pwsh
+        run: |
+          msbuild .\OpenFS\windows-driver\OpenFSDriver.vcxproj /m /restore /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
+      - name: Publish unsigned development driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: openfs-wdk-x64-debug
+          path: |
+            OpenFS/windows-driver/bin/Debug/OpenFS.sys
+            OpenFS/windows-driver/OpenFS.inf
+          if-no-files-found: error
+          retention-days: 7
