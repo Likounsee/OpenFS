@@ -25,7 +25,7 @@ static void Make(UCHAR* b, ULONG size, ULONG metadataCount, ULONG directoryCount
     Put64(b+12,1);
     Put32(b+28,metadataCount); Put32(b+32,directoryCount);
     if (metadataCount) Put64(b+48, 100);
-    if (directoryCount) Put64(b+48 + ((metadataCount*80u + size-1)/size)*8u, 101);
+    if (directoryCount) {\n        ULONG offset = 48 + ((metadataCount*80u + size-1)/size)*8u;\n        Put64(b+offset, 101);\n        if (((directoryCount*128u + size-1)/size) > 1) Put64(b+offset+8, 102);\n    }
     Seal(b,size);
 }
 int main(void) {
