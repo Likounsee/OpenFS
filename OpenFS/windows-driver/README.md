@@ -14,7 +14,9 @@ The driver is still an early development skeleton, but it now has a read-only na
 - receives filesystem mount notifications;
 - queries the target volume length and performs aligned, read-only reads of the primary and backup superblocks;
 - validates magic, internal format revision, CRC32C, geometry, reserved bytes, and the exact volume length;
-- reports a valid OpenFS volume as recognized but returns `STATUS_NOT_IMPLEMENTED` until VCB/VPB mounting and teardown are implemented;
+- maintains a private VDO/VCB with synchronized lifecycle state, rundown protection, and guarded VPB reservation/rollback;
+- provides an atomic VPB publication primitive for a fully initialized volume device; it deliberately is not called until the root directory and mounted-volume dispatch paths are ready;
+- reports a valid OpenFS volume as recognized but returns `STATUS_NOT_IMPLEMENTED` until the complete VCB/VPB mount, root-directory initialization, and teardown path are wired into the mount dispatch;
 - does **not** expose a mounted volume, format media, or read/write files yet.
 
 Do not install this development skeleton on a machine that needs a working OpenFS volume. It is not a replacement for the Dokany mount path.
