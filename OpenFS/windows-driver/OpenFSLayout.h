@@ -26,3 +26,14 @@ OpenFsCalculateVolumeLayout(
     _In_ USHORT FormatVersion,
     _Out_ POPENFS_VOLUME_LAYOUT Layout
     );
+
+/*
+ * Validate a byte range before constructing a signed LARGE_INTEGER IRP offset.
+ * Length must be non-zero and the complete range must fit inside the device.
+ */
+NTSTATUS
+OpenFsValidateReadRange(
+    _In_ ULONGLONG DeviceLength,
+    _In_ ULONGLONG ByteOffset,
+    _In_ ULONGLONG Length
+    );

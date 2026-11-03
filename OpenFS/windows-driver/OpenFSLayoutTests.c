@@ -53,6 +53,18 @@ main(void)
     CHECK(OpenFsCalculateVolumeLayout(4096u, 50u, 4u, NULL)
         == STATUS_INVALID_PARAMETER);
 
+    /* Read ranges are half-open and must fit both the device and IRP offset. */
+    CHECK(OpenFsValidateReadRange(4096u, 0u, 4096u) == STATUS_SUCCESS);
+    CHECK(OpenFsValidateReadRange(4096u, 4096u, 1u)
+        == STATUS_INVALID_PARAMETER);
+    CHECK(OpenFsValidateReadRange(4096u, 4095u, 1u) == STATUS_SUCCESS);
+    CHECK(OpenFsValidateReadRange(4096u, 4095u, 2u)
+        == STATUS_INVALID_PARAMETER);
+    CHECK(OpenFsValidateReadRange(4096u, 0u, 0u)
+        == STATUS_INVALID_PARAMETER);
+    CHECK(OpenFsValidateReadRange(MAXLONGLONG, (ULONGLONG)MAXLONGLONG, 1u)
+        == STATUS_INTEGER_OVERFLOW);
+
     puts("OpenFS volume layout tests passed.");
     printf("%u checks passed.\\n", g_tests);
     return 0;

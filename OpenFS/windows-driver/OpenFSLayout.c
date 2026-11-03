@@ -58,3 +58,23 @@ OpenFsCalculateVolumeLayout(
 
     return STATUS_SUCCESS;
 }
+
+NTSTATUS
+OpenFsValidateReadRange(
+    _In_ ULONGLONG DeviceLength,
+    _In_ ULONGLONG ByteOffset,
+    _In_ ULONGLONG Length
+    )
+{
+    if (Length == 0u || ByteOffset > DeviceLength ||
+        Length > DeviceLength - ByteOffset) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (ByteOffset > (ULONGLONG)MAXLONGLONG ||
+        Length > (ULONGLONG)MAXLONGLONG - ByteOffset) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+
+    return STATUS_SUCCESS;
+}

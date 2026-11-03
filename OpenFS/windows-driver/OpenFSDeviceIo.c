@@ -27,6 +27,7 @@ static NTSTATUS
 OpenFsReadAtOffset(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ ULONGLONG ByteOffset,
+    _In_ ULONGLONG DeviceLength,
     _Out_writes_bytes_(Length) UCHAR* Destination,
     _In_ ULONG Length
     )
@@ -41,17 +42,13 @@ OpenFsReadAtOffset(
     PIRP irp;
     NTSTATUS status;
 
-    if (Length == 0 || Destination == NULL) {
+    if (Destination == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
 
-    /*
-     * LARGE_INTEGER offsets are signed. Reject values that cannot be
-     * represented before narrowing ByteOffset into the IRP offset.
-     */
-    if (ByteOffset > (ULONGLONG)MAXLONGLONG ||
-        (ULONGLONG)Length > (ULONGLONG)MAXLONGLONG - ByteOffset) {
-        return STATUS_INTEGER_OVERFLOW;
+    status = OpenFsValidateReadRange(DeviceLength, ByteOffset, Length);
+    if (!NT_SUCCESS(status)) {
+        return status;
     }
 
     if (DeviceObject->SectorSize != 0 &&
@@ -181,7 +178,8 @@ OpenFsQueryDeviceLength(
 static NTSTATUS
 OpenFsValidateAllocationBitmap(
     _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ ULONGLONG DeviceLength
     )
 {
     OPENFS_VOLUME_LAYOUT layout;
@@ -240,6 +238,7 @@ OpenFsValidateAllocationBitmap(
         status = OpenFsReadAtOffset(
             DeviceObject,
             bitmapOffset,
+            DeviceLength,
             bitmap,
             (ULONG)bitmapBytes
             );
@@ -310,7 +309,7 @@ OpenFsProbeVolume(
     primary = records;
     backup = records + OPENFS_SUPERBLOCK_BYTES;
 
-    status = OpenFsReadAtOffset(targetDeviceObject, 0, primary,
+    status = OpenFsReadAtOffset(targetDeviceObject, 0, deviceLength, primary,
         OPENFS_SUPERBLOCK_BYTES);
     if (!NT_SUCCESS(status)) {
         goto Exit;
@@ -353,7 +352,7 @@ OpenFsProbeVolume(
         goto Exit;
     }
 
-    status = OpenFsReadAtOffset(targetDeviceObject, backupOffset, backup,
+    status = OpenFsReadAtOffset(targetDeviceObject, backupOffset, deviceLength, backup,
         OPENFS_SUPERBLOCK_BYTES);
     if (!NT_SUCCESS(status)) {
         goto Exit;
@@ -361,7 +360,7 @@ OpenFsProbeVolume(
 
     status = OpenFsValidateSuperblocks(primary, backup, deviceLength, Geometry);
     if (NT_SUCCESS(status)) {
-        status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry);
+        status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry, deviceLength);
     }
 
 Exit:
