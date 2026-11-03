@@ -1,0 +1,34 @@
+name: Apply Rust formatting
+
+on:
+  push:
+    branches: [OpenFS]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenFS
+        uses: actions/checkout@v4
+        with:
+          ref: OpenFS
+          fetch-depth: 0
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Apply rustfmt
+        run: cargo fmt --all
+      - name: Commit formatting changes
+        run: |
+          if git diff --quiet; then
+            echo "Rust formatting is already clean."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style: format Rust workspace"
+          git push origin HEAD:OpenFS
