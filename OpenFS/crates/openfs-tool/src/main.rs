@@ -2153,7 +2153,7 @@ fn probe_partition_filesystem(
 fn identify_filesystem_signature(bytes: &[u8]) -> &'static str {
     // OpenFS volumes are raw block devices: their primary superblock starts at
     // byte offset zero and therefore has no MBR/boot-sector signature.
-    if bytes.get(0..8) == Some(b"OPENFS\\0\\0") {
+    if bytes.get(0..8) == Some(b"OPENFS\0\0") {
         return "OpenFS";
     }
 
@@ -2832,7 +2832,7 @@ mod tests {
     #[test]
     fn identifies_openfs_superblock_at_device_or_partition_start() {
         let mut bytes = vec![0_u8; 4096];
-        bytes[..8].copy_from_slice(b"OPENFS\\0\\0");
+        bytes[..8].copy_from_slice(b"OPENFS\0\0");
         assert_eq!(super::identify_filesystem_signature(&bytes), "OpenFS");
     }
 
