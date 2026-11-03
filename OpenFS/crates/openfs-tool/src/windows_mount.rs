@@ -825,9 +825,14 @@ pub fn mount_image(
     // GPT images use 512-byte logical sectors independently of the OpenFS
     // allocation block size. Probe GPT first, then retain compatibility with
     // legacy whole-image Raw volumes.
-    let sector_size = 512_u32;
-    if image_bytes % u64::from(sector_size) == 0 {
+    for sector_size in [512_u32, 4096_u32] {
+        if image_bytes % u64::from(sector_size) != 0 {
+            continue;
+        }
         let sector_count = image_bytes / u64::from(sector_size);
+        if sector_count < 6 {
+            continue;
+        }
         let mut disk = ImageDevice::open(image_path, sector_size)?;
         if let Ok(layout) = read_gpt(&mut disk) {
             let partition = unique_openfs_partition(&layout)?;
@@ -886,11 +891,21 @@ pub fn mount_disk_device(
     let sector_count = size_bytes / u64::from(logical_sector_size);
     let mut disk = RawDevice::open(&device_path, logical_sector_size, sector_count)?;
 
-    // Recheck identity after opening the exclusive handle so a disk-index change
-    // cannot silently redirect the mount to another device.
-    let confirmed = super::windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
+    // Recheck the full physical-media identity after opening the exclusive handle.
+    // A disk index or generic Windows UniqueId alone is not sufficient.
+    let confirmed = super::windows_device::verify_usb_identity(
+        disk_index,
+        expected_model,
+        expected_serial,
+        expected_size,
+    )?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err("disk identity or geometry changed while opening it; refusing to mount".into());
+    }
+    let confirmed_unique_id =
+        super::windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
+    if confirmed_unique_id != (size_bytes, logical_sector_size) {
+        return Err("disk UniqueId or geometry changed while opening it; refusing to mount".into());
     }
 
     match read_gpt(&mut disk) {
