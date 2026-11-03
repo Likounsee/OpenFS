@@ -3,7 +3,7 @@ Signature   = "$WINDOWS NT$"
 Class       = System
 ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider    = %OpenFSProvider%
-DriverVer   = 11/03/2026,0.1.0.0
+DriverVer   = 11/03/2026,1.0.0.0
 CatalogFile = OpenFS.cat
 
 [DefaultInstall.NTamd64]
@@ -36,5 +36,5 @@ OpenFS.sys = 1
 [Strings]
 OpenFSProvider = "OpenFS Project"
 OpenFSServiceName = "OpenFS Filesystem Driver"
-OpenFSServiceDescription = "Native OpenFS filesystem driver (development scaffold)"
+OpenFSServiceDescription = "OpenFS 1.0 native filesystem driver (development build)"
 OpenFSDiskName = "OpenFS Driver Installation Media"
