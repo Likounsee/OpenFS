@@ -614,6 +614,20 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 }
                 offset as u64
             };
+            // Windows permits a write to extend a file beyond its current EOF.
+            // OpenFS range writes intentionally reject out-of-EOF ranges, so grow
+            // the persistent file first through the journaled sparse-truncation path.
+            // Keep both operations under this session lock to prevent an intervening
+            // namespace or length change between the size check and the data write.
+            let write_length =
+                u64::try_from(buffer.len()).map_err(|_| CoreError::ArithmeticOverflow)?;
+            let write_end = write_offset
+                .checked_add(write_length)
+                .ok_or(CoreError::ArithmeticOverflow)?;
+            let current_size = session.stat(path)?.size;
+            if write_end > current_size {
+                session.set_file_len(path, write_end)?;
+            }
             session.write_file_range(path, write_offset, buffer)?;
             Ok(buffer.len())
         })?;
