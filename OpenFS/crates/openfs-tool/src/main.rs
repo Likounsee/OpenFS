@@ -2682,7 +2682,12 @@ fn format_disk_device(
     }
 
     let (size_bytes, logical_sector_size) =
-        windows_device::prepare_disk_for_raw_access(disk_index, "USB")?;
+        windows_device::prepare_disk_for_raw_access(
+            disk_index,
+            expected_model,
+            expected_serial,
+            expected_size,
+        )?;
     windows_device::verify_usb_identity(
         disk_index,
         expected_model,
