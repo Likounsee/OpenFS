@@ -105,6 +105,19 @@ main(void)
         "null state pointer is rejected"
         );
 
+    Check(
+        OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 0),
+        "private initializing volume can be destroyed"
+        );
+    Check(
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 1),
+        "volume with VPB association cannot use private destroy"
+        );
+    Check(
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeDead, 0),
+        "dead volume cannot be destroyed twice"
+        );
+
     printf("OpenFS volume-state tests: %u checks\n", g_Checks);
-    return g_Checks == 13 ? 0 : 1;
+    return g_Checks == 16 ? 0 : 1;
 }
