@@ -202,3 +202,76 @@ OpenFsValidateInventoryDescriptorRanges(
     OPENFS_FREE(slots);
     return STATUS_SUCCESS;
 }
+
+static NTSTATUS
+OpenFsInventoryRequireAllocated(
+    _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _In_ ULONGLONG BitmapBaseBlock,
+    _In_ ULONGLONG BitmapEndBlock,
+    _In_ ULONGLONG Block
+    )
+{
+    ULONGLONG local;
+    SIZE_T byteIndex;
+    UCHAR mask;
+
+    if (Block < BitmapBaseBlock || Block >= BitmapEndBlock) {
+        return STATUS_SUCCESS;
+    }
+    local = Block - BitmapBaseBlock;
+    byteIndex = (SIZE_T)(local / 8u);
+    if (byteIndex >= BitmapBytes) return STATUS_DISK_CORRUPT_ERROR;
+    mask = (UCHAR)(1u << (local % 8u));
+    return (Bitmap[byteIndex] & mask) != 0
+        ? STATUS_SUCCESS : STATUS_DISK_CORRUPT_ERROR;
+}
+
+NTSTATUS
+OpenFsValidateInventoryDescriptorBitmapPage(
+    _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
+    _In_ ULONGLONG DescriptorBlock,
+    _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _In_ ULONGLONG BitmapBaseBlock,
+    _In_ ULONGLONG TotalBlocks
+    )
+{
+    ULONGLONG bits, bitmapEnd;
+    ULONG list;
+
+    if (Descriptor == NULL || Bitmap == NULL || BitmapBytes == 0 ||
+        (ULONGLONG)BitmapBytes > MAXULONGLONG / 8u ||
+        TotalBlocks == 0) return STATUS_INVALID_PARAMETER;
+
+    bits = (ULONGLONG)BitmapBytes * 8u;
+    if (BitmapBaseBlock % bits != 0 ||
+        BitmapBaseBlock > MAXULONGLONG - bits ||
+        BitmapBaseBlock >= TotalBlocks) return STATUS_INVALID_PARAMETER;
+    bitmapEnd = BitmapBaseBlock + bits;
+    if (bitmapEnd > TotalBlocks) bitmapEnd = TotalBlocks;
+
+    if (DescriptorBlock >= TotalBlocks) return STATUS_DISK_CORRUPT_ERROR;
+    {
+        NTSTATUS status = OpenFsInventoryRequireAllocated(
+            Bitmap, BitmapBytes, BitmapBaseBlock, bitmapEnd, DescriptorBlock);
+        if (!NT_SUCCESS(status)) return status;
+    }
+
+    for (list = 0; list < 2; ++list) {
+        const UCHAR* blocks = list == 0
+            ? Descriptor->MetadataBlockList : Descriptor->DirectoryBlockList;
+        ULONG count = list == 0
+            ? Descriptor->MetadataBlockCount : Descriptor->DirectoryBlockCount;
+        ULONG index;
+        if (count != 0 && blocks == NULL) return STATUS_INVALID_PARAMETER;
+        for (index = 0; index < count; ++index) {
+            ULONGLONG block = OpenFsInventoryDescriptorReadBlock(
+                blocks + ((SIZE_T)index * 8u));
+            NTSTATUS status = OpenFsInventoryRequireAllocated(
+                Bitmap, BitmapBytes, BitmapBaseBlock, bitmapEnd, block);
+            if (!NT_SUCCESS(status)) return status;
+        }
+    }
+    return STATUS_SUCCESS;
+}
