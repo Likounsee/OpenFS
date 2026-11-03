@@ -41,3 +41,17 @@ NTSTATUS
 OpenFsDestroyVolumeDevice(
     _In_ PDEVICE_OBJECT VolumeDeviceObject
     );
+
+/* Thread-safe VCB state accessors for the future mount/dismount path. */
+NTSTATUS
+OpenFsTransitionVolumeState(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ OPENFS_VOLUME_STATE Expected,
+    _In_ OPENFS_VOLUME_STATE Next
+    );
+
+NTSTATUS
+OpenFsQueryVolumeState(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _Out_ OPENFS_VOLUME_STATE* State
+    );
