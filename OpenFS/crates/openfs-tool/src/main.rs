@@ -1899,7 +1899,9 @@ fn diagnose_raw_gpt(
     let raw_signature = identify_filesystem_signature(&mbr);
     if raw_signature == "OpenFS" {
         println!("Raw-device filesystem signature: OpenFS superblock magic at byte offset 0");
-        println!("  Running the read-only OpenFS volume checker (primary/backup superblocks, CRC32C, geometry, bitmap, journal and inventory).");
+        println!(
+            "  Running the read-only OpenFS volume checker (primary/backup superblocks, CRC32C, geometry, bitmap, journal and inventory)."
+        );
         match check_volume(&mut device) {
             Ok(report) => {
                 println!("OpenFS read-only volume check: OK");
@@ -1907,19 +1909,40 @@ fn diagnose_raw_gpt(
                 println!("  Format version: {version}");
                 println!("  Block size: {} bytes", report.block_size);
                 println!("  Total blocks: {}", report.total_blocks);
-                println!("  Capacity: {} bytes", u64::from(report.block_size) * report.total_blocks);
+                println!(
+                    "  Capacity: {} bytes",
+                    u64::from(report.block_size) * report.total_blocks
+                );
                 println!("  Volume UUID: {:02x?}", report.uuid);
                 println!("  Primary superblock: LBA 0 (CRC32C valid)");
-                println!("  Backup superblock: LBA {} (CRC32C valid)", report.backup_superblock);
-                println!("  Allocation bitmap: {} blocks at LBA {}", report.bitmap_blocks, report.bitmap_start);
-                println!("  Data region: LBA {}..{}", report.data_start, report.backup_superblock - 1);
+                println!(
+                    "  Backup superblock: LBA {} (CRC32C valid)",
+                    report.backup_superblock
+                );
+                println!(
+                    "  Allocation bitmap: {} blocks at LBA {}",
+                    report.bitmap_blocks,
+                    report.bitmap_start
+                );
+                println!(
+                    "  Data region: LBA {}..{}",
+                    report.data_start,
+                    report.backup_superblock - 1
+                );
                 println!("  Allocated data blocks: {}", report.allocated_data_blocks);
                 println!("  Free data blocks: {}", report.free_data_blocks);
                 println!("  Journal generation: {}", report.journal_generation);
                 println!("  Journal checkpoint sequence: {}", report.journal_checkpoint_sequence);
                 println!("  Pending journal records: {}", report.pending_journal_records);
                 println!("  Recoverable transactions: {}", report.recoverable_transactions);
-                println!("  Persistent namespace inventory: {}", if report.persistent_inventory_present { "present" } else { "not found" });
+                println!(
+                    "  Persistent namespace inventory: {}",
+                    if report.persistent_inventory_present {
+                        "present"
+                    } else {
+                        "not found"
+                    }
+                );
                 println!("  Partition table: none required (raw OpenFS volume)");
             }
             Err(error) => {
