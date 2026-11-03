@@ -94,7 +94,7 @@ jobs:
         run: ./openfs-namespace-tests
       - name: Compile native inventory descriptor tests
         working-directory: OpenFS/windows-driver
-        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSInventory.c OpenFSInventoryTests.c -o openfs-inventory-tests
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSInventory.c OpenFSInventoryTests.c -o openfs-inventory-tests
       - name: Run native inventory descriptor tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-inventory-tests
