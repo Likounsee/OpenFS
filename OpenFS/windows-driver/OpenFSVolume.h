@@ -1,0 +1,43 @@
+#pragma once
+
+#include <ntifs.h>
+#include "OpenFSSuperblock.h"
+#include "OpenFSVolumeState.h"
+
+#define OPENFS_VCB_SIGNATURE 'BCVO'
+
+/*
+ * One VCB lives in the extension of each unpublished volume device object.
+ * Resource protects State and the future VPB association. The VDO remains
+ * private until a later mount implementation atomically associates its VPB.
+ */
+typedef struct _OPENFS_VCB {
+    ULONG Signature;
+    ERESOURCE Resource;
+    OPENFS_VOLUME_STATE State;
+    PDEVICE_OBJECT VolumeDeviceObject;
+    PDEVICE_OBJECT RealDeviceObject;
+    PVPB Vpb;
+    OPENFS_VOLUME_GEOMETRY Geometry;
+} OPENFS_VCB, *POPENFS_VCB;
+
+/*
+ * Create an initialized, but not yet mounted or published, volume device.
+ * The caller owns the returned device and must destroy it on mount rollback.
+ */
+NTSTATUS
+OpenFsCreateVolumeDevice(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_ PDEVICE_OBJECT RealDeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _Outptr_ PDEVICE_OBJECT* VolumeDeviceObject
+    );
+
+/*
+ * Destroy only a private, unmounted volume device. A VCB with an associated
+ * VPB or a mounted/dismounting state is deliberately not eligible.
+ */
+NTSTATUS
+OpenFsDestroyVolumeDevice(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject
+    );

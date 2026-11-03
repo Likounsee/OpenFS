@@ -56,11 +56,13 @@
     <ClCompile Include="OpenFSBitmap.c" />
     <ClCompile Include="OpenFSLayout.c" />
     <ClCompile Include="OpenFSVolumeState.c" />
+    <ClCompile Include="OpenFSVolume.c" />
     <ClInclude Include="OpenFSSuperblock.h" />
     <ClInclude Include="OpenFSDeviceIo.h" />
     <ClInclude Include="OpenFSBitmap.h" />
     <ClInclude Include="OpenFSLayout.h" />
     <ClInclude Include="OpenFSVolumeState.h" />
+    <ClInclude Include="OpenFSVolume.h" />
     <Inf Include="OpenFS.inf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
