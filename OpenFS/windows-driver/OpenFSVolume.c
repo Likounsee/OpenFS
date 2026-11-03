@@ -65,6 +65,8 @@ OpenFsCreateVolumeDevice(
         return status;
     }
 
+    ExInitializeRundownProtection(&vcb->RundownProtection);
+
     ObReferenceObject(RealDeviceObject);
 
     vcb->Signature = OPENFS_VCB_SIGNATURE;
@@ -129,6 +131,10 @@ OpenFsDestroyVolumeDevice(
 
     ExReleaseResourceLite(&vcb->Resource);
 
+    /* Stop new users and wait for all VCB accessors already in flight. */
+    ExRundownCompleted(&vcb->RundownProtection);
+    ExWaitForRundownProtectionRelease(&vcb->RundownProtection);
+
     status = ExDeleteResourceLite(&vcb->Resource);
     if (!NT_SUCCESS(status)) {
         return status;
@@ -168,7 +174,12 @@ OpenFsTransitionVolumeState(
         return STATUS_INVALID_DEVICE_STATE;
     }
 
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        return STATUS_DELETE_PENDING;
+    }
+
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -179,6 +190,7 @@ OpenFsTransitionVolumeState(
     }
 
     ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
     return status;
 }
 
@@ -201,7 +213,12 @@ OpenFsQueryVolumeState(
         return STATUS_INVALID_DEVICE_STATE;
     }
 
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        return STATUS_DELETE_PENDING;
+    }
+
     if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -212,5 +229,6 @@ OpenFsQueryVolumeState(
     }
 
     ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
     return status;
 }
