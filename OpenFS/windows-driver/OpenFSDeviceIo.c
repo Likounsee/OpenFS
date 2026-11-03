@@ -4,6 +4,7 @@
 #include "OpenFSBitmap.h"
 #include "OpenFSLayout.h"
 #include "OpenFSInventory.h"
+#include "OpenFSNamespace.h"
 
 #define OPENFS_DEVICE_IO_TAG 'iFsO'
 #define OPENFS_PROBE_BUFFER_TAG 'pFsO'
