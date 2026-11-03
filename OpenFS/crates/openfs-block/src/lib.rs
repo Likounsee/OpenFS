@@ -496,6 +496,34 @@ impl ReadOnlyRawDevice {
     }
 }
 
+
+// Implement the common block-device interface so read-only filesystem checkers can
+// inspect this handle. Mutation remains impossible: writes are rejected and flush is
+// a harmless no-op because this handle never opens the underlying file for writing.
+impl BlockDevice for ReadOnlyRawDevice {
+    fn block_size(&self) -> u32 {
+        self.block_size
+    }
+
+    fn block_count(&self) -> u64 {
+        self.block_count
+    }
+
+    fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> Result<()> {
+        ReadOnlyRawDevice::read_blocks(self, first_block, output)
+    }
+
+    fn write_blocks(&mut self, _first_block: u64, _input: &[u8]) -> Result<()> {
+        Err(Error::InvalidInput(
+            "cannot write through a read-only raw device",
+        ))
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// An explicitly opened existing device or volume, without create/truncate semantics.
 ///
 /// The caller must supply the logical block size and count from a trusted source.
