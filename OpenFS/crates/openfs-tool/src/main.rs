@@ -510,45 +510,38 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
     let disk_guid = make_gpt_guid(timestamp ^ 0x4f50_454e_4653_0001_u128);
     let partition_guid = make_gpt_guid(timestamp ^ 0x4f50_454e_4653_0002_u128);
 
-    let result = (|| -> Result<(), Box<dyn StdError>> {
-        let disk = ImageDevice::create(path, 512, block_count)?;
-        let layout = plan_openfs_gpt(&disk, BLOCK_SIZE, disk_guid, partition_guid)?;
-        let partition = layout
-            .partitions
-            .first()
-            .ok_or("GPT planner did not create an OpenFS partition")?;
-        let first_lba = partition.first_lba;
-        let sector_count = partition.sector_count()?;
-        let partition_bytes = sector_count.checked_mul(512).ok_or("partition size overflow")?;
+    // create_new semantics are intentional: never delete or overwrite a file
+    // that already existed at the requested destination, even on a later error.
+    let disk = ImageDevice::create(path, 512, block_count)?;
+    let layout = plan_openfs_gpt(&disk, BLOCK_SIZE, disk_guid, partition_guid)?;
+    let partition = layout
+        .partitions
+        .first()
+        .ok_or("GPT planner did not create an OpenFS partition")?;
+    let first_lba = partition.first_lba;
+    let sector_count = partition.sector_count()?;
+    let partition_bytes = sector_count.checked_mul(512).ok_or("partition size overflow")?;
 
-        let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
-        format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
-        let mut volume = open_volume(&mut filesystem)?;
-        volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
-        drop(volume);
-        filesystem.flush()?;
+    let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
+    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    let mut volume = open_volume(&mut filesystem)?;
+    volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
+    drop(volume);
+    filesystem.flush()?;
 
-        let mut disk = filesystem.into_inner();
-        write_gpt(&mut disk, &layout)?;
-        disk.flush()?;
-        println!("OpenFS GPT development image created.");
-        println!("Path: {}", path.display());
-        println!("Disk size: {size_mib} MiB");
-        println!("Logical sector size: 512 bytes");
-        println!("OpenFS partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
-        println!("OpenFS partition capacity: {partition_bytes} bytes");
-        println!("Primary and backup GPT copies: written and flushed");
-        println!("The image can be mounted with: openfs mount <image> <drive-letter>");
-        Ok(())
-    })();
-
-    if let Err(error) = result {
-        let _ = fs::remove_file(path);
-        return Err(error);
-    }
+    let mut disk = filesystem.into_inner();
+    write_gpt(&mut disk, &layout)?;
+    disk.flush()?;
+    println!("OpenFS GPT development image created.");
+    println!("Path: {}", path.display());
+    println!("Disk size: {size_mib} MiB");
+    println!("Logical sector size: 512 bytes");
+    println!("OpenFS partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
+    println!("OpenFS partition capacity: {partition_bytes} bytes");
+    println!("Primary and backup GPT copies: written and flushed");
+    println!("The image can be mounted with: openfs mount <image> <drive-letter>");
     Ok(())
 }
-
 fn make_gpt_guid(seed: u128) -> [u8; 16] {
     let mut guid = seed.to_le_bytes();
     if guid.iter().all(|byte| *byte == 0) {
