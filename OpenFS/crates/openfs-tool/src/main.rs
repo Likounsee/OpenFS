@@ -498,7 +498,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
 }
 
 fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
-    if size_mib < 8 || size_mib > MAX_IMAGE_SIZE_MIB {
+    if !(8..=MAX_IMAGE_SIZE_MIB).contains(&size_mib) {
         return Err("GPT image size must be between 8 MiB and 1 TiB".into());
     }
     let byte_len = size_mib
@@ -3075,7 +3075,7 @@ mod tests {
             "unknown / unsupported signature"
         );
         let mut bytes = vec![0_u8; 4096];
-        bytes[..8].copy_from_slice(b"OPENFX\\0\\0");
+        bytes[..8].copy_from_slice(b"OPENFX\0\0");
         assert_eq!(
             super::identify_filesystem_signature(&bytes),
             "unknown / unsupported signature"
