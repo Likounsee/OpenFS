@@ -48,3 +48,12 @@ OpenFsVolumeStateTryTransition(
     *State = Next;
     return 1;
 }
+
+int
+OpenFsVolumeStateCanDestroy(
+    OPENFS_VOLUME_STATE State,
+    int HasVpb
+    )
+{
+    return State == OpenFsVolumeInitializing && !HasVpb;
+}
