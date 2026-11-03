@@ -5,8 +5,7 @@
 static unsigned int checks, failures;
 static void Check(int ok, const char* name) {
     ++checks;
-    if (!ok) { ++failures; fprintf(stderr, "FAIL: %s
-", name); }
+    if (!ok) { ++failures; fprintf(stderr, "FAIL: %s\n", name); }
 }
 static void Put16(UCHAR* p, USHORT v) { p[0]=(UCHAR)v; p[1]=(UCHAR)(v>>8); }
 static void Put32(UCHAR* p, ULONG v) {
@@ -20,17 +19,16 @@ static void Seal(UCHAR* b, SIZE_T size) {
     Put32(b+40, OpenFsCrc32C(b,size));
 }
 static void Make(UCHAR* b, ULONG size, ULONG metadataCount, ULONG directoryCount) {
+    ULONG metadataBlocks = (metadataCount * 80u + size - 1) / size;
+    ULONG directoryBlocks = (directoryCount * 128u + size - 1) / size;
+    ULONG i, offset = 48;
     memset(b,0,size);
     memcpy(b,"OFSMINV\0",8);
     Put16(b+8,1); Put16(b+10,48);
     Put64(b+12,1);
     Put32(b+28,metadataCount); Put32(b+32,directoryCount);
-    if (metadataCount) Put64(b+48, 100);
-    if (directoryCount) {
-        ULONG offset = 48 + ((metadataCount*80u + size-1)/size)*8u;
-        Put64(b+offset, 101);
-        if (((directoryCount*128u + size-1)/size) > 1) Put64(b+offset+8, 102);
-    }
+    for (i=0;i<metadataBlocks;++i) { Put64(b+offset,100+i); offset+=8; }
+    for (i=0;i<directoryBlocks;++i) { Put64(b+offset,200+i); offset+=8; }
     Seal(b,size);
 }
 int main(void) {
@@ -44,9 +42,9 @@ int main(void) {
     Check(d.MetadataBlockCount==1 && d.DirectoryBlockCount==2,
         "block counts use packed record byte sizes");
     Check(OpenFsInventoryDescriptorReadBlock(d.MetadataBlockList)==100 &&
-        OpenFsInventoryDescriptorReadBlock(d.DirectoryBlockList)==101,
+        OpenFsInventoryDescriptorReadBlock(d.DirectoryBlockList)==200,
         "metadata and directory block lists located");
-    Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_SUCCESS,
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_SUCCESS,
         "inventory data blocks pass volume range validation");
 
     bytes[48] ^= 1;
@@ -75,28 +73,35 @@ int main(void) {
 
     Make(bytes,sizeof(bytes),0xFFFFFFFFu,0);
     Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_DISK_CORRUPT_ERROR,
-        "overflowing metadata record count rejected");
+        "oversized metadata record count rejected");
 
     Make(bytes,sizeof(bytes),40,40);
     Put64(bytes+48,19); Seal(bytes,sizeof(bytes));
     Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
         "structural decoder leaves physical range validation separate");
-    Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
         "metadata block below data region rejected");
 
     Make(bytes,sizeof(bytes),40,40);
     Put64(bytes+48,100); Put64(bytes+56,100); Seal(bytes,sizeof(bytes));
     Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
         "duplicate list remains structurally decodable");
-    Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
         "duplicate metadata and directory block rejected");
 
     Make(bytes,sizeof(bytes),40,40);
-    Put64(bytes+48,100); Put64(bytes+56,101); Put64(bytes+64,100); Seal(bytes,sizeof(bytes));
+    Put64(bytes+48,100); Put64(bytes+56,200); Put64(bytes+64,200); Seal(bytes,sizeof(bytes));
     Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
         "three inventory blocks decode");
-    Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
         "duplicate within directory block list rejected");
+
+    Make(bytes,sizeof(bytes),40,40);
+    Put64(bytes+48,99); Seal(bytes,sizeof(bytes));
+    Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
+        "descriptor self-reference fixture decodes");
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_DISK_CORRUPT_ERROR,
+        "descriptor cannot reference itself");
 
     Make(bytes,sizeof(bytes),40,40);
     Check(OpenFsDecodeInventoryDescriptor(bytes,2048,&d)==STATUS_INVALID_PARAMETER,
@@ -109,10 +114,9 @@ int main(void) {
     Make(bytes,sizeof(bytes),0,0);
     Check(OpenFsDecodeInventoryDescriptor(bytes,sizeof(bytes),&d)==STATUS_SUCCESS,
         "empty inventory lists decode");
-    Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_SUCCESS,
+    Check(OpenFsValidateInventoryDescriptorRanges(&d,99,1000,20,999)==STATUS_SUCCESS,
         "empty inventory has no invalid block references");
 
-    printf("OpenFS inventory descriptor tests: %u checks, %u failures
-",checks,failures);
+    printf("OpenFS inventory descriptor tests: %u checks, %u failures\n",checks,failures);
     return failures==0?0:1;
 }
