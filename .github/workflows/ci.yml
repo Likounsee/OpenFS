@@ -1,4 +1,4 @@
-name: Rust CI
+name: Rust and native-format CI
 
 # Prevent stale runs from occupying the limited GitHub-hosted runner queue.
 concurrency:
@@ -54,3 +54,17 @@ jobs:
         run: cargo test --workspace --all-features
       - name: Clippy (all targets and features)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+
+  native-superblock:
+    name: Native superblock parser (host C tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native parser tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSSuperblockTests.c -o openfs-superblock-tests
+      - name: Run native parser tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-superblock-tests
