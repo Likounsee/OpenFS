@@ -1899,7 +1899,35 @@ fn diagnose_raw_gpt(
     let raw_signature = identify_filesystem_signature(&mbr);
     if raw_signature == "OpenFS" {
         println!("Raw-device filesystem signature: OpenFS superblock magic at byte offset 0");
-        println!("  Detection status: signature candidate only; superblock CRC and volume metadata have not been validated");
+        println!("  Running the read-only OpenFS volume checker (primary/backup superblocks, CRC32C, geometry, bitmap, journal and inventory).");
+        match check_volume(&mut device) {
+            Ok(report) => {
+                println!("OpenFS read-only volume check: OK");
+                println!("  Format version: read from validated superblock");
+                println!("  Block size: {} bytes", report.block_size);
+                println!("  Total blocks: {}", report.total_blocks);
+                println!("  Capacity: {} bytes", u64::from(report.block_size) * report.total_blocks);
+                println!("  Volume UUID: {:02x?}", report.uuid);
+                println!("  Primary superblock: LBA 0 (CRC32C valid)");
+                println!("  Backup superblock: LBA {} (CRC32C valid)", report.backup_superblock);
+                println!("  Allocation bitmap: {} blocks at LBA {}", report.bitmap_blocks, report.bitmap_start);
+                println!("  Data region: LBA {}..{}", report.data_start, report.backup_superblock - 1);
+                println!("  Allocated data blocks: {}", report.allocated_data_blocks);
+                println!("  Free data blocks: {}", report.free_data_blocks);
+                println!("  Journal generation: {}", report.journal_generation);
+                println!("  Journal checkpoint sequence: {}", report.journal_checkpoint_sequence);
+                println!("  Pending journal records: {}", report.pending_journal_records);
+                println!("  Recoverable transactions: {}", report.recoverable_transactions);
+                println!("  Persistent namespace inventory: {}", if report.persistent_inventory_present { "present" } else { "not found" });
+                println!("  Partition table: none required (raw OpenFS volume)");
+            }
+            Err(error) => {
+                println!("OpenFS read-only volume check: FAILED ({error})");
+            }
+        }
+        println!();
+        println!("No writes were performed.");
+        return Ok(());
     }
     for index in 0..4 {
         let offset = 446 + index * 16;
@@ -3764,6 +3792,20 @@ mod gpt_tests {
         let mut mbr = protective_mbr(4096);
         mbr[462 + 4] = 0x07;
         assert!(validate_protective_mbr(&mbr, 4096).is_err());
+    }
+
+    #[test]
+    fn recognizes_openfs_raw_superblock_signature() {
+        let mut openfs = vec![0_u8; 4096];
+        openfs[..8].copy_from_slice(b"OPENFS\\0\\0");
+        assert_eq!(identify_filesystem_signature(&openfs), "OpenFS");
+
+        // A partial or damaged magic must not be reported as an OpenFS volume.
+        openfs[7] = 1;
+        assert_eq!(
+            identify_filesystem_signature(&openfs),
+            "unknown / unsupported signature"
+        );
     }
 
     #[test]
