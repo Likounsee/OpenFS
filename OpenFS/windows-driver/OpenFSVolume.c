@@ -285,27 +285,27 @@ OpenFsReserveVolumeVpb(
         return STATUS_INVALID_PARAMETER;
     }
 
+    /*
+     * The caller must already own a valid device-object pointer. Take our
+     * own reference before touching the extension so IoDeleteDevice cannot
+     * reclaim it while this operation is in flight.
+     */
+    ObReferenceObject(VolumeDeviceObject);
+
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INVALID_DEVICE_STATE;
     }
 
-    /*
-     * RealDevice is an I/O-manager-owned VPB field. Validate it under the
-     * VPB spin lock before taking the VCB resource (the spin lock raises
-     * IRQL to DISPATCH_LEVEL and must never be nested with an ERESOURCE).
-     */
-    status = OpenFsValidateMountVpb(Vpb, vcb->RealDeviceObject);
-    if (!NT_SUCCESS(status)) {
-        return status;
-    }
-
     if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DELETE_PENDING;
     }
 
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
         ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -315,11 +315,21 @@ OpenFsReserveVolumeVpb(
     } else if (vcb->Vpb != NULL) {
         status = STATUS_DEVICE_BUSY;
     } else {
-        vcb->Vpb = Vpb;
+        /*
+         * Validate the I/O-manager-owned VPB while the VCB resource is held.
+         * This keeps the VCB's RealDeviceObject stable during validation and
+         * follows one lock order everywhere: VCB resource, then VPB spinlock.
+         * Never acquire an ERESOURCE while holding the VPB spinlock.
+         */
+        status = OpenFsValidateMountVpb(Vpb, vcb->RealDeviceObject);
+        if (NT_SUCCESS(status)) {
+            vcb->Vpb = Vpb;
+        }
     }
 
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
 
