@@ -16,6 +16,7 @@ use dokan::{
 use openfs_block::{BlockDevice, ImageDevice, RawDevice};
 use openfs_core::Error as CoreError;
 use openfs_format::{ObjectId, ObjectKind, VolumeSession};
+use openfs_partition::{read_gpt, GptLayout, PartitionDevice, OPENFS_PARTITION_TYPE_GUID};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_DIR_NOT_EMPTY, ERROR_FILE_EXISTS,
@@ -820,6 +821,30 @@ pub fn mount_image(
     block_size: u32,
 ) -> Result<(), Box<dyn StdError>> {
     let image_bytes = std::fs::metadata(image_path)?.len();
+
+    // GPT images use 512-byte logical sectors independently of the OpenFS
+    // allocation block size. Probe GPT first, then retain compatibility with
+    // legacy whole-image Raw volumes.
+    let sector_size = 512_u32;
+    if image_bytes % u64::from(sector_size) == 0 {
+        let sector_count = image_bytes / u64::from(sector_size);
+        let mut disk = ImageDevice::open(image_path, sector_size)?;
+        if let Ok(layout) = read_gpt(&mut disk) {
+            let partition = unique_openfs_partition(&layout)?;
+            let partition_bytes = partition
+                .sector_count()
+                .checked_mul(u64::from(sector_size))
+                .ok_or("OpenFS partition size overflow")?;
+            let device = PartitionDevice::new(
+                disk,
+                partition.first_lba,
+                partition.sector_count()?,
+                block_size,
+            )?;
+            return mount_device(device, partition_bytes, mount_point, block_size, sector_size);
+        }
+    }
+
     let device = ImageDevice::open(image_path, block_size)?;
     mount_device(device, image_bytes, mount_point, block_size, block_size)
 }
@@ -844,10 +869,8 @@ pub fn mount_disk_device(
             "OpenFS block size {block_size} must be a multiple of the disk logical sector size {initial_sector_size}"
         ).into());
     }
-    if initial_size % u64::from(block_size) != 0 {
-        return Err(
-            "disk capacity is not a whole multiple of the selected OpenFS block size".into(),
-        );
+    if initial_size % u64::from(initial_sector_size) != 0 {
+        return Err("disk capacity is not a whole multiple of the logical sector size".into());
     }
 
     let (size_bytes, logical_sector_size) = super::windows_device::prepare_disk_for_raw_access(
@@ -856,21 +879,85 @@ pub fn mount_disk_device(
         expected_serial,
         expected_size,
     )?;
+    if (size_bytes, logical_sector_size) != (initial_size, initial_sector_size) {
+        return Err("disk geometry changed during mount preflight; refusing to mount".into());
+    }
     let device_path = format!(r"\\.\PhysicalDrive{disk_index}");
-    let device = RawDevice::open(&device_path, block_size, size_bytes / u64::from(block_size))?;
-    // Recheck after opening the handle so a disk-index change during the
-    // preflight/open window cannot silently redirect the mount to another disk.
+    let sector_count = size_bytes / u64::from(logical_sector_size);
+    let mut disk = RawDevice::open(&device_path, logical_sector_size, sector_count)?;
+
+    // Recheck identity after opening the exclusive handle so a disk-index change
+    // cannot silently redirect the mount to another device.
     let confirmed = super::windows_device::verify_disk_identity_geometry(disk_index, unique_id)?;
     if confirmed != (size_bytes, logical_sector_size) {
         return Err("disk identity or geometry changed while opening it; refusing to mount".into());
     }
-    mount_device(
-        device,
-        size_bytes,
-        mount_point,
-        block_size,
-        logical_sector_size,
-    )
+
+    match read_gpt(&mut disk) {
+        Ok(layout) => {
+            let partition = unique_openfs_partition(&layout)?;
+            let partition_bytes = partition
+                .sector_count()
+                .checked_mul(u64::from(logical_sector_size))
+                .ok_or("OpenFS partition size overflow")?;
+            let device = PartitionDevice::new(
+                disk,
+                partition.first_lba,
+                partition.sector_count()?,
+                block_size,
+            )?;
+            println!(
+                "Mounting OpenFS GPT partition {} at LBA {}..={}",
+                partition.entry_index, partition.first_lba, partition.last_lba
+            );
+            mount_device(
+                device,
+                partition_bytes,
+                mount_point,
+                block_size,
+                logical_sector_size,
+            )
+        }
+        Err(gpt_error) => {
+            // Preserve support for existing whole-disk Raw volumes. Do not
+            // silently fall back when a protective MBR says a GPT is present.
+            let mut first_sector = vec![0_u8; logical_sector_size as usize];
+            disk.read_blocks(0, &mut first_sector)?;
+            let has_protective_mbr = first_sector.get(510..512) == Some(&[0x55, 0xaa])
+                && (0..4).any(|index| first_sector[446 + index * 16 + 4] == 0xee);
+            if has_protective_mbr {
+                return Err(format!(
+                    "disk has a protective MBR but its GPT is invalid: {gpt_error}"
+                ).into());
+            }
+            drop(disk);
+            let raw_block_count = size_bytes / u64::from(block_size);
+            let device = RawDevice::open(&device_path, block_size, raw_block_count)?;
+            println!("No valid GPT found; mounting legacy whole-disk Raw OpenFS volume.");
+            mount_device(
+                device,
+                size_bytes,
+                mount_point,
+                block_size,
+                logical_sector_size,
+            )
+        }
+    }
+}
+
+fn unique_openfs_partition(layout: &GptLayout) -> Result<openfs_partition::GptPartition, Box<dyn StdError>> {
+    let mut matches = layout
+        .partitions
+        .iter()
+        .filter(|partition| partition.type_guid == OPENFS_PARTITION_TYPE_GUID);
+    let partition = matches
+        .next()
+        .cloned()
+        .ok_or("GPT contains no partition with the OpenFS type GUID")?;
+    if matches.next().is_some() {
+        return Err("GPT contains multiple OpenFS partitions; refusing ambiguous mount".into());
+    }
+    Ok(partition)
 }
 
 fn mount_device<D: BlockDevice + Send + 'static>(
