@@ -181,8 +181,6 @@ OpenFsValidateAllocationBitmap(
     ULONGLONG ringEnd;
     ULONGLONG bitmapIndex;
     ULONGLONG bitmapBytes;
-    ULONGLONG* reservedStarts = NULL;
-    ULONGLONG* reservedEnds = NULL;
     UCHAR* bitmap = NULL;
     NTSTATUS status = STATUS_SUCCESS;
 
@@ -302,8 +300,6 @@ OpenFsValidateAllocationBitmap(
 
 Exit:
     ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
-    UNREFERENCED_PARAMETER(reservedStarts);
-    UNREFERENCED_PARAMETER(reservedEnds);
     return status;
 }
 
