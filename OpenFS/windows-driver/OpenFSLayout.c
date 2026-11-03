@@ -66,14 +66,14 @@ OpenFsValidateReadRange(
     _In_ ULONGLONG Length
     )
 {
-    if (Length == 0u || ByteOffset > DeviceLength ||
-        Length > DeviceLength - ByteOffset) {
-        return STATUS_INVALID_PARAMETER;
-    }
-
     if (ByteOffset > (ULONGLONG)MAXLONGLONG ||
         Length > (ULONGLONG)MAXLONGLONG - ByteOffset) {
         return STATUS_INTEGER_OVERFLOW;
+    }
+
+    if (Length == 0u || ByteOffset > DeviceLength ||
+        Length > DeviceLength - ByteOffset) {
+        return STATUS_INVALID_PARAMETER;
     }
 
     return STATUS_SUCCESS;

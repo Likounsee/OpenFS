@@ -17,6 +17,7 @@ typedef int BOOLEAN;
 #define FALSE 0
 
 #define MAXULONGLONG UINT64_MAX
+#define MAXLONGLONG INT64_MAX
 #define _In_
 #define _Out_
 #define _In_reads_bytes_(Length)
