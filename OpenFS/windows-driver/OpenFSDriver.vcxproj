@@ -48,6 +48,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="OpenFSDriver.c" />
+    <ClCompile Include="OpenFSSuperblock.c" />
+    <ClInclude Include="OpenFSSuperblock.h" />
     <Inf Include="OpenFS.inf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
