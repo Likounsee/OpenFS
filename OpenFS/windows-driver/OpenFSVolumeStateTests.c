@@ -117,7 +117,37 @@ main(void)
         !OpenFsVolumeStateCanDestroy(OpenFsVolumeDead, 0),
         "dead volume cannot be destroyed twice"
         );
+    Check(
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeMounted, 0),
+        "mounted volume cannot use private destroy"
+        );
+
+    state = OpenFsVolumeInitializing;
+    Check(
+        OpenFsVolumeStateTryTransition(
+            &state,
+            OpenFsVolumeInitializing,
+            OpenFsVolumeMounted) &&
+            state == OpenFsVolumeMounted,
+        "mount commit transitions initializing -> mounted"
+        );
+    Check(
+        OpenFsVolumeStateTryTransition(
+            &state,
+            OpenFsVolumeMounted,
+            OpenFsVolumeDismounting) &&
+            state == OpenFsVolumeDismounting,
+        "dismount begins only from mounted"
+        );
+    Check(
+        OpenFsVolumeStateTryTransition(
+            &state,
+            OpenFsVolumeDismounting,
+            OpenFsVolumeDead) &&
+            state == OpenFsVolumeDead,
+        "dismount teardown reaches dead"
+        );
 
     printf("OpenFS volume-state tests: %u checks\n", g_Checks);
-    return g_Checks == 16 ? 0 : 1;
+    return g_Checks == 20 ? 0 : 1;
 }
