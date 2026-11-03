@@ -960,7 +960,9 @@ pub fn mount_disk_device(
     }
 }
 
-fn unique_openfs_partition(layout: &GptLayout) -> Result<openfs_partition::GptPartition, Box<dyn StdError>> {
+fn unique_openfs_partition(
+    layout: &GptLayout,
+) -> Result<openfs_partition::GptPartition, Box<dyn StdError>> {
     let mut matches = layout
         .partitions
         .iter()
