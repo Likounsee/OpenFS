@@ -5,7 +5,8 @@
 static unsigned int checks, failures;
 static void Check(int ok, const char* name) {
     ++checks;
-    if (!ok) { ++failures; fprintf(stderr, "FAIL: %s\n", name); }
+    if (!ok) { ++failures; fprintf(stderr, "FAIL: %s
+", name); }
 }
 static void Put16(UCHAR* p, USHORT v) { p[0]=(UCHAR)v; p[1]=(UCHAR)(v>>8); }
 static void Put32(UCHAR* p, ULONG v) {
@@ -25,7 +26,11 @@ static void Make(UCHAR* b, ULONG size, ULONG metadataCount, ULONG directoryCount
     Put64(b+12,1);
     Put32(b+28,metadataCount); Put32(b+32,directoryCount);
     if (metadataCount) Put64(b+48, 100);
-    if (directoryCount) {\n        ULONG offset = 48 + ((metadataCount*80u + size-1)/size)*8u;\n        Put64(b+offset, 101);\n        if (((directoryCount*128u + size-1)/size) > 1) Put64(b+offset+8, 102);\n    }
+    if (directoryCount) {
+        ULONG offset = 48 + ((metadataCount*80u + size-1)/size)*8u;
+        Put64(b+offset, 101);
+        if (((directoryCount*128u + size-1)/size) > 1) Put64(b+offset+8, 102);
+    }
     Seal(b,size);
 }
 int main(void) {
@@ -107,6 +112,7 @@ int main(void) {
     Check(OpenFsValidateInventoryDescriptorRanges(&d,1000,20,999)==STATUS_SUCCESS,
         "empty inventory has no invalid block references");
 
-    printf("OpenFS inventory descriptor tests: %u checks, %u failures\n",checks,failures);
+    printf("OpenFS inventory descriptor tests: %u checks, %u failures
+",checks,failures);
     return failures==0?0:1;
 }
