@@ -98,63 +98,50 @@ OpenFsDestroyVolumeDevice(
     NTSTATUS status;
     POPENFS_VCB vcb;
 
-    if (VolumeDeviceObject == NULL) {
-        return STATUS_INVALID_PARAMETER;
-    }
+    if (VolumeDeviceObject == NULL) return STATUS_INVALID_PARAMETER;
+    ObReferenceObject(VolumeDeviceObject);
 
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INVALID_DEVICE_STATE;
     }
-
-    /*
-     * Serialize teardown against mount-state updates. Only Initializing is
-     * eligible: accepting Dead here would let two concurrent destroy callers
-     * both attempt to delete the same ERESOURCE and device object.
-     */
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-
     if (!OpenFsVolumeStateCanDestroy(vcb->State, vcb->Vpb != NULL)) {
         ExReleaseResourceLite(&vcb->Resource);
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DEVICE_BUSY;
     }
-
-    if (!OpenFsVolumeStateTryTransition(
-            &vcb->State,
-            OpenFsVolumeInitializing,
-            OpenFsVolumeDead)) {
+    if (!OpenFsVolumeStateTryTransition(&vcb->State,
+            OpenFsVolumeInitializing, OpenFsVolumeDead)) {
         ExReleaseResourceLite(&vcb->Resource);
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INVALID_DEVICE_STATE;
     }
-
     ExReleaseResourceLite(&vcb->Resource);
 
-    /* Stop new users and wait for all VCB accessors already in flight. */
     ExRundownCompleted(&vcb->RundownProtection);
     ExWaitForRundownProtectionRelease(&vcb->RundownProtection);
 
     status = ExDeleteResourceLite(&vcb->Resource);
     if (!NT_SUCCESS(status)) {
+        ObDereferenceObject(VolumeDeviceObject);
         return status;
     }
-
     vcb->Signature = 0;
     if (vcb->RealDeviceObject != NULL) {
         ObDereferenceObject(vcb->RealDeviceObject);
         vcb->RealDeviceObject = NULL;
     }
-
     IoDeleteDevice(VolumeDeviceObject);
+    ObDereferenceObject(VolumeDeviceObject);
     return STATUS_SUCCESS;
 }
 
-/*
- * Serialize lifecycle transitions through the VCB resource. The expected
- * state is checked while exclusively locked, so competing mount/dismount
- * workers cannot both claim the same transition.
- */
+
 NTSTATUS
 OpenFsTransitionVolumeState(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
@@ -165,36 +152,33 @@ OpenFsTransitionVolumeState(
     POPENFS_VCB vcb;
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (VolumeDeviceObject == NULL) {
-        return STATUS_INVALID_PARAMETER;
-    }
-
+    if (VolumeDeviceObject == NULL) return STATUS_INVALID_PARAMETER;
+    ObReferenceObject(VolumeDeviceObject);
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INVALID_DEVICE_STATE;
     }
-
     if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DELETE_PENDING;
     }
-
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
         ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-
-    if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
-        status = STATUS_INVALID_DEVICE_STATE;
-    } else if (!OpenFsVolumeStateTryTransition(&vcb->State, Expected, Next)) {
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        !OpenFsVolumeStateTryTransition(&vcb->State, Expected, Next)) {
         status = STATUS_INVALID_DEVICE_STATE;
     }
-
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
 
-/* Return a consistent state snapshot without exposing the VCB layout. */
+
 NTSTATUS
 OpenFsQueryVolumeState(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
@@ -204,40 +188,35 @@ OpenFsQueryVolumeState(
     POPENFS_VCB vcb;
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (VolumeDeviceObject == NULL || State == NULL) {
+    if (VolumeDeviceObject == NULL || State == NULL)
         return STATUS_INVALID_PARAMETER;
-    }
-
+    ObReferenceObject(VolumeDeviceObject);
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INVALID_DEVICE_STATE;
     }
-
     if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DELETE_PENDING;
     }
-
     if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
         ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-
     if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
         status = STATUS_INVALID_DEVICE_STATE;
     } else {
         *State = vcb->State;
     }
-
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
 
 
-/*
- * Hold the VCB's rundown reference and resource while reserving the VPB.
- * The I/O manager owns the VPB; OpenFS only records the reservation here.
- */
 /*
  * VPB fields that describe the real-device association must be inspected
  * while holding the I/O manager's VPB spin lock. Keep this short: acquiring
@@ -337,6 +316,47 @@ OpenFsReserveVolumeVpb(
  * Roll back only our own reservation and only before the volume is mounted.
  * A mounted VPB must be detached through the dedicated dismount path.
  */
+NTSTATUS
+OpenFsReleaseVolumeVpb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PVPB Vpb
+    )
+{
+    POPENFS_VCB vcb;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || Vpb == NULL)
+        return STATUS_INVALID_PARAMETER;
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else if (vcb->State != OpenFsVolumeInitializing) {
+        status = STATUS_DEVICE_BUSY;
+    } else if (vcb->Vpb != Vpb) {
+        status = STATUS_NOT_FOUND;
+    } else {
+        vcb->Vpb = NULL;
+    }
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
 NTSTATUS
 OpenFsReleaseVolumeVpb(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
