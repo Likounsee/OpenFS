@@ -837,7 +837,7 @@ pub fn mount_image(
         if let Ok(layout) = read_gpt(&mut disk) {
             let partition = unique_openfs_partition(&layout)?;
             let partition_bytes = partition
-                .sector_count()
+                .sector_count()?
                 .checked_mul(u64::from(sector_size))
                 .ok_or("OpenFS partition size overflow")?;
             let device = PartitionDevice::new(
@@ -912,7 +912,7 @@ pub fn mount_disk_device(
         Ok(layout) => {
             let partition = unique_openfs_partition(&layout)?;
             let partition_bytes = partition
-                .sector_count()
+                .sector_count()?
                 .checked_mul(u64::from(logical_sector_size))
                 .ok_or("OpenFS partition size overflow")?;
             let device = PartitionDevice::new(
