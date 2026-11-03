@@ -204,7 +204,7 @@ OpenFsDecodeDirectoryEntry(
 
 #define OPENFS_NAMESPACE_POOL_TAG 'nFsO'
 
-static PVOID
+static void*
 OpenFsNamespaceAllocate(_In_ SIZE_T Bytes)
 {
 #ifdef OPENFS_HOST_TEST
@@ -214,8 +214,8 @@ OpenFsNamespaceAllocate(_In_ SIZE_T Bytes)
 #endif
 }
 
-static VOID
-OpenFsNamespaceFree(_In_opt_ PVOID Buffer)
+static void
+OpenFsNamespaceFree(void* Buffer)
 {
     if (Buffer == NULL) return;
 #ifdef OPENFS_HOST_TEST
@@ -249,10 +249,9 @@ OpenFsNamespaceHashName(_In_ const OPENFS_DIRECTORY_ENTRY* Entry)
 
 static ULONG
 OpenFsNamespaceFindRecord(
-    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_reads_(Capacity) const OPENFS_METADATA_RECORD* Records,
     _In_reads_(Capacity) const ULONG* Slots,
     _In_ SIZE_T Capacity,
-    _In_ ULONG RecordCount,
     _In_ ULONGLONG IdLow,
     _In_ ULONGLONG IdHigh
     )
@@ -269,7 +268,6 @@ OpenFsNamespaceFindRecord(
         }
         slot = (slot + 1u) & (Capacity - 1u);
     }
-    UNREFERENCED_PARAMETER(RecordCount);
     return MAXULONG;
 }
 
@@ -355,7 +353,7 @@ OpenFsValidateNamespaceRecords(
     }
 
     rootIndex = OpenFsNamespaceFindRecord(
-        Records, recordSlots, capacity, RecordCount, RootIdLow, RootIdHigh);
+        Records, recordSlots, capacity, RootIdLow, RootIdHigh);
     if (rootIndex == MAXULONG ||
         Records[rootIndex].Kind != 2u ||
         Records[rootIndex].ParentIdLow != 0 ||
@@ -409,10 +407,10 @@ OpenFsValidateNamespaceRecords(
             goto Exit;
         }
         parentIndex = OpenFsNamespaceFindRecord(
-            Records, recordSlots, capacity, RecordCount,
+            Records, recordSlots, capacity,
             entry->ParentIdLow, entry->ParentIdHigh);
         objectIndex = OpenFsNamespaceFindRecord(
-            Records, recordSlots, capacity, RecordCount,
+            Records, recordSlots, capacity,
             entry->ObjectIdLow, entry->ObjectIdHigh);
         if (parentIndex == MAXULONG || objectIndex == MAXULONG ||
             objectIndex == rootIndex || Records[parentIndex].Kind != 2u ||
@@ -463,7 +461,7 @@ OpenFsValidateNamespaceRecords(
             states[current] = 1u;
             stack[depth++] = current;
             parentIndex = OpenFsNamespaceFindRecord(
-                Records, recordSlots, capacity, RecordCount,
+                Records, recordSlots, capacity,
                 Records[current].ParentIdLow, Records[current].ParentIdHigh);
             if (parentIndex == MAXULONG || Records[parentIndex].Kind != 2u) {
                 status = STATUS_DISK_CORRUPT_ERROR;
