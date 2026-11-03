@@ -1,4 +1,5 @@
 #include "OpenFSSuperblock.h"
+#include "OpenFSLayout.h"
 
 static ULONG
 OpenFsReadU32Le(_In_reads_bytes_(4) const UCHAR* Bytes)
@@ -133,26 +134,16 @@ OpenFsValidateSuperblocks(
         return STATUS_DISK_CORRUPT_ERROR;
     }
 
-    /*
-     * VolumeLayout::calculate_for_version in the Rust format crate reserves
-     * two checkpoint blocks plus a 16-block ring for revision 4, and a
-     * two-checkpoint plus four-block ring for revisions 2 and 3.
-     */
     {
-        ULONGLONG bitsPerBitmapBlock = (ULONGLONG)primaryGeometry.BlockSize * 8u;
-        ULONGLONG bitmapBlocks = primaryGeometry.TotalBlocks / bitsPerBitmapBlock;
-        ULONGLONG reservedJournalBlocks = (primaryGeometry.Version == 4) ? 18u : 6u;
-        ULONGLONG dataStart;
-
-        if ((primaryGeometry.TotalBlocks % bitsPerBitmapBlock) != 0) {
-            ++bitmapBlocks;
-        }
-        if (bitmapBlocks > MAXULONGLONG - 1u - reservedJournalBlocks) {
-            return STATUS_INTEGER_OVERFLOW;
-        }
-        dataStart = 1u + bitmapBlocks + reservedJournalBlocks;
-        if (dataStart >= primaryGeometry.TotalBlocks - 1u) {
-            return STATUS_DISK_CORRUPT_ERROR;
+        OPENFS_VOLUME_LAYOUT layout;
+        status = OpenFsCalculateVolumeLayout(
+            primaryGeometry.BlockSize,
+            primaryGeometry.TotalBlocks,
+            primaryGeometry.Version,
+            &layout
+            );
+        if (!NT_SUCCESS(status)) {
+            return status;
         }
     }
 

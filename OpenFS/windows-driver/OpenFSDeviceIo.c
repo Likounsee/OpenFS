@@ -2,6 +2,7 @@
 #include <ntdddisk.h>
 #include "OpenFSDeviceIo.h"
 #include "OpenFSBitmap.h"
+#include "OpenFSLayout.h"
 
 #define OPENFS_DEVICE_IO_TAG 'iFsO'
 #define OPENFS_PROBE_BUFFER_TAG 'pFsO'
@@ -157,40 +158,26 @@ OpenFsValidateAllocationBitmap(
     _In_ const OPENFS_VOLUME_GEOMETRY* Geometry
     )
 {
+    OPENFS_VOLUME_LAYOUT layout;
     ULONGLONG bitsPerBitmapBlock;
     ULONGLONG bitmapBlocks;
-    ULONGLONG bitmapEnd;
-    ULONGLONG journalStart;
-    ULONGLONG ringBlocks;
-    ULONGLONG ringStart;
-    ULONGLONG ringEnd;
     ULONGLONG bitmapIndex;
     SIZE_T bitmapBytes;
     UCHAR* bitmap;
     NTSTATUS status = STATUS_SUCCESS;
 
+    status = OpenFsCalculateVolumeLayout(
+        Geometry->BlockSize,
+        Geometry->TotalBlocks,
+        Geometry->Version,
+        &layout
+        );
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
     bitsPerBitmapBlock = (ULONGLONG)Geometry->BlockSize * 8u;
-    bitmapBlocks = Geometry->TotalBlocks / bitsPerBitmapBlock;
-    if ((Geometry->TotalBlocks % bitsPerBitmapBlock) != 0) {
-        ++bitmapBlocks;
-    }
-
-    if (bitmapBlocks > MAXULONGLONG - 1u) {
-        return STATUS_INTEGER_OVERFLOW;
-    }
-    bitmapEnd = 1u + bitmapBlocks;
-    journalStart = bitmapEnd;
-    ringBlocks = (Geometry->Version == 4) ? 16u : 4u;
-    if (journalStart > MAXULONGLONG - 2u ||
-        journalStart + 2u > MAXULONGLONG - ringBlocks) {
-        return STATUS_INTEGER_OVERFLOW;
-    }
-    ringStart = journalStart + 2u;
-    ringEnd = ringStart + ringBlocks;
-
-    if (ringEnd >= Geometry->TotalBlocks - 1u) {
-        return STATUS_DISK_CORRUPT_ERROR;
-    }
+    bitmapBlocks = layout.BitmapBlocks;
 
     bitmapBytes = (SIZE_T)Geometry->BlockSize;
     bitmap = (PUCHAR)ExAllocatePool2(
@@ -239,10 +226,10 @@ OpenFsValidateAllocationBitmap(
             bitmapBytes,
             bitmapBase,
             Geometry->TotalBlocks,
-            bitmapEnd,
-            journalStart,
-            ringStart,
-            ringEnd
+            layout.BitmapEndBlock,
+            layout.JournalStartBlock,
+            layout.RingStartBlock,
+            layout.RingEndBlock
             );
         if (!NT_SUCCESS(status)) {
             goto Exit;

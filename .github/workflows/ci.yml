@@ -74,6 +74,12 @@ jobs:
       - name: Run native bitmap tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-bitmap-tests
+      - name: Compile native volume layout tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSLayout.c OpenFSLayoutTests.c -o openfs-layout-tests
+      - name: Run native volume layout tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-layout-tests
 
   windows-driver-wdk:
     name: Native Windows filesystem driver (WDK x64)

@@ -54,9 +54,11 @@
     <ClCompile Include="OpenFSSuperblock.c" />
     <ClCompile Include="OpenFSDeviceIo.c" />
     <ClCompile Include="OpenFSBitmap.c" />
+    <ClCompile Include="OpenFSLayout.c" />
     <ClInclude Include="OpenFSSuperblock.h" />
     <ClInclude Include="OpenFSDeviceIo.h" />
     <ClInclude Include="OpenFSBitmap.h" />
+    <ClInclude Include="OpenFSLayout.h" />
     <Inf Include="OpenFS.inf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
