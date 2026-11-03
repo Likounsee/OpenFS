@@ -88,7 +88,7 @@ jobs:
         run: ./openfs-volume-state-tests
       - name: Compile native namespace codec tests
         working-directory: OpenFS/windows-driver
-        run: cc -std=c11 -Wall -Wextra -Werror OpenFSSuperblock.c OpenFSLayout.c OpenFSNamespace.c OpenFSNamespaceTests.c -o openfs-namespace-tests
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSNamespace.c OpenFSNamespaceTests.c -o openfs-namespace-tests
       - name: Run native namespace codec tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-namespace-tests
