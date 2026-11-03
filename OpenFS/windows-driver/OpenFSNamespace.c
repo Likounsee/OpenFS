@@ -310,7 +310,7 @@ OpenFsValidateNamespaceRecords(
             if (OpenFsNamespaceIdEqual(entry->ParentIdLow, entry->ParentIdHigh,
                     candidate->ParentIdLow, candidate->ParentIdHigh) &&
                 entry->NameLength == candidate->NameLength &&
-                memcmp(entry->Name, candidate->Name, entry->NameLength) == 0) {
+                RtlCompareMemory(entry->Name, candidate->Name, entry->NameLength) == entry->NameLength) {
                 return STATUS_DISK_CORRUPT_ERROR;
             }
         }
