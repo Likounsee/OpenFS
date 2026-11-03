@@ -1,4 +1,5 @@
 #include "OpenFSVolume.h"
+#include "OpenFSLayout.h"
 
 NTSTATUS
 OpenFsCreateVolumeDevice(
@@ -11,6 +12,7 @@ OpenFsCreateVolumeDevice(
     NTSTATUS status;
     PDEVICE_OBJECT volumeDeviceObject;
     POPENFS_VCB vcb;
+    OPENFS_VOLUME_LAYOUT layout;
 
     if (DriverObject == NULL ||
         RealDeviceObject == NULL ||
@@ -22,6 +24,16 @@ OpenFsCreateVolumeDevice(
     }
 
     *VolumeDeviceObject = NULL;
+
+    status = OpenFsCalculateVolumeLayout(
+        Geometry->BlockSize,
+        Geometry->TotalBlocks,
+        Geometry->Version,
+        &layout
+        );
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
 
     /*
      * StackSize is a signed CCHAR. Refuse an impossible stack depth instead

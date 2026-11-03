@@ -4,7 +4,7 @@
 #include "OpenFSSuperblock.h"
 #include "OpenFSVolumeState.h"
 
-#define OPENFS_VCB_SIGNATURE 'BCVO'
+#define OPENFS_VCB_SIGNATURE 0x4F564342UL
 
 /*
  * One VCB lives in the extension of each unpublished volume device object.
