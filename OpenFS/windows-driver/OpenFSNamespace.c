@@ -242,7 +242,7 @@ OpenFsValidateNamespaceRecords(
 
     if ((RecordCount != 0 && Records == NULL) ||
         (EntryCount != 0 && Entries == NULL) ||
-        RecordCount == 0 || RootIdLow == 0 && RootIdHigh == 0 ||
+        RecordCount == 0 || (RootIdLow == 0 && RootIdHigh == 0) ||
         DataStartBlock >= BackupSuperblockBlock) {
         return STATUS_INVALID_PARAMETER;
     }
