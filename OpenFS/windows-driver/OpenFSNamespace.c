@@ -197,31 +197,80 @@ OpenFsDecodeDirectoryEntry(
     return STATUS_SUCCESS;
 }
 
-static BOOLEAN
-OpenFsNamespaceIdEqual(
-    _In_ ULONGLONG LeftLow, _In_ ULONGLONG LeftHigh,
-    _In_ ULONGLONG RightLow, _In_ ULONGLONG RightHigh
-    )
+
+#ifdef OPENFS_HOST_TEST
+#include <stdlib.h>
+#endif
+
+#define OPENFS_NAMESPACE_POOL_TAG 'nFsO'
+
+static PVOID
+OpenFsNamespaceAllocate(_In_ SIZE_T Bytes)
 {
-    return LeftLow == RightLow && LeftHigh == RightHigh;
+#ifdef OPENFS_HOST_TEST
+    return malloc(Bytes);
+#else
+    return ExAllocatePool2(POOL_FLAG_NON_PAGED, Bytes, OPENFS_NAMESPACE_POOL_TAG);
+#endif
 }
 
-static LONG
+static VOID
+OpenFsNamespaceFree(_In_opt_ PVOID Buffer)
+{
+    if (Buffer == NULL) return;
+#ifdef OPENFS_HOST_TEST
+    free(Buffer);
+#else
+    ExFreePoolWithTag(Buffer, OPENFS_NAMESPACE_POOL_TAG);
+#endif
+}
+
+static ULONGLONG
+OpenFsNamespaceHashId(_In_ ULONGLONG Low, _In_ ULONGLONG High)
+{
+    ULONGLONG hash = 1469598103934665603ULL;
+    hash = (hash ^ Low) * 1099511628211ULL;
+    hash = (hash ^ High) * 1099511628211ULL;
+    hash ^= hash >> 32;
+    return hash;
+}
+
+static ULONGLONG
+OpenFsNamespaceHashName(_In_ const OPENFS_DIRECTORY_ENTRY* Entry)
+{
+    ULONGLONG hash = OpenFsNamespaceHashId(
+        Entry->ParentIdLow, Entry->ParentIdHigh);
+    UCHAR index;
+    for (index = 0; index < Entry->NameLength; ++index) {
+        hash = (hash ^ Entry->Name[index]) * 1099511628211ULL;
+    }
+    return hash;
+}
+
+static ULONG
 OpenFsNamespaceFindRecord(
     _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_reads_(Capacity) const ULONG* Slots,
+    _In_ SIZE_T Capacity,
     _In_ ULONG RecordCount,
     _In_ ULONGLONG IdLow,
     _In_ ULONGLONG IdHigh
     )
 {
-    ULONG index;
-    for (index = 0; index < RecordCount; ++index) {
-        if (OpenFsNamespaceIdEqual(Records[index].ObjectIdLow,
-                Records[index].ObjectIdHigh, IdLow, IdHigh)) {
-            return (LONG)index;
+    SIZE_T slot = (SIZE_T)(OpenFsNamespaceHashId(IdLow, IdHigh) & (Capacity - 1u));
+    SIZE_T probes;
+    for (probes = 0; probes < Capacity; ++probes) {
+        ULONG stored = Slots[slot];
+        if (stored == 0) return MAXULONG;
+        if (OpenFsNamespaceIdEqual(
+                Records[stored - 1u].ObjectIdLow,
+                Records[stored - 1u].ObjectIdHigh, IdLow, IdHigh)) {
+            return stored - 1u;
         }
+        slot = (slot + 1u) & (Capacity - 1u);
     }
-    return -1;
+    UNREFERENCED_PARAMETER(RecordCount);
+    return MAXULONG;
 }
 
 NTSTATUS
@@ -236,110 +285,205 @@ OpenFsValidateNamespaceRecords(
     _In_ ULONGLONG BackupSuperblockBlock
     )
 {
-    LONG rootIndex;
-    ULONG index, other;
-    ULONGLONG expectedEntries;
+    SIZE_T capacity = 1u;
+    SIZE_T required;
+    SIZE_T slot;
+    ULONG* recordSlots = NULL;
+    ULONG* nameSlots = NULL;
+    ULONGLONG* extentSlots = NULL;
+    UCHAR* entrySeen = NULL;
+    UCHAR* states = NULL;
+    ULONG* stack = NULL;
+    ULONG rootIndex;
+    ULONG index;
+    NTSTATUS status = STATUS_SUCCESS;
 
     if ((RecordCount != 0 && Records == NULL) ||
         (EntryCount != 0 && Entries == NULL) ||
-        RecordCount == 0 || RecordCount > 0x7fffffffUL ||
-        (RootIdLow == 0 && RootIdHigh == 0) ||
+        RecordCount == 0 || (RootIdLow == 0 && RootIdHigh == 0) ||
         DataStartBlock >= BackupSuperblockBlock) {
         return STATUS_INVALID_PARAMETER;
     }
-    expectedEntries = (ULONGLONG)RecordCount - 1u;
-    if (expectedEntries != EntryCount) return STATUS_DISK_CORRUPT_ERROR;
+    if ((ULONGLONG)RecordCount - 1u != EntryCount)
+        return STATUS_DISK_CORRUPT_ERROR;
+    if ((SIZE_T)RecordCount > ((SIZE_T)-1) / 2u)
+        return STATUS_INTEGER_OVERFLOW;
+    required = (SIZE_T)RecordCount * 2u;
+    while (capacity < required) {
+        if (capacity > ((SIZE_T)-1) / 2u) return STATUS_INTEGER_OVERFLOW;
+        capacity <<= 1;
+    }
+    if (capacity > ((SIZE_T)-1) / sizeof(ULONG) ||
+        capacity > ((SIZE_T)-1) / sizeof(ULONGLONG) ||
+        (SIZE_T)RecordCount > ((SIZE_T)-1) / sizeof(ULONG)) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+
+    recordSlots = (ULONG*)OpenFsNamespaceAllocate(capacity * sizeof(ULONG));
+    nameSlots = (ULONG*)OpenFsNamespaceAllocate(capacity * sizeof(ULONG));
+    extentSlots = (ULONGLONG*)OpenFsNamespaceAllocate(capacity * sizeof(ULONGLONG));
+    entrySeen = (UCHAR*)OpenFsNamespaceAllocate((SIZE_T)RecordCount);
+    states = (UCHAR*)OpenFsNamespaceAllocate((SIZE_T)RecordCount);
+    stack = (ULONG*)OpenFsNamespaceAllocate((SIZE_T)RecordCount * sizeof(ULONG));
+    if (recordSlots == NULL || nameSlots == NULL || extentSlots == NULL ||
+        entrySeen == NULL || states == NULL || stack == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Exit;
+    }
+    RtlZeroMemory(recordSlots, capacity * sizeof(ULONG));
+    RtlZeroMemory(nameSlots, capacity * sizeof(ULONG));
+    RtlZeroMemory(entrySeen, (SIZE_T)RecordCount);
+    RtlZeroMemory(states, (SIZE_T)RecordCount);
+    for (slot = 0; slot < capacity; ++slot) extentSlots[slot] = MAXULONGLONG;
+
+    /* Build the object-ID index and reject duplicate metadata IDs. */
+    for (index = 0; index < RecordCount; ++index) {
+        const OPENFS_METADATA_RECORD* record = &Records[index];
+        slot = (SIZE_T)(OpenFsNamespaceHashId(
+            record->ObjectIdLow, record->ObjectIdHigh) & (capacity - 1u));
+        while (recordSlots[slot] != 0) {
+            ULONG previous = recordSlots[slot] - 1u;
+            if (OpenFsNamespaceIdEqual(
+                    Records[previous].ObjectIdLow, Records[previous].ObjectIdHigh,
+                    record->ObjectIdLow, record->ObjectIdHigh)) {
+                status = STATUS_DISK_CORRUPT_ERROR;
+                goto Exit;
+            }
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        recordSlots[slot] = index + 1u;
+    }
 
     rootIndex = OpenFsNamespaceFindRecord(
-        Records, RecordCount, RootIdLow, RootIdHigh);
-    if (rootIndex < 0) return STATUS_DISK_CORRUPT_ERROR;
-    if (Records[rootIndex].Kind != 2u ||
+        Records, recordSlots, capacity, RecordCount, RootIdLow, RootIdHigh);
+    if (rootIndex == MAXULONG ||
+        Records[rootIndex].Kind != 2u ||
         Records[rootIndex].ParentIdLow != 0 ||
         Records[rootIndex].ParentIdHigh != 0 ||
         Records[rootIndex].Size != 0 || Records[rootIndex].HasExtent) {
-        return STATUS_DISK_CORRUPT_ERROR;
+        status = STATUS_DISK_CORRUPT_ERROR;
+        goto Exit;
     }
 
+    /* Validate extent ownership and reject duplicate extent-map roots. */
     for (index = 0; index < RecordCount; ++index) {
         const OPENFS_METADATA_RECORD* record = &Records[index];
-        if (index != (ULONG)rootIndex &&
-            OpenFsNamespaceIdEqual(record->ObjectIdLow, record->ObjectIdHigh,
-                RootIdLow, RootIdHigh)) return STATUS_DISK_CORRUPT_ERROR;
-        for (other = index + 1; other < RecordCount; ++other) {
-            const OPENFS_METADATA_RECORD* candidate = &Records[other];
-            if (OpenFsNamespaceIdEqual(record->ObjectIdLow, record->ObjectIdHigh,
-                    candidate->ObjectIdLow, candidate->ObjectIdHigh)) {
-                return STATUS_DISK_CORRUPT_ERROR;
-            }
-            if (record->HasExtent && candidate->HasExtent &&
-                record->ExtentRootBlock == candidate->ExtentRootBlock) {
-                return STATUS_DISK_CORRUPT_ERROR;
-            }
+        if (record->Kind != 1u && record->Kind != 2u) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
         }
-        if (record->Kind == 2u && record->HasExtent) return STATUS_DISK_CORRUPT_ERROR;
-        if (record->Kind == 1u && record->Size == 0 && record->HasExtent)
-            return STATUS_DISK_CORRUPT_ERROR;
+        if (record->Kind == 2u && record->HasExtent) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
+        if (record->Kind == 1u && record->Size == 0 && record->HasExtent) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
         if (record->HasExtent) {
             if (record->ExtentRootBlock < DataStartBlock ||
                 record->ExtentRootBlock >= BackupSuperblockBlock) {
-                return STATUS_DISK_CORRUPT_ERROR;
+                status = STATUS_DISK_CORRUPT_ERROR;
+                goto Exit;
             }
+            slot = (SIZE_T)((record->ExtentRootBlock *
+                11400714819323198485ULL) & (capacity - 1u));
+            while (extentSlots[slot] != MAXULONGLONG) {
+                if (extentSlots[slot] == record->ExtentRootBlock) {
+                    status = STATUS_DISK_CORRUPT_ERROR;
+                    goto Exit;
+                }
+                slot = (slot + 1u) & (capacity - 1u);
+            }
+            extentSlots[slot] = record->ExtentRootBlock;
         }
     }
 
+    /* Validate directory edges, unique object parents, and unique sibling names. */
     for (index = 0; index < EntryCount; ++index) {
         const OPENFS_DIRECTORY_ENTRY* entry = &Entries[index];
-        LONG parentIndex = OpenFsNamespaceFindRecord(
-            Records, RecordCount, entry->ParentIdLow, entry->ParentIdHigh);
-        LONG objectIndex = OpenFsNamespaceFindRecord(
-            Records, RecordCount, entry->ObjectIdLow, entry->ObjectIdHigh);
-        if (parentIndex < 0 || objectIndex < 0 ||
-            (ULONG)objectIndex == (ULONG)rootIndex ||
-            Records[parentIndex].Kind != 2u ||
+        ULONG parentIndex, objectIndex;
+        if (entry->NameLength == 0 ||
+            entry->NameLength > OPENFS_DIRECTORY_NAME_MAX_BYTES) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
+        parentIndex = OpenFsNamespaceFindRecord(
+            Records, recordSlots, capacity, RecordCount,
+            entry->ParentIdLow, entry->ParentIdHigh);
+        objectIndex = OpenFsNamespaceFindRecord(
+            Records, recordSlots, capacity, RecordCount,
+            entry->ObjectIdLow, entry->ObjectIdHigh);
+        if (parentIndex == MAXULONG || objectIndex == MAXULONG ||
+            objectIndex == rootIndex || Records[parentIndex].Kind != 2u ||
             Records[objectIndex].ParentIdLow != entry->ParentIdLow ||
             Records[objectIndex].ParentIdHigh != entry->ParentIdHigh ||
-            Records[objectIndex].Kind != entry->Kind) {
-            return STATUS_DISK_CORRUPT_ERROR;
+            Records[objectIndex].Kind != entry->Kind || entrySeen[objectIndex]) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
         }
-        for (other = index + 1; other < EntryCount; ++other) {
-            const OPENFS_DIRECTORY_ENTRY* candidate = &Entries[other];
-            if (OpenFsNamespaceIdEqual(entry->ObjectIdLow, entry->ObjectIdHigh,
-                    candidate->ObjectIdLow, candidate->ObjectIdHigh)) {
-                return STATUS_DISK_CORRUPT_ERROR;
+        entrySeen[objectIndex] = 1u;
+
+        slot = (SIZE_T)(OpenFsNamespaceHashName(entry) & (capacity - 1u));
+        while (nameSlots[slot] != 0) {
+            const OPENFS_DIRECTORY_ENTRY* previous =
+                &Entries[nameSlots[slot] - 1u];
+            if (OpenFsNamespaceIdEqual(
+                    previous->ParentIdLow, previous->ParentIdHigh,
+                    entry->ParentIdLow, entry->ParentIdHigh) &&
+                previous->NameLength == entry->NameLength &&
+                RtlCompareMemory(previous->Name, entry->Name,
+                    entry->NameLength) == entry->NameLength) {
+                status = STATUS_DISK_CORRUPT_ERROR;
+                goto Exit;
             }
-            if (OpenFsNamespaceIdEqual(entry->ParentIdLow, entry->ParentIdHigh,
-                    candidate->ParentIdLow, candidate->ParentIdHigh) &&
-                entry->NameLength == candidate->NameLength &&
-                RtlCompareMemory(entry->Name, candidate->Name, entry->NameLength) == entry->NameLength) {
-                return STATUS_DISK_CORRUPT_ERROR;
-            }
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        nameSlots[slot] = index + 1u;
+    }
+
+    for (index = 0; index < RecordCount; ++index) {
+        if (index != rootIndex && entrySeen[index] == 0) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
         }
     }
 
-    /* Every non-root object must be reachable by following directory parents. */
+    /*
+     * Every parent chain must reach root. A three-state walk detects cycles in
+     * linear time while recordSlots resolves each parent ID in expected O(1).
+     */
+    states[rootIndex] = 2u;
     for (index = 0; index < RecordCount; ++index) {
-        LONG current = (LONG)index;
-        ULONG depth;
-        if (index == (ULONG)rootIndex) continue;
-        for (depth = 0; depth < RecordCount; ++depth) {
-            LONG parentIndex;
-            const OPENFS_METADATA_RECORD* currentRecord = &Records[current];
+        ULONG current = index;
+        ULONG depth = 0;
+        if (states[index] == 2u) continue;
+        while (current != rootIndex && states[current] == 0u) {
+            ULONG parentIndex;
+            states[current] = 1u;
+            stack[depth++] = current;
             parentIndex = OpenFsNamespaceFindRecord(
-                Records, RecordCount,
-                currentRecord->ParentIdLow, currentRecord->ParentIdHigh);
-            if (parentIndex < 0 || Records[parentIndex].Kind != 2u)
-                return STATUS_DISK_CORRUPT_ERROR;
-            if (parentIndex == rootIndex) break;
+                Records, recordSlots, capacity, RecordCount,
+                Records[current].ParentIdLow, Records[current].ParentIdHigh);
+            if (parentIndex == MAXULONG || Records[parentIndex].Kind != 2u) {
+                status = STATUS_DISK_CORRUPT_ERROR;
+                goto Exit;
+            }
             current = parentIndex;
         }
-        if (depth == RecordCount) return STATUS_DISK_CORRUPT_ERROR;
+        if (current != rootIndex && states[current] == 1u) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto Exit;
+        }
+        while (depth != 0) states[stack[--depth]] = 2u;
     }
 
-    /* Extent-map roots cannot alias inventory stream blocks. */
-    for (index = 0; index < RecordCount; ++index) {
-        if (!Records[index].HasExtent) continue;
-        /* The physical inventory alias check is performed by the caller, which
-         * owns the descriptor's two block lists. */
-    }
-    return STATUS_SUCCESS;
+Exit:
+    OpenFsNamespaceFree(recordSlots);
+    OpenFsNamespaceFree(nameSlots);
+    OpenFsNamespaceFree(extentSlots);
+    OpenFsNamespaceFree(entrySeen);
+    OpenFsNamespaceFree(states);
+    OpenFsNamespaceFree(stack);
+    return status;
 }
