@@ -67,6 +67,16 @@ OpenFsReserveVolumeVpb(
     _In_ PVPB Vpb
     );
 
+/*
+ * Final mount commit: publish a fully initialized VDO through its reserved
+ * VPB. The I/O manager, not OpenFS, sets VPB_MOUNTED after IRP completion.
+ */
+NTSTATUS
+OpenFsPublishVolumeVpb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PVPB Vpb
+    );
+
 /* Release a failed mount attempt's VPB reservation. */
 NTSTATUS
 OpenFsReleaseVolumeVpb(
