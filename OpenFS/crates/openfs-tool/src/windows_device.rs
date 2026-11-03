@@ -269,28 +269,49 @@ fn run_disk_script(
 #[cfg(windows)]
 pub fn prepare_disk_for_raw_access(
     index: u32,
-    expected_unique_id: &str,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
-    // Values supplied by the caller are environment data, never interpolated into
-    // PowerShell source. fsutil dismounts mounted filesystems without changing
-    // the physical disk's IsOffline state.
+    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
+        return Err("exact non-empty USB model, serial number and capacity are required".into());
+    }
+
+    // Use the composite media identity throughout; some USB bridges expose only
+    // the generic UniqueId "USB", which is not a reliable per-device identifier.
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $index = [int]$env:OPENFS_DISK_INDEX
-$expectedId = [string]$env:OPENFS_DISK_UNIQUE_ID
-$disk = Get-Disk -Number $index -ErrorAction Stop
-if ([string]$disk.UniqueId -cne $expectedId) {
-    throw 'disk UniqueId changed; re-run list-devices and verify the target'
+
+function Get-VerifiedOpenFsDisk {
+    $disk = Get-Disk -Number $index -ErrorAction Stop
+    $drive = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+        Where-Object { [int]$_.Index -eq $index } |
+        Select-Object -First 1
+    if ($null -eq $drive) { throw 'Windows could not confirm the physical disk PnP identity' }
+    if ([string]$disk.FriendlyName -cne [string]$env:OPENFS_EXPECTED_MODEL) {
+        throw 'physical disk model changed; refusing raw access'
+    }
+    if (([string]$drive.SerialNumber).Trim() -cne [string]$env:OPENFS_EXPECTED_SERIAL) {
+        throw 'physical disk serial number changed; refusing raw access'
+    }
+    if ([uint64]$disk.Size -ne [uint64]$env:OPENFS_EXPECTED_SIZE) {
+        throw 'physical disk capacity changed; refusing raw access'
+    }
+    if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+        throw 'disk safety state prevents raw access'
+    }
+    $busType = [string]$disk.BusType
+    $pnpId = [string]$drive.PNPDeviceID
+    if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
+        throw 'refusing raw access: target is not positively identified as USB'
+    }
+    return $disk
 }
-if ($disk.IsBoot -or $disk.IsSystem) {
-    throw 'refusing raw access to a boot or system disk'
-}
-if ($disk.IsReadOnly) { throw 'target physical disk is read-only' }
+
+$disk = Get-VerifiedOpenFsDisk
 if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
     throw 'Windows reported invalid physical disk geometry'
-}
-if ($disk.IsOffline) {
-    throw 'target disk is Offline; bring it Online in Windows before using OpenFS'
 }
 
 $partitions = @(Get-Partition -DiskNumber $index -ErrorAction Stop)
@@ -298,7 +319,7 @@ $volumePlans = @()
 foreach ($partition in $partitions) {
     # Volume GUID paths are identifiers, not mount points.
     $mountPoints = @($partition.AccessPaths | Where-Object {
-        $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
+        $_ -and ($_ -notmatch '^\\\?\Volume\{')
     })
     if ($mountPoints.Count -gt 0) {
         # fsutil volume dismount accepts a drive-letter path. Refuse folder-only
@@ -314,8 +335,7 @@ foreach ($partition in $partitions) {
 }
 
 # Dismount only after validating every mounted partition has a supported path.
-# Keep the user's mount-point configuration intact; the exclusive raw handle below
-# prevents a second process from opening the physical disk during OpenFS operations.
+# Preserve mount-point configuration and refuse forced dismounts.
 foreach ($plan in $volumePlans) {
     & "$env:SystemRoot\System32\fsutil.exe" volume dismount $plan.DrivePath 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -323,24 +343,34 @@ foreach ($plan in $volumePlans) {
     }
 }
 
-# Re-read identity and geometry after dismounting; disk numbers are not stable IDs.
-$disk = Get-Disk -Number $index -ErrorAction Stop
-if ([string]$disk.UniqueId -cne $expectedId) {
-    throw 'disk identity changed during volume dismount; refusing raw access'
-}
-if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
-    throw 'disk safety state changed during volume dismount; refusing raw access'
-}
+# Re-read model, serial, capacity and safety state after dismounting.
+$disk = Get-VerifiedOpenFsDisk
 [Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
 "#;
 
-    parse_verified_geometry(&run_disk_script(
-        SCRIPT,
-        index,
-        expected_unique_id,
-        "physical disk preflight",
-    )?)
-    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+    use std::process::Command;
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_EXPECTED_MODEL", expected_model)
+        .env("OPENFS_EXPECTED_SERIAL", expected_serial)
+        .env("OPENFS_EXPECTED_SIZE", expected_size.to_string())
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "physical disk preflight failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    parse_verified_geometry(&String::from_utf8(output.stdout)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
 /// Verify a physical USB disk using a composite identity, not Windows UniqueId alone.
@@ -445,7 +475,9 @@ if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
 #[cfg(all(not(windows), test))]
 pub fn prepare_disk_for_raw_access(
     _index: u32,
-    _expected_unique_id: &str,
+    _expected_model: &str,
+    _expected_serial: &str,
+    _expected_size: u64,
 ) -> Result<(u64, u32), Box<dyn StdError>> {
     Err("raw physical disk access currently requires Windows".into())
 }
@@ -579,7 +611,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn physical_disk_preflight_is_explicitly_unsupported_on_non_windows_hosts() {
-        let error = super::prepare_disk_for_raw_access(0, "DISK-UNIQUE-ID").unwrap_err();
+        let error = super::prepare_disk_for_raw_access(0, "USB Model", "SERIAL", 64_000_000_000).unwrap_err();
         assert!(error.to_string().contains("currently requires Windows"));
     }
 }
