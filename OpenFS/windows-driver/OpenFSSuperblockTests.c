@@ -51,7 +51,7 @@ MakeSuperblock(UCHAR* Bytes, USHORT Version, ULONGLONG TotalBlocks)
 {
     SIZE_T i;
     memset(Bytes, 0, OPENFS_SUPERBLOCK_BYTES);
-    memcpy(Bytes, "OPENFS\\0\\0", 8);
+    memcpy(Bytes, "OPENFS\0\0", 8);
     WriteU16(Bytes, 8, Version);
     WriteU16(Bytes, 10, 48);
     WriteU32(Bytes, 12, TEST_BLOCK_SIZE);
