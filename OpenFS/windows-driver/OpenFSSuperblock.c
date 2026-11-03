@@ -137,8 +137,8 @@ OpenFsValidateSuperblocks(
 
     /*
      * Validate the version-specific reserved layout before accepting the
-     * volume. v4 reserves two checkpoints plus a 16-block journal; v2/v3
-     * retain the historical four-block journal.
+     * volume. the newest supported on-disk layout reserves two checkpoints plus a
+     * 16-block journal; older layouts retain the historical four-block journal.
      */
     {
         ULONGLONG bitsPerBitmapBlock =
@@ -162,7 +162,7 @@ OpenFsValidateSuperblocks(
     }
 
     /*
-     * For v4, the locator hint at offset 48 may differ between independently
+     * For the newer on-disk layout, the locator hint at offset 48 may differ between independently
      * checksummed copies after an interrupted hint update. The stable fields,
      * reserved bytes, and decoded geometry are compared above.
      */
