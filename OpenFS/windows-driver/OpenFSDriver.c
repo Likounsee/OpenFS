@@ -1,4 +1,5 @@
 #include <ntifs.h>
+#include "OpenFSSuperblock.h"
 
 static PDEVICE_OBJECT g_OpenFsFileSystemDevice = NULL;
 
@@ -41,9 +42,8 @@ OpenFsDispatchFileSystemControl(
 
     case IRP_MN_MOUNT_VOLUME:
         /*
-         * Mounting is intentionally not implemented in this bootstrap.
-         * Returning UNRECOGNIZED_VOLUME lets Windows continue probing other
-         * registered filesystems without claiming or modifying the volume.
+         * Native volume attachment is the next milestone. Do not claim a
+         * volume until the VCB/VPB, device stack, and teardown paths exist.
          */
         return OpenFsCompleteIrp(Irp, STATUS_UNRECOGNIZED_VOLUME);
 
