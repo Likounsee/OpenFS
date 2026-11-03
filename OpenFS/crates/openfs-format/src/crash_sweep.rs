@@ -519,3 +519,78 @@ fn reclamation_never_frees_referenced_storage() {
     assert_eq!(observe(&volume, &mut device).unwrap(), before);
     assert_clean(&volume, &mut device, "after no-op reclamation");
 }
+
+
+/// A second power cut during orphan reclamation must be recoverable as well.
+/// The cleanup transaction itself is journaled, so reopening and retrying it must
+/// eventually produce a clean inventory without freeing any published object.
+#[test]
+fn power_cut_during_orphan_reclamation_is_recoverable() {
+    const BS: u32 = 4096;
+    const BLOCKS: u64 = 256;
+    let mut base = CrashDevice::blank(BS, BLOCKS);
+    {
+        let mut volume = format_volume(&mut base, *b"openfs-reclaim01", 0).unwrap();
+        volume
+            .initialize_persistent_namespace(&mut base, ObjectId(1))
+            .unwrap();
+        base.flush().unwrap();
+    }
+    let base_image = base.durable.clone();
+
+    // Find a real interrupted publication that leaves allocated, unreferenced blocks.
+    let mut orphan_image = None;
+    for cut in 0..80 {
+        let mut device = CrashDevice::from_image(BS, BLOCKS, base_image.clone());
+        let mut volume = open_volume(&mut device).unwrap();
+        device.arm(cut);
+        let _ = volume.create_persistent_file_at_path(&mut device, "/", ObjectId(2), "orphan.bin");
+        drop(volume);
+
+        let image = device.image(Keep::Everything);
+        let mut probe = CrashDevice::from_image(BS, BLOCKS, image.clone());
+        let mut reopened = open_volume(&mut probe).unwrap();
+        let report = reopened
+            .verify_discovered_persistent_inventory(&mut probe)
+            .unwrap()
+            .unwrap();
+        if report.orphaned_block_count() > 0 {
+            orphan_image = Some(image);
+            break;
+        }
+    }
+    let orphan_image = orphan_image.expect("could not produce an orphaned allocation");
+
+    // Measure the cleanup write/flush event count without injecting a fault.
+    let mut probe = CrashDevice::from_image(BS, BLOCKS, orphan_image.clone());
+    let mut volume = open_volume(&mut probe).unwrap();
+    let start = probe.events;
+    assert!(volume.reclaim_orphaned_blocks(&mut probe).unwrap() > 0);
+    let total_events = probe.events - start;
+    assert!(total_events > 0);
+
+    // Interrupt every persistence event in reclamation, then reopen and retry.
+    for cut in 0..=total_events {
+        let mut device = CrashDevice::from_image(BS, BLOCKS, orphan_image.clone());
+        let mut volume = open_volume(&mut device).unwrap();
+        device.arm(cut);
+        let _ = volume.reclaim_orphaned_blocks(&mut device);
+        drop(volume);
+
+        for keep in KEEP_MODES {
+            let label = format!("reclaim cut={cut}/{total_events} keep={keep:?}");
+            let mut after = CrashDevice::from_image(BS, BLOCKS, device.image(keep));
+            let mut reopened = open_volume(&mut after)
+                .unwrap_or_else(|e| panic!("{label}: journal recovery failed: {e:?}"));
+            reopened
+                .reclaim_orphaned_blocks(&mut after)
+                .unwrap_or_else(|e| panic!("{label}: reclamation retry failed: {e:?}"));
+            assert_clean(&reopened, &mut after, &label);
+            assert_eq!(
+                reopened.reclaim_orphaned_blocks(&mut after).unwrap(),
+                0,
+                "{label}: reclamation is not idempotent"
+            );
+        }
+    }
+}
