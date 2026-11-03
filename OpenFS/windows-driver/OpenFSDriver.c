@@ -17,9 +17,24 @@ OpenFsCompleteIrp(
 }
 
 /*
- * The filesystem control device is not a mounted volume. Until a volume
- * device object and root FCB exist, accepting CREATE here would falsely
- * advertise file access that the driver cannot service.
+ * Until a mounted volume device object and a file-control path exist, every
+ * operation other than the explicitly supported filesystem-control requests
+ * must fail deterministically. In particular, never let an unset major
+ * function pointer become an accidental dispatch path.
+ */
+static NTSTATUS
+OpenFsDispatchUnsupported(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+}
+
+/*
+ * The filesystem control device is not a mounted volume. Accepting CREATE
+ * here would falsely advertise file access that the driver cannot service.
  */
 static NTSTATUS
 OpenFsDispatchCreate(
@@ -49,7 +64,10 @@ OpenFsDispatchFileSystemControl(
 {
     PIO_STACK_LOCATION stack;
 
-    UNREFERENCED_PARAMETER(DeviceObject);
+    if (DeviceObject != g_OpenFsFileSystemDevice) {
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+    }
+
     stack = IoGetCurrentIrpStackLocation(Irp);
 
     switch (stack->MinorFunction) {
@@ -63,12 +81,16 @@ OpenFsDispatchFileSystemControl(
         NTSTATUS status;
 
         volumeDeviceObject = stack->Parameters.MountVolume.DeviceObject;
+        if (volumeDeviceObject == NULL) {
+            return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+        }
+
         status = OpenFsProbeVolume(volumeDeviceObject, &geometry);
         if (NT_SUCCESS(status)) {
             DbgPrintEx(
                 DPFLTR_IHVDRIVER_ID,
                 DPFLTR_INFO_LEVEL,
-                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\n",
+                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\\n",
                 (ULONG)geometry.Version,
                 geometry.BlockSize,
                 geometry.TotalBlocks
@@ -109,6 +131,7 @@ DriverEntry(
 {
     NTSTATUS status;
     UNICODE_STRING deviceName;
+    ULONG majorFunction;
 
     UNREFERENCED_PARAMETER(RegistryPath);
 
@@ -127,6 +150,13 @@ DriverEntry(
     if (!NT_SUCCESS(status)) {
         g_OpenFsFileSystemDevice = NULL;
         return status;
+    }
+
+    for (majorFunction = 0;
+         majorFunction <= IRP_MJ_MAXIMUM_FUNCTION;
+         ++majorFunction) {
+        DriverObject->MajorFunction[majorFunction] =
+            OpenFsDispatchUnsupported;
     }
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
