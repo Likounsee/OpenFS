@@ -28,7 +28,7 @@ OpenFsDecodeInventoryDescriptor(
 NTSTATUS
 OpenFsValidateInventoryDescriptorRanges(
     _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
-    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG DescriptorBlock,\n    _In_ ULONGLONG TotalBlocks,
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock
     );
