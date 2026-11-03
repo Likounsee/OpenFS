@@ -32,7 +32,8 @@ SetAllAllocated(UCHAR* Bitmap, SIZE_T Bytes)
 int
 main(void)
 {
-    UCHAR bitmap[8];
+    /* One real bitmap page covers 32768 volume blocks. */
+    UCHAR bitmap[4096];
     NTSTATUS status;
 
     SetAllAllocated(bitmap, sizeof(bitmap));
