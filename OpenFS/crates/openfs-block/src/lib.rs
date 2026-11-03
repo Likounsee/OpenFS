@@ -774,6 +774,7 @@ mod tests {
         assert_eq!(first, [0x31; 512]);
         assert_eq!(last, [0x73; 512]);
         assert!(read_only.read_blocks(4, &mut last).is_err());
+        assert!(read_only.write_blocks(0, &[0xFF; 512]).is_err());
         assert!(super::ReadOnlyRawDevice::open(&image.0, 512, 3).is_err());
     }
 
