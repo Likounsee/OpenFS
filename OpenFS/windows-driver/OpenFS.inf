@@ -1,0 +1,40 @@
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider    = %OpenFSProvider%
+DriverVer   = 11/03/2026,0.1.0.0
+CatalogFile = OpenFS.cat
+
+[DefaultInstall.NTamd64]
+CopyFiles = OpenFS.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService = OpenFS,0x00000002,OpenFS.Service
+
+[OpenFS.DriverFiles]
+OpenFS.sys
+
+[DestinationDirs]
+OpenFS.DriverFiles = 12
+
+[OpenFS.Service]
+DisplayName   = %OpenFSServiceName%
+Description   = %OpenFSServiceDescription%
+ServiceType   = 2
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\OpenFS.sys
+LoadOrderGroup = "File System"
+
+[SourceDisksNames]
+1 = %OpenFSDiskName%
+
+[SourceDisksFiles]
+OpenFS.sys = 1
+
+[Strings]
+OpenFSProvider = "OpenFS Project"
+OpenFSServiceName = "OpenFS Filesystem Driver"
+OpenFSServiceDescription = "Native OpenFS filesystem driver (development scaffold)"
+OpenFSDiskName = "OpenFS Driver Installation Media"
