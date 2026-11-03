@@ -97,10 +97,10 @@ jobs:
           $toolDirectory = $stampInf.Directory.FullName
           Write-Host "Using x64 WDK tool directory: $toolDirectory"
           Add-Content -Path $env:GITHUB_PATH -Value $toolDirectory
-      - name: Restore WDK NuGet packages and build driver
+      - name: Restore WDK packages and compile/link driver
         shell: pwsh
         run: |
-          msbuild .\OpenFS\windows-driver\OpenFSDriver.vcxproj /m /restore /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
+          msbuild .\OpenFS\windows-driver\OpenFSDriver.vcxproj /m /restore /t:ClCompile,Link /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
       - name: Publish unsigned development driver
         uses: actions/upload-artifact@v4
         with:
