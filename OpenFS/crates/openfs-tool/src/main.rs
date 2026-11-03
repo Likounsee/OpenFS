@@ -497,7 +497,6 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
-
 fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     if size_mib < 8 || size_mib > MAX_IMAGE_SIZE_MIB {
         return Err("GPT image size must be between 8 MiB and 1 TiB".into());
@@ -536,7 +535,10 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
     println!("Path: {}", path.display());
     println!("Disk size: {size_mib} MiB");
     println!("Logical sector size: 512 bytes");
-    println!("OpenFS partition: LBA {first_lba}..={}", first_lba + sector_count - 1);
+    println!(
+        "OpenFS partition: LBA {first_lba}..={}",
+        first_lba + sector_count - 1
+    );
     println!("OpenFS partition capacity: {partition_bytes} bytes");
     println!("Primary and backup GPT copies: written and flushed");
     println!("The image can be mounted with: openfs mount <image> <drive-letter>");
@@ -3147,8 +3149,7 @@ mod tests {
         let path = unique_path("gpt-image-roundtrip");
         super::create_gpt_image(&path, 16).unwrap();
 
-        let disk = ImageDevice::open(&path, 512).unwrap();
-        let mut disk = disk;
+        let mut disk = ImageDevice::open(&path, 512).unwrap();
         let layout = openfs_partition::read_gpt(&mut disk).unwrap();
         assert_eq!(layout.partitions.len(), 1);
         let partition = layout.partitions[0].clone();
