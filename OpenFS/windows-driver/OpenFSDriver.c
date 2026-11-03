@@ -72,16 +72,6 @@ OpenFsDispatchFileSystemControl(
     }
 }
 
-static NTSTATUS
-OpenFsDispatchUnsupported(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _Inout_ PIRP Irp
-    )
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-    return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
-}
-
 static VOID
 OpenFsUnload(
     _In_ PDRIVER_OBJECT DriverObject
