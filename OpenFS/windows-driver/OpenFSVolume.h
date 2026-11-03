@@ -56,3 +56,20 @@ OpenFsQueryVolumeState(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _Out_ OPENFS_VOLUME_STATE* State
     );
+
+/*
+ * Reserve the real device's VPB while a mount attempt is being prepared.
+ * Reservation is not a mount: it does not set VPB_MOUNTED or publish a VDO.
+ */
+NTSTATUS
+OpenFsReserveVolumeVpb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PVPB Vpb
+    );
+
+/* Release a failed mount attempt's VPB reservation. */
+NTSTATUS
+OpenFsReleaseVolumeVpb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PVPB Vpb
+    );
