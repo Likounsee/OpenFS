@@ -46,3 +46,17 @@ The output is a development driver only. Production installation requires a prop
 7. **Production hardening** — cache manager, memory manager, oplocks, security descriptors, cancellation, concurrency, crash recovery, HLK and signing.
 
 No milestone is considered complete merely because the driver loads. Each requires tests against real Windows I/O paths and image-backed regression tests.
+
+
+## Superblock recognition implementation
+
+`OpenFSSuperblock.c` implements a read-only kernel-safe decoder for the current Rust format's superblock record:
+
+- magic, versions 2–4, 48-byte header;
+- CRC32C (Castagnoli);
+- block-size and total-block bounds with overflow checks;
+- reserved-byte checks;
+- primary/backup geometry, UUID and stable-field consistency;
+- exact volume byte-length validation.
+
+This parser is not yet called by the mount dispatch routine. That wiring requires safe synchronous reads from the target volume device and a complete VPB/VCB lifecycle. The driver intentionally continues to decline mount requests until that lifecycle is implemented; it must not report a successful mount without a working root directory and teardown path.
