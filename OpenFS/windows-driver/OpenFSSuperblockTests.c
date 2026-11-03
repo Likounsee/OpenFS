@@ -64,6 +64,35 @@ MakeSuperblock(UCHAR* Bytes, USHORT Version, ULONGLONG TotalBlocks)
 }
 
 static int
+TestCrc32cKnownVector(void)
+{
+    static const UCHAR input[] = "123456789";
+    CHECK(OpenFsCrc32C(input, sizeof(input) - 1) == 0xE3069283u);
+    return 0;
+}
+
+static int
+TestRejectsUnsupportedVersionAndHeader(void)
+{
+    UCHAR primary[OPENFS_SUPERBLOCK_BYTES];
+    UCHAR backup[OPENFS_SUPERBLOCK_BYTES];
+    OPENFS_VOLUME_GEOMETRY geometry;
+
+    MakeSuperblock(primary, 5, TEST_DEVICE_BLOCKS);
+    memcpy(backup, primary, sizeof(backup));
+    CHECK(OpenFsValidateSuperblocks(primary, backup, TEST_DEVICE_BYTES, &geometry)
+        == STATUS_UNRECOGNIZED_VOLUME);
+
+    MakeSuperblock(primary, 4, TEST_DEVICE_BLOCKS);
+    memcpy(backup, primary, sizeof(backup));
+    WriteU16(primary, 10, 64);
+    Seal(primary);
+    CHECK(OpenFsValidateSuperblocks(primary, backup, TEST_DEVICE_BYTES, &geometry)
+        == STATUS_UNRECOGNIZED_VOLUME);
+    return 0;
+}
+
+static int
 TestValidRevisions(void)
 {
     UCHAR primary[OPENFS_SUPERBLOCK_BYTES];
@@ -161,7 +190,7 @@ TestRejectsBadGeometryAndMagic(void)
 int
 main(void)
 {
-    CHECK(TestValidRevisions() == 0);
+    CHECK(TestCrc32cKnownVector() == 0);\n    CHECK(TestRejectsUnsupportedVersionAndHeader() == 0);\n    CHECK(TestValidRevisions() == 0);
     CHECK(TestRejectsCorruption() == 0);
     CHECK(TestRejectsBadGeometryAndMagic() == 0);
     printf("OpenFS superblock host tests: %u checks passed\n", g_tests);
