@@ -327,6 +327,7 @@ OpenFsReleaseVolumeVpb(
 
     if (VolumeDeviceObject == NULL || Vpb == NULL)
         return STATUS_INVALID_PARAMETER;
+
     ObReferenceObject(VolumeDeviceObject);
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
@@ -342,6 +343,7 @@ OpenFsReleaseVolumeVpb(
         ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+
     if (vcb->Signature != OPENFS_VCB_SIGNATURE) {
         status = STATUS_INVALID_DEVICE_STATE;
     } else if (vcb->State != OpenFsVolumeInitializing) {
@@ -351,6 +353,7 @@ OpenFsReleaseVolumeVpb(
     } else {
         vcb->Vpb = NULL;
     }
+
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
     ObDereferenceObject(VolumeDeviceObject);
