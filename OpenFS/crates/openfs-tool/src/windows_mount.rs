@@ -34,7 +34,7 @@ struct FileHandle {
 }
 
 // Dokan's CreateFile callback supplies native NT disposition values,
- // not Win32 CREATE_* values (which use a different numbering).
+// not Win32 CREATE_* values (which use a different numbering).
 const FILE_OPEN: u32 = 1;
 const FILE_CREATE: u32 = 2;
 const FILE_OPEN_IF: u32 = 3;
@@ -491,7 +491,10 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
                 if create_disposition == FILE_OPEN || create_disposition == FILE_OVERWRITE {
                     return Err(OperationError::Win32(ERROR_FILE_NOT_FOUND));
                 }
-                if !matches!(create_disposition, FILE_CREATE | FILE_OPEN_IF | FILE_OVERWRITE_IF) {
+                if !matches!(
+                    create_disposition,
+                    FILE_CREATE | FILE_OPEN_IF | FILE_OVERWRITE_IF
+                ) {
                     return Err(OperationError::Win32(ERROR_INVALID_PARAMETER));
                 }
                 let (parent, name) = split_parent(&path)?;
