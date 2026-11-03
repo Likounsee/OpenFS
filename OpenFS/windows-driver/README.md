@@ -1,6 +1,10 @@
-# OpenFS native Windows filesystem driver
+# OpenFS 1.0 — native Windows filesystem driver
 
 This directory is the WDK-based kernel-mode filesystem driver track. It is deliberately separate from the Rust workspace: the existing Rust/Dokany adapter remains the development fallback while this driver is brought up.
+
+## Product version
+
+This driver is being developed for the **OpenFS 1.0** release. The `Version` field stored in an on-disk superblock is an internal format-revision number; it is not the OpenFS product/release version. Do not market or label this project as OpenFS 2, 3, or 4 based on those internal values.
 
 ## Current status
 
@@ -52,7 +56,7 @@ No milestone is considered complete merely because the driver loads. Each requir
 
 `OpenFSSuperblock.c` implements a read-only kernel-safe decoder for the current Rust format's superblock record:
 
-- magic, versions 2–4, 48-byte header;
+- magic, supported internal on-disk format revisions, 48-byte header;
 - CRC32C (Castagnoli);
 - block-size and total-block bounds with overflow checks;
 - reserved-byte checks;
