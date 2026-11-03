@@ -1,5 +1,6 @@
 #include <ntifs.h>
 #include "OpenFSSuperblock.h"
+#include "OpenFSDeviceIo.h"
 
 static PDEVICE_OBJECT g_OpenFsFileSystemDevice = NULL;
 
@@ -41,11 +42,27 @@ OpenFsDispatchFileSystemControl(
         return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 
     case IRP_MN_MOUNT_VOLUME:
-        /*
-         * Native volume attachment is the next milestone. Do not claim a
-         * volume until the VCB/VPB, device stack, and teardown paths exist.
-         */
-        return OpenFsCompleteIrp(Irp, STATUS_UNRECOGNIZED_VOLUME);
+    {
+        OPENFS_VOLUME_GEOMETRY geometry;
+        PDEVICE_OBJECT volumeDeviceObject;
+        NTSTATUS status;
+
+        volumeDeviceObject = stack->Parameters.MountVolume.DeviceObject;
+        status = OpenFsProbeVolume(volumeDeviceObject, &geometry);
+        if (NT_SUCCESS(status)) {
+            DbgPrintEx(
+                DPFLTR_IHVDRIVER_ID,
+                DPFLTR_INFO_LEVEL,
+                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\\n",
+                (ULONG)geometry.Version,
+                geometry.BlockSize,
+                geometry.TotalBlocks
+                );
+            return OpenFsCompleteIrp(Irp, STATUS_NOT_IMPLEMENTED);
+        }
+
+        return OpenFsCompleteIrp(Irp, status);
+    }
 
     case IRP_MN_USER_FS_REQUEST:
     case IRP_MN_VERIFY_VOLUME:
