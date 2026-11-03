@@ -2716,7 +2716,7 @@ fn format_disk_device(
     }
     // This intentionally overwrites the complete selected physical disk, including
     // partition tables and every existing partition. The caller had to type the
-    // destructive confirmation and pass the exact Windows UniqueId above.
+    // destructive confirmation and pass the exact model, serial number and capacity above.
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let mut volume_uuid = timestamp.to_le_bytes();
     volume_uuid[8..12].copy_from_slice(&disk_index.to_le_bytes());
