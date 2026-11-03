@@ -33,9 +33,8 @@ struct FileHandle {
     handle_id: u64,
 }
 
-// Dokan's CreateFile callback supplies the native NT FILE_* disposition values,
- // not the Win32 CREATE_* values (which use a different numbering).
-const FILE_SUPERSEDE: u32 = 0;
+// Dokan's CreateFile callback supplies native NT disposition values,
+ // not Win32 CREATE_* values (which use a different numbering).
 const FILE_OPEN: u32 = 1;
 const FILE_CREATE: u32 = 2;
 const FILE_OPEN_IF: u32 = 3;
