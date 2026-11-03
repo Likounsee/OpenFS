@@ -14,6 +14,7 @@
 typedef struct _OPENFS_VCB {
     ULONG Signature;
     ERESOURCE Resource;
+    EX_RUNDOWN_REF RundownProtection;
     OPENFS_VOLUME_STATE State;
     PDEVICE_OBJECT VolumeDeviceObject;
     PDEVICE_OBJECT RealDeviceObject;
