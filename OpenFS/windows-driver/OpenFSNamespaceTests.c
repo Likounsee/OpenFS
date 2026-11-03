@@ -222,6 +222,13 @@ main(void)
         Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_SUCCESS,
             "valid root and two-file namespace accepted");
 
+        memcpy(entries[1].Name, "File.txt", 8);
+        entries[1].NameLength = 8;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_SUCCESS,
+            "directory names remain case-sensitive");
+        memcpy(entries[1].Name, "other.txt", 9);
+        entries[1].NameLength = 9;
+
         memcpy(entries[1].Name, "file.txt", 8);
         entries[1].NameLength = 8;
         Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
@@ -252,6 +259,9 @@ main(void)
         records[2].ObjectIdLow = 42;
         Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
             "duplicate object ID rejected");
+        records[2].ObjectIdLow = 0;
+        Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_DISK_CORRUPT_ERROR,
+            "zero object ID rejected");
         records[2].ObjectIdLow = 43;
 
         records[1].ParentIdLow = 42;
