@@ -4,6 +4,7 @@
 #include "OpenFSSuperblock.h"
 #include "OpenFSVolumeState.h"
 #include "OpenFSNamespace.h"
+#include "OpenFSExtentMap.h"
 
 #define OPENFS_VCB_SIGNATURE 0x4F564342UL
 #define OPENFS_FCB_SIGNATURE 0x4F464342UL
@@ -22,6 +23,9 @@ typedef struct _OPENFS_FCB {
     ULONG Generation;
     UCHAR Kind;
     BOOLEAN IsRoot;
+    BOOLEAN ExtentsLoaded;
+    ULONG ExtentCount;
+    POPENFS_EXTENT Extents;
     LIST_ENTRY CacheLink;
 } OPENFS_FCB, *POPENFS_FCB;
 
@@ -122,6 +126,13 @@ OpenFsLookupChildFcb(
     _Outptr_ POPENFS_FCB* ChildFcb
     );
 
+
+/* Lazily load and validate one FCB's on-disk extent map. */
+NTSTATUS
+OpenFsLoadFcbExtents(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb
+    );
 
 /* Resolve a complete UTF-8 root-relative path and cache each FCB/DCB. */
 NTSTATUS
