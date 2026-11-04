@@ -39,3 +39,18 @@ OpenFsMapLogicalBlock(
     _Out_ ULONGLONG* PhysicalBlock,
     _Out_ BOOLEAN* IsAllocated
     );
+
+/*
+ * Describe the maximal allocated or sparse run containing LogicalBlock.
+ * NextLogicalBlock is the exclusive end, clamped to LogicalBlockCount.
+ */
+NTSTATUS
+OpenFsGetLogicalRun(
+    _In_reads_(ExtentCount) const OPENFS_EXTENT* Extents,
+    _In_ ULONG ExtentCount,
+    _In_ ULONGLONG LogicalBlock,
+    _In_ ULONGLONG LogicalBlockCount,
+    _Out_ PULONGLONG NextLogicalBlock,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ PBOOLEAN IsAllocated
+    );
