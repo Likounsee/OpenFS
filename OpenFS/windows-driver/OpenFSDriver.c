@@ -1288,7 +1288,8 @@ OpenFsDispatchFileSystemControl(
                         &physicalBlock, &allocated);
                     if (!NT_SUCCESS(status))
                         break;
-                    if (nextVcn <= currentVcn) {
+                    if (nextVcn <= currentVcn ||
+                        nextVcn > fileBlockCount) {
                         status = STATUS_DISK_CORRUPT_ERROR;
                         break;
                     }
