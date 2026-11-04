@@ -94,6 +94,12 @@ jobs:
       - name: Run native namespace codec tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-namespace-tests
+      - name: Compile native extent-map decoder tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSExtentMap.c OpenFSExtentMapTests.c -o openfs-extent-map-tests
+      - name: Run native extent-map decoder tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-extent-map-tests
       - name: Compile native inventory descriptor tests
         working-directory: OpenFS/windows-driver
         run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSInventory.c OpenFSInventoryTests.c -o openfs-inventory-tests
