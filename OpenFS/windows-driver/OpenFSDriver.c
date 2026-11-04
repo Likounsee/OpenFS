@@ -665,7 +665,7 @@ OpenFsDispatchDirectoryControl(
             entry->ParentIdHigh != context->ParentIdHigh)
             continue;
 
-        status = RtlUTF8ToUnicodeN((PCHAR)unicodeName,
+        status = RtlUTF8ToUnicodeN((PWSTR)unicodeName,
             sizeof(unicodeName), &unicodeBytes,
             (PCCH)entry->Name, entry->NameLength);
         if (!NT_SUCCESS(status)) goto DirectoryExit;
