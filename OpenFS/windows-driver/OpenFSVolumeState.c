@@ -57,3 +57,22 @@ OpenFsVolumeStateCanDestroy(
 {
     return State == OpenFsVolumeInitializing && !HasVpb;
 }
+
+
+int
+OpenFsVolumeStateCanLock(
+    OPENFS_VOLUME_STATE State,
+    unsigned long long TotalOpenHandles,
+    int CallerIsVolumeHandle,
+    int LockAlreadyHeld,
+    int VpbMounted,
+    int RemovePending
+    )
+{
+    return State == OpenFsVolumeMounted &&
+        TotalOpenHandles == 1 &&
+        CallerIsVolumeHandle &&
+        !LockAlreadyHeld &&
+        VpbMounted &&
+        !RemovePending;
+}
