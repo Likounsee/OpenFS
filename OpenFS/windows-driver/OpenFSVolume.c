@@ -1110,11 +1110,17 @@ OpenFsReadFcbData(
         remaining = Length;
     currentOffset = ByteOffset;
 
-    blockBuffer = (PUCHAR)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED, vcb->Geometry.BlockSize, OPENFS_FCB_POOL_TAG);
-    if (blockBuffer == NULL) {
-        status = STATUS_INSUFFICIENT_RESOURCES;
-        goto Exit;
+    {
+        ULONG blockSize = vcb->Geometry.BlockSize;
+        ULONG batchBlocks = blockSize <= MAXULONG / 16u ? 16u : 1u;
+        SIZE_T bufferSize = (SIZE_T)blockSize * batchBlocks;
+
+        blockBuffer = (PUCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, bufferSize, OPENFS_FCB_POOL_TAG);
+        if (blockBuffer == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
+        }
     }
 
     while (remaining != 0) {
@@ -1133,12 +1139,52 @@ OpenFsReadFcbData(
             goto Exit;
 
         if (allocated) {
+            ULONG batchBlocks = vcb->Geometry.BlockSize <= MAXULONG / 16u
+                ? 16u : 1u;
+            ULONGLONG blocksNeeded =
+                (remaining + blockOffset + vcb->Geometry.BlockSize - 1u) /
+                vcb->Geometry.BlockSize;
+            ULONG runBlocks = 1u;
+            ULONG copyLength;
+
+            if (blocksNeeded < batchBlocks)
+                batchBlocks = (ULONG)blocksNeeded;
+
+            /*
+             * Coalesce adjacent logical blocks only when their physical
+             * mapping is contiguous. Stop at holes or extent boundaries;
+             * this keeps every lower-device read inside validated extents.
+             */
+            while (runBlocks < batchBlocks) {
+                ULONGLONG nextPhysical = 0;
+                BOOLEAN nextAllocated = FALSE;
+
+                status = OpenFsMapLogicalBlock(FileFcb->Extents,
+                    FileFcb->ExtentCount, logicalBlock + runBlocks,
+                    &nextPhysical, &nextAllocated);
+                if (!NT_SUCCESS(status))
+                    goto Exit;
+                if (!nextAllocated ||
+                    physicalBlock > MAXULONGLONG - runBlocks ||
+                    nextPhysical != physicalBlock + runBlocks)
+                    break;
+                ++runBlocks;
+            }
+
             status = OpenFsReadVolumeBlocks(vcb->RealDeviceObject,
                 vcb->Geometry.BlockSize, vcb->Geometry.TotalBlocks,
-                physicalBlock, 1, blockBuffer, vcb->Geometry.BlockSize);
+                physicalBlock, runBlocks, blockBuffer,
+                (SIZE_T)runBlocks * vcb->Geometry.BlockSize);
             if (!NT_SUCCESS(status))
                 goto Exit;
-            RtlCopyMemory(Buffer + copied, blockBuffer + blockOffset, chunk);
+
+            copyLength = (ULONG)((ULONGLONG)runBlocks *
+                vcb->Geometry.BlockSize - blockOffset);
+            if ((ULONGLONG)copyLength > remaining)
+                copyLength = (ULONG)remaining;
+            RtlCopyMemory(Buffer + copied, blockBuffer + blockOffset,
+                copyLength);
+            chunk = copyLength;
         } else {
             RtlZeroMemory(Buffer + copied, chunk);
         }
