@@ -87,6 +87,8 @@ main(void)
     OPENFS_EXTENT extents[4];
     ULONG count = 99;
     NTSTATUS status;
+    ULONGLONG physical;
+    BOOLEAN allocated;
 
     MakeBlock(bytes, 2);
     status = Decode(bytes, extents, 4, &count, 6u * TEST_BLOCK_SIZE);
@@ -161,6 +163,28 @@ main(void)
     MakeBlock(bytes, 0);
     Check(Decode(bytes, extents, 0, &count, 0) == STATUS_SUCCESS && count == 0,
         "empty sparse file accepts an empty extent map");
+
+    MakeBlock(bytes, 2);
+    Check(Decode(bytes, extents, 4, &count, 6u * TEST_BLOCK_SIZE) ==
+        STATUS_SUCCESS, "extent map reloads before logical lookup tests");
+    Check(OpenFsMapLogicalBlock(extents, count, 0, &physical, &allocated) ==
+        STATUS_SUCCESS && allocated && physical == 30,
+        "logical block maps to first physical block");
+    Check(OpenFsMapLogicalBlock(extents, count, 1, &physical, &allocated) ==
+        STATUS_SUCCESS && allocated && physical == 31,
+        "logical block maps within a contiguous run");
+    Check(OpenFsMapLogicalBlock(extents, count, 2, &physical, &allocated) ==
+        STATUS_SUCCESS && !allocated && physical == 0,
+        "sparse hole is reported without a physical address");
+    Check(OpenFsMapLogicalBlock(extents, count, 5, &physical, &allocated) ==
+        STATUS_SUCCESS && allocated && physical == 40,
+        "logical block maps to a later fragmented run");
+    Check(OpenFsMapLogicalBlock(extents, count, 6, &physical, &allocated) ==
+        STATUS_SUCCESS && !allocated,
+        "logical block after final extent is a hole");
+    Check(OpenFsMapLogicalBlock(NULL, 0, 0, &physical, &allocated) ==
+        STATUS_SUCCESS && !allocated,
+        "empty extent map maps every logical block as sparse");
 
     printf("OpenFS extent-map tests: %lu checks, %lu failures\n",
         (unsigned long)g_Checks, (unsigned long)g_Failures);
