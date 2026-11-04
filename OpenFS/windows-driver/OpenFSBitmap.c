@@ -103,3 +103,52 @@ OpenFsValidateBitmapBlock(
 
     return STATUS_SUCCESS;
 }
+
+
+/*
+ * Count free allocation bits in the intersection of a requested block range
+ * and this bitmap page. RangeEnd is exclusive. Requiring the complete range
+ * to fit in the page prevents silently under-counting across bitmap pages.
+ */
+NTSTATUS
+OpenFsCountFreeBlocksInRange(
+    _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _In_ ULONGLONG BitmapBaseBlock,
+    _In_ ULONGLONG RangeStart,
+    _In_ ULONGLONG RangeEnd,
+    _Out_ ULONGLONG* FreeBlocks
+    )
+{
+    ULONGLONG bitmapBits;
+    ULONGLONG bitmapEnd;
+    ULONGLONG block;
+    ULONGLONG freeCount = 0;
+
+    if (Bitmap == NULL || BitmapBytes == 0 || FreeBlocks == NULL ||
+        (ULONGLONG)BitmapBytes > MAXULONGLONG / 8u ||
+        RangeEnd < RangeStart) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    bitmapBits = (ULONGLONG)BitmapBytes * 8u;
+    if (BitmapBaseBlock > MAXULONGLONG - bitmapBits) {
+        return STATUS_INTEGER_OVERFLOW;
+    }
+    bitmapEnd = BitmapBaseBlock + bitmapBits;
+    if (RangeStart < BitmapBaseBlock || RangeEnd > bitmapEnd) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    for (block = RangeStart; block < RangeEnd; ++block) {
+        ULONGLONG local = block - BitmapBaseBlock;
+        if (!OpenFsBitmapBlockIsAllocated(Bitmap, BitmapBytes, local)) {
+            if (freeCount == MAXULONGLONG)
+                return STATUS_INTEGER_OVERFLOW;
+            ++freeCount;
+        }
+    }
+
+    *FreeBlocks = freeCount;
+    return STATUS_SUCCESS;
+}
