@@ -29,3 +29,12 @@ OpenFsProbeVolume(
     _Out_ POPENFS_VOLUME_GEOMETRY Geometry,
     _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     );
+
+
+/* Count free data-region blocks by reading the validated on-disk bitmap. */
+NTSTATUS
+OpenFsCountFreeDataBlocks(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _Out_ ULONGLONG* FreeBlocks
+    );
