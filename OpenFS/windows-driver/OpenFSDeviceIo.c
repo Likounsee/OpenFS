@@ -663,7 +663,8 @@ OpenFsFlushInventoryScanBatch(
             return STATUS_INVALID_PARAMETER;
         status = OpenFsInspectInventoryCandidate(
             DeviceObject, Geometry, DeviceLength, Layout, Blocks[index],
-            Batch + ((SIZE_T)index * Geometry->BlockSize), DiscoveredBlock);
+            Batch + ((SIZE_T)index * Geometry->BlockSize), DiscoveredBlock,
+            NamespaceSnapshot);
         if (!NT_SUCCESS(status)) return status;
     }
     return STATUS_SUCCESS;
@@ -761,7 +762,7 @@ OpenFsDiscoverInventoryDescriptor(
                 status = OpenFsFlushInventoryScanBatch(
                     DeviceObject, Geometry, DeviceLength, &layout,
                     pendingBlocks, pendingCount, batch, batchBytes,
-                    &discoveredBlock);
+                    &discoveredBlock, NamespaceSnapshot);
                 if (!NT_SUCCESS(status)) goto Exit;
                 pendingCount = 0;
             }
