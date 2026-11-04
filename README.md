@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="openfs-logo.png" alt="Logo OpenFS" width="520">
+  <img src="docs/assets/openfs-logo.png" alt="Logo OpenFS" width="520">
 </p>
 
 <p align="center">
@@ -79,8 +79,9 @@ La création initialise le volume et son dossier racine. Les images sont idéale
 ```text
 .
 ├── README.md
-├── openfs-logo.png
-├── docs/                    Documentation du projet
+├── docs/                    Documentation et ressources du projet
+│   └── assets/
+│       └── openfs-logo.png
 ├── .github/workflows/       Intégration continue
 └── OpenFS/                  Workspace Rust
     ├── crates/
