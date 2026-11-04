@@ -17,7 +17,7 @@ Support réservé par l'utilisateur :
 - [x] Identifier le support USB.
 - [x] Confirmer l'absence de partitions.
 - [x] Confirmer que le pilote compile en WDK x64 sur CI.
-- [ ] Construire un package d'installation complet (INF, SYS, catalogue).
+- [~] Génération du package de développement (INF, SYS, catalogue non signé) ajoutée au workflow CI ; résultat à confirmer.
 - [ ] Définir une signature de test et une VM Windows isolée.
 - [ ] Charger le pilote dans la VM et vérifier l'enregistrement du système de fichiers.
 - [ ] Passer un périphérique/volume non OpenFS et confirmer un refus propre.
@@ -34,7 +34,7 @@ La création d'une partition seule ne rendrait pas le système de fichiers OpenF
 
 ## Sécurité et signature
 
-Le build CI actuel est un binaire de développement non signé. Ne pas exécuter `sc start`, `pnputil /add-driver` ou une installation manuelle sur le PC principal à ce stade. Ne pas désactiver Secure Boot et ne pas activer `TESTSIGNING` sur la machine principale.
+Le workflow CI prépare maintenant un package de développement INF/SYS/CAT et calcule ses SHA-256. Le catalogue généré par Inf2Cat n'est pas une signature de confiance : le package reste non signé tant qu'un certificat de test n'a pas signé le catalogue. Ne pas installer ce package sur le PC principal. Ne pas exécuter `sc start`, `pnputil /add-driver` ou une installation manuelle sur le PC principal à ce stade. Ne pas désactiver Secure Boot et ne pas activer `TESTSIGNING` sur la machine principale.
 
 La première validation doit être réalisée dans une VM Windows dédiée, avec instantané et signature de test explicitement installée dans cette VM. L'accès USB à la VM doit être configuré après vérification du package et du fonctionnement du pilote dans l'environnement isolé.
 
