@@ -123,8 +123,8 @@ jobs:
         shell: pwsh
         run: |
           $wdkRoots = @(
-            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'),
-            (Join-Path $env:ProgramFiles 'Windows Kits\10')
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\\10'),
+            (Join-Path $env:ProgramFiles 'Windows Kits\\10')
           ) | Where-Object { Test-Path $_ }
           $stampInf = Get-ChildItem -Path $wdkRoots -Filter stampinf.exe -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Directory.Name -eq 'x64' } |
@@ -138,13 +138,43 @@ jobs:
       - name: Restore WDK packages and compile/link driver
         shell: pwsh
         run: |
-          msbuild .\OpenFS\windows-driver\OpenFSDriver.vcxproj /m /restore /t:ClCompile,Link /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
-      - name: Publish unsigned development driver
+          msbuild .\\OpenFS\\windows-driver\\OpenFSDriver.vcxproj /m /restore /t:ClCompile,Link /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
+      - name: Build unsigned driver package and catalog
+        shell: pwsh
+        run: |
+          $wdkRoots = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\\10'),
+            (Join-Path $env:ProgramFiles 'Windows Kits\\10')
+          ) | Where-Object { Test-Path $_ }
+          $inf2cat = Get-ChildItem -Path $wdkRoots -Filter Inf2Cat.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Name -eq 'x64' } |
+            Select-Object -First 1
+          if ($null -eq $inf2cat) {
+            throw "Inf2Cat.exe was not found in the installed WDK."
+          }
+
+          $package = Join-Path $env:RUNNER_TEMP 'openfs-wdk-x64-package'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item '.\\OpenFS\\windows-driver\\bin\\Debug\\OpenFS.sys' $package
+          Copy-Item '.\\OpenFS\\windows-driver\\OpenFS.inf' $package
+
+          & $inf2cat.FullName "/driver:$package" /os:10_X64
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inf2Cat failed with exit code $LASTEXITCODE."
+          }
+          if (-not (Test-Path (Join-Path $package 'OpenFS.cat'))) {
+            throw "Inf2Cat did not produce OpenFS.cat."
+          }
+
+          Get-ChildItem $package -File |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content (Join-Path $package 'SHA256SUMS.txt')
+          Write-Host "Unsigned development package created at $package"
+      - name: Publish unsigned development package
         uses: actions/upload-artifact@v4
         with:
-          name: openfs-wdk-x64-debug
-          path: |
-            OpenFS/windows-driver/bin/Debug/OpenFS.sys
-            OpenFS/windows-driver/OpenFS.inf
+          name: openfs-wdk-x64-unsigned-package
+          path: ${{ runner.temp }}/openfs-wdk-x64-package/*
           if-no-files-found: error
           retention-days: 7
