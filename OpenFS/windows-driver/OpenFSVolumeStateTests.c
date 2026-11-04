@@ -2,6 +2,7 @@
 #include "OpenFSVolumeState.h"
 
 static unsigned int g_Checks;
+static unsigned int g_Failures;
 
 static void
 Check(int Condition, const char* Name)
@@ -9,6 +10,7 @@ Check(int Condition, const char* Name)
     ++g_Checks;
     if (!Condition) {
         fprintf(stderr, "FAIL: %s\n", Name);
+        ++g_Failures;
     }
 }
 
@@ -179,6 +181,7 @@ main(void)
     Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeInitializing, 1, 1, 1, 0),
         "unpublished volume cannot be dismounted");
 
-    printf("OpenFS volume-state tests: %u checks\n", g_Checks);
-    return g_Checks == 34 ? 0 : 1;
+    printf("OpenFS volume-state tests: %u checks, %u failures\n",
+        g_Checks, g_Failures);
+    return g_Checks == 34 && g_Failures == 0 ? 0 : 1;
 }
