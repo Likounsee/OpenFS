@@ -310,6 +310,99 @@ QueryExit:
 }
 
 static NTSTATUS
+OpenFsDispatchQueryVolumeInformation(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    POPENFS_VCB vcb;
+    PVOID output = Irp->AssociatedIrp.SystemBuffer;
+    ULONG length = stack->Parameters.QueryVolume.Length;
+    ULONG required = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (DeviceObject == NULL || DeviceObject == g_OpenFsFileSystemDevice ||
+        output == NULL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+
+    vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection))
+        return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+    }
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeMounted || vcb->Geometry.BlockSize == 0) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto VolumeQueryExit;
+    }
+
+    switch (stack->Parameters.QueryVolume.FsInformationClass) {
+    case FileFsVolumeInformation:
+    {
+        PFILE_FS_VOLUME_INFORMATION info =
+            (PFILE_FS_VOLUME_INFORMATION)output;
+        static const WCHAR label[] = L"OpenFS";
+        required = FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION, VolumeLabel) +
+            sizeof(label) - sizeof(WCHAR);
+        if (length < required) break;
+        RtlZeroMemory(output, required);
+        info->VolumeSerialNumber = OpenFsCrc32C(vcb->Geometry.Uuid,
+            sizeof(vcb->Geometry.Uuid));
+        info->SupportsObjects = FALSE;
+        info->VolumeLabelLength = sizeof(label) - sizeof(WCHAR);
+        RtlCopyMemory(info->VolumeLabel, label, info->VolumeLabelLength);
+        break;
+    }
+    case FileFsAttributeInformation:
+    {
+        PFILE_FS_ATTRIBUTE_INFORMATION info =
+            (PFILE_FS_ATTRIBUTE_INFORMATION)output;
+        static const WCHAR fsName[] = L"OpenFS";
+        required = FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName) +
+            sizeof(fsName) - sizeof(WCHAR);
+        if (length < required) break;
+        RtlZeroMemory(output, required);
+        info->FileSystemAttributes = FILE_CASE_SENSITIVE_SEARCH |
+            FILE_CASE_PRESERVED_NAMES | FILE_UNICODE_ON_DISK;
+        info->MaximumComponentNameLength = OPENFS_DIRECTORY_NAME_MAX_BYTES;
+        info->FileSystemNameLength = sizeof(fsName) - sizeof(WCHAR);
+        RtlCopyMemory(info->FileSystemName, fsName,
+            info->FileSystemNameLength);
+        break;
+    }
+    case FileFsDeviceInformation:
+    {
+        PFILE_FS_DEVICE_INFORMATION info =
+            (PFILE_FS_DEVICE_INFORMATION)output;
+        required = sizeof(*info);
+        if (length < required) break;
+        info->DeviceType = FILE_DEVICE_DISK;
+        info->Characteristics = DeviceObject->Characteristics;
+        break;
+    }
+    default:
+        status = STATUS_INVALID_INFO_CLASS;
+        goto VolumeQueryExit;
+    }
+
+    if (length < required) status = STATUS_BUFFER_TOO_SMALL;
+    else Irp->IoStatus.Information = required;
+
+VolumeQueryExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    Irp->IoStatus.Status = status;
+    if (!NT_SUCCESS(status)) Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
+
+static NTSTATUS
 OpenFsDispatchCleanup(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
@@ -452,6 +545,8 @@ DriverEntry(
     DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
     DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =
         OpenFsDispatchQueryInformation;
+    DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION] =
+        OpenFsDispatchQueryVolumeInformation;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = OpenFsDispatchCleanup;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] =
