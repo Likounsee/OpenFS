@@ -985,6 +985,12 @@ OpenFsDispatchDirectoryControl(
         alignedRequired = (required + 7u) & ~7u;
         if (alignedRequired < required || bytesUsed > outputLength ||
             alignedRequired > outputLength - bytesUsed) {
+            /*
+             * The current matching entry has not been copied. Keep the
+             * enumeration cursor on it so the next query retries this entry
+             * instead of silently skipping it after a short output buffer.
+             */
+            context->NextEntryIndex = entryIndex - 1u;
             if (bytesUsed == 0) status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
