@@ -1252,11 +1252,11 @@ OpenFsDispatchFileSystemControl(
             fcb = (POPENFS_FCB)stack->FileObject->FsContext;
             if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
                 return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
-            if (fcb->Kind == 2u)
-                return OpenFsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY);
 
-            fileSize = fcb->FileSize;
-            blockSize = vcb->Geometry.BlockSize;
+            status = OpenFsQueryFcbMetadata(DeviceObject, fcb,
+                &fileSize, (PULONG)&blockSize);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
             if (blockSize == 0 || (blockSize & (blockSize - 1u)) != 0)
                 return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
             if (requestStart >= fileSize || requestStart >= requestEnd)
