@@ -1306,15 +1306,41 @@ OpenFsDispatchFileSystemControl(
                         if (runEnd > requestEnd)
                             runEnd = requestEnd;
                         if (runStart < runEnd) {
-                            if (returned == capacity) {
-                                status = STATUS_BUFFER_OVERFLOW;
-                                break;
+                            BOOLEAN merged = FALSE;
+
+                            /*
+                             * Adjacent logical allocations form one
+                             * allocated byte range even when represented by
+                             * separate, physically fragmented extent records.
+                             */
+                            if (returned != 0) {
+                                PFILE_ALLOCATED_RANGE_BUFFER previous =
+                                    &output[returned - 1u];
+                                ULONGLONG previousStart =
+                                    (ULONGLONG)previous->FileOffset.QuadPart;
+                                ULONGLONG previousLength =
+                                    (ULONGLONG)previous->Length.QuadPart;
+
+                                if (previousLength <=
+                                        MAXULONGLONG - previousStart &&
+                                    previousStart + previousLength == runStart) {
+                                    previous->Length.QuadPart =
+                                        (LONGLONG)(runEnd - previousStart);
+                                    merged = TRUE;
+                                }
                             }
-                            output[returned].FileOffset.QuadPart =
-                                (LONGLONG)runStart;
-                            output[returned].Length.QuadPart =
-                                (LONGLONG)(runEnd - runStart);
-                            ++returned;
+
+                            if (!merged) {
+                                if (returned == capacity) {
+                                    status = STATUS_BUFFER_OVERFLOW;
+                                    break;
+                                }
+                                output[returned].FileOffset.QuadPart =
+                                    (LONGLONG)runStart;
+                                output[returned].Length.QuadPart =
+                                    (LONGLONG)(runEnd - runStart);
+                                ++returned;
+                            }
                         }
                     }
                     currentVcn = nextVcn;
