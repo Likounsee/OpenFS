@@ -31,6 +31,21 @@ OpenFsProbeVolume(
     );
 
 
+
+/* Read data-region allocation bits into a Windows-compatible bitmap buffer. */
+NTSTATUS
+OpenFsReadDataBitmap(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ ULONGLONG DataStartBlock,
+    _In_ ULONGLONG DataBlockCount,
+    _In_ ULONGLONG StartingLcn,
+    _Out_writes_bytes_(BitmapBytes) UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _Out_ PULONGLONG BitsRead
+    );
+
+
 /* Count free data-region blocks by reading the validated on-disk bitmap. */
 NTSTATUS
 OpenFsCountFreeDataBlocks(
