@@ -150,10 +150,12 @@ OpenFsDispatchCreate(
     }
 
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        vcb->State != OpenFsVolumeMounted ||
-        vcb->LockFileObject != NULL ||
-        fcb->OpenHandleCount == MAXULONG) {
+        vcb->State != OpenFsVolumeMounted) {
         status = STATUS_VOLUME_DISMOUNTED;
+    } else if (vcb->LockFileObject != NULL) {
+        status = STATUS_ACCESS_DENIED;
+    } else if (fcb->OpenHandleCount == MAXULONG) {
+        status = STATUS_TOO_MANY_OPENED_FILES;
     } else {
         ++fcb->OpenHandleCount;
         fileObject->FsContext = fcb;
