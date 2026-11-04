@@ -915,6 +915,135 @@ OpenFsDispatchFileSystemControl(
             return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
 
         controlCode = stack->Parameters.FileSystemControl.FsControlCode;
+        if (controlCode == FSCTL_GET_RETRIEVAL_POINTERS) {
+            PSTARTING_VCN_INPUT_BUFFER input =
+                (PSTARTING_VCN_INPUT_BUFFER)
+                stack->Parameters.FileSystemControl.Type3InputBuffer;
+            PRETRIEVAL_POINTERS_BUFFER output =
+                (PRETRIEVAL_POINTERS_BUFFER)Irp->UserBuffer;
+            STARTING_VCN_INPUT_BUFFER inputCopy;
+            POPENFS_VCB vcb;
+            POPENFS_FCB fcb;
+            OPENFS_VOLUME_LAYOUT layout;
+            ULONGLONG currentVcn;
+            ULONGLONG fileBlockCount;
+            ULONG outputLength =
+                stack->Parameters.FileSystemControl.OutputBufferLength;
+            ULONG outputHeader =
+                FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents);
+            ULONG extentBytes = sizeof(output->Extents[0]);
+            ULONG capacity;
+            ULONG returned = 0;
+            NTSTATUS status;
+
+            /*
+             * FSCTL_GET_RETRIEVAL_POINTERS is METHOD_NEITHER. VCN input is
+             * captured before use and the output is written under SEH.
+             */
+            if (input == NULL || output == NULL ||
+                stack->Parameters.FileSystemControl.InputBufferLength <
+                    sizeof(STARTING_VCN_INPUT_BUFFER) ||
+                outputLength < outputHeader + extentBytes)
+                return OpenFsCompleteIrp(Irp, STATUS_BUFFER_TOO_SMALL);
+
+            __try {
+                if (Irp->RequestorMode != KernelMode) {
+                    ProbeForRead(input, sizeof(*input),
+                        TYPE_ALIGNMENT(STARTING_VCN_INPUT_BUFFER));
+                    ProbeForWrite(output, outputLength,
+                        TYPE_ALIGNMENT(ULONG));
+                }
+                inputCopy = *input;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                return OpenFsCompleteIrp(Irp, GetExceptionCode());
+            }
+
+            if (inputCopy.StartingVcn.QuadPart < 0)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            if (stack->FileObject == NULL ||
+                stack->FileObject->FsContext == NULL)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+            fcb = (POPENFS_FCB)stack->FileObject->FsContext;
+            if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+
+            status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
+                vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
+            if (layout.BackupSuperblockBlock <= layout.DataStartBlock)
+                return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
+
+            fileBlockCount = fcb->FileSize / vcb->Geometry.BlockSize;
+            if ((fcb->FileSize % vcb->Geometry.BlockSize) != 0)
+                ++fileBlockCount;
+            currentVcn = (ULONGLONG)inputCopy.StartingVcn.QuadPart;
+            if (currentVcn >= fileBlockCount)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            capacity = (outputLength - outputHeader) / extentBytes;
+            __try {
+                RtlZeroMemory(output, outputLength);
+                output->StartingVcn = inputCopy.StartingVcn;
+
+                while (returned < capacity && currentVcn < fileBlockCount) {
+                    ULONGLONG nextVcn = 0;
+                    ULONGLONG physicalBlock = 0;
+                    BOOLEAN allocated = FALSE;
+
+                    status = OpenFsGetFcbLogicalRun(DeviceObject, fcb,
+                        currentVcn, &nextVcn, &physicalBlock, &allocated);
+                    if (!NT_SUCCESS(status))
+                        break;
+                    if (nextVcn <= currentVcn || nextVcn > fileBlockCount) {
+                        status = STATUS_DISK_CORRUPT_ERROR;
+                        break;
+                    }
+
+                    output->Extents[returned].NextVcn.QuadPart =
+                        (LONGLONG)nextVcn;
+                    if (!allocated) {
+                        output->Extents[returned].Lcn.QuadPart = -1;
+                    } else {
+                        if (physicalBlock < layout.DataStartBlock ||
+                            physicalBlock >= layout.BackupSuperblockBlock) {
+                            status = STATUS_DISK_CORRUPT_ERROR;
+                            break;
+                        }
+                        output->Extents[returned].Lcn.QuadPart =
+                            (LONGLONG)(physicalBlock - layout.DataStartBlock);
+                    }
+                    currentVcn = nextVcn;
+                    ++returned;
+                }
+
+                output->ExtentCount = returned;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                status = GetExceptionCode();
+                returned = 0;
+            }
+
+            if (returned != 0) {
+                Irp->IoStatus.Information =
+                    outputHeader + returned * extentBytes;
+                if (NT_SUCCESS(status) && currentVcn < fileBlockCount)
+                    status = STATUS_BUFFER_OVERFLOW;
+            } else if (NT_SUCCESS(status)) {
+                status = STATUS_BUFFER_TOO_SMALL;
+            }
+
+            if (!NT_SUCCESS(status) && status != STATUS_BUFFER_OVERFLOW)
+                Irp->IoStatus.Information = 0;
+            Irp->IoStatus.Status = status;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return status;
+        }
+
         if (controlCode == FSCTL_GET_VOLUME_BITMAP) {
             PSTARTING_LCN_INPUT_BUFFER input =
                 (PSTARTING_LCN_INPUT_BUFFER)
