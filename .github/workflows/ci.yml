@@ -154,8 +154,24 @@ jobs:
 
           $package = Join-Path $env:RUNNER_TEMP 'openfs-wdk-x64-package'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
-          Copy-Item '.\\OpenFS\\windows-driver\\bin\\Debug\\OpenFS.sys' $package
-          Copy-Item '.\\OpenFS\\windows-driver\\OpenFS.inf' $package
+          $driverRoot = '.\\OpenFS\\windows-driver'
+          $sysCandidates = @(Get-ChildItem -Path $driverRoot -Filter OpenFS.sys -File -Recurse -ErrorAction SilentlyContinue)
+          if ($sysCandidates.Count -eq 0) {
+            Write-Host "No OpenFS.sys was produced. Driver output tree:"
+            Get-ChildItem -Path $driverRoot -File -Recurse |
+              Where-Object { $_.Extension -in @('.obj', '.lib', '.pdb', '.sys', '.log') } |
+              Select-Object -ExpandProperty FullName
+            throw "WDK compile completed but no linked OpenFS.sys was found."
+          }
+          if ($sysCandidates.Count -gt 1) {
+            $sysCandidates | Select-Object -ExpandProperty FullName | Write-Host
+          }
+          $driverSys = $sysCandidates |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+          Write-Host "Packaging driver binary: $($driverSys.FullName)"
+          Copy-Item $driverSys.FullName $package
+          Copy-Item (Join-Path $driverRoot 'OpenFS.inf') $package
 
           & $inf2cat.FullName "/driver:$package" /os:10_X64
           if ($LASTEXITCODE -ne 0) {
