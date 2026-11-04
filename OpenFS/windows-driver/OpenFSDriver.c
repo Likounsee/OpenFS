@@ -187,6 +187,98 @@ OpenFsDispatchClose(
 }
 
 static NTSTATUS
+OpenFsDispatchQueryInformation(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    PFILE_OBJECT fileObject = stack->FileObject;
+    POPENFS_VCB vcb;
+    POPENFS_FCB fcb;
+    PVOID output = Irp->AssociatedIrp.SystemBuffer;
+    ULONG required = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+    FILE_INFORMATION_CLASS informationClass =
+        stack->Parameters.QueryFile.FileInformationClass;
+
+    if (DeviceObject == NULL || DeviceObject == g_OpenFsFileSystemDevice ||
+        fileObject == NULL || fileObject->FsContext == NULL || output == NULL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+
+    vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+    fcb = (POPENFS_FCB)fileObject->FsContext;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection))
+        return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeMounted ||
+        fcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto QueryExit;
+    }
+
+    switch (informationClass) {
+    case FileBasicInformation:
+    {
+        PFILE_BASIC_INFORMATION info = (PFILE_BASIC_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        RtlZeroMemory(info, required);
+        info->FileAttributes = fcb->Kind == 2u
+            ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        break;
+    }
+    case FileStandardInformation:
+    {
+        PFILE_STANDARD_INFORMATION info =
+            (PFILE_STANDARD_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        RtlZeroMemory(info, required);
+        info->AllocationSize.QuadPart = (LONGLONG)fcb->FileSize;
+        info->EndOfFile.QuadPart = (LONGLONG)fcb->FileSize;
+        info->NumberOfLinks = 1;
+        info->Directory = (fcb->Kind == 2u);
+        break;
+    }
+    case FileInternalInformation:
+    {
+        PFILE_INTERNAL_INFORMATION info =
+            (PFILE_INTERNAL_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        info->IndexNumber.QuadPart = (LONGLONG)fcb->ObjectIdLow;
+        break;
+    }
+    default:
+        status = STATUS_INVALID_INFO_CLASS;
+        goto QueryExit;
+    }
+
+    if (stack->Parameters.QueryFile.Length < required) {
+        status = STATUS_BUFFER_TOO_SMALL;
+    } else {
+        Irp->IoStatus.Information = required;
+    }
+
+QueryExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    Irp->IoStatus.Status = status;
+    if (!NT_SUCCESS(status)) Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
+
+static NTSTATUS
 OpenFsDispatchCleanup(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
@@ -326,7 +418,7 @@ DriverEntry(
     }
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
-    DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
+    DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;\n    DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =\n        OpenFsDispatchQueryInformation;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = OpenFsDispatchCleanup;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] =
