@@ -404,9 +404,17 @@ OpenFsDispatchQueryVolumeInformation(
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
     if (!ExAcquireRundownProtection(&vcb->RundownProtection))
         return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
-    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
-        ExReleaseRundownProtection(&vcb->RundownProtection);
-        return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+    {
+        BOOLEAN needsExclusive =
+            stack->Parameters.QueryVolume.FsInformationClass == FileFsSizeInformation ||
+            stack->Parameters.QueryVolume.FsInformationClass == FileFsFullSizeInformation;
+        BOOLEAN acquired = needsExclusive
+            ? ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)
+            : ExAcquireResourceSharedLite(&vcb->Resource, TRUE);
+        if (!acquired) {
+            ExReleaseRundownProtection(&vcb->RundownProtection);
+            return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+        }
     }
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
         vcb->State != OpenFsVolumeMounted || vcb->Geometry.BlockSize == 0) {
@@ -473,9 +481,13 @@ OpenFsDispatchQueryVolumeInformation(
             goto VolumeQueryExit;
         }
         totalBlocks = layout.BackupSuperblockBlock - layout.DataStartBlock;
-        status = OpenFsCountFreeDataBlocks(vcb->RealDeviceObject,
-            &vcb->Geometry, &freeBlocks);
-        if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+        if (!vcb->FreeDataBlockCountValid) {
+            status = OpenFsCountFreeDataBlocks(vcb->RealDeviceObject,
+                &vcb->Geometry, &vcb->FreeDataBlockCount);
+            if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+            vcb->FreeDataBlockCountValid = TRUE;
+        }
+        freeBlocks = vcb->FreeDataBlockCount;
         if (totalBlocks > MAXLONGLONG || freeBlocks > totalBlocks) {
             status = STATUS_INTEGER_OVERFLOW;
             goto VolumeQueryExit;
