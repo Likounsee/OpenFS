@@ -1,6 +1,7 @@
 #include <ntifs.h>
 #include "OpenFSSuperblock.h"
 #include "OpenFSDeviceIo.h"
+#include "OpenFSLayout.h"
 #include "OpenFSVolume.h"
 
 static PDEVICE_OBJECT g_OpenFsFileSystemDevice = NULL;
