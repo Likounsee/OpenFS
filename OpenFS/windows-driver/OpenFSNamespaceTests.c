@@ -270,7 +270,7 @@ main(void)
                     foundIndex == 1,
                     "root-relative Windows path resolves a file");
                 Check(OpenFsResolveNamespacePath(snapshot,
-                    (const UCHAR*)"\\\\/file.txt", 10, &foundIndex) == STATUS_SUCCESS &&
+                    (const UCHAR*)"\\\\/file.txt", 11, &foundIndex) == STATUS_SUCCESS &&
                     foundIndex == 1,
                     "mixed leading separators are normalized");
                 Check(OpenFsResolveNamespacePath(snapshot,
@@ -286,7 +286,7 @@ main(void)
                     (const UCHAR*)"..", 2, &foundIndex) == STATUS_OBJECT_PATH_SYNTAX_BAD,
                     "path resolver rejects parent traversal");
                 Check(OpenFsResolveNamespacePath(snapshot,
-                    (const UCHAR*)"toolong-component-name-that-exceeds-sixty-four-bytes-xxxxxxxxxxxxxxxx", 70,
+                    (const UCHAR*)"toolong-component-name-that-exceeds-sixty-four-bytes-xxxxxxxxxxxxxxxx", 69,
                     &foundIndex) == STATUS_OBJECT_NAME_INVALID,
                     "path resolver rejects oversized components");
                 OpenFsFreeNamespaceSnapshot(snapshot);
