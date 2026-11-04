@@ -17,3 +17,15 @@ OpenFsValidateBitmapBlock(
     _In_ ULONGLONG RingStartBlock,
     _In_ ULONGLONG RingEndBlock
     );
+
+
+/* Count clear allocation bits in one bitmap page over [RangeStart, RangeEnd). */
+NTSTATUS
+OpenFsCountFreeBlocksInRange(
+    _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _In_ ULONGLONG BitmapBaseBlock,
+    _In_ ULONGLONG RangeStart,
+    _In_ ULONGLONG RangeEnd,
+    _Out_ ULONGLONG* FreeBlocks
+    );
