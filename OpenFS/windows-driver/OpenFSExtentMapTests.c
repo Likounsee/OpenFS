@@ -159,7 +159,7 @@ main(void)
         "invalid extent-map magic is rejected");
 
     MakeBlock(bytes, 0);
-    Check(Decode(bytes, NULL, 0, &count, 0) == STATUS_SUCCESS && count == 0,
+    Check(Decode(bytes, extents, 0, &count, 0) == STATUS_SUCCESS && count == 0,
         "empty sparse file accepts an empty extent map");
 
     printf("OpenFS extent-map tests: %lu checks, %lu failures\n",
