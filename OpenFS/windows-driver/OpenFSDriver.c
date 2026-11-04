@@ -383,6 +383,48 @@ OpenFsDispatchQueryInformation(
         info->IndexNumber.QuadPart = (LONGLONG)fcb->ObjectIdLow;
         break;
     }
+    case FileNetworkOpenInformation:
+    {
+        PFILE_NETWORK_OPEN_INFORMATION info =
+            (PFILE_NETWORK_OPEN_INFORMATION)output;
+        ULONGLONG allocation = fcb->FileSize;
+        ULONGLONG blockSize = vcb->Geometry.BlockSize;
+
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        if (blockSize == 0) {
+            status = STATUS_INVALID_DEVICE_STATE;
+            goto QueryExit;
+        }
+        if (allocation != 0) {
+            ULONGLONG remainder = allocation % blockSize;
+            if (remainder != 0) {
+                ULONGLONG padding = blockSize - remainder;
+                if (allocation > MAXLONGLONG - padding) {
+                    status = STATUS_INTEGER_OVERFLOW;
+                    goto QueryExit;
+                }
+                allocation += padding;
+            }
+        }
+        RtlZeroMemory(info, required);
+        info->AllocationSize.QuadPart = (LONGLONG)allocation;
+        info->EndOfFile.QuadPart = (LONGLONG)fcb->FileSize;
+        info->FileAttributes = fcb->Kind == 2u
+            ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        break;
+    }
+    case FileAttributeTagInformation:
+    {
+        PFILE_ATTRIBUTE_TAG_INFORMATION info =
+            (PFILE_ATTRIBUTE_TAG_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        info->FileAttributes = fcb->Kind == 2u
+            ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        info->ReparseTag = 0;
+        break;
+    }
     default:
         status = STATUS_INVALID_INFO_CLASS;
         goto QueryExit;
