@@ -383,6 +383,24 @@ OpenFsDispatchQueryInformation(
         info->IndexNumber.QuadPart = (LONGLONG)fcb->ObjectIdLow;
         break;
     }
+    case FilePositionInformation:
+    {
+        PFILE_POSITION_INFORMATION info =
+            (PFILE_POSITION_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        info->CurrentByteOffset = fileObject->CurrentByteOffset;
+        break;
+    }
+    case FileAlignmentInformation:
+    {
+        PFILE_ALIGNMENT_INFORMATION info =
+            (PFILE_ALIGNMENT_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        info->AlignmentRequirement = DeviceObject->AlignmentRequirement;
+        break;
+    }
     case FileNetworkOpenInformation:
     {
         PFILE_NETWORK_OPEN_INFORMATION info =
