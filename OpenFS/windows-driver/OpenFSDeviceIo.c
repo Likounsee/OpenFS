@@ -118,6 +118,53 @@ OpenFsReadAtOffset(
     return status;
 }
 
+
+/*
+ * Read a bounded range of complete filesystem blocks from the backing device.
+ * This is the common data path for later extent, directory and file reads.
+ */
+NTSTATUS
+OpenFsReadVolumeBlocks(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG FirstBlock,
+    _In_ ULONG BlockCount,
+    _Out_writes_bytes_(BufferLength) UCHAR* Buffer,
+    _In_ SIZE_T BufferLength
+    )
+{
+    ULONGLONG deviceLength;
+    ULONGLONG byteOffset;
+    ULONGLONG byteLength;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL || Buffer == NULL ||
+        BlockSize == 0 || TotalBlocks == 0 || BlockCount == 0)
+        return STATUS_INVALID_PARAMETER;
+
+    if (TotalBlocks > MAXULONGLONG / BlockSize ||
+        FirstBlock >= TotalBlocks ||
+        (ULONGLONG)BlockCount > TotalBlocks - FirstBlock)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    if ((ULONGLONG)BlockCount > MAXULONG / BlockSize)
+        return STATUS_INTEGER_OVERFLOW;
+
+    byteLength = (ULONGLONG)BlockCount * BlockSize;
+    if (BufferLength != (SIZE_T)byteLength)
+        return STATUS_INVALID_BUFFER_SIZE;
+
+    deviceLength = TotalBlocks * BlockSize;
+    byteOffset = FirstBlock * BlockSize;
+    status = OpenFsValidateReadRange(deviceLength, byteOffset, byteLength);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    return OpenFsReadAtOffset(DeviceObject, byteOffset, deviceLength,
+        Buffer, (ULONG)byteLength);
+}
+
 static NTSTATUS
 OpenFsQueryDeviceLength(
     _In_ PDEVICE_OBJECT DeviceObject,
