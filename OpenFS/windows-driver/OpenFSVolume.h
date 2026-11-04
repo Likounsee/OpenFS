@@ -3,8 +3,30 @@
 #include <ntifs.h>
 #include "OpenFSSuperblock.h"
 #include "OpenFSVolumeState.h"
+#include "OpenFSNamespace.h"
 
 #define OPENFS_VCB_SIGNATURE 0x4F564342UL
+#define OPENFS_FCB_SIGNATURE 0x4F464342UL
+#define OPENFS_DCB_NODE_TYPE 0x4F444342UL
+
+typedef struct _OPENFS_FCB {
+    ULONG Signature;
+    ULONG NodeType;
+    ULONGLONG ObjectIdLow;
+    ULONGLONG ObjectIdHigh;
+    ULONGLONG ParentIdLow;
+    ULONGLONG ParentIdHigh;
+    ULONGLONG FileSize;
+    ULONGLONG ExtentRootBlock;
+    ULONG Generation;
+    UCHAR Kind;
+    BOOLEAN IsRoot;
+} OPENFS_FCB, *POPENFS_FCB;
+
+typedef struct _OPENFS_DCB {
+    OPENFS_FCB Fcb;
+    ULONG ChildCount;
+} OPENFS_DCB, *POPENFS_DCB;
 
 /*
  * One VCB lives in the extension of each unpublished volume device object.
@@ -21,6 +43,7 @@ typedef struct _OPENFS_VCB {
     PVPB Vpb;
     OPENFS_VOLUME_GEOMETRY Geometry;
     POPENFS_NAMESPACE_SNAPSHOT Namespace;
+    POPENFS_DCB RootDcb;
 } OPENFS_VCB, *POPENFS_VCB;
 
 /*
