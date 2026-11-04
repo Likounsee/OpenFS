@@ -1226,6 +1226,84 @@ Exit:
 
 
 /*
+ * Validate an FCB against the mounted VCB before exposing immutable file
+ * metadata to a dispatch routine. In particular, never trust FsContext merely
+ * because it contains a pointer with an FCB-looking signature.
+ */
+NTSTATUS
+OpenFsQueryFcbMetadata(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _Out_ PULONGLONG FileSize,
+    _Out_ PULONG BlockSize
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    NTSTATUS status = STATUS_INVALID_PARAMETER;
+
+    if (FileSize == NULL || BlockSize == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *FileSize = 0;
+    *BlockSize = 0;
+
+    if (VolumeDeviceObject == NULL || FileFcb == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == FileFcb) {
+            status = STATUS_SUCCESS;
+            break;
+        }
+    }
+    if (!NT_SUCCESS(status))
+        goto MetadataExit;
+    if (FileFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto MetadataExit;
+    }
+    if (FileFcb->Kind != 1u || FileFcb->IsRoot) {
+        status = STATUS_FILE_IS_A_DIRECTORY;
+        goto MetadataExit;
+    }
+    if (vcb->State != OpenFsVolumeMounted) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto MetadataExit;
+    }
+    if (vcb->Geometry.BlockSize == 0) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto MetadataExit;
+    }
+
+    *FileSize = FileFcb->FileSize;
+    *BlockSize = vcb->Geometry.BlockSize;
+
+MetadataExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+/*
  * Return the maximal extent/hole run containing StartingVcn. The extent
  * cache is loaded before taking the shared VCB lock, then pinned by rundown
  * protection while its immutable array is queried.
