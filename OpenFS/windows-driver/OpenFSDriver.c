@@ -800,13 +800,42 @@ OpenFsDispatchFileSystemControl(
     _Inout_ PIRP Irp
     )
 {
-    PIO_STACK_LOCATION stack;
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
 
+    /*
+     * Volume FSCTLs arrive on the mounted VDO with USER_FS_REQUEST as the
+     * minor function. Keep this path separate from mount-manager requests
+     * sent to the filesystem control device.
+     */
     if (DeviceObject != g_OpenFsFileSystemDevice) {
+        OPENFS_VOLUME_STATE state;
+        ULONG controlCode;
+
+        if (DeviceObject == NULL ||
+            stack->MinorFunction != IRP_MN_USER_FS_REQUEST)
+            return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+
+        controlCode = stack->Parameters.FileSystemControl.FsControlCode;
+        if (controlCode == FSCTL_IS_VOLUME_MOUNTED) {
+            NTSTATUS status = OpenFsQueryVolumeState(DeviceObject, &state);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
+            return OpenFsCompleteIrp(Irp,
+                state == OpenFsVolumeMounted
+                    ? STATUS_SUCCESS : STATUS_VOLUME_DISMOUNTED);
+        }
+
+        /*
+         * Dismount and lock are deliberately not acknowledged yet. A
+         * successful response without VPB teardown/lock ownership would
+         * leave the I/O manager and VCB disagreeing about mount lifetime.
+         */
+        if (controlCode == FSCTL_DISMOUNT_VOLUME ||
+            controlCode == FSCTL_LOCK_VOLUME)
+            return OpenFsCompleteIrp(Irp, STATUS_DEVICE_BUSY);
+
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
     }
-
-    stack = IoGetCurrentIrpStackLocation(Irp);
 
     switch (stack->MinorFunction) {
     case IRP_MN_LOAD_FILE_SYSTEM:
