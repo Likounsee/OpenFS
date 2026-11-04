@@ -197,16 +197,6 @@ OpenFsDispatchCleanup(
 }
 
 static NTSTATUS
-OpenFsDispatchClose(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _Inout_ PIRP Irp
-    )
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-    return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
-}
-
-static NTSTATUS
 OpenFsDispatchFileSystemControl(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
