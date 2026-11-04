@@ -242,6 +242,33 @@ OpenFsDispatchRead(
     return status;
 }
 
+/*
+ * FsContext is an opaque pointer supplied by the I/O manager. Validate its
+ * membership in the VCB list before dereferencing it. The caller must hold
+ * Vcb->Resource (shared or exclusive) while using the returned FCB.
+ */
+static POPENFS_FCB
+OpenFsFindFcbLocked(
+    _In_ POPENFS_VCB Vcb,
+    _In_opt_ PVOID Candidate
+    )
+{
+    PLIST_ENTRY link;
+
+    if (Vcb == NULL || Candidate == NULL)
+        return NULL;
+
+    for (link = Vcb->FcbList.Flink; link != &Vcb->FcbList;
+         link = link->Flink) {
+        POPENFS_FCB fcb =
+            CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        if ((PVOID)fcb == Candidate)
+            return fcb;
+    }
+
+    return NULL;
+}
+
 static NTSTATUS
 OpenFsDispatchClose(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -251,15 +278,16 @@ OpenFsDispatchClose(
     PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
     PFILE_OBJECT fileObject = stack->FileObject;
     POPENFS_VCB vcb;
-    POPENFS_FCB fcb;
 
     if (DeviceObject != NULL && DeviceObject != g_OpenFsFileSystemDevice &&
         fileObject != NULL && fileObject->FsContext != NULL) {
         vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
-        fcb = (POPENFS_FCB)fileObject->FsContext;
         if (vcb != NULL && vcb->Signature == OPENFS_VCB_SIGNATURE &&
             ExAcquireRundownProtection(&vcb->RundownProtection)) {
             if (ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+                POPENFS_FCB fcb =
+                    OpenFsFindFcbLocked(vcb, fileObject->FsContext);
+
                 if (vcb->LockFileObject == fileObject && vcb->Vpb != NULL) {
                     KIRQL oldIrql;
                     IoAcquireVpbSpinLock(&oldIrql);
@@ -268,9 +296,13 @@ OpenFsDispatchClose(
                     vcb->LockFileObject = NULL;
                     IoReleaseVpbSpinLock(oldIrql);
                 }
-                if (fcb->Signature == OPENFS_FCB_SIGNATURE &&
+
+                if (fcb != NULL &&
+                    fcb->Signature == OPENFS_FCB_SIGNATURE &&
                     fcb->OpenHandleCount != 0)
                     --fcb->OpenHandleCount;
+
+                /* Never retain an untrusted or stale FsContext past CLOSE. */
                 fileObject->FsContext = NULL;
                 ExReleaseResourceLite(&vcb->Resource);
             }
@@ -1147,18 +1179,19 @@ OpenFsDispatchCleanup(
         return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 
     vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
-    fcb = (POPENFS_FCB)fileObject->FsContext;
-    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        fcb == NULL || fcb->Signature != OPENFS_FCB_SIGNATURE)
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
         return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 
     if (ExAcquireRundownProtection(&vcb->RundownProtection)) {
         if (ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
-            /*
-             * IRP_MJ_CLEANUP is the point at which share reservations are
-             * released; the FCB remains referenced until IRP_MJ_CLOSE.
-             */
-            IoRemoveShareAccess(fileObject, &fcb->ShareAccess);
+            fcb = OpenFsFindFcbLocked(vcb, fileObject->FsContext);
+            if (fcb != NULL && fcb->Signature == OPENFS_FCB_SIGNATURE) {
+                /*
+                 * IRP_MJ_CLEANUP is the point at which share reservations
+                 * are released; the FCB remains referenced until CLOSE.
+                 */
+                IoRemoveShareAccess(fileObject, &fcb->ShareAccess);
+            }
             ExReleaseResourceLite(&vcb->Resource);
         }
         ExReleaseRundownProtection(&vcb->RundownProtection);
