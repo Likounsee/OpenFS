@@ -76,6 +76,7 @@ OpenFsCreateVolumeDevice(
     vcb->State = OpenFsVolumeInitializing;
     vcb->VolumeDeviceObject = volumeDeviceObject;
     vcb->RealDeviceObject = RealDeviceObject;
+    vcb->AttachedDeviceObject = NULL;
     vcb->Vpb = NULL;
     vcb->Namespace = NULL;
     vcb->RootDcb = NULL;
@@ -83,16 +84,28 @@ OpenFsCreateVolumeDevice(
     vcb->CachedFcbCount = 0;
     RtlCopyMemory(&vcb->Geometry, Geometry, sizeof(vcb->Geometry));
 
-    volumeDeviceObject->StackSize =
-        (CCHAR)(RealDeviceObject->StackSize + 1);
-    volumeDeviceObject->AlignmentRequirement =
-        RealDeviceObject->AlignmentRequirement;
     volumeDeviceObject->SectorSize = RealDeviceObject->SectorSize;
     volumeDeviceObject->Flags |= DO_BUFFERED_IO;
 
     /*
-     * Do not clear DO_DEVICE_INITIALIZING here. This object is still private:
-     * the VPB association and publication sequence belong to the mount path.
+     * A mounted filesystem VDO must participate in the real device stack.
+     * This also establishes the correct stack depth and alignment contract;
+     * manually copying StackSize would leave the attachment itself missing.
+     */
+    status = IoAttachDeviceToDeviceStackSafe(
+        volumeDeviceObject, RealDeviceObject,
+        &vcb->AttachedDeviceObject);
+    if (!NT_SUCCESS(status)) {
+        vcb->Signature = 0;
+        ExDeleteResourceLite(&vcb->Resource);
+        ObDereferenceObject(RealDeviceObject);
+        IoDeleteDevice(volumeDeviceObject);
+        return status;
+    }
+
+    /*
+     * Do not clear DO_DEVICE_INITIALIZING here. The VPB publication path
+     * makes the fully initialized VDO visible only after mount commit.
      */
     *VolumeDeviceObject = volumeDeviceObject;
     return STATUS_SUCCESS;
@@ -164,6 +177,10 @@ OpenFsDestroyVolumeDevice(
     vcb->CachedFcbCount = 0;
     OpenFsFreeNamespaceSnapshot(vcb->Namespace);
     vcb->Namespace = NULL;
+    if (vcb->AttachedDeviceObject != NULL) {
+        IoDetachDevice(vcb->AttachedDeviceObject);
+        vcb->AttachedDeviceObject = NULL;
+    }
     if (vcb->RealDeviceObject != NULL) {
         ObDereferenceObject(vcb->RealDeviceObject);
         vcb->RealDeviceObject = NULL;
