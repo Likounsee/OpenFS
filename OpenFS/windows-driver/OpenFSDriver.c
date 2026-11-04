@@ -711,51 +711,60 @@ OpenFsDispatchFileSystemControl(
         OPENFS_VOLUME_GEOMETRY geometry;
         POPENFS_NAMESPACE_SNAPSHOT namespaceSnapshot = NULL;
         PDEVICE_OBJECT privateVolumeDevice = NULL;
-        PDEVICE_OBJECT volumeDeviceObject;
+        PDEVICE_OBJECT realDeviceObject;
+        PVPB vpb = stack->Parameters.MountVolume.Vpb;
+        BOOLEAN vpbReserved = FALSE;
         NTSTATUS status;
 
-        volumeDeviceObject = stack->Parameters.MountVolume.DeviceObject;
-        if (volumeDeviceObject == NULL) {
+        realDeviceObject = stack->Parameters.MountVolume.DeviceObject;
+        if (realDeviceObject == NULL || vpb == NULL)
             return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
-        }
 
-        status = OpenFsProbeVolume(volumeDeviceObject, &geometry,
+        status = OpenFsProbeVolume(realDeviceObject, &geometry,
             &namespaceSnapshot);
-        if (NT_SUCCESS(status)) {
-            /* Keep the validated namespace in a private VCB. It is not published:
-             * root FCB/DCB and file dispatch are still absent. Roll back cleanly. */
-            status = OpenFsCreateVolumeDevice(DeviceObject->DriverObject,
-                volumeDeviceObject, &geometry, &privateVolumeDevice);
-            if (NT_SUCCESS(status)) {
-                if (namespaceSnapshot != NULL) {
-                    status = OpenFsSetVolumeNamespace(privateVolumeDevice,
-                        namespaceSnapshot);
-                    if (NT_SUCCESS(status)) namespaceSnapshot = NULL;
-                }
-                {
-                    NTSTATUS destroyStatus =
-                        OpenFsDestroyVolumeDevice(privateVolumeDevice);
-                    if (NT_SUCCESS(status) && !NT_SUCCESS(destroyStatus))
-                        status = destroyStatus;
-                }
-            }
-            if (namespaceSnapshot != NULL) {
-                OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
-                namespaceSnapshot = NULL;
-            }
-            if (!NT_SUCCESS(status))
-                return OpenFsCompleteIrp(Irp, status);
-            DbgPrintEx(
-                DPFLTR_IHVDRIVER_ID,
-                DPFLTR_INFO_LEVEL,
-                "OpenFS 1.0: valid volume detected (format revision %u, block size %lu, blocks %I64u); VCB/VPB mount is not implemented yet\n",
-                (ULONG)geometry.Version,
-                geometry.BlockSize,
-                geometry.TotalBlocks
-                );
-            return OpenFsCompleteIrp(Irp, STATUS_NOT_IMPLEMENTED);
-        }
+        if (!NT_SUCCESS(status))
+            return OpenFsCompleteIrp(Irp, status);
 
+        status = OpenFsCreateVolumeDevice(DeviceObject->DriverObject,
+            realDeviceObject, &geometry, &privateVolumeDevice);
+        if (!NT_SUCCESS(status))
+            goto MountRollback;
+
+        status = OpenFsSetVolumeNamespace(privateVolumeDevice,
+            namespaceSnapshot);
+        if (!NT_SUCCESS(status))
+            goto MountRollback;
+        namespaceSnapshot = NULL; /* Ownership transferred to the VCB. */
+
+        status = OpenFsReserveVolumeVpb(privateVolumeDevice, vpb);
+        if (!NT_SUCCESS(status))
+            goto MountRollback;
+        vpbReserved = TRUE;
+
+        status = OpenFsPublishVolumeVpb(privateVolumeDevice, vpb);
+        if (!NT_SUCCESS(status))
+            goto MountRollback;
+
+        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+            "OpenFS: mounted volume (revision %u, block size %lu, blocks %I64u)\\n",
+            (ULONG)geometry.Version, geometry.BlockSize, geometry.TotalBlocks);
+        return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
+
+MountRollback:
+        if (vpbReserved) {
+            NTSTATUS releaseStatus =
+                OpenFsReleaseVolumeVpb(privateVolumeDevice, vpb);
+            if (NT_SUCCESS(status) && !NT_SUCCESS(releaseStatus))
+                status = releaseStatus;
+        }
+        if (privateVolumeDevice != NULL) {
+            NTSTATUS destroyStatus =
+                OpenFsDestroyVolumeDevice(privateVolumeDevice);
+            if (NT_SUCCESS(status) && !NT_SUCCESS(destroyStatus))
+                status = destroyStatus;
+        }
+        if (namespaceSnapshot != NULL)
+            OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
         return OpenFsCompleteIrp(Irp, status);
     }
 
