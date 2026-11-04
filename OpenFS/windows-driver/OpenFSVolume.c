@@ -1142,11 +1142,22 @@ OpenFsReadFcbData(
             ULONG batchBlocks = vcb->Geometry.BlockSize <= MAXULONG / 16u
                 ? 16u : 1u;
             ULONGLONG blocksNeeded =
-                (remaining + blockOffset + vcb->Geometry.BlockSize - 1u) /
-                vcb->Geometry.BlockSize;
+                remaining / vcb->Geometry.BlockSize;
+            ULONGLONG trailingBytes =
+                remaining % vcb->Geometry.BlockSize;
             ULONG runBlocks = 1u;
             ULONG copyLength;
 
+            /*
+             * Compute ceil((remaining + blockOffset) / blockSize) without
+             * adding the potentially near-MAXULONGLONG remaining length.
+             */
+            if (trailingBytes + blockOffset != 0)
+                ++blocksNeeded;
+            if (blocksNeeded == 0) {
+                status = STATUS_INTEGER_OVERFLOW;
+                goto Exit;
+            }
             if (blocksNeeded < batchBlocks)
                 batchBlocks = (ULONG)blocksNeeded;
 
