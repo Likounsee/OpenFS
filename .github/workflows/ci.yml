@@ -138,7 +138,7 @@ jobs:
       - name: Restore WDK packages and compile/link driver
         shell: pwsh
         run: |
-          msbuild .\\OpenFS\\windows-driver\\OpenFSDriver.vcxproj /m /restore /t:Build /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
+          msbuild .\\OpenFS\\windows-driver\\OpenFSDriver.vcxproj /m /restore "/t:ClCompile;Link" /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off
       - name: Build unsigned driver package and catalog
         shell: pwsh
         run: |
