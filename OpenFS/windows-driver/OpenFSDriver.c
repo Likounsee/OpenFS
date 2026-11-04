@@ -965,6 +965,10 @@ OpenFsDispatchFileSystemControl(
             }
             totalDataBlocks =
                 layout.BackupSuperblockBlock - layout.DataStartBlock;
+            if (totalDataBlocks > MAXLONGLONG) {
+                status = STATUS_INTEGER_OVERFLOW;
+                goto BitmapExit;
+            }
             if (startingLcn >= totalDataBlocks) {
                 status = STATUS_INVALID_PARAMETER;
                 goto BitmapExit;
