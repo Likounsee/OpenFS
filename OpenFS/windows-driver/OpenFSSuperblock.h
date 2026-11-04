@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdlib.h>
 
 typedef uint8_t UCHAR;
 typedef uint16_t USHORT;
@@ -14,6 +15,7 @@ typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
 typedef int32_t LONG;
 typedef int BOOLEAN;
+typedef void VOID;
 typedef void VOID;
 
 #define TRUE 1
@@ -26,6 +28,8 @@ typedef void VOID;
 #define _Out_
 #define _In_reads_bytes_(Length)
 #define _Out_writes_bytes_(Length)
+#define _Outptr_
+#define _In_opt_
 #define _Outptr_
 #define _In_opt_
 

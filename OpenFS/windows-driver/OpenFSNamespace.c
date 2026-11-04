@@ -570,3 +570,60 @@ OpenFsFreeNamespaceSnapshot(_In_opt_ POPENFS_NAMESPACE_SNAPSHOT Snapshot)
     OpenFsNamespaceFree(Snapshot->Entries);
     OpenFsNamespaceFree(Snapshot);
 }
+
+NTSTATUS
+OpenFsLookupNamespaceChild(
+    _In_ const OPENFS_NAMESPACE_SNAPSHOT* Snapshot,
+    _In_ ULONGLONG ParentIdLow,
+    _In_ ULONGLONG ParentIdHigh,
+    _In_reads_bytes_(NameLength) const UCHAR* Name,
+    _In_ UCHAR NameLength,
+    _Out_ PULONG RecordIndex
+    )
+{
+    ULONG index;
+    BOOLEAN parentIsDirectory = FALSE;
+
+    if (Snapshot == NULL || RecordIndex == NULL || Name == NULL ||
+        NameLength == 0 || NameLength > OPENFS_DIRECTORY_NAME_MAX_BYTES ||
+        (ParentIdLow == 0 && ParentIdHigh == 0))
+        return STATUS_INVALID_PARAMETER;
+    *RecordIndex = MAXULONG;
+
+    for (index = 0; index < Snapshot->RecordCount; ++index) {
+        const OPENFS_METADATA_RECORD* record = &Snapshot->Records[index];
+        if (record->ObjectIdLow == ParentIdLow &&
+            record->ObjectIdHigh == ParentIdHigh) {
+            parentIsDirectory = (record->Kind == 2u);
+            break;
+        }
+    }
+    if (!parentIsDirectory &&
+        !(Snapshot->RecordCount == 0 &&
+          ParentIdLow == Snapshot->RootIdLow &&
+          ParentIdHigh == Snapshot->RootIdHigh))
+        return STATUS_NOT_FOUND;
+
+    for (index = 0; index < Snapshot->EntryCount; ++index) {
+        const OPENFS_DIRECTORY_ENTRY* entry = &Snapshot->Entries[index];
+        if (entry->ParentIdLow != ParentIdLow ||
+            entry->ParentIdHigh != ParentIdHigh ||
+            entry->NameLength != NameLength)
+            continue;
+        if (RtlCompareMemory(entry->Name, Name, NameLength) == NameLength) {
+            ULONG recordIndex;
+            for (recordIndex = 0; recordIndex < Snapshot->RecordCount;
+                 ++recordIndex) {
+                const OPENFS_METADATA_RECORD* record =
+                    &Snapshot->Records[recordIndex];
+                if (record->ObjectIdLow == entry->ObjectIdLow &&
+                    record->ObjectIdHigh == entry->ObjectIdHigh) {
+                    *RecordIndex = recordIndex;
+                    return STATUS_SUCCESS;
+                }
+            }
+            return STATUS_DISK_CORRUPT_ERROR;
+        }
+    }
+    return STATUS_NOT_FOUND;
+}

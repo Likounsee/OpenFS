@@ -246,6 +246,19 @@ main(void)
             Check(OpenFsCreateNamespaceSnapshot(NULL, 0, NULL, 0,
                 0, 0, &snapshot) == STATUS_INVALID_PARAMETER,
                 "snapshot rejects a zero root identifier");
+            {
+                ULONG foundIndex = MAXULONG;
+                Check(OpenFsLookupNamespaceChild(snapshot, 1, 0,
+                    (const UCHAR*)"file.txt", 8, &foundIndex) == STATUS_SUCCESS &&
+                    foundIndex == 1,
+                    "namespace lookup resolves a root child");
+                Check(OpenFsLookupNamespaceChild(snapshot, 1, 0,
+                    (const UCHAR*)"File.txt", 8, &foundIndex) == STATUS_NOT_FOUND,
+                    "namespace lookup preserves case-sensitive names");
+                Check(OpenFsLookupNamespaceChild(snapshot, 42, 0,
+                    (const UCHAR*)"missing", 7, &foundIndex) == STATUS_NOT_FOUND,
+                    "namespace lookup refuses a non-directory parent");
+            }
         }
 
         memcpy(entries[1].Name, "File.txt", 8);
