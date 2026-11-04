@@ -110,6 +110,22 @@ OpenFsValidateBitmapBlock(
  * and this bitmap page. RangeEnd is exclusive. Requiring the complete range
  * to fit in the page prevents silently under-counting across bitmap pages.
  */
+static ULONG
+OpenFsBitmapPopCountByte(
+    _In_ UCHAR Value
+    )
+{
+    ULONG value = Value;
+    value = value - ((value >> 1) & 0x55u);
+    value = (value & 0x33u) + ((value >> 2) & 0x33u);
+    return (value + (value >> 4)) & 0x0fu;
+}
+
+/*
+ * Count clear allocation bits in the intersection of one bitmap page and a
+ * requested block range. Work byte-wise so large volumes do not require one
+ * loop iteration per filesystem block.
+ */
 NTSTATUS
 OpenFsCountFreeBlocksInRange(
     _In_reads_bytes_(BitmapBytes) const UCHAR* Bitmap,
@@ -122,7 +138,9 @@ OpenFsCountFreeBlocksInRange(
 {
     ULONGLONG bitmapBits;
     ULONGLONG bitmapEnd;
-    ULONGLONG block;
+    ULONGLONG firstByte;
+    ULONGLONG endByte;
+    ULONGLONG byteIndex;
     ULONGLONG freeCount = 0;
 
     if (Bitmap == NULL || BitmapBytes == 0 || FreeBlocks == NULL ||
@@ -140,13 +158,28 @@ OpenFsCountFreeBlocksInRange(
         return STATUS_INVALID_PARAMETER;
     }
 
-    for (block = RangeStart; block < RangeEnd; ++block) {
-        ULONGLONG local = block - BitmapBaseBlock;
-        if (!OpenFsBitmapBlockIsAllocated(Bitmap, BitmapBytes, local)) {
-            if (freeCount == MAXULONGLONG)
-                return STATUS_INTEGER_OVERFLOW;
-            ++freeCount;
-        }
+    firstByte = (RangeStart - BitmapBaseBlock) / 8u;
+    endByte = (RangeEnd - BitmapBaseBlock) / 8u;
+    if (((RangeEnd - BitmapBaseBlock) % 8u) != 0)
+        ++endByte;
+
+    for (byteIndex = firstByte; byteIndex < endByte; ++byteIndex) {
+        ULONG firstBit = byteIndex == firstByte
+            ? (ULONG)((RangeStart - BitmapBaseBlock) % 8u) : 0u;
+        ULONG endBit = (byteIndex + 1u == endByte &&
+            ((RangeEnd - BitmapBaseBlock) % 8u) != 0)
+            ? (ULONG)((RangeEnd - BitmapBaseBlock) % 8u) : 8u;
+        UCHAR mask = (UCHAR)(0xffu << firstBit);
+        ULONG bitsInRange;
+        ULONG allocatedBits;
+
+        if (endBit != 8u)
+            mask &= (UCHAR)((1u << endBit) - 1u);
+
+        bitsInRange = OpenFsBitmapPopCountByte(mask);
+        allocatedBits = OpenFsBitmapPopCountByte(
+            (UCHAR)(Bitmap[(SIZE_T)byteIndex] & mask));
+        freeCount += bitsInRange - allocatedBits;
     }
 
     *FreeBlocks = freeCount;
