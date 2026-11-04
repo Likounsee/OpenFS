@@ -959,3 +959,134 @@ Exit:
     return status;
 }
 
+
+
+/*
+ * Copy an arbitrary byte range from a regular file. Extent lookup is performed
+ * against the immutable FCB cache; unallocated logical blocks are zero-filled.
+ * The shared VCB resource and rundown reference keep the FCB and extent array
+ * alive for the complete synchronous transfer.
+ */
+NTSTATUS
+OpenFsReadFcbData(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _Out_writes_bytes_(Length) UCHAR* Buffer,
+    _In_ ULONG Length,
+    _Out_ PULONG BytesRead
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    BOOLEAN owned = FALSE;
+    PUCHAR blockBuffer = NULL;
+    ULONGLONG remaining;
+    ULONGLONG currentOffset;
+    ULONG copied = 0;
+    NTSTATUS status;
+
+    if (BytesRead == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *BytesRead = 0;
+    if (VolumeDeviceObject == NULL || FileFcb == NULL ||
+        (Buffer == NULL && Length != 0) ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+    if (Length == 0)
+        return STATUS_SUCCESS;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == FileFcb) {
+            owned = TRUE;
+            break;
+        }
+    }
+    if (!owned || FileFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_PARAMETER;
+        goto Exit;
+    }
+    if (FileFcb->Kind != 1u || FileFcb->IsRoot) {
+        status = STATUS_FILE_IS_A_DIRECTORY;
+        goto Exit;
+    }
+    if (!FileFcb->ExtentsLoaded) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto Exit;
+    }
+    if (ByteOffset >= FileFcb->FileSize) {
+        status = STATUS_END_OF_FILE;
+        goto Exit;
+    }
+
+    remaining = FileFcb->FileSize - ByteOffset;
+    if (remaining > Length)
+        remaining = Length;
+    currentOffset = ByteOffset;
+
+    blockBuffer = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, vcb->Geometry.BlockSize, OPENFS_FCB_POOL_TAG);
+    if (blockBuffer == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Exit;
+    }
+
+    while (remaining != 0) {
+        ULONGLONG logicalBlock = currentOffset / vcb->Geometry.BlockSize;
+        ULONG blockOffset = (ULONG)(currentOffset % vcb->Geometry.BlockSize);
+        ULONG chunk = vcb->Geometry.BlockSize - blockOffset;
+        ULONGLONG physicalBlock = 0;
+        BOOLEAN allocated = FALSE;
+
+        if ((ULONGLONG)chunk > remaining)
+            chunk = (ULONG)remaining;
+
+        status = OpenFsMapLogicalBlock(FileFcb->Extents,
+            FileFcb->ExtentCount, logicalBlock, &physicalBlock, &allocated);
+        if (!NT_SUCCESS(status))
+            goto Exit;
+
+        if (allocated) {
+            status = OpenFsReadVolumeBlocks(vcb->RealDeviceObject,
+                vcb->Geometry.BlockSize, vcb->Geometry.TotalBlocks,
+                physicalBlock, 1, blockBuffer, vcb->Geometry.BlockSize);
+            if (!NT_SUCCESS(status))
+                goto Exit;
+            RtlCopyMemory(Buffer + copied, blockBuffer + blockOffset, chunk);
+        } else {
+            RtlZeroMemory(Buffer + copied, chunk);
+        }
+
+        copied += chunk;
+        currentOffset += chunk;
+        remaining -= chunk;
+    }
+
+    *BytesRead = copied;
+    status = STATUS_SUCCESS;
+
+Exit:
+    if (blockBuffer != NULL)
+        ExFreePoolWithTag(blockBuffer, OPENFS_FCB_POOL_TAG);
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
