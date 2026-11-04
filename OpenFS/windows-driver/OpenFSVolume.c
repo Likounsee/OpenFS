@@ -484,6 +484,12 @@ OpenFsSetVolumeNamespace(
         status = STATUS_INVALID_DEVICE_STATE;
     } else if (vcb->Namespace != NULL || vcb->RootDcb != NULL) {
         status = STATUS_DEVICE_BUSY;
+    } else if (NamespaceSnapshot->Records == NULL ||
+        NamespaceSnapshot->RootRecordIndex >= NamespaceSnapshot->RecordCount ||
+        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].Kind != 2u ||
+        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdLow != NamespaceSnapshot->RootIdLow ||
+        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdHigh != NamespaceSnapshot->RootIdHigh) {
+        status = STATUS_DISK_CORRUPT_ERROR;
     } else {
         POPENFS_DCB rootDcb = (POPENFS_DCB)ExAllocatePool2(
             POOL_FLAG_NON_PAGED, sizeof(*rootDcb), OPENFS_FCB_POOL_TAG);
@@ -547,6 +553,7 @@ OpenFsLookupChildFcb(
     POPENFS_VCB vcb;
     PLIST_ENTRY link;
     ULONG recordIndex = MAXULONG;
+    ULONG index;
     const OPENFS_METADATA_RECORD* record;
     POPENFS_FCB cached = NULL;
     POPENFS_FCB allocated = NULL;
@@ -575,7 +582,8 @@ OpenFsLookupChildFcb(
 
     status = STATUS_INVALID_DEVICE_STATE;
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        vcb->State != OpenFsVolumeInitializing ||
+        (vcb->State != OpenFsVolumeInitializing &&
+         vcb->State != OpenFsVolumeMounted) ||
         vcb->Namespace == NULL || IsListEmpty(&vcb->FcbList))
         goto Exit;
 
@@ -626,7 +634,7 @@ OpenFsLookupChildFcb(
         }
         RtlZeroMemory(dcb, sizeof(*dcb));
         allocated = &dcb->Fcb;
-        for (ULONG index = 0; index < vcb->Namespace->EntryCount; ++index) {
+        for (index = 0; index < vcb->Namespace->EntryCount; ++index) {
             const OPENFS_DIRECTORY_ENTRY* entry =
                 &vcb->Namespace->Entries[index];
             if (entry->ParentIdLow == record->ObjectIdLow &&
@@ -648,7 +656,7 @@ OpenFsLookupChildFcb(
 
     allocated->Signature = OPENFS_FCB_SIGNATURE;
     allocated->NodeType = record->Kind == 2u
-        ? OPENFS_DCB_NODE_TYPE : OPENFS_FCB_SIGNATURE;
+        ? OPENFS_DCB_NODE_TYPE : OPENFS_FCB_NODE_TYPE;
     allocated->ObjectIdLow = record->ObjectIdLow;
     allocated->ObjectIdHigh = record->ObjectIdHigh;
     allocated->ParentIdLow = record->ParentIdLow;
