@@ -45,3 +45,13 @@ OpenFsVolumeStateCanLock(
     int VpbMounted,
     int RemovePending
     );
+
+/* Pure precondition check for a safe dismount request. */
+int
+OpenFsVolumeStateCanDismount(
+    OPENFS_VOLUME_STATE State,
+    unsigned long long TotalOpenHandles,
+    int CallerOwnsVolumeLock,
+    int VpbMounted,
+    int RemovePending
+    );
