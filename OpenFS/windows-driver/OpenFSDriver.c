@@ -137,8 +137,13 @@ OpenFsDispatchRead(
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
 
     offset = stack->Parameters.Read.ByteOffset;
-    if (offset.QuadPart < 0)
+    if (offset.QuadPart == FILE_USE_FILE_POINTER_POSITION) {
+        if ((fileObject->Flags & FO_SYNCHRONOUS_IO) == 0)
+            return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+        offset = fileObject->CurrentByteOffset;
+    } else if (offset.QuadPart < 0) {
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+    }
     if (stack->Parameters.Read.Length != 0 &&
         Irp->AssociatedIrp.SystemBuffer == NULL)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_USER_BUFFER);
@@ -149,6 +154,16 @@ OpenFsDispatchRead(
         stack->Parameters.Read.Length, &bytesRead);
     if (status == STATUS_END_OF_FILE)
         status = STATUS_SUCCESS;
+
+    if (NT_SUCCESS(status) && (fileObject->Flags & FO_SYNCHRONOUS_IO) != 0) {
+        if (bytesRead > (ULONGLONG)(MAXLONGLONG - offset.QuadPart)) {
+            status = STATUS_INTEGER_OVERFLOW;
+            bytesRead = 0;
+        } else {
+            fileObject->CurrentByteOffset.QuadPart =
+                offset.QuadPart + bytesRead;
+        }
+    }
 
     Irp->IoStatus.Status = status;
     Irp->IoStatus.Information = NT_SUCCESS(status) ? bytesRead : 0;
