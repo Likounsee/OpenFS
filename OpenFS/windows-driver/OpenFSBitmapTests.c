@@ -130,6 +130,30 @@ main(void)
             MAXULONGLONG, &freeBlocks) == STATUS_INTEGER_OVERFLOW);
     }
 
+
+    /* Byte-wise popcount must preserve partial first/last-byte boundaries. */
+    SetAllAllocated(bitmap, sizeof(bitmap));
+    {
+        ULONGLONG freeBlocks = 0;
+        for (ULONGLONG block = 7u; block < 18u; ++block)
+            SetBit(bitmap, block, FALSE);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 5u, 21u, &freeBlocks) == STATUS_SUCCESS);
+        CHECK(freeBlocks == 11u);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 8u, 16u, &freeBlocks) == STATUS_SUCCESS);
+        CHECK(freeBlocks == 8u);
+    }
+
+    /* A completely free bitmap page is counted without per-block iteration. */
+    memset(bitmap, 0, sizeof(bitmap));
+    {
+        ULONGLONG freeBlocks = 0;
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 0u, 32768u, &freeBlocks) == STATUS_SUCCESS);
+        CHECK(freeBlocks == 32768u);
+    }
+
     puts("OpenFS bitmap validation tests passed.");
     printf("%u checks passed.\n", g_tests);
     return 0;
