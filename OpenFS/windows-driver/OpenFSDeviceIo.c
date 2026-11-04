@@ -405,6 +405,104 @@ OpenFsCountFreeDataBlocks(
     return status;
 }
 
+
+/*
+ * Copy a range of data-allocation bits into the Windows volume-bitmap layout.
+ * StartingLcn is relative to DataStartBlock; output bit zero represents it.
+ */
+NTSTATUS
+OpenFsReadDataBitmap(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ ULONGLONG DataStartBlock,
+    _In_ ULONGLONG DataBlockCount,
+    _In_ ULONGLONG StartingLcn,
+    _Out_writes_bytes_(BitmapBytes) UCHAR* Bitmap,
+    _In_ SIZE_T BitmapBytes,
+    _Out_ PULONGLONG BitsRead
+    )
+{
+    ULONGLONG capacityBits;
+    ULONGLONG bitsToRead;
+    ULONGLONG firstPhysicalBlock;
+    ULONGLONG currentPhysicalBlock;
+    ULONGLONG bitsPerPage;
+    ULONGLONG copied = 0;
+    SIZE_T bitmapPageBytes;
+    PUCHAR bitmapPage;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (DeviceObject == NULL || Geometry == NULL || Bitmap == NULL ||
+        BitmapBytes == 0 || BitsRead == NULL || Geometry->BlockSize == 0 ||
+        (ULONGLONG)BitmapBytes > MAXULONGLONG / 8u ||
+        DataStartBlock > Geometry->TotalBlocks ||
+        DataBlockCount > Geometry->TotalBlocks - DataStartBlock ||
+        StartingLcn >= DataBlockCount)
+        return STATUS_INVALID_PARAMETER;
+
+    *BitsRead = 0;
+    capacityBits = (ULONGLONG)BitmapBytes * 8u;
+    bitsToRead = DataBlockCount - StartingLcn;
+    if (bitsToRead > capacityBits) bitsToRead = capacityBits;
+    if (DataStartBlock > MAXULONGLONG - StartingLcn)
+        return STATUS_INTEGER_OVERFLOW;
+    firstPhysicalBlock = DataStartBlock + StartingLcn;
+    currentPhysicalBlock = firstPhysicalBlock;
+    bitsPerPage = (ULONGLONG)Geometry->BlockSize * 8u;
+    if (bitsPerPage == 0) return STATUS_INTEGER_OVERFLOW;
+
+    bitmapPageBytes = Geometry->BlockSize;
+    bitmapPage = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, bitmapPageBytes, OPENFS_DEVICE_IO_TAG);
+    if (bitmapPage == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+
+    RtlZeroMemory(Bitmap, BitmapBytes);
+    while (copied < bitsToRead) {
+        ULONGLONG pageIndex = currentPhysicalBlock / bitsPerPage;
+        ULONGLONG pageBase;
+        ULONGLONG pageOffset;
+        ULONGLONG chunk;
+        ULONGLONG index;
+        ULONGLONG bitmapBlock;
+
+        if (pageIndex > MAXULONGLONG / bitsPerPage ||
+            pageIndex == MAXULONGLONG) {
+            status = STATUS_INTEGER_OVERFLOW;
+            break;
+        }
+        pageBase = pageIndex * bitsPerPage;
+        pageOffset = currentPhysicalBlock - pageBase;
+        chunk = bitsPerPage - pageOffset;
+        if (chunk > bitsToRead - copied)
+            chunk = bitsToRead - copied;
+
+        /* Bitmap page zero is stored at filesystem block one. */
+        bitmapBlock = pageIndex + 1u;
+        status = OpenFsReadVolumeBlocks(DeviceObject, Geometry->BlockSize,
+            Geometry->TotalBlocks, bitmapBlock, 1u,
+            bitmapPage, bitmapPageBytes);
+        if (!NT_SUCCESS(status)) break;
+
+        for (index = 0; index < chunk; ++index) {
+            ULONGLONG sourceBit = pageOffset + index;
+            ULONGLONG destinationBit = copied + index;
+            if ((bitmapPage[(SIZE_T)(sourceBit / 8u)] &
+                    (UCHAR)(1u << (sourceBit % 8u))) != 0) {
+                Bitmap[(SIZE_T)(destinationBit / 8u)] |=
+                    (UCHAR)(1u << (destinationBit % 8u));
+            }
+        }
+
+        copied += chunk;
+        currentPhysicalBlock += chunk;
+    }
+
+    ExFreePoolWithTag(bitmapPage, OPENFS_DEVICE_IO_TAG);
+    if (NT_SUCCESS(status)) *BitsRead = copied;
+    return status;
+}
+
+
 static NTSTATUS
 OpenFsReadPackedInventory(
     _In_ PDEVICE_OBJECT DeviceObject,
