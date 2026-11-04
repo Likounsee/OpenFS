@@ -495,3 +495,78 @@ Exit:
     OpenFsNamespaceFree(stack);
     return status;
 }
+
+#define OPENFS_SNAPSHOT_POOL_TAG 'sFsO'
+
+NTSTATUS
+OpenFsCreateNamespaceSnapshot(
+    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(EntryCount) const OPENFS_DIRECTORY_ENTRY* Entries,
+    _In_ ULONG EntryCount,
+    _In_ ULONGLONG RootIdLow,
+    _In_ ULONGLONG RootIdHigh,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* Snapshot
+    )
+{
+    POPENFS_NAMESPACE_SNAPSHOT snapshot;
+    ULONG index;
+    SIZE_T recordsBytes, entriesBytes;
+
+    if (Snapshot == NULL || (RecordCount != 0 && Records == NULL) ||
+        (EntryCount != 0 && Entries == NULL) ||
+        (RootIdLow == 0 && RootIdHigh == 0))
+        return STATUS_INVALID_PARAMETER;
+    *Snapshot = NULL;
+    if ((SIZE_T)RecordCount > ((SIZE_T)-1) / sizeof(*Records) ||
+        (SIZE_T)EntryCount > ((SIZE_T)-1) / sizeof(*Entries))
+        return STATUS_INTEGER_OVERFLOW;
+
+    recordsBytes = (SIZE_T)RecordCount * sizeof(*Records);
+    entriesBytes = (SIZE_T)EntryCount * sizeof(*Entries);
+    snapshot = (POPENFS_NAMESPACE_SNAPSHOT)OpenFsNamespaceAllocate(sizeof(*snapshot));
+    if (snapshot == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+    RtlZeroMemory(snapshot, sizeof(*snapshot));
+    snapshot->RootRecordIndex = MAXULONG;
+    if (recordsBytes != 0) {
+        snapshot->Records = (POPENFS_METADATA_RECORD*)OpenFsNamespaceAllocate(recordsBytes);
+        if (snapshot->Records == NULL) goto NoMemory;
+        RtlCopyMemory(snapshot->Records, Records, recordsBytes);
+    }
+    if (entriesBytes != 0) {
+        snapshot->Entries = (POPENFS_DIRECTORY_ENTRY*)OpenFsNamespaceAllocate(entriesBytes);
+        if (snapshot->Entries == NULL) goto NoMemory;
+        RtlCopyMemory(snapshot->Entries, Entries, entriesBytes);
+    }
+    for (index = 0; index < RecordCount; ++index) {
+        if (Records[index].ObjectIdLow == RootIdLow &&
+            Records[index].ObjectIdHigh == RootIdHigh) {
+            snapshot->RootRecordIndex = index;
+            break;
+        }
+    }
+    if (RecordCount != 0 && snapshot->RootRecordIndex == MAXULONG)
+        goto InvalidRoot;
+    snapshot->RecordCount = RecordCount;
+    snapshot->EntryCount = EntryCount;
+    snapshot->RootIdLow = RootIdLow;
+    snapshot->RootIdHigh = RootIdHigh;
+    *Snapshot = snapshot;
+    return STATUS_SUCCESS;
+
+InvalidRoot:
+    OpenFsFreeNamespaceSnapshot(snapshot);
+    return STATUS_DISK_CORRUPT_ERROR;
+NoMemory:
+    OpenFsFreeNamespaceSnapshot(snapshot);
+    return STATUS_INSUFFICIENT_RESOURCES;
+}
+
+VOID
+OpenFsFreeNamespaceSnapshot(_In_opt_ POPENFS_NAMESPACE_SNAPSHOT Snapshot)
+{
+    if (Snapshot == NULL) return;
+    OpenFsNamespaceFree(Snapshot->Records);
+    OpenFsNamespaceFree(Snapshot->Entries);
+    OpenFsNamespaceFree(Snapshot);
+}

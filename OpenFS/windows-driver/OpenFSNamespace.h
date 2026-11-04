@@ -57,3 +57,30 @@ OpenFsValidateNamespaceRecords(
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock
     );
+
+/* Immutable decoded namespace owned by a mounted-volume context. */
+typedef struct _OPENFS_NAMESPACE_SNAPSHOT {
+    ULONG RecordCount;
+    ULONG EntryCount;
+    ULONG RootRecordIndex;
+    ULONGLONG RootIdLow;
+    ULONGLONG RootIdHigh;
+    POPENFS_METADATA_RECORD Records;
+    POPENFS_DIRECTORY_ENTRY Entries;
+} OPENFS_NAMESPACE_SNAPSHOT, *POPENFS_NAMESPACE_SNAPSHOT;
+
+NTSTATUS
+OpenFsCreateNamespaceSnapshot(
+    _In_reads_(RecordCount) const OPENFS_METADATA_RECORD* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(EntryCount) const OPENFS_DIRECTORY_ENTRY* Entries,
+    _In_ ULONG EntryCount,
+    _In_ ULONGLONG RootIdLow,
+    _In_ ULONGLONG RootIdHigh,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* Snapshot
+    );
+
+VOID
+OpenFsFreeNamespaceSnapshot(
+    _In_opt_ POPENFS_NAMESPACE_SNAPSHOT Snapshot
+    );

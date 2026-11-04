@@ -11,5 +11,6 @@
 NTSTATUS
 OpenFsProbeVolume(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
-    _Out_ POPENFS_VOLUME_GEOMETRY Geometry
+    _Out_ POPENFS_VOLUME_GEOMETRY Geometry,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     );

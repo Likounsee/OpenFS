@@ -332,7 +332,8 @@ OpenFsValidateDiscoveredNamespace(
     _In_ ULONGLONG DeviceLength,
     _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
     _In_ const OPENFS_VOLUME_LAYOUT* Layout,
-    _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor
+    _In_ const OPENFS_INVENTORY_DESCRIPTOR* Descriptor,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     )
 {
     SIZE_T metadataBytes, directoryBytes, recordsBytes, entriesBytes;
@@ -342,10 +343,14 @@ OpenFsValidateDiscoveredNamespace(
     ULONG index, other;
     NTSTATUS status = STATUS_SUCCESS;
 
+    if (NamespaceSnapshot == NULL) return STATUS_INVALID_PARAMETER;
+    *NamespaceSnapshot = NULL;
+
     /* An empty descriptor is valid before the first namespace publication. */
     if (Descriptor->MetadataRecordCount == 0 &&
         Descriptor->DirectoryEntryCount == 0) {
-        return STATUS_SUCCESS;
+        return OpenFsCreateNamespaceSnapshot(NULL, 0, NULL, 0,
+            Descriptor->RootIdLow, Descriptor->RootIdHigh, NamespaceSnapshot);
     }
     if (Descriptor->MetadataRecordCount == 0 ||
         Descriptor->MetadataRecordCount > MAXULONG / sizeof(OPENFS_METADATA_RECORD) ||
@@ -470,6 +475,11 @@ OpenFsValidateDiscoveredNamespace(
         if (!NT_SUCCESS(status)) goto Exit;
     }
 
+    status = OpenFsCreateNamespaceSnapshot(records,
+        Descriptor->MetadataRecordCount, entries,
+        Descriptor->DirectoryEntryCount, Descriptor->RootIdLow,
+        Descriptor->RootIdHigh, NamespaceSnapshot);
+
 Exit:
     if (metadataRaw != NULL) ExFreePoolWithTag(metadataRaw, OPENFS_DEVICE_IO_TAG);
     if (directoryRaw != NULL) ExFreePoolWithTag(directoryRaw, OPENFS_DEVICE_IO_TAG);
@@ -510,7 +520,8 @@ OpenFsInspectInventoryCandidate(
     _In_ const OPENFS_VOLUME_LAYOUT* Layout,
     _In_ ULONGLONG Block,
     _In_reads_bytes_(BlockSize) const UCHAR* Candidate,
-    _Inout_ ULONGLONG* DiscoveredBlock
+    _Inout_ ULONGLONG* DiscoveredBlock,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     )
 {
     ULONGLONG bitsPerBitmapBlock =
@@ -597,7 +608,8 @@ OpenFsInspectInventoryCandidate(
         }
 
         status = OpenFsValidateDiscoveredNamespace(
-            DeviceObject, DeviceLength, Geometry, Layout, &descriptor);
+            DeviceObject, DeviceLength, Geometry, Layout, &descriptor,
+            NamespaceSnapshot);
     }
 
 CandidateExit:
@@ -621,7 +633,8 @@ OpenFsFlushInventoryScanBatch(
     _In_ ULONG BlockCount,
     _Out_writes_bytes_(BatchBytes) UCHAR* Batch,
     _In_ ULONG BatchBytes,
-    _Inout_ ULONGLONG* DiscoveredBlock
+    _Inout_ ULONGLONG* DiscoveredBlock,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     )
 {
     ULONG expectedBytes;
@@ -665,7 +678,8 @@ static NTSTATUS
 OpenFsDiscoverInventoryDescriptor(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
-    _In_ ULONGLONG DeviceLength
+    _In_ ULONGLONG DeviceLength,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     )
 {
     OPENFS_VOLUME_LAYOUT layout;
@@ -687,6 +701,9 @@ OpenFsDiscoverInventoryDescriptor(
     firstBitmap = layout.DataStartBlock / bitsPerBitmapBlock;
     if (layout.BackupSuperblockBlock == 0) return STATUS_DISK_CORRUPT_ERROR;
     lastBitmap = (layout.BackupSuperblockBlock - 1u) / bitsPerBitmapBlock;
+
+    if (NamespaceSnapshot == NULL) return STATUS_INVALID_PARAMETER;
+    *NamespaceSnapshot = NULL;
 
     if (Geometry->BlockSize > MAXULONG / 64u)
         return STATUS_INTEGER_OVERFLOW;
@@ -735,7 +752,7 @@ OpenFsDiscoverInventoryDescriptor(
                 status = OpenFsFlushInventoryScanBatch(
                     DeviceObject, Geometry, DeviceLength, &layout,
                     pendingBlocks, pendingCount, batch, batchBytes,
-                    &discoveredBlock);
+                    &discoveredBlock, NamespaceSnapshot);
                 if (!NT_SUCCESS(status)) goto Exit;
                 pendingCount = 0;
             }
@@ -754,7 +771,7 @@ OpenFsDiscoverInventoryDescriptor(
         status = OpenFsFlushInventoryScanBatch(
             DeviceObject, Geometry, DeviceLength, &layout,
             pendingBlocks, pendingCount, batch, batchBytes,
-            &discoveredBlock);
+            &discoveredBlock, NamespaceSnapshot);
     }
 
 Exit:
@@ -766,7 +783,8 @@ Exit:
 NTSTATUS
 OpenFsProbeVolume(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
-    _Out_ POPENFS_VOLUME_GEOMETRY Geometry
+    _Out_ POPENFS_VOLUME_GEOMETRY Geometry,
+    _Outptr_ POPENFS_NAMESPACE_SNAPSHOT* NamespaceSnapshot
     )
 {
     PDEVICE_OBJECT targetDeviceObject;
@@ -781,10 +799,11 @@ OpenFsProbeVolume(
     USHORT headerSize;
     NTSTATUS status;
 
-    if (VolumeDeviceObject == NULL || Geometry == NULL) {
+    if (VolumeDeviceObject == NULL || Geometry == NULL || NamespaceSnapshot == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
     RtlZeroMemory(Geometry, sizeof(*Geometry));
+    *NamespaceSnapshot = NULL;
 
     targetDeviceObject = IoGetAttachedDeviceReference(VolumeDeviceObject);
     if (targetDeviceObject == NULL) {
@@ -860,11 +879,16 @@ OpenFsProbeVolume(
         status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry, deviceLength);
     }
     if (NT_SUCCESS(status)) {
-        status = OpenFsDiscoverInventoryDescriptor(targetDeviceObject, Geometry, deviceLength);
+        status = OpenFsDiscoverInventoryDescriptor(targetDeviceObject, Geometry,
+            deviceLength, NamespaceSnapshot);
     }
 
 Exit:
     ExFreePoolWithTag(records, OPENFS_PROBE_BUFFER_TAG);
+    if (!NT_SUCCESS(status) && *NamespaceSnapshot != NULL) {
+        OpenFsFreeNamespaceSnapshot(*NamespaceSnapshot);
+        *NamespaceSnapshot = NULL;
+    }
     ObDereferenceObject(targetDeviceObject);
     return status;
 }

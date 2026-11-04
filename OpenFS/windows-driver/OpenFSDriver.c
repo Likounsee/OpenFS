@@ -77,6 +77,7 @@ OpenFsDispatchFileSystemControl(
     case IRP_MN_MOUNT_VOLUME:
     {
         OPENFS_VOLUME_GEOMETRY geometry;
+        POPENFS_NAMESPACE_SNAPSHOT namespaceSnapshot = NULL;
         PDEVICE_OBJECT volumeDeviceObject;
         NTSTATUS status;
 
@@ -85,8 +86,14 @@ OpenFsDispatchFileSystemControl(
             return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
         }
 
-        status = OpenFsProbeVolume(volumeDeviceObject, &geometry);
+        status = OpenFsProbeVolume(volumeDeviceObject, &geometry,
+            &namespaceSnapshot);
         if (NT_SUCCESS(status)) {
+            /* The decoded snapshot is retained only after full on-disk validation.
+             * Mount publication remains disabled until root FCB/DCB and dispatch
+             * paths are initialized; never leak a successful probe as a mount. */
+            OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
+            namespaceSnapshot = NULL;
             DbgPrintEx(
                 DPFLTR_IHVDRIVER_ID,
                 DPFLTR_INFO_LEVEL,

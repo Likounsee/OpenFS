@@ -20,6 +20,7 @@ typedef struct _OPENFS_VCB {
     PDEVICE_OBJECT RealDeviceObject;
     PVPB Vpb;
     OPENFS_VOLUME_GEOMETRY Geometry;
+    POPENFS_NAMESPACE_SNAPSHOT Namespace;
 } OPENFS_VCB, *POPENFS_VCB;
 
 /*

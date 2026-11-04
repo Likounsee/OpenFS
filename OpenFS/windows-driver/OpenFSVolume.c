@@ -74,6 +74,7 @@ OpenFsCreateVolumeDevice(
     vcb->VolumeDeviceObject = volumeDeviceObject;
     vcb->RealDeviceObject = RealDeviceObject;
     vcb->Vpb = NULL;
+    vcb->Namespace = NULL;
     RtlCopyMemory(&vcb->Geometry, Geometry, sizeof(vcb->Geometry));
 
     volumeDeviceObject->StackSize =
@@ -132,6 +133,8 @@ OpenFsDestroyVolumeDevice(
         return status;
     }
     vcb->Signature = 0;
+    OpenFsFreeNamespaceSnapshot(vcb->Namespace);
+    vcb->Namespace = NULL;
     if (vcb->RealDeviceObject != NULL) {
         ObDereferenceObject(vcb->RealDeviceObject);
         vcb->RealDeviceObject = NULL;
