@@ -168,6 +168,15 @@ OpenFsSetVolumeNamespace(
     );
 
 
+/* Validate an FCB and safely snapshot its file size and volume block size. */
+NTSTATUS
+OpenFsQueryFcbMetadata(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _Out_ PULONGLONG FileSize,
+    _Out_ PULONG BlockSize
+    );
+
 /* Return one allocated or sparse VCN run for a regular file. */
 NTSTATUS
 OpenFsGetFcbLogicalRun(
