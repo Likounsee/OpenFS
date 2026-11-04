@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** l'accès brut Windows et le flux USB existent dans le code, avec contrôles d'identité/transport/état hors ligne et confirmation destructive pour formater le disque entier. Le chemin reste expérimental et n'a pas de validation matérielle publiée. Les essais physiques USB sont en pause : ne pas demander ni effectuer de formatage de clé/disque pour cette phase. Les tests CI simulés ne valident pas les contrôleurs réels, le cache matériel ou le retrait à chaud.
+
+---
+
 # Raw block-device backend
 
 **Status: low-level backend only. This is not yet a complete USB-storage workflow or a mounted filesystem.**

@@ -1,3 +1,7 @@
+> **Mise à jour 2026-11-04 :** sur HEAD 4127059d, formatage et tests workspace passent sur Linux et Windows ; crash sweep release passe sur Linux ; tests C hôte et build WDK x64 passent. Clippy strict échoue sur les deux plateformes pour `let mut reopened` inutile à `crates/openfs-format/src/crash_sweep.rs:551`. Retirer `mut`, puis relancer `cargo fmt --all -- --check`, `cargo test --workspace --all-features`, `cargo test --release -p openfs-format crash_sweep` sur Linux et `cargo clippy --workspace --all-targets --all-features -- -D warnings`. CI exacte : [41728407756](https://github.com/Likounsee/OpenFS/actions/runs/41728407756).
+
+---
+
 # Development guide
 
 ## Before changing code

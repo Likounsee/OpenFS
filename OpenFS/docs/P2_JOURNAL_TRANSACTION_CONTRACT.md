@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** la récupération traite désormais les queues de journal interrompues : les enregistrements non validés après une lacune sont ignorés/nettoyés ; un COMMIT après une lacune reste une corruption et entraîne un échec fermé. Les erreurs d'E/S restent distinctes des corruptions. Après reconstruction d'ownership, les blocs alloués mais non référencés sont réclamés via le parcours contrôlé ; la réclamation est refusée si des références pending subsistent. La CI inclut un crash sweep release et des coupures pendant la réclamation, simulées en mémoire avec plusieurs politiques de perte de cache. Aucun de ces tests ne certifie les flushes d'un support physique réel.
+
+---
+
 # P2 journal transaction and recovery contract
 
 **Status: implementation contract for the current bounded redo journal.** It describes journal-level guarantees only; it does not claim that every persistent file/namespace operation is one atomic transaction or that physical-device power-loss durability has been qualified.

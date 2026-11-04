@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** ce contrat de publication du descripteur doit être lu avec la réclamation d'orphelins ajoutée depuis. Après récupération du journal, l'ouverture writable reconstruit l'ownership et peut libérer les blocs alloués mais non référencés par le chemin de libération contrôlé. Elle refuse si des références pending subsistent. C'est une étape de récupération après coupure, pas une atomicité rétroactive de toutes les mutations.
+
+---
+
 # P1 descriptor publication and ownership contract
 
 Status: contract for initial publication and descriptor replacement in the current Rust image-backed implementation. This does not authorize persistent namespace/file mutation or claim physical-device power-loss durability.

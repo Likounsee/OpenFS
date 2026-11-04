@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** OpenFS définit son propre format, sans compatibilité NTFS/ReFS. Le code comprend superblocs versionnés/validés, bitmap, métadonnées, entrées de répertoire, extents, inventaire persistant, journal et checkpoints. Les évolutions de récupération sont détaillées dans [RECOVERY_DESIGN.md](RECOVERY_DESIGN.md) et [P2_JOURNAL_TRANSACTION_CONTRACT.md](P2_JOURNAL_TRANSACTION_CONTRACT.md) : une queue non validée après lacune est ignorée/nettoyée ; un COMMIT après lacune reste une corruption ; les blocs orphelins sont réclamés au parcours writable après vérification de l'ownership. Cela ne garantit pas l'atomicité universelle de chaque mutation.
+
+---
+
 # OpenFS on-disk format
 
 **Status: experimental development format.** The active Rust implementation uses canonical format version 4. This is not a production compatibility promise. Do not use OpenFS for important data or format physical devices.
