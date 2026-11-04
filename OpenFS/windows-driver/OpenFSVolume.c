@@ -356,8 +356,10 @@ OpenFsPublishVolumeVpb(
     _In_ PVPB Vpb
     )
 {
+    static const WCHAR volumeLabel[] = L"OpenFS";
     POPENFS_VCB vcb;
     KIRQL oldIrql;
+    ULONG serialNumber;
     NTSTATUS status = STATUS_SUCCESS;
 
     if (VolumeDeviceObject == NULL || Vpb == NULL) {
@@ -376,6 +378,9 @@ OpenFsPublishVolumeVpb(
         ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DELETE_PENDING;
     }
+
+    serialNumber = OpenFsCrc32C(vcb->Geometry.Uuid,
+        sizeof(vcb->Geometry.Uuid));
 
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
         ExReleaseRundownProtection(&vcb->RundownProtection);
@@ -407,10 +412,8 @@ OpenFsPublishVolumeVpb(
              * All dispatch-visible state must already be initialized.
              * Clear this flag immediately before making the VDO reachable.
              */
-            static const WCHAR volumeLabel[] = L"OpenFS";
             VolumeDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
-            Vpb->SerialNumber = OpenFsCrc32C(vcb->Geometry.Uuid,
-                sizeof(vcb->Geometry.Uuid));
+            Vpb->SerialNumber = serialNumber;
             RtlZeroMemory(Vpb->VolumeLabel, sizeof(Vpb->VolumeLabel));
             Vpb->VolumeLabelLength = sizeof(volumeLabel) - sizeof(WCHAR);
             RtlCopyMemory(Vpb->VolumeLabel, volumeLabel,
