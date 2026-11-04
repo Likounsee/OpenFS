@@ -157,9 +157,18 @@ OpenFsDispatchCreate(
     } else if (fcb->OpenHandleCount == MAXULONG) {
         status = STATUS_TOO_MANY_OPENED_FILES;
     } else {
-        ++fcb->OpenHandleCount;
-        fileObject->FsContext = fcb;
-        status = STATUS_SUCCESS;
+        /*
+         * Enforce the caller's read/write/delete sharing contract before
+         * publishing FsContext. The FCB resource serializes this with other
+         * creates and cleanup's IoRemoveShareAccess.
+         */
+        status = IoCheckShareAccess(desiredAccess,
+            stack->Parameters.Create.ShareAccess, fileObject,
+            &fcb->ShareAccess, TRUE);
+        if (NT_SUCCESS(status)) {
+            ++fcb->OpenHandleCount;
+            fileObject->FsContext = fcb;
+        }
     }
 
     ExReleaseResourceLite(&vcb->Resource);
@@ -897,10 +906,37 @@ OpenFsDispatchCleanup(
     _Inout_ PIRP Irp
     )
 {
-    UNREFERENCED_PARAMETER(DeviceObject);
-    if (IoGetCurrentIrpStackLocation(Irp)->FileObject != NULL)
-        OpenFsFreeDirectoryContext(
-            IoGetCurrentIrpStackLocation(Irp)->FileObject);
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    PFILE_OBJECT fileObject = stack->FileObject;
+    POPENFS_VCB vcb;
+    POPENFS_FCB fcb;
+
+    if (fileObject != NULL)
+        OpenFsFreeDirectoryContext(fileObject);
+
+    if (DeviceObject == NULL || fileObject == NULL ||
+        fileObject->FsContext == NULL ||
+        DeviceObject == g_OpenFsFileSystemDevice)
+        return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
+
+    vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+    fcb = (POPENFS_FCB)fileObject->FsContext;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        fcb == NULL || fcb->Signature != OPENFS_FCB_SIGNATURE)
+        return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
+
+    if (ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        if (ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+            /*
+             * IRP_MJ_CLEANUP is the point at which share reservations are
+             * released; the FCB remains referenced until IRP_MJ_CLOSE.
+             */
+            IoRemoveShareAccess(fileObject, &fcb->ShareAccess);
+            ExReleaseResourceLite(&vcb->Resource);
+        }
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+    }
+
     return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 }
 
