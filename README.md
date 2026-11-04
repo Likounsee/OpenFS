@@ -1,3 +1,19 @@
+<p align="center">
+  <img src="OpenFS/docs/assets/openfs-logo.png" alt="OpenFS logo" width="600">
+</p>
+
+<p align="center">
+  <strong>Système de fichiers indépendant en développement, principalement implémenté en Rust.</strong>
+  <br>
+  Un projet visant un système de fichiers fiable, sécurisé et performant pour Windows, Linux et, à terme, ArchiaOS.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Likounsee/OpenFS/actions/workflows/ci.yml"><img src="https://github.com/Likounsee/OpenFS/actions/workflows/ci.yml/badge.svg?branch=OpenFS" alt="OpenFS CI"></a>
+  <img src="https://img.shields.io/badge/langage-Rust-orange.svg" alt="Rust">
+  <img src="https://img.shields.io/badge/statut-exp%C3%A9rimental-yellow.svg" alt="Expérimental">
+</p>
+
 # OpenFS
 
 **Système de fichiers indépendant en développement, principalement implémenté en Rust.**
