@@ -1,3 +1,7 @@
+> **Mise à jour — 2026-11-04 :** récupération des queues de journal interrompues : les enregistrements non validés après une lacune sont ignorés/nettoyés ; un COMMIT après lacune reste une corruption et entraîne un échec fermé. Les erreurs d'E/S sont distinguées des corruptions. Après reconstruction de l'ownership, l'ouverture writable peut réclamer les blocs alloués mais non référencés via le chemin de libération contrôlé ; elle refuse si des références pending subsistent. Le crash sweep couvre plusieurs politiques simulées de perte du cache et les interruptions pendant la réclamation. Il ne simule pas toutes les propriétés des périphériques physiques. Les opérations multi-étapes ne sont pas toutes globalement atomiques.
+
+---
+
 # Recovery and journal design
 
 **Status: experimental journal engine integrated into the canonical Rust volume layout.** Writable volume open validates and recovers the bounded journal before returning. The journal protects allocator bitmap transitions and is used by descriptor ownership publication. This is not proof that every multi-step file mutation is atomic, and it is not physical-device power-loss qualification.

@@ -1,3 +1,9 @@
+> **État courant — 2026-11-04 : pilote WDM natif non montable.** Il compile et lie en CI WDK x64 ; les tests C hôte couvrent superbloc, bitmap, layout, lifecycle, codecs namespace et descripteurs d'inventaire. Le pilote s'enregistre et sonde/valide un volume, mais `IRP_MN_MOUNT_VOLUME` ne publie pas encore de volume utilisable et retourne `STATUS_NOT_IMPLEMENTED` après la sonde. Manquent snapshot namespace conservé dans le VCB, root FCB/DCB, lookup, énumération et dispatchs read/write. Le montage Windows expérimental passe par Dokany dans `openfs-tool`. Build réussi ne signifie pas filesystem montable.
+>
+> CI HEAD 4127059d : build WDK et tests C réussis ; formatage/tests Rust réussis ; Clippy échoue sur `unused_mut` dans `crash_sweep.rs:551`.
+
+---
+
 # OpenFS 1.0 — native Windows filesystem driver
 
 This directory is the WDK-based kernel-mode filesystem driver track. It is deliberately separate from the Rust workspace: the existing Rust/Dokany adapter remains the development fallback while this driver is brought up.

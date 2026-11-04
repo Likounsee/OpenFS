@@ -1,3 +1,11 @@
+> **ÉTAT ACTUEL — 2026-11-04 (HEAD 4127059d).** Cette synthèse prévaut sur les anciens pourcentages/dates ci-dessous, qui sont historiques. Le moteur Rust comprend format versionné, allocation/extents, namespace persistant, opérations de fichiers, journal/checkpoints et récupération avec réclamation des blocs orphelins. Dokany fournit le montage Windows expérimental. Le pilote WDM compile et ses validateurs sont testés, mais son montage natif n'est pas implémenté. Linux n'a pas d'adaptateur de montage.
+>
+> **À faire :** corriger le `unused_mut` de `crash_sweep.rs:551` puis retrouver une CI verte ; continuer le pilote WDM (snapshot namespace dans VCB, root FCB/DCB, lookup, énumération, lecture) ; étendre fuzzing/corruption/I/O ; mesurer le coût du scan d'inventaire. Essais physiques USB en pause.
+>
+> **CI :** [run 41728407756](https://github.com/Likounsee/OpenFS/actions/runs/41728407756) — formatage/tests Linux+Windows, crash sweep Linux, tests C et build WDK réussis ; Clippy échoue Linux+Windows. Les tests de crash simulés ne certifient pas les disques réels.
+
+---
+
 ### Ajustement de documentation du handler
 
 - Commit `c2562dbf5a673160c32ec9f13f8ed820f595d15a` : commentaires Rust replacés au bon type après l'extraction du latch d'erreurs; aucun changement fonctionnel.

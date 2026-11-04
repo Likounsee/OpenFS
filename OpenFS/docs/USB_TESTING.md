@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 : ESSAIS USB PHYSIQUES EN PAUSE.** Les commandes ci-dessous peuvent formater le disque physique entier et détruire partitionnement et données. Ne pas lancer ces étapes dans le développement courant. Le code d'accès USB brut et ses garde-fous existent, mais aucune validation matérielle n'est revendiquée. Les tests CI simulés ne prouvent pas le comportement d'un contrôleur USB réel, du cache matériel ou d'un retrait à chaud. Reprendre uniquement lors d'une phase explicitement décidée avec un support sacrifiable.
+
+---
+
 # OpenFS — essais sur une vraie clé USB (Windows)
 
 ## État actuel

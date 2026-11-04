@@ -1,3 +1,9 @@
+> **État courant — 2026-11-04 (HEAD 4127059d).** Le workspace actif est Rust (`openfs-core`, `openfs-block`, `openfs-format`, `openfs-partition`, `openfs-tool`). Le pilote WDM C est séparé : il compile en CI et ses parseurs/primitives ont des tests natifs, mais ne monte pas encore de volume utilisable. Le montage Windows expérimental présent est l'adaptateur Dokany dans `openfs-tool`, pas le pilote WDM. Le montage Linux n'est pas implémenté. La récupération inclut le traitement des queues de journal incomplètes et la réclamation vérifiée des blocs orphelins ; cette dernière est une étape de récupération au montage, pas une atomicité universelle des mutations.
+>
+> CI exacte-SHA [41728407756](https://github.com/Likounsee/OpenFS/actions/runs/41728407756) : formatage et tests workspace réussis sur Linux/Windows, crash sweep release Linux réussi, tests C et build WDK x64 réussis. Clippy échoue sur les deux OS pour un `unused_mut` à `crash_sweep.rs:551`. CI globale en échec. Les tests simulés ne prouvent pas la durabilité d'un matériel réel.
+
+---
+
 # Architecture
 
 ## Workspace and dependency direction
