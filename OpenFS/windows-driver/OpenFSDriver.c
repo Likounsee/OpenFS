@@ -402,6 +402,264 @@ VolumeQueryExit:
     return status;
 }
 
+typedef struct _OPENFS_DIRECTORY_ENUM_CONTEXT {
+    ULONG Signature;
+    ULONG NextEntryIndex;
+    ULONGLONG ParentIdLow;
+    ULONGLONG ParentIdHigh;
+    USHORT PatternLength;
+    WCHAR Pattern[1];
+} OPENFS_DIRECTORY_ENUM_CONTEXT, *POPENFS_DIRECTORY_ENUM_CONTEXT;
+
+#define OPENFS_DIRECTORY_ENUM_SIGNATURE 0x4F444952UL
+#define OPENFS_DIRECTORY_ENUM_POOL_TAG 'eFsO'
+
+static BOOLEAN
+OpenFsMatchDirectoryPattern(
+    _In_reads_(PatternLength) const WCHAR* Pattern,
+    _In_ USHORT PatternLength,
+    _In_reads_(NameLength) const WCHAR* Name,
+    _In_ USHORT NameLength
+    )
+{
+    USHORT p = 0, n = 0;
+    USHORT star = MAXUSHORT, retry = 0;
+
+    while (n < NameLength) {
+        if (p < PatternLength &&
+            (Pattern[p] == L'?' || Pattern[p] == Name[n])) {
+            ++p;
+            ++n;
+        } else if (p < PatternLength && Pattern[p] == L'*') {
+            star = p++;
+            retry = n;
+        } else if (star != MAXUSHORT) {
+            p = (USHORT)(star + 1u);
+            n = ++retry;
+        } else {
+            return FALSE;
+        }
+    }
+    while (p < PatternLength && Pattern[p] == L'*') ++p;
+    return p == PatternLength;
+}
+
+static VOID
+OpenFsFreeDirectoryContext(
+    _Inout_ PFILE_OBJECT FileObject
+    )
+{
+    POPENFS_DIRECTORY_ENUM_CONTEXT context =
+        (POPENFS_DIRECTORY_ENUM_CONTEXT)FileObject->FsContext2;
+    if (context != NULL &&
+        context->Signature == OPENFS_DIRECTORY_ENUM_SIGNATURE) {
+        context->Signature = 0;
+        ExFreePoolWithTag(context, OPENFS_DIRECTORY_ENUM_POOL_TAG);
+    }
+    FileObject->FsContext2 = NULL;
+}
+
+static NTSTATUS
+OpenFsDispatchDirectoryControl(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    PFILE_OBJECT fileObject = stack->FileObject;
+    POPENFS_VCB vcb;
+    POPENFS_FCB directoryFcb;
+    POPENFS_DIRECTORY_ENUM_CONTEXT context;
+    PVOID output = Irp->AssociatedIrp.SystemBuffer;
+    ULONG outputLength = stack->Parameters.QueryDirectory.Length;
+    ULONG bytesUsed = 0;
+    ULONG previousOffset = MAXULONG;
+    ULONG entryIndex;
+    ULONG flags = stack->Flags;
+    FILE_INFORMATION_CLASS infoClass =
+        stack->Parameters.QueryDirectory.FileInformationClass;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (stack->MinorFunction != IRP_MN_QUERY_DIRECTORY)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+    if (DeviceObject == NULL || DeviceObject == g_OpenFsFileSystemDevice ||
+        fileObject == NULL || fileObject->FsContext == NULL ||
+        output == NULL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+    if (infoClass != FileNamesInformation &&
+        infoClass != FileDirectoryInformation)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_INFO_CLASS);
+
+    vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+    directoryFcb = (POPENFS_FCB)fileObject->FsContext;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        directoryFcb->Signature != OPENFS_FCB_SIGNATURE)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection))
+        return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+    if (vcb->State != OpenFsVolumeMounted || vcb->Namespace == NULL ||
+        directoryFcb->Kind != 2u) {
+        status = directoryFcb->Kind == 2u
+            ? STATUS_VOLUME_DISMOUNTED : STATUS_NOT_A_DIRECTORY;
+        goto DirectoryExit;
+    }
+
+    context = (POPENFS_DIRECTORY_ENUM_CONTEXT)fileObject->FsContext2;
+    if (context == NULL) {
+        PUNICODE_STRING expression =
+            stack->Parameters.QueryDirectory.FileName;
+        USHORT patternLength = expression != NULL ? expression->Length : 0;
+        SIZE_T allocationSize;
+        if ((patternLength & 1u) != 0 || patternLength > 1024u ||
+            (patternLength != 0 && expression->Buffer == NULL)) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto DirectoryExit;
+        }
+        allocationSize = FIELD_OFFSET(OPENFS_DIRECTORY_ENUM_CONTEXT, Pattern) +
+            (patternLength != 0 ? patternLength : sizeof(WCHAR));
+        context = (POPENFS_DIRECTORY_ENUM_CONTEXT)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, allocationSize,
+            OPENFS_DIRECTORY_ENUM_POOL_TAG);
+        if (context == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto DirectoryExit;
+        }
+        RtlZeroMemory(context, allocationSize);
+        context->Signature = OPENFS_DIRECTORY_ENUM_SIGNATURE;
+        context->ParentIdLow = directoryFcb->ObjectIdLow;
+        context->ParentIdHigh = directoryFcb->ObjectIdHigh;
+        if (patternLength != 0) {
+            context->PatternLength = (USHORT)(patternLength / sizeof(WCHAR));
+            RtlCopyMemory(context->Pattern, expression->Buffer, patternLength);
+        } else {
+            context->Pattern[0] = L'*';
+            context->PatternLength = 1;
+        }
+        fileObject->FsContext2 = context;
+    } else if (context->Signature != OPENFS_DIRECTORY_ENUM_SIGNATURE ||
+        context->ParentIdLow != directoryFcb->ObjectIdLow ||
+        context->ParentIdHigh != directoryFcb->ObjectIdHigh) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto DirectoryExit;
+    }
+
+    if ((flags & SL_RESTART_SCAN) != 0) context->NextEntryIndex = 0;
+    if ((flags & SL_INDEX_SPECIFIED) != 0)
+        context->NextEntryIndex = stack->Parameters.QueryDirectory.FileIndex;
+
+    entryIndex = context->NextEntryIndex;
+    while (entryIndex < vcb->Namespace->EntryCount) {
+        const OPENFS_DIRECTORY_ENTRY* entry =
+            &vcb->Namespace->Entries[entryIndex];
+        WCHAR unicodeName[OPENFS_DIRECTORY_NAME_MAX_BYTES];
+        ULONG unicodeBytes = 0;
+        USHORT unicodeLength;
+        ULONG recordIndex;
+        const OPENFS_METADATA_RECORD* record;
+        ULONG required;
+        ULONG alignedRequired;
+        PVOID recordBuffer;
+
+        ++entryIndex;
+        context->NextEntryIndex = entryIndex;
+        if (entry->ParentIdLow != context->ParentIdLow ||
+            entry->ParentIdHigh != context->ParentIdHigh)
+            continue;
+
+        status = RtlUTF8ToUnicodeN((PCHAR)unicodeName,
+            sizeof(unicodeName), &unicodeBytes,
+            (PCCH)entry->Name, entry->NameLength);
+        if (!NT_SUCCESS(status)) goto DirectoryExit;
+        if ((unicodeBytes & 1u) != 0 ||
+            unicodeBytes > sizeof(unicodeName)) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto DirectoryExit;
+        }
+        unicodeLength = (USHORT)(unicodeBytes / sizeof(WCHAR));
+        if (!OpenFsMatchDirectoryPattern(context->Pattern,
+                context->PatternLength, unicodeName, unicodeLength))
+            continue;
+
+        for (recordIndex = 0;
+             recordIndex < vcb->Namespace->RecordCount; ++recordIndex) {
+            const OPENFS_METADATA_RECORD* candidate =
+                &vcb->Namespace->Records[recordIndex];
+            if (candidate->ObjectIdLow == entry->ObjectIdLow &&
+                candidate->ObjectIdHigh == entry->ObjectIdHigh)
+                break;
+        }
+        if (recordIndex == vcb->Namespace->RecordCount) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto DirectoryExit;
+        }
+        record = &vcb->Namespace->Records[recordIndex];
+
+        if (infoClass == FileNamesInformation) {
+            required = FIELD_OFFSET(FILE_NAMES_INFORMATION, FileName) +
+                unicodeBytes;
+        } else {
+            required = FIELD_OFFSET(FILE_DIRECTORY_INFORMATION, FileName) +
+                unicodeBytes;
+        }
+        alignedRequired = (required + 7u) & ~7u;
+        if (alignedRequired < required || bytesUsed > outputLength ||
+            required > outputLength - bytesUsed) {
+            if (bytesUsed == 0) status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        recordBuffer = (PUCHAR)output + bytesUsed;
+        RtlZeroMemory(recordBuffer, required);
+        if (infoClass == FileNamesInformation) {
+            PFILE_NAMES_INFORMATION info =
+                (PFILE_NAMES_INFORMATION)recordBuffer;
+            info->FileIndex = entryIndex - 1u;
+            info->FileNameLength = unicodeBytes;
+            RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+        } else {
+            PFILE_DIRECTORY_INFORMATION info =
+                (PFILE_DIRECTORY_INFORMATION)recordBuffer;
+            info->FileIndex = entryIndex - 1u;
+            info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+            info->AllocationSize.QuadPart = (LONGLONG)record->Size;
+            info->FileAttributes = record->Kind == 2u
+                ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+            info->FileNameLength = unicodeBytes;
+            RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+        }
+        if (previousOffset != MAXULONG) {
+            if (infoClass == FileNamesInformation) {
+                ((PFILE_NAMES_INFORMATION)((PUCHAR)output +
+                    previousOffset))->NextEntryOffset = bytesUsed - previousOffset;
+            } else {
+                ((PFILE_DIRECTORY_INFORMATION)((PUCHAR)output +
+                    previousOffset))->NextEntryOffset = bytesUsed - previousOffset;
+            }
+        }
+        previousOffset = bytesUsed;
+        bytesUsed += alignedRequired;
+        if ((flags & SL_RETURN_SINGLE_ENTRY) != 0) break;
+    }
+
+    if (bytesUsed == 0 && NT_SUCCESS(status))
+        status = STATUS_NO_MORE_FILES;
+    else if (bytesUsed != 0)
+        status = STATUS_SUCCESS;
+
+DirectoryExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = NT_SUCCESS(status) ? bytesUsed : 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
+
 static NTSTATUS
 OpenFsDispatchCleanup(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -409,6 +667,9 @@ OpenFsDispatchCleanup(
     )
 {
     UNREFERENCED_PARAMETER(DeviceObject);
+    if (IoGetCurrentIrpStackLocation(Irp)->FileObject != NULL)
+        OpenFsFreeDirectoryContext(
+            IoGetCurrentIrpStackLocation(Irp)->FileObject);
     return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 }
 
@@ -547,6 +808,8 @@ DriverEntry(
         OpenFsDispatchQueryInformation;
     DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION] =
         OpenFsDispatchQueryVolumeInformation;
+    DriverObject->MajorFunction[IRP_MJ_DIRECTORY_CONTROL] =
+        OpenFsDispatchDirectoryControl;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = OpenFsDispatchCleanup;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] =
