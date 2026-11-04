@@ -84,3 +84,10 @@ OpenFsReleaseVolumeVpb(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _In_ PVPB Vpb
     );
+
+/* Transfer ownership of a fully validated immutable namespace to the private VCB. */
+NTSTATUS
+OpenFsSetVolumeNamespace(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_NAMESPACE_SNAPSHOT NamespaceSnapshot
+    );

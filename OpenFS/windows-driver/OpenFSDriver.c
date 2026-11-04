@@ -1,6 +1,7 @@
 #include <ntifs.h>
 #include "OpenFSSuperblock.h"
 #include "OpenFSDeviceIo.h"
+#include "OpenFSVolume.h"
 
 static PDEVICE_OBJECT g_OpenFsFileSystemDevice = NULL;
 
@@ -78,6 +79,7 @@ OpenFsDispatchFileSystemControl(
     {
         OPENFS_VOLUME_GEOMETRY geometry;
         POPENFS_NAMESPACE_SNAPSHOT namespaceSnapshot = NULL;
+        PDEVICE_OBJECT privateVolumeDevice = NULL;
         PDEVICE_OBJECT volumeDeviceObject;
         NTSTATUS status;
 
@@ -89,11 +91,27 @@ OpenFsDispatchFileSystemControl(
         status = OpenFsProbeVolume(volumeDeviceObject, &geometry,
             &namespaceSnapshot);
         if (NT_SUCCESS(status)) {
-            /* The decoded snapshot is retained only after full on-disk validation.
-             * Mount publication remains disabled until root FCB/DCB and dispatch
-             * paths are initialized; never leak a successful probe as a mount. */
-            OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
-            namespaceSnapshot = NULL;
+            /* Keep the validated namespace in a private VCB. It is not published:
+             * root FCB/DCB and file dispatch are still absent. Roll back cleanly. */
+            status = OpenFsCreateVolumeDevice(DriverObject,
+                volumeDeviceObject, &geometry, &privateVolumeDevice);
+            if (NT_SUCCESS(status)) {
+                status = OpenFsSetVolumeNamespace(privateVolumeDevice,
+                    namespaceSnapshot);
+                if (NT_SUCCESS(status)) namespaceSnapshot = NULL;
+                {
+                    NTSTATUS destroyStatus =
+                        OpenFsDestroyVolumeDevice(privateVolumeDevice);
+                    if (NT_SUCCESS(status) && !NT_SUCCESS(destroyStatus))
+                        status = destroyStatus;
+                }
+            }
+            if (namespaceSnapshot != NULL) {
+                OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
+                namespaceSnapshot = NULL;
+            }
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
             DbgPrintEx(
                 DPFLTR_IHVDRIVER_ID,
                 DPFLTR_INFO_LEVEL,

@@ -440,3 +440,43 @@ OpenFsReleaseVolumeVpb(
     ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
+
+NTSTATUS
+OpenFsSetVolumeNamespace(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_NAMESPACE_SNAPSHOT NamespaceSnapshot
+    )
+{
+    POPENFS_VCB vcb;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || NamespaceSnapshot == NULL)
+        return STATUS_INVALID_PARAMETER;
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeInitializing) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else if (vcb->Namespace != NULL) {
+        status = STATUS_DEVICE_BUSY;
+    } else {
+        vcb->Namespace = NamespaceSnapshot;
+    }
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
