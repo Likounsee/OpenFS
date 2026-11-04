@@ -1,3 +1,7 @@
+> **Mise à jour 2026-11-04 :** aucun benchmark reproductible suffisant n'est publié ici. Les durées CI et les crash sweeps mesurent la correction des tests, pas le débit, l'IOPS ou la latence du filesystem. Les performances sur disque réel, sous Dokany et selon la taille des blocs restent à mesurer.
+
+---
+
 # Benchmarks
 
 No OpenFS performance measurements are available yet. The block-image and superblock primitives are not a complete filesystem and should not be compared to NTFS as if they were.

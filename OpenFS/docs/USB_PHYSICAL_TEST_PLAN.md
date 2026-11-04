@@ -1,3 +1,7 @@
+> **ÉTAT COURANT — 2026-11-04 : ESSAIS PHYSIQUES EN PAUSE.** Ce plan est conservé pour une phase ultérieure. Ne pas exécuter ses étapes de formatage tant que la reprise n'a pas été explicitement décidée. Aucun résultat matériel n'est revendiqué ; les tests automatisés utilisent des périphériques simulés et ne valident ni les contrôleurs réels, ni les caches matériels, ni le retrait à chaud.
+
+---
+
 # OpenFS physical USB test plan (Windows 11, Windows 10 secondary)
 
 ## Safety status

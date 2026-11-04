@@ -1,3 +1,7 @@
+> **Portée — 2026-11-04 :** audit historique de l'ancienne implémentation uniquement. Il ne décrit pas le workspace Rust actif situé dans `OpenFS/` et ne constitue pas un inventaire des fonctionnalités actuelles. Voir [ARCHITECTURE.md](ARCHITECTURE.md) et [CURRENT_STATUS.md](CURRENT_STATUS.md). La branche/dossier historique `OpenFS-old` n'est pas modifié.
+
+---
+
 # Audit of historical OpenFS-old
 
 **Audit date:** 2026-10-12  

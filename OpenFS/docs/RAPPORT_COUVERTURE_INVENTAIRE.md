@@ -1,3 +1,7 @@
+> **Mise à jour 2026-11-04 :** les CSV d'inventaire présents dans le dépôt sont des snapshots historiques ; ils ne doivent pas être considérés comme synchronisés avec HEAD sans régénération. Les derniers changements de récupération ajoutent la réclamation des blocs orphelins et des tests de coupures pendant cette réclamation. CI HEAD 4127059d : tests workspace/formatage Linux+Windows, crash sweep release Linux, tests C et build WDK réussis ; Clippy échoue sur un `unused_mut` à `crash_sweep.rs:551`. Voir [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
+---
+
 # OpenFS — rapport de couverture de l'inventaire reanalysé
 
 Date du relevé : 2026-10-21.

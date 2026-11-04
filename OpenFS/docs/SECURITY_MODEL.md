@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** OpenFS est expérimental et ne doit pas contenir de données importantes. Les contrôles d'identité/état hors ligne du chemin USB réduisent les erreurs de sélection, mais ne rendent pas le formatage physique sûr pour un usage général. Les tests de coupure simulés ne remplacent pas des essais matériels. Le pilote WDM natif ne monte pas encore de volume ; le montage Windows expérimental passe par Dokany. Un audit complet des ACL/droits Windows et des chemins de sécurité reste nécessaire.
+
+---
+
 # Security model
 
 ## Trust boundaries

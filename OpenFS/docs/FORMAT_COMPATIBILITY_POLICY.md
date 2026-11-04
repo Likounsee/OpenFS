@@ -1,3 +1,7 @@
+> **État courant — 2026-11-04 :** la politique s'applique au format versionné effectivement implémenté dans `openfs-format`. Les tests de codecs/layout/superblocs et récupération ne certifient aucune compatibilité NTFS/ReFS ni compatibilité automatique avec d'anciennes générations OpenFS. Les images historiques ne doivent être ouvertes que si leur version est explicitement prise en charge ; toute conversion doit être explicite, séparée et testée.
+
+---
+
 # OpenFS on-disk format compatibility policy
 
 **Status: development policy.** The active canonical Rust format is version 4. Earlier Rust layouts have version-specific decoding, including versions 2 and 3; historical OpenFS C images are not implicitly compatible. This policy does not claim a production stability guarantee or that a complete golden-image fixture set exists.
