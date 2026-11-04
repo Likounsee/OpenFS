@@ -135,13 +135,28 @@ jobs:
           $toolDirectory = $stampInf.Directory.FullName
           Write-Host "Using x64 WDK tool directory: $toolDirectory"
           Add-Content -Path $env:GITHUB_PATH -Value $toolDirectory
-      - name: Restore WDK packages and compile/link driver
+      - name: Build WDK driver
         shell: pwsh
         run: |
-          # Build only the compile and link targets. The NuGet WDK package supplies
-          # headers/libs but omits some x86 post-build validator binaries on hosted runners.
-          # Keep INF/API validation as a separate follow-up instead of failing after .sys exists.
-          msbuild .\\OpenFS\\windows-driver\\OpenFSDriver.vcxproj /m /restore "/t:ClCompile;Link" /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off /v:normal
+          $driverRoot = '.\\OpenFS\\windows-driver'
+          $driverSys = Join-Path $driverRoot 'bin\\Debug\\OpenFS.sys'
+          # Ensure an old binary can never make a failed build look successful.
+          Remove-Item -Force -ErrorAction SilentlyContinue $driverSys
+          msbuild .\\OpenFS\\windows-driver\\OpenFSDriver.vcxproj /m /restore /t:Build /p:Configuration=Debug /p:Platform=x64 /p:SignMode=Off /v:normal 2>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'openfs-wdk-build.log')
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -eq 0) {
+            if (-not (Test-Path $driverSys)) {
+              throw "WDK build returned success but OpenFS.sys was not produced."
+            }
+            exit 0
+          }
+          $buildLog = Get-Content (Join-Path $env:RUNNER_TEMP 'openfs-wdk-build.log') -Raw
+          $knownMissingValidators = $buildLog.Contains("InfVerif.dll") -and $buildLog.Contains("ApiValidator.exe")
+          if ((Test-Path $driverSys) -and $knownMissingValidators) {
+            Write-Warning "OpenFS.sys compiled and linked. The hosted WDK NuGet package lacks InfVerif/ApiValidator; only those post-build validation steps failed."
+            exit 0
+          }
+          throw "WDK build failed (exit $buildExit); see the build log above."
       - name: Package unsigned driver binary and INF
         shell: pwsh
         run: |
