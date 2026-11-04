@@ -1,100 +1,48 @@
-> **État courant — 2026-11-04 : pilote WDM natif non montable.** Il compile et lie en CI WDK x64 ; les tests C hôte couvrent superbloc, bitmap, layout, lifecycle, codecs namespace et descripteurs d'inventaire. Le pilote s'enregistre et sonde/valide un volume, mais `IRP_MN_MOUNT_VOLUME` ne publie pas encore de volume utilisable et retourne `STATUS_NOT_IMPLEMENTED` après la sonde. Manquent snapshot namespace conservé dans le VCB, énumération et dispatchs read/write. Le montage Windows expérimental passe par Dokany dans `openfs-tool`. Build réussi ne signifie pas filesystem montable.
->
-> CI HEAD 4127059d : build WDK et tests C réussis ; formatage/tests Rust réussis ; Clippy échoue sur `unused_mut` dans `crash_sweep.rs:551`.
+# OpenFS 1.0 — pilote Windows natif
 
----
+> **État au 2026-11-04 — pilote WDM x64 compilable, montage en cours d'intégration, pas encore validé sur matériel réel.** Le commit `59bf12e` passe les quatre jobs CI, dont la compilation WDK x64. Le code du chemin `IRP_MN_MOUNT_VOLUME` crée maintenant un VDO/VCB, charge le snapshot du namespace, réserve puis publie le VPB. Les dispatchs en lecture seule couvrent notamment ouverture, lecture, informations, énumération et plusieurs FSCTL. Cela ne constitue pas encore une validation fonctionnelle sur Windows réel.
 
-# OpenFS 1.0 — native Windows filesystem driver
+## Ce qui est réellement présent
 
-This directory is the WDK-based kernel-mode filesystem driver track. It is deliberately separate from the Rust workspace: the existing Rust/Dokany adapter remains the development fallback while this driver is brought up.
+- Enregistrement du système de fichiers via `IoRegisterFileSystem`.
+- Détection du volume et lecture seule des superblocs principal et secondaire.
+- Validation des révisions de format prises en charge, CRC32C, géométrie, taille exacte et bitmap d'allocation.
+- Découverte et décodage de l'inventaire persistant et du namespace.
+- Création du VDO/VCB, attachement à la pile du périphérique inférieur, initialisation du DCB racine et cache FCB/DCB.
+- Réservation et publication du VPB après initialisation du namespace.
+- Ouverture en lecture seule, lecture de fichiers, informations de fichiers/volumes et contrôle d'accès de partage.
+- Contrôle de répertoires et requêtes FSCTL de bitmap, pointeurs de récupération et plages allouées.
+- Verrouillage du volume et refus du démontage tant que la destruction différée du VDO/VPB n'est pas sûre.
+- Tests hôte C pour les décodeurs et structures ; compilation WDK x64 en CI.
 
-## Product version
+## Limites avant un test sur le PC principal
 
-This driver is being developed for the **OpenFS 1.0** release. The `Version` field stored in an on-disk superblock is an internal format-revision number; it is not the OpenFS product/release version. Do not market or label this project as OpenFS 2, 3, or 4 based on those internal values.
+- Le pilote est un build de développement non signé ; le dépôt ne fournit pas encore de package signé installable sur un Windows standard.
+- L'artefact CI actuel contient le binaire `.sys` et l'INF, mais pas un catalogue signé.
+- Aucun test de montage sur matériel réel n'a encore été effectué.
+- Le démontage sûr n'est pas achevé ; `FSCTL_DISMOUNT_VOLUME` retourne volontairement `STATUS_DEVICE_BUSY`.
+- Le pilote est en lecture seule : pas de formatage, création, suppression, renommage ni écriture.
+- Les exigences avancées de Cache Manager, Memory Manager, sécurité, concurrence et validation HLK restent à compléter.
 
-## Current status
+**Ne pas désactiver Secure Boot ni activer le mode test sur le PC principal pour charger ce build.** La première validation d'installation doit se faire dans une machine virtuelle Windows de test, avec un instantané récupérable. Le passage à un test USB sur l'hôte attendra un package et une procédure de signature sûrs.
 
-The driver is still an early development skeleton, but it now has a read-only native volume-recognition path:
+## Compilation
 
-- registers an OpenFS filesystem device with the Windows I/O manager;
-- receives filesystem mount notifications;
-- queries the target volume length and performs aligned, read-only reads of the primary and backup superblocks;
-- validates magic, internal format revision, CRC32C, geometry, reserved bytes, and the exact volume length;
-- maintains a private VDO/VCB with synchronized lifecycle state, rundown protection, and guarded VPB reservation/rollback;
-- provides an atomic VPB publication primitive for a fully initialized volume device; it deliberately is not called until the root directory and mounted-volume dispatch paths are ready;
-- reports a valid OpenFS volume as recognized but returns `STATUS_NOT_IMPLEMENTED` until the complete VCB/VPB mount, root-directory initialization, and teardown path are wired into the mount dispatch;
-- does **not** expose a mounted volume, format media, or read/write files yet.
-
-Do not install this development skeleton on a machine that needs a working OpenFS volume. It is not a replacement for the Dokany mount path.
-
-## Why this is a separate driver
-
-A standalone filesystem needs a filesystem driver (FSD), not a minifilter. Minifilters attach to an existing filesystem stack and are intended to observe or modify I/O; they do not independently provide a new on-disk filesystem. The native driver will eventually own volume objects, file objects, namespace operations, cache/memory-manager integration, and raw block I/O.
-
-The current Rust `VolumeSession<D>` is the format and persistence reference. It currently depends on the Rust host environment and cannot be linked directly into a Windows kernel driver. The kernel implementation therefore needs a carefully reviewed kernel-safe format/I/O layer, with shared on-disk-format definitions and conformance tests to prevent divergence.
-
-## Build
-
-Requirements:
-
-- Visual Studio with the Desktop development with C++ workload;
-- Windows Driver Kit (WDK) matching the installed Windows SDK;
-- x64 build tools.
-
-From a WDK Developer Command Prompt:
+Prérequis : Visual Studio avec outils C++, Windows SDK et WDK compatibles, outils x64.
 
 ```powershell
 msbuild .\OpenFSDriver.vcxproj /m /p:Configuration=Debug /p:Platform=x64
 ```
 
-The output is a development driver only. Production installation requires a properly signed package and driver-signing validation.
+La CI compile le pilote avec le WDK x64 et exécute les tests hôte. Une compilation réussie ne prouve ni le chargement du pilote, ni le montage, ni la lecture correcte d'un volume réel.
 
-## Milestones
+## Sources principales
 
-1. **Driver loading and registration** — this scaffold.
-2. **Volume recognition** — probe code is implemented: query device length, read both superblocks at their format-defined offsets, and validate revisions 2–4 without writes. WDK compilation and device-level verification are still pending.
-3. **Mount lifecycle** — create/tear down VCB and VPB state, verify/dismount, volume information and filesystem control requests.
-4. **Read-only filesystem** — open/create semantics for existing objects, directory enumeration, file reads, metadata queries.
-5. **Writable filesystem** — create, write, truncate, rename, delete, flush, sharing and locking semantics.
-6. **Windows formatting integration** — formatter, volume label/serial, format capabilities, Disk Management/Format UI integration where supported.
-7. **Production hardening** — cache manager, memory manager, oplocks, security descriptors, cancellation, concurrency, crash recovery, HLK and signing.
+- `OpenFSDriver.c` : DriverEntry, dispatchs IRP et transaction de montage.
+- `OpenFSVolume.c/.h` : VDO/VCB, FCB/DCB, VPB, cycle de vie et lecture de fichiers.
+- `OpenFSDeviceIo.c/.h` : lecture bloc et sonde de volume.
+- `OpenFSSuperblock.c/.h` : validation des superblocs.
+- `OpenFSNamespace.c/.h` : décodage et résolution du namespace.
+- `OpenFSExtentMap.c/.h` : décodage et résolution des extents.
 
-No milestone is considered complete merely because the driver loads. Each requires tests against real Windows I/O paths and image-backed regression tests.
-
-
-## Native namespace record codecs
-
-`OpenFSNamespace.c` now contains kernel-safe, allocation-free decoders for the current
-80-byte metadata record and 128-byte directory-entry record. They validate record magic
-and version, CRC32C, reserved/padding bytes, object identity and kind constraints, and
-strict UTF-8 directory names with the format's path-component restrictions. The codecs
-are shared by the WDK driver and strict host-side C tests.
-
-These are record codecs only: they do not yet discover the persistent inventory descriptor,
-load the complete namespace, implement directory indexing, or expose file operations.
-The mount path must not publish a volume until those layers and the root directory are
-initialized.
-
-## Superblock recognition implementation
-
-`OpenFSSuperblock.c` implements a read-only kernel-safe decoder for the current Rust format's superblock record:
-
-- magic, supported internal on-disk format revisions, 48-byte header;
-- CRC32C (Castagnoli);
-- block-size and total-block bounds with overflow checks;
-- reserved-byte checks;
-- primary/backup geometry, UUID and stable-field consistency;
-- exact volume byte-length validation.
-
-The parser is called by the mount dispatch routine through `OpenFSDeviceIo.c`. The probe obtains the target device length with `IOCTL_DISK_GET_LENGTH_INFO`, reads the primary superblock at byte offset zero, derives the backup-superblock offset from the validated candidate block geometry, reads the backup copy, then validates both copies. Read buffers are nonpaged and aligned to the target device's alignment requirement; reads must respect its logical sector size.
-
-A successful probe is only recognition, not a mount. The dispatch returns `STATUS_NOT_IMPLEMENTED` for a valid OpenFS volume until a VCB/VPB lifecycle, root directory, and teardown path are implemented. It must not report a successful mount before those pieces exist.
-
-The host-side parser tests are built with strict C warnings in CI (34 assertions currently pass). They exercise supported revisions, CRC32C's standard test vector, differing revision-3/4 inventory hints, invalid magic/version/header, corrupt checksums, mismatched copies, invalid geometry, and device-length mismatch. These tests do not compile the WDK driver itself.
-
-
-## Full path-to-FCB resolution
-
-`OpenFsLookupPathFcb` now connects the validated namespace path resolver to the per-volume FCB/DCB cache. It first validates the complete root-relative UTF-8 path against the immutable namespace snapshot, then resolves each component through the cache and returns the final stable FCB pointer. The routine holds a volume rundown reference for the complete traversal, so cached nodes cannot be reclaimed during component lookups. It also checks that the resulting FCB identity matches the record selected by the namespace resolver.
-
-This is lookup infrastructure for the future `IRP_MJ_CREATE` path, not an open-file implementation: the driver still does not publish mounted volumes or handle Windows file-object lifetime, access checks, sharing, directory enumeration, or data I/O.
+Voir aussi [le plan de tests USB Windows](../docs/WINDOWS_DRIVER_USB_TEST_PLAN.md).
