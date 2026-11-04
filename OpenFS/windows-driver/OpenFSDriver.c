@@ -1263,6 +1263,12 @@ OpenFsDispatchFileSystemControl(
                 return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
             if (requestEnd > fileSize)
                 requestEnd = fileSize;
+            /*
+             * FILE_ALLOCATED_RANGE_BUFFER uses signed LARGE_INTEGER values.
+             * Never publish an offset or length that cannot be represented.
+             */
+            if (requestEnd > MAXLONGLONG)
+                requestEnd = MAXLONGLONG;
 
             capacity = outputLength / sizeof(FILE_ALLOCATED_RANGE_BUFFER);
             currentVcn = requestStart / blockSize;
