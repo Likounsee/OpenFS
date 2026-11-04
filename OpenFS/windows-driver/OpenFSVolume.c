@@ -1234,6 +1234,7 @@ OpenFsGetFcbLogicalRun(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _In_ POPENFS_FCB FileFcb,
     _In_ ULONGLONG StartingVcn,
+    _Out_ PULONGLONG LogicalBlockCount,
     _Out_ PULONGLONG NextVcn,
     _Out_ PULONGLONG PhysicalBlock,
     _Out_ PBOOLEAN IsAllocated
@@ -1245,8 +1246,10 @@ OpenFsGetFcbLogicalRun(
     ULONGLONG fileSize;
     NTSTATUS status;
 
-    if (NextVcn == NULL || PhysicalBlock == NULL || IsAllocated == NULL)
+    if (LogicalBlockCount == NULL || NextVcn == NULL ||
+        PhysicalBlock == NULL || IsAllocated == NULL)
         return STATUS_INVALID_PARAMETER;
+    *LogicalBlockCount = 0;
     *NextVcn = 0;
     *PhysicalBlock = 0;
     *IsAllocated = FALSE;
@@ -1298,6 +1301,7 @@ OpenFsGetFcbLogicalRun(
     if ((fileSize % vcb->Geometry.BlockSize) != 0)
         ++logicalBlockCount;
 
+    *LogicalBlockCount = logicalBlockCount;
     status = OpenFsGetLogicalRun(FileFcb->Extents, FileFcb->ExtentCount,
         StartingVcn, logicalBlockCount, NextVcn, PhysicalBlock, IsAllocated);
 
