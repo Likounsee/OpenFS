@@ -1159,6 +1159,10 @@ OpenFsReadFcbData(
                 ULONGLONG nextPhysical = 0;
                 BOOLEAN nextAllocated = FALSE;
 
+                if (logicalBlock > MAXULONGLONG - runBlocks) {
+                    status = STATUS_INTEGER_OVERFLOW;
+                    goto Exit;
+                }
                 status = OpenFsMapLogicalBlock(FileFcb->Extents,
                     FileFcb->ExtentCount, logicalBlock + runBlocks,
                     &nextPhysical, &nextAllocated);
