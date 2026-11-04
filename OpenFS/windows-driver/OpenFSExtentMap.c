@@ -52,13 +52,12 @@ OpenFsDecodeExtentMapBlock(
     ULONG capacity;
     ULONGLONG requiredLogicalBlocks;
     ULONGLONG previousLogicalEnd = 0;
-    NTSTATUS status = STATUS_DISK_CORRUPT_ERROR;
 
     if (ExtentCount == NULL)
         return STATUS_INVALID_PARAMETER;
     *ExtentCount = 0;
 
-    if (Bytes == NULL || (ExtentCapacity != 0 && Extents == NULL) ||
+    if (Bytes == NULL || Extents == NULL ||
         BlockSize < 4096u || BlockSize > 65536u ||
         (BlockSize & (BlockSize - 1u)) != 0 ||
         TotalBlocks == 0 || DataStartBlock >= BackupSuperblockBlock ||
@@ -151,6 +150,5 @@ OpenFsDecodeExtentMapBlock(
         Extents[index].BlockCount = OpenFsExtentReadU64Le(Bytes + offset + 16);
     }
     *ExtentCount = count;
-    status = STATUS_SUCCESS;
-    return status;
+    return STATUS_SUCCESS;
 }
