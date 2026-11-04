@@ -199,3 +199,69 @@ OpenFsMapLogicalBlock(
     }
     return STATUS_SUCCESS;
 }
+
+NTSTATUS
+OpenFsGetLogicalRun(
+    _In_reads_(ExtentCount) const OPENFS_EXTENT* Extents,
+    _In_ ULONG ExtentCount,
+    _In_ ULONGLONG LogicalBlock,
+    _In_ ULONGLONG LogicalBlockCount,
+    _Out_ PULONGLONG NextLogicalBlock,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ PBOOLEAN IsAllocated
+    )
+{
+    ULONG low = 0;
+    ULONG high = ExtentCount;
+    ULONGLONG runEnd;
+
+    if (NextLogicalBlock == NULL || PhysicalBlock == NULL ||
+        IsAllocated == NULL || (ExtentCount != 0 && Extents == NULL))
+        return STATUS_INVALID_PARAMETER;
+
+    *NextLogicalBlock = 0;
+    *PhysicalBlock = 0;
+    *IsAllocated = FALSE;
+
+    if (LogicalBlockCount == 0 || LogicalBlock >= LogicalBlockCount)
+        return STATUS_INVALID_PARAMETER;
+
+    /* Locate the final extent whose logical start is <= the requested VCN. */
+    while (low < high) {
+        ULONG middle = low + ((high - low) / 2u);
+        if (Extents[middle].LogicalStart <= LogicalBlock)
+            low = middle + 1u;
+        else
+            high = middle;
+    }
+
+    if (low != 0) {
+        const OPENFS_EXTENT* extent = &Extents[low - 1u];
+        ULONGLONG displacement = LogicalBlock - extent->LogicalStart;
+
+        if (displacement < extent->BlockCount) {
+            if (extent->LogicalStart > MAXULONGLONG - extent->BlockCount ||
+                extent->PhysicalStart > MAXULONGLONG - displacement)
+                return STATUS_DISK_CORRUPT_ERROR;
+            runEnd = extent->LogicalStart + extent->BlockCount;
+            *PhysicalBlock = extent->PhysicalStart + displacement;
+            *IsAllocated = TRUE;
+        } else {
+            runEnd = LogicalBlockCount;
+            if (low < ExtentCount && Extents[low].LogicalStart < runEnd)
+                runEnd = Extents[low].LogicalStart;
+        }
+    } else {
+        runEnd = LogicalBlockCount;
+        if (ExtentCount != 0 && Extents[0].LogicalStart < runEnd)
+            runEnd = Extents[0].LogicalStart;
+    }
+
+    if (runEnd > LogicalBlockCount)
+        runEnd = LogicalBlockCount;
+    if (runEnd <= LogicalBlock)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    *NextLogicalBlock = runEnd;
+    return STATUS_SUCCESS;
+}
