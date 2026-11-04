@@ -164,3 +164,15 @@ OpenFsSetVolumeNamespace(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _In_ POPENFS_NAMESPACE_SNAPSHOT NamespaceSnapshot
     );
+
+
+/* Return one allocated or sparse VCN run for a regular file. */
+NTSTATUS
+OpenFsGetFcbLogicalRun(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG StartingVcn,
+    _Out_ PULONGLONG NextVcn,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ PBOOLEAN IsAllocated
+    );
