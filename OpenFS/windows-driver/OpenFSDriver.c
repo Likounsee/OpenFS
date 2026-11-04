@@ -23,6 +23,33 @@ OpenFsCompleteIrp(
  * must fail deterministically. In particular, never let an unset major
  * function pointer become an accidental dispatch path.
  */
+/*
+ * OpenFS is currently mounted read-only. A flush therefore has no dirty
+ * filesystem cache to write, but it must still validate that the target is a
+ * live mounted volume rather than blindly succeeding on the control device.
+ */
+static NTSTATUS
+OpenFsDispatchFlushBuffers(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    OPENFS_VOLUME_STATE state;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL ||
+        DeviceObject == g_OpenFsFileSystemDevice)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+
+    status = OpenFsQueryVolumeState(DeviceObject, &state);
+    if (!NT_SUCCESS(status))
+        return OpenFsCompleteIrp(Irp, status);
+    if (state != OpenFsVolumeMounted)
+        return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+
+    return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
+}
+
 static NTSTATUS
 OpenFsDispatchUnsupported(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -907,6 +934,8 @@ DriverEntry(
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
     DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
+    DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS] =
+        OpenFsDispatchFlushBuffers;
     DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =
         OpenFsDispatchQueryInformation;
     DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION] =
