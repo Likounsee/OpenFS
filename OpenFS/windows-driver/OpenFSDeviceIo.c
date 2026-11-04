@@ -317,6 +317,94 @@ Exit:
 
 
 
+
+/*
+ * Count unallocated blocks in the data region from the on-disk allocation
+ * bitmap. The caller may use this for read-only filesystem size reporting.
+ */
+NTSTATUS
+OpenFsCountFreeDataBlocks(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _Out_ ULONGLONG* FreeBlocks
+    )
+{
+    OPENFS_VOLUME_LAYOUT layout;
+    ULONGLONG bitsPerPage;
+    ULONGLONG firstPage;
+    ULONGLONG lastPage;
+    ULONGLONG page;
+    SIZE_T bitmapBytes;
+    PUCHAR bitmap;
+    ULONGLONG totalFree = 0;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL || Geometry == NULL || FreeBlocks == NULL ||
+        Geometry->BlockSize == 0)
+        return STATUS_INVALID_PARAMETER;
+    *FreeBlocks = 0;
+
+    status = OpenFsCalculateVolumeLayout(Geometry->BlockSize,
+        Geometry->TotalBlocks, Geometry->Version, &layout);
+    if (!NT_SUCCESS(status)) return status;
+
+    bitsPerPage = (ULONGLONG)Geometry->BlockSize * 8u;
+    if (bitsPerPage == 0 || layout.DataStartBlock >= layout.BackupSuperblockBlock)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    firstPage = layout.DataStartBlock / bitsPerPage;
+    lastPage = (layout.BackupSuperblockBlock - 1u) / bitsPerPage;
+    bitmapBytes = Geometry->BlockSize;
+    bitmap = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+        bitmapBytes, OPENFS_DEVICE_IO_TAG);
+    if (bitmap == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+
+    status = STATUS_SUCCESS;
+    for (page = firstPage; page <= lastPage; ++page) {
+        ULONGLONG pageBase;
+        ULONGLONG pageEnd;
+        ULONGLONG rangeStart;
+        ULONGLONG rangeEnd;
+        ULONGLONG pageFree = 0;
+        ULONGLONG bitmapBlock;
+
+        if (page > MAXULONGLONG / bitsPerPage ||
+            page == MAXULONGLONG) {
+            status = STATUS_INTEGER_OVERFLOW;
+            break;
+        }
+        pageBase = page * bitsPerPage;
+        if (pageBase > MAXULONGLONG - bitsPerPage) {
+            status = STATUS_INTEGER_OVERFLOW;
+            break;
+        }
+        pageEnd = pageBase + bitsPerPage;
+        rangeStart = layout.DataStartBlock > pageBase
+            ? layout.DataStartBlock : pageBase;
+        rangeEnd = layout.BackupSuperblockBlock < pageEnd
+            ? layout.BackupSuperblockBlock : pageEnd;
+
+        /* Bitmap page zero is stored at filesystem block one. */
+        bitmapBlock = page + 1u;
+        status = OpenFsReadVolumeBlocks(DeviceObject, Geometry->BlockSize,
+            Geometry->TotalBlocks, bitmapBlock, 1u, bitmap, bitmapBytes);
+        if (!NT_SUCCESS(status)) break;
+
+        status = OpenFsCountFreeBlocksInRange(bitmap, bitmapBytes,
+            pageBase, rangeStart, rangeEnd, &pageFree);
+        if (!NT_SUCCESS(status)) break;
+        if (totalFree > MAXULONGLONG - pageFree) {
+            status = STATUS_INTEGER_OVERFLOW;
+            break;
+        }
+        totalFree += pageFree;
+    }
+
+    ExFreePoolWithTag(bitmap, OPENFS_DEVICE_IO_TAG);
+    if (NT_SUCCESS(status)) *FreeBlocks = totalFree;
+    return status;
+}
+
 static NTSTATUS
 OpenFsReadPackedInventory(
     _In_ PDEVICE_OBJECT DeviceObject,
