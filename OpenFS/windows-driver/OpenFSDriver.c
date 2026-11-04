@@ -96,9 +96,11 @@ OpenFsDispatchFileSystemControl(
             status = OpenFsCreateVolumeDevice(DriverObject,
                 volumeDeviceObject, &geometry, &privateVolumeDevice);
             if (NT_SUCCESS(status)) {
-                status = OpenFsSetVolumeNamespace(privateVolumeDevice,
-                    namespaceSnapshot);
-                if (NT_SUCCESS(status)) namespaceSnapshot = NULL;
+                if (namespaceSnapshot != NULL) {
+                    status = OpenFsSetVolumeNamespace(privateVolumeDevice,
+                        namespaceSnapshot);
+                    if (NT_SUCCESS(status)) namespaceSnapshot = NULL;
+                }
                 {
                     NTSTATUS destroyStatus =
                         OpenFsDestroyVolumeDevice(privateVolumeDevice);
