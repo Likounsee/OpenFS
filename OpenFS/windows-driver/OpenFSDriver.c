@@ -916,7 +916,7 @@ OpenFsDispatchDirectoryControl(
         ULONG recordIndex;
         const OPENFS_METADATA_RECORD* record;
         ULONG required;
-        ULONG alignedRequired;
+        ULONG recordOffset;
         PVOID recordBuffer;
 
         ++entryIndex;
@@ -982,9 +982,18 @@ OpenFsDispatchDirectoryControl(
             status = STATUS_INVALID_INFO_CLASS;
             goto DirectoryExit;
         }
-        alignedRequired = (required + 7u) & ~7u;
-        if (alignedRequired < required || bytesUsed > outputLength ||
-            alignedRequired > outputLength - bytesUsed) {
+        /*
+         * Only the start of each record (and therefore each non-final
+         * NextEntryOffset) must be 8-byte aligned. The final record may end
+         * exactly at the caller's buffer boundary without trailing padding.
+         */
+        if (bytesUsed > MAXULONG - 7u) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto DirectoryExit;
+        }
+        recordOffset = (bytesUsed + 7u) & ~7u;
+        if (recordOffset < bytesUsed || recordOffset > outputLength ||
+            required > outputLength - recordOffset) {
             /*
              * The current matching entry has not been copied. Keep the
              * enumeration cursor on it so the next query retries this entry
@@ -995,8 +1004,11 @@ OpenFsDispatchDirectoryControl(
             break;
         }
 
-        recordBuffer = (PUCHAR)output + bytesUsed;
-        RtlZeroMemory(recordBuffer, alignedRequired);
+        if (recordOffset > bytesUsed)
+            RtlZeroMemory((PUCHAR)output + bytesUsed,
+                recordOffset - bytesUsed);
+        recordBuffer = (PUCHAR)output + recordOffset;
+        RtlZeroMemory(recordBuffer, required);
         {
             LONGLONG allocationSize;
             status = OpenFsGetDirectoryAllocationSize(record->Size,
@@ -1094,10 +1106,10 @@ OpenFsDispatchDirectoryControl(
         }
         if (previousOffset != MAXULONG) {
             *(PULONG)((PUCHAR)output + previousOffset) =
-                bytesUsed - previousOffset;
+                recordOffset - previousOffset;
         }
-        previousOffset = bytesUsed;
-        bytesUsed += alignedRequired;
+        previousOffset = recordOffset;
+        bytesUsed = recordOffset + required;
         if ((flags & SL_RETURN_SINGLE_ENTRY) != 0) break;
     }
 
