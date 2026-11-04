@@ -222,6 +222,32 @@ main(void)
         Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_SUCCESS,
             "valid root and two-file namespace accepted");
 
+        {
+            POPENFS_NAMESPACE_SNAPSHOT snapshot = NULL;
+            Check(OpenFsCreateNamespaceSnapshot(records, 3, entries, 2,
+                1, 0, &snapshot) == STATUS_SUCCESS,
+                "validated namespace snapshot created");
+            Check(snapshot != NULL && snapshot->RecordCount == 3 &&
+                snapshot->EntryCount == 2 && snapshot->RootRecordIndex == 0,
+                "snapshot retains counts and root index");
+            if (snapshot != NULL) {
+                Check(snapshot->Records != records && snapshot->Entries != entries,
+                    "snapshot owns independent copies");
+                Check(snapshot->Records[1].ObjectIdLow == 42 &&
+                    snapshot->Entries[0].NameLength == 8,
+                    "snapshot copies decoded namespace content");
+            }
+            OpenFsFreeNamespaceSnapshot(snapshot);
+            snapshot = NULL;
+            Check(OpenFsCreateNamespaceSnapshot(records, 3, entries, 2,
+                99, 0, &snapshot) == STATUS_DISK_CORRUPT_ERROR &&
+                snapshot == NULL,
+                "snapshot rejects a missing root record");
+            Check(OpenFsCreateNamespaceSnapshot(NULL, 0, NULL, 0,
+                0, 0, &snapshot) == STATUS_INVALID_PARAMETER,
+                "snapshot rejects a zero root identifier");
+        }
+
         memcpy(entries[1].Name, "File.txt", 8);
         entries[1].NameLength = 8;
         Check(OpenFsValidateNamespaceRecords(records,3,entries,2,1,0,10,100)==STATUS_SUCCESS,

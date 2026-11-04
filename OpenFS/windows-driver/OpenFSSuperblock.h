@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 typedef uint8_t UCHAR;
 typedef uint16_t USHORT;
@@ -13,6 +14,7 @@ typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
 typedef int32_t LONG;
 typedef int BOOLEAN;
+typedef void VOID;
 
 #define TRUE 1
 #define FALSE 0
@@ -24,6 +26,8 @@ typedef int BOOLEAN;
 #define _Out_
 #define _In_reads_bytes_(Length)
 #define _Out_writes_bytes_(Length)
+#define _Outptr_
+#define _In_opt_
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
 #define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)
