@@ -172,6 +172,7 @@ OpenFsGetFcbLogicalRun(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _In_ POPENFS_FCB FileFcb,
     _In_ ULONGLONG StartingVcn,
+    _Out_ PULONGLONG LogicalBlockCount,
     _Out_ PULONGLONG NextVcn,
     _Out_ PULONGLONG PhysicalBlock,
     _Out_ PBOOLEAN IsAllocated
