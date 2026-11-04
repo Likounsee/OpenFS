@@ -29,3 +29,13 @@ OpenFsDecodeExtentMapBlock(
     _In_ ULONG ExtentCapacity,
     _Out_ PULONG ExtentCount
     );
+
+/* Map one logical file block to physical storage; sparse holes return FALSE. */
+NTSTATUS
+OpenFsMapLogicalBlock(
+    _In_reads_(ExtentCount) const OPENFS_EXTENT* Extents,
+    _In_ ULONG ExtentCount,
+    _In_ ULONGLONG LogicalBlock,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ PBOOLEAN IsAllocated
+    );
