@@ -158,7 +158,7 @@ OpenFsMapLogicalBlock(
     _In_reads_(ExtentCount) const OPENFS_EXTENT* Extents,
     _In_ ULONG ExtentCount,
     _In_ ULONGLONG LogicalBlock,
-    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ ULONGLONG* PhysicalBlock,
     _Out_ BOOLEAN* IsAllocated
     )
 {
