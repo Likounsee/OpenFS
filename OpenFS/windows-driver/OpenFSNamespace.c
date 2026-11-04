@@ -643,7 +643,8 @@ OpenFsResolveNamespacePath(
     ULONGLONG parentHigh;
     USHORT offset = 0;
 
-    if (Snapshot == NULL || Path == NULL || RecordIndex == NULL ||
+    if (Snapshot == NULL || (Path == NULL && PathLength != 0) ||
+        RecordIndex == NULL ||
         Snapshot->Records == NULL || Snapshot->RecordCount == 0 ||
         Snapshot->RootRecordIndex >= Snapshot->RecordCount)
         return STATUS_INVALID_PARAMETER;

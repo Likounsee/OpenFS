@@ -266,6 +266,10 @@ main(void)
                     foundIndex == 0,
                     "empty path resolves to root");
                 Check(OpenFsResolveNamespacePath(snapshot,
+                    NULL, 0, &foundIndex) == STATUS_SUCCESS &&
+                    foundIndex == 0,
+                    "null zero-length path resolves to root");
+                Check(OpenFsResolveNamespacePath(snapshot,
                     (const UCHAR*)"\\\\file.txt", 10, &foundIndex) == STATUS_SUCCESS &&
                     foundIndex == 1,
                     "root-relative Windows path resolves a file");
