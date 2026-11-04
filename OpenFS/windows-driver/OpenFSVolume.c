@@ -1286,9 +1286,18 @@ OpenFsGetFcbLogicalRun(
             break;
         }
     }
-    if (!NT_SUCCESS(status) || FileFcb->Signature != OPENFS_FCB_SIGNATURE ||
-        FileFcb->Kind != 1u || FileFcb->IsRoot) {
+    if (!NT_SUCCESS(status))
+        goto RunExit;
+    if (FileFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto RunExit;
+    }
+    if (FileFcb->Kind != 1u || FileFcb->IsRoot) {
         status = STATUS_FILE_IS_A_DIRECTORY;
+        goto RunExit;
+    }
+    if (vcb->Geometry.BlockSize == 0) {
+        status = STATUS_INVALID_DEVICE_STATE;
         goto RunExit;
     }
     if (vcb->State != OpenFsVolumeMounted || !FileFcb->ExtentsLoaded) {
