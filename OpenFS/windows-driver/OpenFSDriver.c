@@ -614,7 +614,7 @@ OpenFsDispatchDirectoryControl(
         }
 
         recordBuffer = (PUCHAR)output + bytesUsed;
-        RtlZeroMemory(recordBuffer, required);
+        RtlZeroMemory(recordBuffer, alignedRequired);
         if (infoClass == FileNamesInformation) {
             PFILE_NAMES_INFORMATION info =
                 (PFILE_NAMES_INFORMATION)recordBuffer;
