@@ -915,6 +915,85 @@ OpenFsDispatchFileSystemControl(
             return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
 
         controlCode = stack->Parameters.FileSystemControl.FsControlCode;
+        if (controlCode == FSCTL_GET_VOLUME_BITMAP) {
+            PVOID systemBuffer = Irp->AssociatedIrp.SystemBuffer;
+            PSTARTING_LCN_INPUT_BUFFER input =
+                (PSTARTING_LCN_INPUT_BUFFER)systemBuffer;
+            PVOLUME_BITMAP_BUFFER output =
+                (PVOLUME_BITMAP_BUFFER)systemBuffer;
+            POPENFS_VCB vcb;
+            OPENFS_VOLUME_LAYOUT layout;
+            ULONGLONG startingLcn;
+            ULONGLONG totalDataBlocks;
+            ULONGLONG bitsRead = 0;
+            ULONG outputHeader = FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer);
+            SIZE_T bitmapBytes;
+            NTSTATUS status;
+
+            if (systemBuffer == NULL ||
+                stack->Parameters.FileSystemControl.InputBufferLength <
+                    sizeof(STARTING_LCN_INPUT_BUFFER) ||
+                stack->Parameters.FileSystemControl.OutputBufferLength <=
+                    outputHeader)
+                return OpenFsCompleteIrp(Irp, STATUS_BUFFER_TOO_SMALL);
+
+            startingLcn = (ULONGLONG)input->StartingLcn.QuadPart;
+            if (input->StartingLcn.QuadPart < 0)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+            if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+            if (!ExAcquireRundownProtection(&vcb->RundownProtection))
+                return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+            if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+                ExReleaseRundownProtection(&vcb->RundownProtection);
+                return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+            }
+
+            if (vcb->State != OpenFsVolumeMounted ||
+                vcb->Geometry.BlockSize == 0) {
+                status = STATUS_VOLUME_DISMOUNTED;
+                goto BitmapExit;
+            }
+            status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
+                vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+            if (!NT_SUCCESS(status)) goto BitmapExit;
+            if (layout.BackupSuperblockBlock <= layout.DataStartBlock) {
+                status = STATUS_DISK_CORRUPT_ERROR;
+                goto BitmapExit;
+            }
+            totalDataBlocks =
+                layout.BackupSuperblockBlock - layout.DataStartBlock;
+            if (startingLcn >= totalDataBlocks) {
+                status = STATUS_INVALID_PARAMETER;
+                goto BitmapExit;
+            }
+
+            bitmapBytes =
+                stack->Parameters.FileSystemControl.OutputBufferLength -
+                outputHeader;
+            RtlZeroMemory(systemBuffer,
+                stack->Parameters.FileSystemControl.OutputBufferLength);
+            output->StartingLcn.QuadPart = (LONGLONG)startingLcn;
+            output->BitmapSize.QuadPart = (LONGLONG)totalDataBlocks;
+            status = OpenFsReadDataBitmap(vcb->RealDeviceObject,
+                &vcb->Geometry, layout.DataStartBlock, totalDataBlocks,
+                startingLcn, output->Buffer, bitmapBytes, &bitsRead);
+            if (NT_SUCCESS(status)) {
+                Irp->IoStatus.Information = outputHeader +
+                    (ULONG)((bitsRead + 7u) / 8u);
+            }
+
+BitmapExit:
+            ExReleaseResourceLite(&vcb->Resource);
+            ExReleaseRundownProtection(&vcb->RundownProtection);
+            if (!NT_SUCCESS(status))
+                Irp->IoStatus.Information = 0;
+            Irp->IoStatus.Status = status;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return status;
+        }
         if (controlCode == FSCTL_IS_VOLUME_MOUNTED) {
             NTSTATUS status = OpenFsQueryVolumeState(DeviceObject, &state);
             if (!NT_SUCCESS(status))
