@@ -151,6 +151,7 @@ OpenFsDispatchCreate(
 
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
         vcb->State != OpenFsVolumeMounted ||
+        vcb->LockFileObject != NULL ||
         fcb->OpenHandleCount == MAXULONG) {
         status = STATUS_VOLUME_DISMOUNTED;
     } else {
@@ -248,6 +249,14 @@ OpenFsDispatchClose(
         if (vcb != NULL && vcb->Signature == OPENFS_VCB_SIGNATURE &&
             ExAcquireRundownProtection(&vcb->RundownProtection)) {
             if (ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+                if (vcb->LockFileObject == fileObject && vcb->Vpb != NULL) {
+                    KIRQL oldIrql;
+                    IoAcquireVpbSpinLock(&oldIrql);
+                    if (vcb->Vpb->DeviceObject == DeviceObject)
+                        vcb->Vpb->Flags &= (USHORT)~VPB_LOCKED;
+                    vcb->LockFileObject = NULL;
+                    IoReleaseVpbSpinLock(oldIrql);
+                }
                 if (fcb->Signature == OPENFS_FCB_SIGNATURE &&
                     fcb->OpenHandleCount != 0)
                     --fcb->OpenHandleCount;
@@ -1171,13 +1180,24 @@ BitmapExit:
                     ? STATUS_SUCCESS : STATUS_VOLUME_DISMOUNTED);
         }
 
+        if (controlCode == FSCTL_LOCK_VOLUME) {
+            if (stack->FileObject == NULL)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+            return OpenFsCompleteIrp(Irp,
+                OpenFsLockVolume(DeviceObject, stack->FileObject));
+        }
+        if (controlCode == FSCTL_UNLOCK_VOLUME) {
+            if (stack->FileObject == NULL)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+            return OpenFsCompleteIrp(Irp,
+                OpenFsUnlockVolume(DeviceObject, stack->FileObject));
+        }
+
         /*
-         * Dismount and lock are deliberately not acknowledged yet. A
-         * successful response without VPB teardown/lock ownership would
-         * leave the I/O manager and VCB disagreeing about mount lifetime.
+         * Dismount remains disabled until VPB unpublication and deferred VDO
+         * teardown can be committed as one lifetime-safe operation.
          */
-        if (controlCode == FSCTL_DISMOUNT_VOLUME ||
-            controlCode == FSCTL_LOCK_VOLUME)
+        if (controlCode == FSCTL_DISMOUNT_VOLUME)
             return OpenFsCompleteIrp(Irp, STATUS_DEVICE_BUSY);
 
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
