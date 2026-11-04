@@ -407,7 +407,14 @@ OpenFsPublishVolumeVpb(
              * All dispatch-visible state must already be initialized.
              * Clear this flag immediately before making the VDO reachable.
              */
+            static const WCHAR volumeLabel[] = L"OpenFS";
             VolumeDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+            Vpb->SerialNumber = OpenFsCrc32C(vcb->Geometry.Uuid,
+                sizeof(vcb->Geometry.Uuid));
+            RtlZeroMemory(Vpb->VolumeLabel, sizeof(Vpb->VolumeLabel));
+            Vpb->VolumeLabelLength = sizeof(volumeLabel) - sizeof(WCHAR);
+            RtlCopyMemory(Vpb->VolumeLabel, volumeLabel,
+                Vpb->VolumeLabelLength);
             Vpb->DeviceObject = VolumeDeviceObject;
             vcb->State = OpenFsVolumeMounted;
         }
