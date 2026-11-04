@@ -152,3 +152,47 @@ OpenFsDecodeExtentMapBlock(
     *ExtentCount = count;
     return STATUS_SUCCESS;
 }
+
+NTSTATUS
+OpenFsMapLogicalBlock(
+    _In_reads_(ExtentCount) const OPENFS_EXTENT* Extents,
+    _In_ ULONG ExtentCount,
+    _In_ ULONGLONG LogicalBlock,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ BOOLEAN* IsAllocated
+    )
+{
+    ULONG low = 0;
+    ULONG high = ExtentCount;
+
+    if (PhysicalBlock == NULL || IsAllocated == NULL ||
+        (ExtentCount != 0 && Extents == NULL))
+        return STATUS_INVALID_PARAMETER;
+
+    *PhysicalBlock = 0;
+    *IsAllocated = FALSE;
+
+    /* Upper-bound search: find the final run starting at/before the block. */
+    while (low < high) {
+        ULONG middle = low + ((high - low) / 2u);
+        if (Extents[middle].LogicalStart <= LogicalBlock)
+            low = middle + 1u;
+        else
+            high = middle;
+    }
+
+    if (low == 0)
+        return STATUS_SUCCESS;
+
+    {
+        const OPENFS_EXTENT* extent = &Extents[low - 1u];
+        ULONGLONG displacement = LogicalBlock - extent->LogicalStart;
+        if (displacement >= extent->BlockCount)
+            return STATUS_SUCCESS;
+        if (extent->PhysicalStart > MAXULONGLONG - displacement)
+            return STATUS_DISK_CORRUPT_ERROR;
+        *PhysicalBlock = extent->PhysicalStart + displacement;
+        *IsAllocated = TRUE;
+    }
+    return STATUS_SUCCESS;
+}
