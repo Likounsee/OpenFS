@@ -746,7 +746,7 @@ OpenFsDispatchFileSystemControl(
             goto MountRollback;
 
         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-            "OpenFS: mounted volume (revision %u, block size %lu, blocks %I64u)\\n",
+            "OpenFS: mounted volume (revision %u, block size %lu, blocks %I64u)\n",
             (ULONG)geometry.Version, geometry.BlockSize, geometry.TotalBlocks);
         return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 
