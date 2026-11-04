@@ -1201,7 +1201,7 @@ OpenFsDispatchFileSystemControl(
             ULONGLONG requestStart;
             ULONGLONG requestEnd;
             ULONGLONG fileSize;
-            ULONGLONG blockSize;
+            ULONG blockSize;
             ULONGLONG currentVcn;
             ULONG outputLength =
                 stack->Parameters.FileSystemControl.OutputBufferLength;
@@ -1254,7 +1254,7 @@ OpenFsDispatchFileSystemControl(
                 return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
 
             status = OpenFsQueryFcbMetadata(DeviceObject, fcb,
-                &fileSize, (PULONG)&blockSize);
+                &fileSize, &blockSize);
             if (!NT_SUCCESS(status))
                 return OpenFsCompleteIrp(Irp, status);
             if (blockSize == 0 || (blockSize & (blockSize - 1u)) != 0)
