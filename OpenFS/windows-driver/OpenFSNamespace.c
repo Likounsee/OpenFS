@@ -628,3 +628,74 @@ OpenFsLookupNamespaceChild(
     }
     return STATUS_NOT_FOUND;
 }
+
+
+NTSTATUS
+OpenFsResolveNamespacePath(
+    _In_ const OPENFS_NAMESPACE_SNAPSHOT* Snapshot,
+    _In_reads_bytes_(PathLength) const UCHAR* Path,
+    _In_ USHORT PathLength,
+    _Out_ PULONG RecordIndex
+    )
+{
+    ULONG currentIndex;
+    ULONGLONG parentLow;
+    ULONGLONG parentHigh;
+    USHORT offset = 0;
+
+    if (Snapshot == NULL || Path == NULL || RecordIndex == NULL ||
+        Snapshot->Records == NULL || Snapshot->RecordCount == 0 ||
+        Snapshot->RootRecordIndex >= Snapshot->RecordCount)
+        return STATUS_INVALID_PARAMETER;
+
+    currentIndex = Snapshot->RootRecordIndex;
+    if (Snapshot->Records[currentIndex].Kind != 2u ||
+        Snapshot->Records[currentIndex].ObjectIdLow != Snapshot->RootIdLow ||
+        Snapshot->Records[currentIndex].ObjectIdHigh != Snapshot->RootIdHigh)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    while (offset < PathLength) {
+        USHORT start;
+        USHORT componentLength;
+        ULONG childIndex;
+        const OPENFS_METADATA_RECORD* current;
+
+        while (offset < PathLength &&
+            (Path[offset] == (UCHAR)'\\' || Path[offset] == (UCHAR)'/'))
+            ++offset;
+        if (offset == PathLength) break;
+
+        start = offset;
+        while (offset < PathLength &&
+            Path[offset] != (UCHAR)'\\' && Path[offset] != (UCHAR)'/')
+            ++offset;
+        componentLength = (USHORT)(offset - start);
+
+        if (componentLength == 0 ||
+            componentLength > OPENFS_DIRECTORY_NAME_MAX_BYTES)
+            return STATUS_OBJECT_NAME_INVALID;
+        if ((componentLength == 1 && Path[start] == (UCHAR)'.') ||
+            (componentLength == 2 && Path[start] == (UCHAR)'.' &&
+             Path[start + 1] == (UCHAR)'.'))
+            return STATUS_OBJECT_PATH_SYNTAX_BAD;
+
+        current = &Snapshot->Records[currentIndex];
+        if (current->Kind != 2u)
+            return STATUS_NOT_A_DIRECTORY;
+
+        parentLow = current->ObjectIdLow;
+        parentHigh = current->ObjectIdHigh;
+        {
+            NTSTATUS status = OpenFsLookupNamespaceChild(Snapshot,
+                parentLow, parentHigh, Path + start,
+                (UCHAR)componentLength, &childIndex);
+            if (!NT_SUCCESS(status)) return status;
+        }
+        if (childIndex >= Snapshot->RecordCount)
+            return STATUS_DISK_CORRUPT_ERROR;
+        currentIndex = childIndex;
+    }
+
+    *RecordIndex = currentIndex;
+    return STATUS_SUCCESS;
+}

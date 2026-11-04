@@ -261,6 +261,31 @@ main(void)
                 Check(OpenFsLookupNamespaceChild(snapshot, 42, 0,
                     (const UCHAR*)"missing", 7, &foundIndex) == STATUS_NOT_FOUND,
                     "namespace lookup refuses a non-directory parent");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"", 0, &foundIndex) == STATUS_SUCCESS &&
+                    foundIndex == 0,
+                    "empty path resolves to root");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"\\\\file.txt", 10, &foundIndex) == STATUS_SUCCESS &&
+                    foundIndex == 1,
+                    "root-relative Windows path resolves a file");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"/file.txt/", 10, &foundIndex) == STATUS_SUCCESS &&
+                    foundIndex == 1,
+                    "mixed separators and trailing separator are normalized");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"missing", 7, &foundIndex) == STATUS_NOT_FOUND,
+                    "path resolver reports missing component");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"file.txt\\child", 14, &foundIndex) == STATUS_NOT_A_DIRECTORY,
+                    "path resolver rejects traversal through a file");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"..", 2, &foundIndex) == STATUS_OBJECT_PATH_SYNTAX_BAD,
+                    "path resolver rejects parent traversal");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"toolong-component-name-that-exceeds-sixty-four-bytes-xxxxxxxxxxxxxxxx", 70,
+                    &foundIndex) == STATUS_OBJECT_NAME_INVALID,
+                    "path resolver rejects oversized components");
                 OpenFsFreeNamespaceSnapshot(snapshot);
                 snapshot = NULL;
             }

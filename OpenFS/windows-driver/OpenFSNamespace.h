@@ -95,3 +95,12 @@ OpenFsLookupNamespaceChild(
     _In_ UCHAR NameLength,
     _Out_ PULONG RecordIndex
     );
+
+/* Resolve a UTF-8 relative or root-relative path; both slash styles are accepted. */
+NTSTATUS
+OpenFsResolveNamespacePath(
+    _In_ const OPENFS_NAMESPACE_SNAPSHOT* Snapshot,
+    _In_reads_bytes_(PathLength) const UCHAR* Path,
+    _In_ USHORT PathLength,
+    _Out_ PULONG RecordIndex
+    );
