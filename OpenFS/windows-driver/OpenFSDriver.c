@@ -951,7 +951,7 @@ OpenFsDispatchFileSystemControl(
                     ProbeForRead(input, sizeof(*input),
                         TYPE_ALIGNMENT(STARTING_VCN_INPUT_BUFFER));
                     ProbeForWrite(output, outputLength,
-                        TYPE_ALIGNMENT(ULONG));
+                        TYPE_ALIGNMENT(RETRIEVAL_POINTERS_BUFFER));
                 }
                 inputCopy = *input;
             }
