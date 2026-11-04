@@ -548,7 +548,7 @@ fn power_cut_during_orphan_reclamation_is_recoverable() {
 
         let image = device.image(Keep::Everything);
         let mut probe = CrashDevice::from_image(BS, BLOCKS, image.clone());
-        let mut reopened = open_volume(&mut probe).unwrap();
+        let reopened = open_volume(&mut probe).unwrap();
         let report = reopened
             .verify_discovered_persistent_inventory(&mut probe)
             .unwrap()
