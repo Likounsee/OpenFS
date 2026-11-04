@@ -78,6 +78,7 @@ OpenFsCreateVolumeDevice(
     vcb->RealDeviceObject = RealDeviceObject;
     vcb->AttachedDeviceObject = NULL;
     vcb->Vpb = NULL;
+    vcb->LockFileObject = NULL;
     vcb->Namespace = NULL;
     vcb->RootDcb = NULL;
     InitializeListHead(&vcb->FcbList);
@@ -1315,6 +1316,134 @@ OpenFsGetFcbLogicalRun(
         StartingVcn, logicalBlockCount, NextVcn, PhysicalBlock, IsAllocated);
 
 RunExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+
+/*
+ * Windows volume locking is an exclusive operation: the caller must hold
+ * the only open handle, and that handle must refer to the volume itself.
+ * The VCB resource serializes opens against the lock decision; VPB_LOCKED
+ * is changed only under the I/O manager's VPB spin lock.
+ */
+NTSTATUS
+OpenFsLockVolume(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PFILE_OBJECT FileObject
+    )
+{
+    POPENFS_VCB vcb;
+    POPENFS_FCB rootFcb;
+    PLIST_ENTRY link;
+    ULONGLONG totalOpenHandles = 0;
+    KIRQL oldIrql;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || FileObject == NULL ||
+        FileObject->FileName.Length != 0 || FileObject->FsContext == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    rootFcb = (POPENFS_FCB)FileObject->FsContext;
+    if (vcb->State != OpenFsVolumeMounted || vcb->Vpb == NULL ||
+        rootFcb->Signature != OPENFS_FCB_SIGNATURE || !rootFcb->IsRoot) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto LockExit;
+    }
+    if (vcb->LockFileObject != NULL) {
+        status = STATUS_ACCESS_DENIED;
+        goto LockExit;
+    }
+
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        POPENFS_FCB fcb =
+            CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        totalOpenHandles += fcb->OpenHandleCount;
+    }
+    if (totalOpenHandles != 1 || rootFcb->OpenHandleCount != 1) {
+        status = STATUS_ACCESS_DENIED;
+        goto LockExit;
+    }
+
+    IoAcquireVpbSpinLock(&oldIrql);
+    if (vcb->Vpb->RealDevice != vcb->RealDeviceObject ||
+        (vcb->Vpb->Flags & (VPB_MOUNTED | VPB_REMOVE_PENDING)) !=
+            VPB_MOUNTED ||
+        vcb->Vpb->DeviceObject != VolumeDeviceObject) {
+        status = STATUS_VOLUME_DISMOUNTED;
+    } else if ((vcb->Vpb->Flags & VPB_LOCKED) != 0) {
+        status = STATUS_ACCESS_DENIED;
+    } else {
+        vcb->Vpb->Flags |= VPB_LOCKED;
+        vcb->LockFileObject = FileObject;
+    }
+    IoReleaseVpbSpinLock(oldIrql);
+
+LockExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+NTSTATUS
+OpenFsUnlockVolume(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PFILE_OBJECT FileObject
+    )
+{
+    POPENFS_VCB vcb;
+    KIRQL oldIrql;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (VolumeDeviceObject == NULL || FileObject == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->LockFileObject != FileObject || vcb->Vpb == NULL) {
+        status = STATUS_ACCESS_DENIED;
+    } else {
+        IoAcquireVpbSpinLock(&oldIrql);
+        if (vcb->Vpb->DeviceObject == VolumeDeviceObject)
+            vcb->Vpb->Flags &= (USHORT)~VPB_LOCKED;
+        vcb->LockFileObject = NULL;
+        IoReleaseVpbSpinLock(oldIrql);
+    }
+
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
     ObDereferenceObject(VolumeDeviceObject);
