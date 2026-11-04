@@ -926,7 +926,7 @@ OpenFsDispatchFileSystemControl(
             POPENFS_FCB fcb;
             OPENFS_VOLUME_LAYOUT layout;
             ULONGLONG currentVcn;
-            ULONGLONG fileBlockCount;
+            ULONGLONG fileBlockCount = 0;
             ULONG outputLength =
                 stack->Parameters.FileSystemControl.OutputBufferLength;
             ULONG outputHeader =
@@ -978,12 +978,7 @@ OpenFsDispatchFileSystemControl(
             if (layout.BackupSuperblockBlock <= layout.DataStartBlock)
                 return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
 
-            fileBlockCount = fcb->FileSize / vcb->Geometry.BlockSize;
-            if ((fcb->FileSize % vcb->Geometry.BlockSize) != 0)
-                ++fileBlockCount;
             currentVcn = (ULONGLONG)inputCopy.StartingVcn.QuadPart;
-            if (currentVcn >= fileBlockCount)
-                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
 
             capacity = (outputLength - outputHeader) / extentBytes;
             __try {
@@ -996,9 +991,14 @@ OpenFsDispatchFileSystemControl(
                     BOOLEAN allocated = FALSE;
 
                     status = OpenFsGetFcbLogicalRun(DeviceObject, fcb,
-                        currentVcn, &nextVcn, &physicalBlock, &allocated);
+                        currentVcn, &fileBlockCount, &nextVcn,
+                        &physicalBlock, &allocated);
                     if (!NT_SUCCESS(status))
                         break;
+                    if (currentVcn >= fileBlockCount) {
+                        status = STATUS_INVALID_PARAMETER;
+                        break;
+                    }
                     if (nextVcn <= currentVcn || nextVcn > fileBlockCount) {
                         status = STATUS_DISK_CORRUPT_ERROR;
                         break;
