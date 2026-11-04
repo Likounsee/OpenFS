@@ -996,6 +996,14 @@ OpenFsReadFcbData(
     if (Length == 0)
         return STATUS_SUCCESS;
 
+    /*
+     * First use may require synchronous extent-map I/O. Load before taking
+     * the shared read lock because the loader publishes the cache exclusively.
+     */
+    status = OpenFsLoadFcbExtents(VolumeDeviceObject, FileFcb);
+    if (!NT_SUCCESS(status))
+        return status;
+
     ObReferenceObject(VolumeDeviceObject);
     vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
