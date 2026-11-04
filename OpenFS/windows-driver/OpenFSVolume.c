@@ -78,6 +78,8 @@ OpenFsCreateVolumeDevice(
     vcb->Vpb = NULL;
     vcb->Namespace = NULL;
     vcb->RootDcb = NULL;
+    InitializeListHead(&vcb->FcbList);
+    vcb->CachedFcbCount = 0;
     RtlCopyMemory(&vcb->Geometry, Geometry, sizeof(vcb->Geometry));
 
     volumeDeviceObject->StackSize =
@@ -136,10 +138,13 @@ OpenFsDestroyVolumeDevice(
         return status;
     }
     vcb->Signature = 0;
-    if (vcb->RootDcb != NULL) {
-        ExFreePoolWithTag(vcb->RootDcb, OPENFS_FCB_POOL_TAG);
-        vcb->RootDcb = NULL;
+    while (!IsListEmpty(&vcb->FcbList)) {
+        PLIST_ENTRY link = RemoveHeadList(&vcb->FcbList);
+        POPENFS_FCB fcb = CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        ExFreePoolWithTag(fcb, OPENFS_FCB_POOL_TAG);
     }
+    vcb->RootDcb = NULL;
+    vcb->CachedFcbCount = 0;
     OpenFsFreeNamespaceSnapshot(vcb->Namespace);
     vcb->Namespace = NULL;
     if (vcb->RealDeviceObject != NULL) {
@@ -499,6 +504,7 @@ OpenFsSetVolumeNamespace(
             rootDcb->Fcb.ObjectIdHigh = NamespaceSnapshot->RootIdHigh;
             rootDcb->Fcb.Kind = 2u;
             rootDcb->Fcb.IsRoot = TRUE;
+            InitializeListHead(&rootDcb->Fcb.CacheLink);
             if (rootRecord != NULL) {
                 rootDcb->Fcb.FileSize = rootRecord->Size;
                 rootDcb->Fcb.ExtentRootBlock = rootRecord->ExtentRootBlock;
@@ -512,9 +518,156 @@ OpenFsSetVolumeNamespace(
                     ++rootDcb->ChildCount;
             }
             vcb->RootDcb = rootDcb;
+            InsertTailList(&vcb->FcbList, &rootDcb->Fcb.CacheLink);
+            vcb->CachedFcbCount = 1;
             vcb->Namespace = NamespaceSnapshot;
         }
     }
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+
+/*
+ * Resolve a single directory component and cache its FCB for the lifetime
+ * of the VCB. Nodes are never evicted while mounted: callers may safely keep
+ * an FCB pointer in FILE_OBJECT->FsContext until volume teardown.
+ */
+NTSTATUS
+OpenFsLookupChildFcb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB ParentFcb,
+    _In_reads_bytes_(NameLength) const UCHAR* Name,
+    _In_ UCHAR NameLength,
+    _Outptr_ POPENFS_FCB* ChildFcb
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    ULONG recordIndex = MAXULONG;
+    const OPENFS_METADATA_RECORD* record;
+    POPENFS_FCB cached = NULL;
+    POPENFS_FCB allocated = NULL;
+    NTSTATUS status;
+
+    if (VolumeDeviceObject == NULL || ParentFcb == NULL ||
+        Name == NULL || NameLength == 0 || ChildFcb == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *ChildFcb = NULL;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = STATUS_INVALID_DEVICE_STATE;
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeInitializing ||
+        vcb->Namespace == NULL || IsListEmpty(&vcb->FcbList))
+        goto Exit;
+
+    /* Validate pointer ownership before dereferencing it as a parent node. */
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        POPENFS_FCB candidate =
+            CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        if (candidate == ParentFcb) {
+            cached = candidate;
+            break;
+        }
+    }
+    if (cached == NULL || cached->Signature != OPENFS_FCB_SIGNATURE ||
+        cached->Kind != 2u || cached->NodeType != OPENFS_DCB_NODE_TYPE) {
+        status = STATUS_NOT_A_DIRECTORY;
+        goto Exit;
+    }
+
+    status = OpenFsLookupNamespaceChild(vcb->Namespace,
+        cached->ObjectIdLow, cached->ObjectIdHigh, Name, NameLength,
+        &recordIndex);
+    if (!NT_SUCCESS(status)) goto Exit;
+    if (recordIndex >= vcb->Namespace->RecordCount) {
+        status = STATUS_DISK_CORRUPT_ERROR;
+        goto Exit;
+    }
+
+    record = &vcb->Namespace->Records[recordIndex];
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        POPENFS_FCB candidate =
+            CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        if (candidate->ObjectIdLow == record->ObjectIdLow &&
+            candidate->ObjectIdHigh == record->ObjectIdHigh) {
+            *ChildFcb = candidate;
+            status = STATUS_SUCCESS;
+            goto Exit;
+        }
+    }
+
+    if (record->Kind == 2u) {
+        POPENFS_DCB dcb = (POPENFS_DCB)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, sizeof(*dcb), OPENFS_FCB_POOL_TAG);
+        if (dcb == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
+        }
+        RtlZeroMemory(dcb, sizeof(*dcb));
+        allocated = &dcb->Fcb;
+        for (ULONG index = 0; index < vcb->Namespace->EntryCount; ++index) {
+            const OPENFS_DIRECTORY_ENTRY* entry =
+                &vcb->Namespace->Entries[index];
+            if (entry->ParentIdLow == record->ObjectIdLow &&
+                entry->ParentIdHigh == record->ObjectIdHigh)
+                ++dcb->ChildCount;
+        }
+    } else if (record->Kind == 1u) {
+        allocated = (POPENFS_FCB)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, sizeof(*allocated), OPENFS_FCB_POOL_TAG);
+        if (allocated == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
+        }
+        RtlZeroMemory(allocated, sizeof(*allocated));
+    } else {
+        status = STATUS_DISK_CORRUPT_ERROR;
+        goto Exit;
+    }
+
+    allocated->Signature = OPENFS_FCB_SIGNATURE;
+    allocated->NodeType = record->Kind == 2u
+        ? OPENFS_DCB_NODE_TYPE : OPENFS_FCB_SIGNATURE;
+    allocated->ObjectIdLow = record->ObjectIdLow;
+    allocated->ObjectIdHigh = record->ObjectIdHigh;
+    allocated->ParentIdLow = record->ParentIdLow;
+    allocated->ParentIdHigh = record->ParentIdHigh;
+    allocated->FileSize = record->Size;
+    allocated->ExtentRootBlock = record->ExtentRootBlock;
+    allocated->Generation = record->Generation;
+    allocated->Kind = record->Kind;
+    allocated->IsRoot = FALSE;
+    InitializeListHead(&allocated->CacheLink);
+    InsertTailList(&vcb->FcbList, &allocated->CacheLink);
+    ++vcb->CachedFcbCount;
+    *ChildFcb = allocated;
+    allocated = NULL;
+    status = STATUS_SUCCESS;
+
+Exit:
+    if (allocated != NULL)
+        ExFreePoolWithTag(allocated, OPENFS_FCB_POOL_TAG);
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
     ObDereferenceObject(VolumeDeviceObject);

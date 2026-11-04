@@ -21,6 +21,7 @@ typedef struct _OPENFS_FCB {
     ULONG Generation;
     UCHAR Kind;
     BOOLEAN IsRoot;
+    LIST_ENTRY CacheLink;
 } OPENFS_FCB, *POPENFS_FCB;
 
 typedef struct _OPENFS_DCB {
@@ -44,6 +45,8 @@ typedef struct _OPENFS_VCB {
     OPENFS_VOLUME_GEOMETRY Geometry;
     POPENFS_NAMESPACE_SNAPSHOT Namespace;
     POPENFS_DCB RootDcb;
+    LIST_ENTRY FcbList;
+    ULONG CachedFcbCount;
 } OPENFS_VCB, *POPENFS_VCB;
 
 /*
@@ -106,6 +109,16 @@ NTSTATUS
 OpenFsReleaseVolumeVpb(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
     _In_ PVPB Vpb
+    );
+
+/* Resolve and cache one child FCB/DCB. Returned nodes stay valid until VCB teardown. */
+NTSTATUS
+OpenFsLookupChildFcb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB ParentFcb,
+    _In_reads_bytes_(NameLength) const UCHAR* Name,
+    _In_ UCHAR NameLength,
+    _Outptr_ POPENFS_FCB* ChildFcb
     );
 
 /* Transfer ownership of a fully validated immutable namespace to the private VCB. */
