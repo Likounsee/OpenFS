@@ -483,15 +483,9 @@ OpenFsReadDataBitmap(
             bitmapPage, bitmapPageBytes);
         if (!NT_SUCCESS(status)) break;
 
-        for (index = 0; index < chunk; ++index) {
-            ULONGLONG sourceBit = pageOffset + index;
-            ULONGLONG destinationBit = copied + index;
-            if ((bitmapPage[(SIZE_T)(sourceBit / 8u)] &
-                    (UCHAR)(1u << (sourceBit % 8u))) != 0) {
-                Bitmap[(SIZE_T)(destinationBit / 8u)] |=
-                    (UCHAR)(1u << (destinationBit % 8u));
-            }
-        }
+        status = OpenFsCopyBitmapBits(bitmapPage, bitmapPageBytes,
+            pageOffset, chunk, Bitmap, BitmapBytes, copied);
+        if (!NT_SUCCESS(status)) break;
 
         copied += chunk;
         currentPhysicalBlock += chunk;
