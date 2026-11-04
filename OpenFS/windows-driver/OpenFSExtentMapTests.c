@@ -102,8 +102,8 @@ main(void)
 
     count = 99;
     Check(Decode(bytes, extents, 1, &count, 6u * TEST_BLOCK_SIZE) ==
-        STATUS_BUFFER_TOO_SMALL && count == 0,
-        "insufficient output capacity is rejected without partial count");
+        STATUS_BUFFER_TOO_SMALL && count == 2,
+        "insufficient capacity reports required extent count without copying");
 
     MakeBlock(bytes, 2);
     WriteExtent(bytes, 1, 1, 40, 1);
