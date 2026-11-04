@@ -54,6 +54,8 @@ typedef struct _OPENFS_VCB {
     POPENFS_DCB RootDcb;
     LIST_ENTRY FcbList;
     ULONG CachedFcbCount;
+    ULONGLONG FreeDataBlockCount;
+    BOOLEAN FreeDataBlockCountValid;
 } OPENFS_VCB, *POPENFS_VCB;
 
 /*
