@@ -1344,7 +1344,8 @@ OpenFsLockVolume(
     NTSTATUS status = STATUS_SUCCESS;
 
     if (VolumeDeviceObject == NULL || FileObject == NULL ||
-        FileObject->FileName.Length != 0 || FileObject->FsContext == NULL)
+        FileObject->FileName.Length != 0 || FileObject->FsContext == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
         return STATUS_INVALID_PARAMETER;
 
     ObReferenceObject(VolumeDeviceObject);
@@ -1426,7 +1427,8 @@ OpenFsUnlockVolume(
     KIRQL oldIrql;
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (VolumeDeviceObject == NULL || FileObject == NULL)
+    if (VolumeDeviceObject == NULL || FileObject == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
         return STATUS_INVALID_PARAMETER;
 
     ObReferenceObject(VolumeDeviceObject);
