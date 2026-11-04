@@ -88,6 +88,7 @@ OpenFsCreateVolumeDevice(
     volumeDeviceObject->AlignmentRequirement =
         RealDeviceObject->AlignmentRequirement;
     volumeDeviceObject->SectorSize = RealDeviceObject->SectorSize;
+    volumeDeviceObject->Flags |= DO_BUFFERED_IO;
 
     /*
      * Do not clear DO_DEVICE_INITIALIZING here. This object is still private:
@@ -121,6 +122,19 @@ OpenFsDestroyVolumeDevice(
         ExReleaseResourceLite(&vcb->Resource);
         ObDereferenceObject(VolumeDeviceObject);
         return STATUS_DEVICE_BUSY;
+    }
+    {
+        PLIST_ENTRY link;
+        for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+             link = link->Flink) {
+            POPENFS_FCB fcb =
+                CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+            if (fcb->OpenHandleCount != 0) {
+                ExReleaseResourceLite(&vcb->Resource);
+                ObDereferenceObject(VolumeDeviceObject);
+                return STATUS_DEVICE_BUSY;
+            }
+        }
     }
     if (!OpenFsVolumeStateTryTransition(&vcb->State,
             OpenFsVolumeInitializing, OpenFsVolumeDead)) {
