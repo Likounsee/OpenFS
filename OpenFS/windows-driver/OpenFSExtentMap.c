@@ -57,7 +57,7 @@ OpenFsDecodeExtentMapBlock(
         return STATUS_INVALID_PARAMETER;
     *ExtentCount = 0;
 
-    if (Bytes == NULL || Extents == NULL ||
+    if (Bytes == NULL || (Extents == NULL && ExtentCapacity != 0) ||
         BlockSize < 4096u || BlockSize > 65536u ||
         (BlockSize & (BlockSize - 1u)) != 0 ||
         TotalBlocks == 0 || DataStartBlock >= BackupSuperblockBlock ||
@@ -79,8 +79,11 @@ OpenFsDecodeExtentMapBlock(
         OPENFS_EXTENT_MAP_ENTRY_BYTES;
     if (count > capacity)
         return STATUS_DISK_CORRUPT_ERROR;
-    if (count > ExtentCapacity)
+    if (count > ExtentCapacity) {
+        /* Report the validated allocation size; no extent is copied yet. */
+        *ExtentCount = count;
         return STATUS_BUFFER_TOO_SMALL;
+    }
 
     requiredLogicalBlocks = FileSize / BlockSize;
     if ((FileSize % BlockSize) != 0) {
