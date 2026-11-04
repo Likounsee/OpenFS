@@ -985,7 +985,7 @@ OpenFsDispatchFileSystemControl(
                 RtlZeroMemory(output, outputLength);
                 output->StartingVcn = inputCopy.StartingVcn;
 
-                while (returned < capacity && currentVcn < fileBlockCount) {
+                while (returned < capacity) {
                     ULONGLONG nextVcn = 0;
                     ULONGLONG physicalBlock = 0;
                     BOOLEAN allocated = FALSE;
@@ -1019,6 +1019,8 @@ OpenFsDispatchFileSystemControl(
                     }
                     currentVcn = nextVcn;
                     ++returned;
+                    if (currentVcn >= fileBlockCount)
+                        break;
                 }
 
                 output->ExtentCount = returned;
