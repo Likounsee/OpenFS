@@ -105,6 +105,12 @@ main(void)
         STATUS_BUFFER_TOO_SMALL && count == 2,
         "insufficient capacity reports required extent count without copying");
 
+    count = 0;
+    Check(OpenFsDecodeExtentMapBlock(bytes, TEST_BLOCK_SIZE,
+        6u * TEST_BLOCK_SIZE, 20, 100, 101, NULL, 0, &count) ==
+        STATUS_BUFFER_TOO_SMALL && count == 2,
+        "null output sizing pass reports validated extent count");
+
     MakeBlock(bytes, 2);
     WriteExtent(bytes, 1, 1, 40, 1);
     FinalizeBlock(bytes);
