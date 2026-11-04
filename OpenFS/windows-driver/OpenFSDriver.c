@@ -985,14 +985,22 @@ OpenFsDispatchFileSystemControl(
                 &vcb->Geometry, layout.DataStartBlock, totalDataBlocks,
                 startingLcn, output->Buffer, bitmapBytes, &bitsRead);
             if (NT_SUCCESS(status)) {
+                /*
+                 * Match the native filesystem contract: return the bytes
+                 * that fit and report STATUS_BUFFER_OVERFLOW when the caller
+                 * must issue another request for the remaining allocation
+                 * bits. IoStatus.Information remains valid for this warning.
+                 */
                 Irp->IoStatus.Information = outputHeader +
                     (ULONG)((bitsRead + 7u) / 8u);
+                if (bitsRead < totalDataBlocks - startingLcn)
+                    status = STATUS_BUFFER_OVERFLOW;
             }
 
 BitmapExit:
             ExReleaseResourceLite(&vcb->Resource);
             ExReleaseRundownProtection(&vcb->RundownProtection);
-            if (!NT_SUCCESS(status))
+            if (!NT_SUCCESS(status) && status != STATUS_BUFFER_OVERFLOW)
                 Irp->IoStatus.Information = 0;
             Irp->IoStatus.Status = status;
             IoCompleteRequest(Irp, IO_NO_INCREMENT);
