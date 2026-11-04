@@ -1379,18 +1379,15 @@ OpenFsLockVolume(
             CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
         totalOpenHandles += fcb->OpenHandleCount;
     }
-    if (totalOpenHandles != 1 || rootFcb->OpenHandleCount != 1) {
-        status = STATUS_ACCESS_DENIED;
-        goto LockExit;
-    }
-
     IoAcquireVpbSpinLock(&oldIrql);
     if (vcb->Vpb->RealDevice != vcb->RealDeviceObject ||
-        (vcb->Vpb->Flags & (VPB_MOUNTED | VPB_REMOVE_PENDING)) !=
-            VPB_MOUNTED ||
         vcb->Vpb->DeviceObject != VolumeDeviceObject) {
         status = STATUS_VOLUME_DISMOUNTED;
-    } else if ((vcb->Vpb->Flags & VPB_LOCKED) != 0) {
+    } else if (!OpenFsVolumeStateCanLock(vcb->State, totalOpenHandles,
+            rootFcb->OpenHandleCount == 1 && rootFcb->IsRoot,
+            (vcb->Vpb->Flags & VPB_LOCKED) != 0,
+            (vcb->Vpb->Flags & VPB_MOUNTED) != 0,
+            (vcb->Vpb->Flags & VPB_REMOVE_PENDING) != 0)) {
         status = STATUS_ACCESS_DENIED;
     } else {
         vcb->Vpb->Flags |= VPB_LOCKED;
