@@ -696,6 +696,13 @@ OpenFsResolveNamespacePath(
         currentIndex = childIndex;
     }
 
+    /* A trailing separator asserts that the resolved object is a directory. */
+    if (PathLength != 0 &&
+        (Path[PathLength - 1] == (UCHAR)'\\' ||
+         Path[PathLength - 1] == (UCHAR)'/') &&
+        Snapshot->Records[currentIndex].Kind != 2u)
+        return STATUS_NOT_A_DIRECTORY;
+
     *RecordIndex = currentIndex;
     return STATUS_SUCCESS;
 }

@@ -270,9 +270,12 @@ main(void)
                     foundIndex == 1,
                     "root-relative Windows path resolves a file");
                 Check(OpenFsResolveNamespacePath(snapshot,
-                    (const UCHAR*)"/file.txt/", 10, &foundIndex) == STATUS_SUCCESS &&
+                    (const UCHAR*)"\\\\/file.txt", 10, &foundIndex) == STATUS_SUCCESS &&
                     foundIndex == 1,
-                    "mixed separators and trailing separator are normalized");
+                    "mixed leading separators are normalized");
+                Check(OpenFsResolveNamespacePath(snapshot,
+                    (const UCHAR*)"/file.txt/", 10, &foundIndex) == STATUS_NOT_A_DIRECTORY,
+                    "trailing separator requires a directory");
                 Check(OpenFsResolveNamespacePath(snapshot,
                     (const UCHAR*)"missing", 7, &foundIndex) == STATUS_NOT_FOUND,
                     "path resolver reports missing component");
