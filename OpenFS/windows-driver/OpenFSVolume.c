@@ -82,6 +82,8 @@ OpenFsCreateVolumeDevice(
     vcb->RootDcb = NULL;
     InitializeListHead(&vcb->FcbList);
     vcb->CachedFcbCount = 0;
+    vcb->FreeDataBlockCount = 0;
+    vcb->FreeDataBlockCountValid = FALSE;
     RtlCopyMemory(&vcb->Geometry, Geometry, sizeof(vcb->Geometry));
 
     volumeDeviceObject->SectorSize = RealDeviceObject->SectorSize;
