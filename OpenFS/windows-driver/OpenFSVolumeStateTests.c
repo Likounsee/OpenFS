@@ -164,6 +164,21 @@ main(void)
     Check(!OpenFsVolumeStateCanLock(OpenFsVolumeInitializing, 1, 1, 0, 1, 0),
         "initializing volume cannot be locked");
 
+    Check(OpenFsVolumeStateCanDismount(OpenFsVolumeMounted, 1, 1, 1, 0),
+        "locked sole volume handle can request dismount");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeMounted, 2, 1, 1, 0),
+        "dismount rejected while another handle is open");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeMounted, 1, 0, 1, 0),
+        "dismount rejected without caller lock ownership");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeMounted, 1, 1, 0, 0),
+        "dismount rejected when VPB is not mounted");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeMounted, 1, 1, 1, 1),
+        "dismount rejected while removal is pending");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeDismounting, 1, 1, 1, 0),
+        "duplicate dismount request is rejected");
+    Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeInitializing, 1, 1, 1, 0),
+        "unpublished volume cannot be dismounted");
+
     printf("OpenFS volume-state tests: %u checks\n", g_Checks);
-    return g_Checks == 27 ? 0 : 1;
+    return g_Checks == 34 ? 0 : 1;
 }
