@@ -36,9 +36,9 @@ typedef struct _OPENFS_DCB {
 } OPENFS_DCB, *POPENFS_DCB;
 
 /*
- * One VCB lives in the extension of each unpublished volume device object.
- * Resource protects State and the future VPB association. The VDO remains
- * private until a later mount implementation atomically associates its VPB.
+ * One VCB lives in the extension of each volume device object. Resource
+ * protects State and the VPB association. The VDO is attached to the real
+ * device stack before it is published through the VPB.
  */
 typedef struct _OPENFS_VCB {
     ULONG Signature;
@@ -47,6 +47,7 @@ typedef struct _OPENFS_VCB {
     OPENFS_VOLUME_STATE State;
     PDEVICE_OBJECT VolumeDeviceObject;
     PDEVICE_OBJECT RealDeviceObject;
+    PDEVICE_OBJECT AttachedDeviceObject;
     PVPB Vpb;
     OPENFS_VOLUME_GEOMETRY Geometry;
     POPENFS_NAMESPACE_SNAPSHOT Namespace;
