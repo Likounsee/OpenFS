@@ -449,7 +449,9 @@ DriverEntry(
     }
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
-    DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;\n    DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =\n        OpenFsDispatchQueryInformation;
+    DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
+    DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =
+        OpenFsDispatchQueryInformation;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = OpenFsDispatchCleanup;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenFsDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] =
