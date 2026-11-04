@@ -501,13 +501,18 @@ OpenFsSetVolumeNamespace(
         status = STATUS_INVALID_DEVICE_STATE;
     } else if (vcb->Namespace != NULL || vcb->RootDcb != NULL) {
         status = STATUS_DEVICE_BUSY;
-    } else if (NamespaceSnapshot->Records == NULL ||
+    } else if ((NamespaceSnapshot->RecordCount != 0 &&
+                NamespaceSnapshot->Records == NULL) ||
         (NamespaceSnapshot->EntryCount != 0 &&
          NamespaceSnapshot->Entries == NULL) ||
-        NamespaceSnapshot->RootRecordIndex >= NamespaceSnapshot->RecordCount ||
-        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].Kind != 2u ||
-        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdLow != NamespaceSnapshot->RootIdLow ||
-        NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdHigh != NamespaceSnapshot->RootIdHigh) {
+        (NamespaceSnapshot->RecordCount == 0 &&
+         (NamespaceSnapshot->EntryCount != 0 ||
+          NamespaceSnapshot->RootRecordIndex != MAXULONG)) ||
+        (NamespaceSnapshot->RecordCount != 0 &&
+         (NamespaceSnapshot->RootRecordIndex >= NamespaceSnapshot->RecordCount ||
+          NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].Kind != 2u ||
+          NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdLow != NamespaceSnapshot->RootIdLow ||
+          NamespaceSnapshot->Records[NamespaceSnapshot->RootRecordIndex].ObjectIdHigh != NamespaceSnapshot->RootIdHigh))) {
         status = STATUS_DISK_CORRUPT_ERROR;
     } else {
         POPENFS_DCB rootDcb = (POPENFS_DCB)ExAllocatePool2(
