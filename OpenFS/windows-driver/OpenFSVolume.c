@@ -1222,3 +1222,88 @@ Exit:
     ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
+
+
+/*
+ * Return the maximal extent/hole run containing StartingVcn. The extent
+ * cache is loaded before taking the shared VCB lock, then pinned by rundown
+ * protection while its immutable array is queried.
+ */
+NTSTATUS
+OpenFsGetFcbLogicalRun(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG StartingVcn,
+    _Out_ PULONGLONG NextVcn,
+    _Out_ PULONGLONG PhysicalBlock,
+    _Out_ PBOOLEAN IsAllocated
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    ULONGLONG logicalBlockCount;
+    ULONGLONG fileSize;
+    NTSTATUS status;
+
+    if (NextVcn == NULL || PhysicalBlock == NULL || IsAllocated == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *NextVcn = 0;
+    *PhysicalBlock = 0;
+    *IsAllocated = FALSE;
+
+    if (VolumeDeviceObject == NULL || FileFcb == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+
+    status = OpenFsLoadFcbExtents(VolumeDeviceObject, FileFcb);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = STATUS_INVALID_PARAMETER;
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == FileFcb) {
+            status = STATUS_SUCCESS;
+            break;
+        }
+    }
+    if (!NT_SUCCESS(status) || FileFcb->Signature != OPENFS_FCB_SIGNATURE ||
+        FileFcb->Kind != 1u || FileFcb->IsRoot) {
+        status = STATUS_FILE_IS_A_DIRECTORY;
+        goto RunExit;
+    }
+    if (vcb->State != OpenFsVolumeMounted || !FileFcb->ExtentsLoaded) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto RunExit;
+    }
+
+    fileSize = FileFcb->FileSize;
+    logicalBlockCount = fileSize / vcb->Geometry.BlockSize;
+    if ((fileSize % vcb->Geometry.BlockSize) != 0)
+        ++logicalBlockCount;
+
+    status = OpenFsGetLogicalRun(FileFcb->Extents, FileFcb->ExtentCount,
+        StartingVcn, logicalBlockCount, NextVcn, PhysicalBlock, IsAllocated);
+
+RunExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
