@@ -462,7 +462,6 @@ OpenFsReadDataBitmap(
         ULONGLONG pageBase;
         ULONGLONG pageOffset;
         ULONGLONG chunk;
-        ULONGLONG index;
         ULONGLONG bitmapBlock;
 
         if (pageIndex > MAXULONGLONG / bitsPerPage ||
