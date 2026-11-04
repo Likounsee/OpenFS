@@ -1,4 +1,4 @@
-name: Rust and native-format CI
+name: OpenFS Rust, native-format and Windows driver CI
 
 # Prevent stale runs from occupying the limited GitHub-hosted runner queue.
 concurrency:
