@@ -18,18 +18,19 @@ Le code est dans OpenFS/windows-driver/. Il s'agit d'un véritable pilote de sys
 - Réception des demandes de détection/montage.
 - Lecture en lecture seule des superblocs principal et secondaire.
 - Validation de la géométrie, des révisions, des CRC et de plusieurs structures.
-- État de volume privé, protection de durée de vie et bases de cache FCB/DCB.
+- État de volume privé, protection de durée de vie et cache FCB/DCB.
+- Résolution complète de chemins UTF-8 vers les FCB/DCB, avec validation du namespace et protection contre la destruction du VCB pendant le parcours.
 - Tests C exécutables sur l'hôte pour plusieurs codecs et structures.
 
 ### Ce qui manque encore
 
 Le pilote ne publie pas de volume monté : une sonde réussie se termine encore par STATUS_NOT_IMPLEMENTED. Il reste notamment à :
 
-1. terminer la construction du VCB et du répertoire racine ;
-2. connecter la résolution de chemins au cache FCB/DCB ;
-3. publier le VPB uniquement lorsque le volume est complètement initialisé ;
-4. gérer proprement démontage, vérification et erreurs ;
-5. implémenter ouverture, informations, énumération et lecture ;
+1. intégrer le VCB, le snapshot namespace et le DCB racine dans un vrai cycle de montage ;
+2. publier le VPB uniquement lorsque le volume est complètement initialisé ;
+3. gérer proprement démontage, vérification et erreurs ;
+4. implémenter l'ouverture des fichiers Windows et la durée de vie des FILE_OBJECT ;
+5. ajouter informations, énumération des répertoires et lecture ;
 6. ajouter écriture, suppression, renommage, partage et synchronisation ;
 7. intégrer les exigences Cache Manager, Memory Manager, sécurité et concurrence.
 
