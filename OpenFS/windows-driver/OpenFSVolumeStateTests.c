@@ -148,6 +148,22 @@ main(void)
         "dismount teardown reaches dead"
         );
 
+
+    Check(OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 1, 1, 0, 1, 0),
+        "only volume handle can lock mounted volume");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 2, 1, 0, 1, 0),
+        "lock is rejected while another handle is open");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 1, 0, 0, 1, 0),
+        "ordinary file handle cannot lock the volume");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 1, 1, 1, 1, 0),
+        "second lock owner is rejected");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 1, 1, 0, 0, 0),
+        "unmounted VPB cannot be locked");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeMounted, 1, 1, 0, 1, 1),
+        "remove-pending volume cannot be locked");
+    Check(!OpenFsVolumeStateCanLock(OpenFsVolumeInitializing, 1, 1, 0, 1, 0),
+        "initializing volume cannot be locked");
+
     printf("OpenFS volume-state tests: %u checks\n", g_Checks);
-    return g_Checks == 20 ? 0 : 1;
+    return g_Checks == 27 ? 0 : 1;
 }
