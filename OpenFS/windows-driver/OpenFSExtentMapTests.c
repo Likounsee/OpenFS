@@ -88,6 +88,7 @@ main(void)
     ULONG count = 99;
     NTSTATUS status;
     ULONGLONG physical;
+    ULONGLONG nextBlock;
     BOOLEAN allocated;
 
     MakeBlock(bytes, 2);
@@ -191,6 +192,32 @@ main(void)
     Check(OpenFsMapLogicalBlock(NULL, 0, 0, &physical, &allocated) ==
         STATUS_SUCCESS && !allocated,
         "empty extent map maps every logical block as sparse");
+
+    Check(OpenFsGetLogicalRun(extents, count, 0, 6,
+        &nextBlock, &physical, &allocated) == STATUS_SUCCESS &&
+        allocated && physical == 30 && nextBlock == 2,
+        "run query returns first allocated run");
+    Check(OpenFsGetLogicalRun(extents, count, 2, 6,
+        &nextBlock, &physical, &allocated) == STATUS_SUCCESS &&
+        !allocated && nextBlock == 5,
+        "run query returns sparse gap up to next extent");
+    Check(OpenFsGetLogicalRun(extents, count, 5, 6,
+        &nextBlock, &physical, &allocated) == STATUS_SUCCESS &&
+        allocated && physical == 40 && nextBlock == 6,
+        "run query returns final allocated run");
+    Check(OpenFsGetLogicalRun(extents, count, 6, 6,
+        &nextBlock, &physical, &allocated) == STATUS_INVALID_PARAMETER,
+        "run query rejects VCN at EOF");
+    Check(OpenFsGetLogicalRun(NULL, 0, 0, 4,
+        &nextBlock, &physical, &allocated) == STATUS_SUCCESS &&
+        !allocated && nextBlock == 4,
+        "empty map is one sparse run through EOF");
+    Check(OpenFsGetLogicalRun(extents, count, 2, 0,
+        &nextBlock, &physical, &allocated) == STATUS_INVALID_PARAMETER,
+        "run query rejects empty logical range");
+    Check(OpenFsGetLogicalRun(NULL, 1, 0, 4,
+        &nextBlock, &physical, &allocated) == STATUS_INVALID_PARAMETER,
+        "run query rejects missing extent storage");
 
     printf("OpenFS extent-map tests: %lu checks, %lu failures\n",
         (unsigned long)g_Checks, (unsigned long)g_Failures);
