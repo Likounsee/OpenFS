@@ -224,6 +224,22 @@ OpenFsDispatchQueryInformation(
         status = STATUS_VOLUME_DISMOUNTED;
         goto QueryExit;
     }
+    {
+        PLIST_ENTRY link;
+        BOOLEAN found = FALSE;
+        for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+             link = link->Flink) {
+            if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == fcb) {
+                found = TRUE;
+                break;
+            }
+        }
+        if (!found || fcb->FileSize > MAXLONGLONG ||
+            vcb->Geometry.BlockSize == 0) {
+            status = STATUS_INVALID_DEVICE_STATE;
+            goto QueryExit;
+        }
+    }
 
     switch (informationClass) {
     case FileBasicInformation:
@@ -243,7 +259,22 @@ OpenFsDispatchQueryInformation(
         required = sizeof(*info);
         if (stack->Parameters.QueryFile.Length < required) break;
         RtlZeroMemory(info, required);
-        info->AllocationSize.QuadPart = (LONGLONG)fcb->FileSize;
+        {
+            ULONGLONG blockSize = vcb->Geometry.BlockSize;
+            ULONGLONG allocation = fcb->FileSize;
+            if (allocation != 0) {
+                ULONGLONG remainder = allocation % blockSize;
+                if (remainder != 0) {
+                    ULONGLONG padding = blockSize - remainder;
+                    if (allocation > MAXLONGLONG - padding) {
+                        status = STATUS_INTEGER_OVERFLOW;
+                        goto QueryExit;
+                    }
+                    allocation += padding;
+                }
+            }
+            info->AllocationSize.QuadPart = (LONGLONG)allocation;
+        }
         info->EndOfFile.QuadPart = (LONGLONG)fcb->FileSize;
         info->NumberOfLinks = 1;
         info->Directory = (fcb->Kind == 2u);
