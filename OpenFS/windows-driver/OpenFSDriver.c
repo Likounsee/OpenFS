@@ -594,7 +594,55 @@ OpenFsDispatchDirectoryControl(
         goto DirectoryExit;
     }
 
-    if ((flags & SL_RESTART_SCAN) != 0) context->NextEntryIndex = 0;
+    /*
+     * A restarted enumeration may carry a new search expression. Replace the
+     * per-handle context before resetting the cursor so a failed allocation
+     * leaves the previous enumeration state intact.
+     */
+    if ((flags & SL_RESTART_SCAN) != 0) {
+        PUNICODE_STRING expression =
+            stack->Parameters.QueryDirectory.FileName;
+        if (expression != NULL) {
+            USHORT patternLength = expression->Length;
+            SIZE_T allocationSize;
+            POPENFS_DIRECTORY_ENUM_CONTEXT replacement;
+
+            if ((patternLength & 1u) != 0 || patternLength > 1024u ||
+                (patternLength != 0 && expression->Buffer == NULL)) {
+                status = STATUS_OBJECT_NAME_INVALID;
+                goto DirectoryExit;
+            }
+
+            allocationSize = FIELD_OFFSET(OPENFS_DIRECTORY_ENUM_CONTEXT, Pattern) +
+                (patternLength != 0 ? patternLength : sizeof(WCHAR));
+            replacement = (POPENFS_DIRECTORY_ENUM_CONTEXT)ExAllocatePool2(
+                POOL_FLAG_NON_PAGED, allocationSize,
+                OPENFS_DIRECTORY_ENUM_POOL_TAG);
+            if (replacement == NULL) {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto DirectoryExit;
+            }
+            RtlZeroMemory(replacement, allocationSize);
+            replacement->Signature = OPENFS_DIRECTORY_ENUM_SIGNATURE;
+            replacement->ParentIdLow = directoryFcb->ObjectIdLow;
+            replacement->ParentIdHigh = directoryFcb->ObjectIdHigh;
+            if (patternLength != 0) {
+                replacement->PatternLength =
+                    (USHORT)(patternLength / sizeof(WCHAR));
+                RtlCopyMemory(replacement->Pattern, expression->Buffer,
+                    patternLength);
+            } else {
+                replacement->Pattern[0] = L'*';
+                replacement->PatternLength = 1;
+            }
+
+            context->Signature = 0;
+            ExFreePoolWithTag(context, OPENFS_DIRECTORY_ENUM_POOL_TAG);
+            fileObject->FsContext2 = replacement;
+            context = replacement;
+        }
+        context->NextEntryIndex = 0;
+    }
     if ((flags & SL_INDEX_SPECIFIED) != 0)
         context->NextEntryIndex = stack->Parameters.QueryDirectory.FileIndex;
 
