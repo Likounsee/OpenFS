@@ -37,5 +37,5 @@ OpenFsMapLogicalBlock(
     _In_ ULONG ExtentCount,
     _In_ ULONGLONG LogicalBlock,
     _Out_ PULONGLONG PhysicalBlock,
-    _Out_ PBOOLEAN IsAllocated
+    _Out_ BOOLEAN* IsAllocated
     );
