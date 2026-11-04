@@ -713,7 +713,7 @@ OpenFsLookupPathFcb(
 {
     POPENFS_VCB vcb;
     POPENFS_FCB current;
-    ULONG resolvedIndex;
+    ULONG resolvedIndex = MAXULONG;
     ULONGLONG expectedIdLow;
     ULONGLONG expectedIdHigh;
     USHORT offset = 0;
