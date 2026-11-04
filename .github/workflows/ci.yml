@@ -147,7 +147,6 @@ jobs:
             (Join-Path $env:ProgramFiles 'Windows Kits\\10')
           ) | Where-Object { Test-Path $_ }
           $inf2cat = Get-ChildItem -Path $wdkRoots -Filter Inf2Cat.exe -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Directory.Name -eq 'x64' } |
             Select-Object -First 1
           if ($null -eq $inf2cat) {
             throw "Inf2Cat.exe was not found in the installed WDK."
