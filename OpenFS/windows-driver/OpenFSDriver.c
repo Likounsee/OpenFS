@@ -993,10 +993,14 @@ OpenFsDispatchFileSystemControl(
                     status = OpenFsGetFcbLogicalRun(DeviceObject, fcb,
                         currentVcn, &fileBlockCount, &nextVcn,
                         &physicalBlock, &allocated);
-                    if (!NT_SUCCESS(status))
+                    if (!NT_SUCCESS(status)) {
+                        if (status == STATUS_INVALID_PARAMETER &&
+                            currentVcn >= fileBlockCount)
+                            status = STATUS_END_OF_FILE;
                         break;
+                    }
                     if (currentVcn >= fileBlockCount) {
-                        status = STATUS_INVALID_PARAMETER;
+                        status = STATUS_END_OF_FILE;
                         break;
                     }
                     if (nextVcn <= currentVcn || nextVcn > fileBlockCount) {
