@@ -1189,6 +1189,145 @@ OpenFsDispatchFileSystemControl(
             return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
 
         controlCode = stack->Parameters.FileSystemControl.FsControlCode;
+        if (controlCode == FSCTL_QUERY_ALLOCATED_RANGES) {
+            PFILE_ALLOCATED_RANGE_BUFFER input =
+                (PFILE_ALLOCATED_RANGE_BUFFER)
+                stack->Parameters.FileSystemControl.Type3InputBuffer;
+            PFILE_ALLOCATED_RANGE_BUFFER output =
+                (PFILE_ALLOCATED_RANGE_BUFFER)Irp->UserBuffer;
+            FILE_ALLOCATED_RANGE_BUFFER inputCopy;
+            POPENFS_VCB vcb;
+            POPENFS_FCB fcb;
+            ULONGLONG requestStart;
+            ULONGLONG requestEnd;
+            ULONGLONG fileSize;
+            ULONGLONG blockSize;
+            ULONGLONG currentVcn;
+            ULONG outputLength =
+                stack->Parameters.FileSystemControl.OutputBufferLength;
+            ULONG capacity;
+            ULONG returned = 0;
+            NTSTATUS status = STATUS_SUCCESS;
+
+            /*
+             * QUERY_ALLOCATED_RANGES is METHOD_NEITHER. Capture the range
+             * before using it and probe the output before writing records.
+             */
+            if (input == NULL || output == NULL ||
+                stack->Parameters.FileSystemControl.InputBufferLength <
+                    sizeof(FILE_ALLOCATED_RANGE_BUFFER) ||
+                outputLength < sizeof(FILE_ALLOCATED_RANGE_BUFFER))
+                return OpenFsCompleteIrp(Irp, STATUS_BUFFER_TOO_SMALL);
+
+            __try {
+                if (Irp->RequestorMode != KernelMode) {
+                    ProbeForRead(input, sizeof(*input),
+                        TYPE_ALIGNMENT(FILE_ALLOCATED_RANGE_BUFFER));
+                    ProbeForWrite(output, outputLength,
+                        TYPE_ALIGNMENT(FILE_ALLOCATED_RANGE_BUFFER));
+                }
+                inputCopy = *input;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                return OpenFsCompleteIrp(Irp, GetExceptionCode());
+            }
+
+            if (inputCopy.FileOffset.QuadPart < 0 ||
+                inputCopy.Length.QuadPart < 0)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            requestStart = (ULONGLONG)inputCopy.FileOffset.QuadPart;
+            if ((ULONGLONG)inputCopy.Length.QuadPart >
+                MAXULONGLONG - requestStart)
+                requestEnd = MAXULONGLONG;
+            else
+                requestEnd = requestStart +
+                    (ULONGLONG)inputCopy.Length.QuadPart;
+
+            if (stack->FileObject == NULL ||
+                stack->FileObject->FsContext == NULL)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+
+            vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+            fcb = (POPENFS_FCB)stack->FileObject->FsContext;
+            if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+                return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+            if (fcb->Kind == 2u)
+                return OpenFsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY);
+
+            fileSize = fcb->FileSize;
+            blockSize = vcb->Geometry.BlockSize;
+            if (blockSize == 0 || (blockSize & (blockSize - 1u)) != 0)
+                return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
+            if (requestStart >= fileSize || requestStart >= requestEnd)
+                return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
+            if (requestEnd > fileSize)
+                requestEnd = fileSize;
+
+            capacity = outputLength / sizeof(FILE_ALLOCATED_RANGE_BUFFER);
+            currentVcn = requestStart / blockSize;
+            __try {
+                RtlZeroMemory(output, outputLength);
+                while (currentVcn < (requestEnd / blockSize) +
+                        ((requestEnd % blockSize) != 0)) {
+                    ULONGLONG nextVcn = 0;
+                    ULONGLONG physicalBlock = 0;
+                    ULONGLONG runStart;
+                    ULONGLONG runEnd;
+                    BOOLEAN allocated = FALSE;
+
+                    ULONGLONG fileBlockCount = 0;
+                    status = OpenFsGetFcbLogicalRun(DeviceObject, fcb,
+                        currentVcn, &fileBlockCount, &nextVcn,
+                        &physicalBlock, &allocated);
+                    if (!NT_SUCCESS(status))
+                        break;
+                    if (nextVcn <= currentVcn) {
+                        status = STATUS_DISK_CORRUPT_ERROR;
+                        break;
+                    }
+
+                    if (allocated) {
+                        if (currentVcn > MAXULONGLONG / blockSize ||
+                            nextVcn > MAXULONGLONG / blockSize) {
+                            status = STATUS_INTEGER_OVERFLOW;
+                            break;
+                        }
+                        runStart = currentVcn * blockSize;
+                        runEnd = nextVcn * blockSize;
+                        if (runStart < requestStart)
+                            runStart = requestStart;
+                        if (runEnd > requestEnd)
+                            runEnd = requestEnd;
+                        if (runStart < runEnd) {
+                            if (returned == capacity) {
+                                status = STATUS_BUFFER_OVERFLOW;
+                                break;
+                            }
+                            output[returned].FileOffset.QuadPart =
+                                (LONGLONG)runStart;
+                            output[returned].Length.QuadPart =
+                                (LONGLONG)(runEnd - runStart);
+                            ++returned;
+                        }
+                    }
+                    currentVcn = nextVcn;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                status = GetExceptionCode();
+                returned = 0;
+            }
+
+            Irp->IoStatus.Information =
+                returned * sizeof(FILE_ALLOCATED_RANGE_BUFFER);
+            if (!NT_SUCCESS(status) && status != STATUS_BUFFER_OVERFLOW)
+                Irp->IoStatus.Information = 0;
+            Irp->IoStatus.Status = status;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return status;
+        }
+
         if (controlCode == FSCTL_GET_RETRIEVAL_POINTERS) {
             PSTARTING_VCN_INPUT_BUFFER input =
                 (PSTARTING_VCN_INPUT_BUFFER)
