@@ -50,6 +50,9 @@ OpenFsDispatchCreate(
     PCHAR utf8Path = NULL;
     ULONG utf8Capacity;
     ULONG utf8Length = 0;
+    ACCESS_MASK desiredAccess;
+    ULONG createDisposition;
+    ULONG createOptions;
     NTSTATUS status;
 
     if (DeviceObject == g_OpenFsFileSystemDevice ||
@@ -60,6 +63,23 @@ OpenFsDispatchCreate(
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
         fileObject->FsContext != NULL)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+
+    desiredAccess = stack->Parameters.Create.SecurityContext != NULL
+        ? stack->Parameters.Create.SecurityContext->DesiredAccess
+        : MAXIMUM_ALLOWED;
+    createDisposition = (stack->Parameters.Create.Options >> 24) & 0xffu;
+    createOptions = stack->Parameters.Create.Options & 0x00ffffffu;
+
+    /* The first native driver release is deliberately read-only. */
+    if ((desiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA |
+            FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE |
+            WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL |
+            MAXIMUM_ALLOWED)) != 0)
+        return OpenFsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED);
+    if (createDisposition != FILE_OPEN && createDisposition != FILE_OPEN_IF)
+        return OpenFsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED);
+    if ((createOptions & (FILE_DELETE_ON_CLOSE | FILE_OPEN_BY_FILE_ID)) != 0)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
 
     if (fileObject->FileName.Length == 0) {
         /* An empty name denotes the volume root. */
@@ -89,6 +109,11 @@ OpenFsDispatchCreate(
     if (!NT_SUCCESS(status))
         return OpenFsCompleteIrp(Irp, status);
 
+    if ((createOptions & FILE_DIRECTORY_FILE) != 0 && fcb->Kind != 2u)
+        return OpenFsCompleteIrp(Irp, STATUS_NOT_A_DIRECTORY);
+    if ((createOptions & FILE_NON_DIRECTORY_FILE) != 0 && fcb->Kind == 2u)
+        return OpenFsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY);
+
     if (!ExAcquireRundownProtection(&vcb->RundownProtection))
         return OpenFsCompleteIrp(Irp, STATUS_DELETE_PENDING);
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
@@ -108,6 +133,12 @@ OpenFsDispatchCreate(
 
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
+    if (NT_SUCCESS(status)) {
+        Irp->IoStatus.Status = STATUS_SUCCESS;
+        Irp->IoStatus.Information = FILE_OPENED;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_SUCCESS;
+    }
     return OpenFsCompleteIrp(Irp, status);
 }
 
