@@ -608,7 +608,7 @@ OpenFsDispatchDirectoryControl(
         }
         alignedRequired = (required + 7u) & ~7u;
         if (alignedRequired < required || bytesUsed > outputLength ||
-            required > outputLength - bytesUsed) {
+            alignedRequired > outputLength - bytesUsed) {
             if (bytesUsed == 0) status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
