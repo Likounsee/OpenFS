@@ -50,7 +50,7 @@ OpenFsGetLogicalRun(
     _In_ ULONG ExtentCount,
     _In_ ULONGLONG LogicalBlock,
     _In_ ULONGLONG LogicalBlockCount,
-    _Out_ PULONGLONG NextLogicalBlock,
-    _Out_ PULONGLONG PhysicalBlock,
-    _Out_ PBOOLEAN IsAllocated
+    _Out_ ULONGLONG* NextLogicalBlock,
+    _Out_ ULONGLONG* PhysicalBlock,
+    _Out_ BOOLEAN* IsAllocated
     );
