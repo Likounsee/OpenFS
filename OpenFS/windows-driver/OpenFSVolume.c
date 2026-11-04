@@ -767,6 +767,21 @@ OpenFsLookupPathFcb(
          vcb->State != OpenFsVolumeMounted) ||
         vcb->Namespace == NULL || vcb->RootDcb == NULL) {
         status = STATUS_INVALID_DEVICE_STATE;
+    } else if (vcb->Namespace->RecordCount == 0 &&
+               vcb->Namespace->EntryCount == 0) {
+        /* Empty volumes still expose their synthetic root directory. */
+        offset = 0;
+        while (offset < PathLength &&
+            (Path[offset] == (UCHAR)'/' || Path[offset] == (UCHAR)'\\'))
+            ++offset;
+        if (offset == PathLength) {
+            *FileFcb = &vcb->RootDcb->Fcb;
+            ExReleaseResourceLite(&vcb->Resource);
+            ExReleaseRundownProtection(&vcb->RundownProtection);
+            ObDereferenceObject(VolumeDeviceObject);
+            return STATUS_SUCCESS;
+        }
+        status = STATUS_OBJECT_NAME_NOT_FOUND;
     } else {
         status = OpenFsResolveNamespacePath(vcb->Namespace, Path,
             PathLength, &resolvedIndex);
