@@ -717,6 +717,33 @@ OpenFsFreeDirectoryContext(
 }
 
 static NTSTATUS
+OpenFsGetDirectoryAllocationSize(
+    _In_ ULONGLONG FileSize,
+    _In_ ULONG BlockSize,
+    _Out_ PLONGLONG AllocationSize
+    )
+{
+    ULONGLONG allocation = FileSize;
+
+    if (AllocationSize == NULL || BlockSize == 0 ||
+        FileSize > MAXLONGLONG)
+        return STATUS_INVALID_PARAMETER;
+
+    if (allocation != 0) {
+        ULONGLONG remainder = allocation % BlockSize;
+        if (remainder != 0) {
+            ULONGLONG padding = BlockSize - remainder;
+            if (allocation > (ULONGLONG)MAXLONGLONG - padding)
+                return STATUS_INTEGER_OVERFLOW;
+            allocation += padding;
+        }
+    }
+
+    *AllocationSize = (LONGLONG)allocation;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 OpenFsDispatchDirectoryControl(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
@@ -744,7 +771,11 @@ OpenFsDispatchDirectoryControl(
         output == NULL)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
     if (infoClass != FileNamesInformation &&
-        infoClass != FileDirectoryInformation)
+        infoClass != FileDirectoryInformation &&
+        infoClass != FileFullDirectoryInformation &&
+        infoClass != FileBothDirectoryInformation &&
+        infoClass != FileIdFullDirectoryInformation &&
+        infoClass != FileIdBothDirectoryInformation)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_INFO_CLASS);
 
     vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
@@ -904,12 +935,34 @@ OpenFsDispatchDirectoryControl(
         }
         record = &vcb->Namespace->Records[recordIndex];
 
-        if (infoClass == FileNamesInformation) {
+        switch (infoClass) {
+        case FileNamesInformation:
             required = FIELD_OFFSET(FILE_NAMES_INFORMATION, FileName) +
                 unicodeBytes;
-        } else {
+            break;
+        case FileDirectoryInformation:
             required = FIELD_OFFSET(FILE_DIRECTORY_INFORMATION, FileName) +
                 unicodeBytes;
+            break;
+        case FileFullDirectoryInformation:
+            required = FIELD_OFFSET(FILE_FULL_DIR_INFORMATION, FileName) +
+                unicodeBytes;
+            break;
+        case FileBothDirectoryInformation:
+            required = FIELD_OFFSET(FILE_BOTH_DIR_INFORMATION, FileName) +
+                unicodeBytes;
+            break;
+        case FileIdFullDirectoryInformation:
+            required = FIELD_OFFSET(FILE_ID_FULL_DIR_INFORMATION, FileName) +
+                unicodeBytes;
+            break;
+        case FileIdBothDirectoryInformation:
+            required = FIELD_OFFSET(FILE_ID_BOTH_DIR_INFORMATION, FileName) +
+                unicodeBytes;
+            break;
+        default:
+            status = STATUS_INVALID_INFO_CLASS;
+            goto DirectoryExit;
         }
         alignedRequired = (required + 7u) & ~7u;
         if (alignedRequired < required || bytesUsed > outputLength ||
@@ -920,31 +973,104 @@ OpenFsDispatchDirectoryControl(
 
         recordBuffer = (PUCHAR)output + bytesUsed;
         RtlZeroMemory(recordBuffer, alignedRequired);
-        if (infoClass == FileNamesInformation) {
-            PFILE_NAMES_INFORMATION info =
-                (PFILE_NAMES_INFORMATION)recordBuffer;
-            info->FileIndex = entryIndex - 1u;
-            info->FileNameLength = unicodeBytes;
-            RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
-        } else {
-            PFILE_DIRECTORY_INFORMATION info =
-                (PFILE_DIRECTORY_INFORMATION)recordBuffer;
-            info->FileIndex = entryIndex - 1u;
-            info->EndOfFile.QuadPart = (LONGLONG)record->Size;
-            info->AllocationSize.QuadPart = (LONGLONG)record->Size;
-            info->FileAttributes = record->Kind == 2u
-                ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
-            info->FileNameLength = unicodeBytes;
-            RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+        {
+            LONGLONG allocationSize;
+            status = OpenFsGetDirectoryAllocationSize(record->Size,
+                vcb->Geometry.BlockSize, &allocationSize);
+            if (!NT_SUCCESS(status))
+                goto DirectoryExit;
+
+            switch (infoClass) {
+            case FileNamesInformation:
+            {
+                PFILE_NAMES_INFORMATION info =
+                    (PFILE_NAMES_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            case FileDirectoryInformation:
+            {
+                PFILE_DIRECTORY_INFORMATION info =
+                    (PFILE_DIRECTORY_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+                info->AllocationSize.QuadPart = allocationSize;
+                info->FileAttributes = record->Kind == 2u
+                    ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            case FileFullDirectoryInformation:
+            {
+                PFILE_FULL_DIR_INFORMATION info =
+                    (PFILE_FULL_DIR_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+                info->AllocationSize.QuadPart = allocationSize;
+                info->FileAttributes = record->Kind == 2u
+                    ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                info->EaSize = 0;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            case FileBothDirectoryInformation:
+            {
+                PFILE_BOTH_DIR_INFORMATION info =
+                    (PFILE_BOTH_DIR_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+                info->AllocationSize.QuadPart = allocationSize;
+                info->FileAttributes = record->Kind == 2u
+                    ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                info->EaSize = 0;
+                info->ShortNameLength = 0;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            case FileIdFullDirectoryInformation:
+            {
+                PFILE_ID_FULL_DIR_INFORMATION info =
+                    (PFILE_ID_FULL_DIR_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+                info->AllocationSize.QuadPart = allocationSize;
+                info->FileAttributes = record->Kind == 2u
+                    ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                info->EaSize = 0;
+                info->FileId.QuadPart = (LONGLONG)record->ObjectIdLow;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            case FileIdBothDirectoryInformation:
+            {
+                PFILE_ID_BOTH_DIR_INFORMATION info =
+                    (PFILE_ID_BOTH_DIR_INFORMATION)recordBuffer;
+                info->FileIndex = entryIndex - 1u;
+                info->EndOfFile.QuadPart = (LONGLONG)record->Size;
+                info->AllocationSize.QuadPart = allocationSize;
+                info->FileAttributes = record->Kind == 2u
+                    ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                info->EaSize = 0;
+                info->ShortNameLength = 0;
+                info->FileId.QuadPart = (LONGLONG)record->ObjectIdLow;
+                info->FileNameLength = unicodeBytes;
+                RtlCopyMemory(info->FileName, unicodeName, unicodeBytes);
+                break;
+            }
+            default:
+                status = STATUS_INVALID_INFO_CLASS;
+                goto DirectoryExit;
+            }
         }
         if (previousOffset != MAXULONG) {
-            if (infoClass == FileNamesInformation) {
-                ((PFILE_NAMES_INFORMATION)((PUCHAR)output +
-                    previousOffset))->NextEntryOffset = bytesUsed - previousOffset;
-            } else {
-                ((PFILE_DIRECTORY_INFORMATION)((PUCHAR)output +
-                    previousOffset))->NextEntryOffset = bytesUsed - previousOffset;
-            }
+            *(PULONG)((PUCHAR)output + previousOffset) =
+                bytesUsed - previousOffset;
         }
         previousOffset = bytesUsed;
         bytesUsed += alignedRequired;
