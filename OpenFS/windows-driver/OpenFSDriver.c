@@ -916,30 +916,50 @@ OpenFsDispatchFileSystemControl(
 
         controlCode = stack->Parameters.FileSystemControl.FsControlCode;
         if (controlCode == FSCTL_GET_VOLUME_BITMAP) {
-            PVOID systemBuffer = Irp->AssociatedIrp.SystemBuffer;
             PSTARTING_LCN_INPUT_BUFFER input =
-                (PSTARTING_LCN_INPUT_BUFFER)systemBuffer;
+                (PSTARTING_LCN_INPUT_BUFFER)
+                stack->Parameters.FileSystemControl.Type3InputBuffer;
             PVOLUME_BITMAP_BUFFER output =
-                (PVOLUME_BITMAP_BUFFER)systemBuffer;
+                (PVOLUME_BITMAP_BUFFER)Irp->UserBuffer;
+            STARTING_LCN_INPUT_BUFFER inputCopy;
             POPENFS_VCB vcb;
             OPENFS_VOLUME_LAYOUT layout;
             ULONGLONG startingLcn;
             ULONGLONG totalDataBlocks;
             ULONGLONG bitsRead = 0;
+            ULONG outputLength =
+                stack->Parameters.FileSystemControl.OutputBufferLength;
             ULONG outputHeader = FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer);
             SIZE_T bitmapBytes;
             NTSTATUS status;
 
-            if (systemBuffer == NULL ||
+            /*
+             * FSCTL_GET_VOLUME_BITMAP is METHOD_NEITHER: input is supplied
+             * through Type3InputBuffer and output through Irp->UserBuffer.
+             * Never assume that either pointer is backed by SystemBuffer.
+             */
+            if (input == NULL || output == NULL ||
                 stack->Parameters.FileSystemControl.InputBufferLength <
                     sizeof(STARTING_LCN_INPUT_BUFFER) ||
-                stack->Parameters.FileSystemControl.OutputBufferLength <=
-                    outputHeader)
+                outputLength <= outputHeader)
                 return OpenFsCompleteIrp(Irp, STATUS_BUFFER_TOO_SMALL);
 
-            startingLcn = (ULONGLONG)input->StartingLcn.QuadPart;
-            if (input->StartingLcn.QuadPart < 0)
+            __try {
+                if (Irp->RequestorMode != KernelMode) {
+                    ProbeForRead(input, sizeof(*input),
+                        TYPE_ALIGNMENT(STARTING_LCN_INPUT_BUFFER));
+                    ProbeForWrite(output, outputLength,
+                        TYPE_ALIGNMENT(ULONG));
+                }
+                inputCopy = *input;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                return OpenFsCompleteIrp(Irp, GetExceptionCode());
+            }
+
+            if (inputCopy.StartingLcn.QuadPart < 0)
                 return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+            startingLcn = (ULONGLONG)inputCopy.StartingLcn.QuadPart;
 
             vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
             if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
@@ -974,22 +994,23 @@ OpenFsDispatchFileSystemControl(
                 goto BitmapExit;
             }
 
-            bitmapBytes =
-                stack->Parameters.FileSystemControl.OutputBufferLength -
-                outputHeader;
-            RtlZeroMemory(systemBuffer,
-                stack->Parameters.FileSystemControl.OutputBufferLength);
-            output->StartingLcn.QuadPart = (LONGLONG)startingLcn;
-            output->BitmapSize.QuadPart = (LONGLONG)totalDataBlocks;
-            status = OpenFsReadDataBitmap(vcb->RealDeviceObject,
-                &vcb->Geometry, layout.DataStartBlock, totalDataBlocks,
-                startingLcn, output->Buffer, bitmapBytes, &bitsRead);
+            bitmapBytes = outputLength - outputHeader;
+            __try {
+                RtlZeroMemory(output, outputLength);
+                output->StartingLcn.QuadPart = (LONGLONG)startingLcn;
+                output->BitmapSize.QuadPart = (LONGLONG)totalDataBlocks;
+                status = OpenFsReadDataBitmap(vcb->RealDeviceObject,
+                    &vcb->Geometry, layout.DataStartBlock, totalDataBlocks,
+                    startingLcn, output->Buffer, bitmapBytes, &bitsRead);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                status = GetExceptionCode();
+            }
+
             if (NT_SUCCESS(status)) {
                 /*
-                 * Match the native filesystem contract: return the bytes
-                 * that fit and report STATUS_BUFFER_OVERFLOW when the caller
-                 * must issue another request for the remaining allocation
-                 * bits. IoStatus.Information remains valid for this warning.
+                 * Return the bytes that fit and let the caller continue from
+                 * the next LCN when the supplied output buffer is too small.
                  */
                 Irp->IoStatus.Information = outputHeader +
                     (ULONG)((bitsRead + 7u) / 8u);
