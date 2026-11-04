@@ -425,6 +425,29 @@ OpenFsDispatchQueryInformation(
         info->ReparseTag = 0;
         break;
     }
+    case FileEaInformation:
+    {
+        PFILE_EA_INFORMATION info = (PFILE_EA_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        /* OpenFS currently has no extended-attribute namespace. */
+        info->EaSize = 0;
+        break;
+    }
+    case FileIdInformation:
+    {
+        PFILE_ID_INFORMATION info = (PFILE_ID_INFORMATION)output;
+        required = sizeof(*info);
+        if (stack->Parameters.QueryFile.Length < required) break;
+        RtlZeroMemory(info, required);
+        info->VolumeSerialNumber = OpenFsCrc32C(vcb->Geometry.Uuid,
+            sizeof(vcb->Geometry.Uuid));
+        RtlCopyMemory(info->FileId.Identifier, &fcb->ObjectIdLow,
+            sizeof(fcb->ObjectIdLow));
+        RtlCopyMemory(info->FileId.Identifier + sizeof(fcb->ObjectIdLow),
+            &fcb->ObjectIdHigh, sizeof(fcb->ObjectIdHigh));
+        break;
+    }
     default:
         status = STATUS_INVALID_INFO_CLASS;
         goto QueryExit;
