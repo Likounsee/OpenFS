@@ -1,4 +1,4 @@
-> **État courant — 2026-11-04 : pilote WDM natif non montable.** Il compile et lie en CI WDK x64 ; les tests C hôte couvrent superbloc, bitmap, layout, lifecycle, codecs namespace et descripteurs d'inventaire. Le pilote s'enregistre et sonde/valide un volume, mais `IRP_MN_MOUNT_VOLUME` ne publie pas encore de volume utilisable et retourne `STATUS_NOT_IMPLEMENTED` après la sonde. Manquent snapshot namespace conservé dans le VCB, root FCB/DCB, lookup, énumération et dispatchs read/write. Le montage Windows expérimental passe par Dokany dans `openfs-tool`. Build réussi ne signifie pas filesystem montable.
+> **État courant — 2026-11-04 : pilote WDM natif non montable.** Il compile et lie en CI WDK x64 ; les tests C hôte couvrent superbloc, bitmap, layout, lifecycle, codecs namespace et descripteurs d'inventaire. Le pilote s'enregistre et sonde/valide un volume, mais `IRP_MN_MOUNT_VOLUME` ne publie pas encore de volume utilisable et retourne `STATUS_NOT_IMPLEMENTED` après la sonde. Manquent snapshot namespace conservé dans le VCB, énumération et dispatchs read/write. Le montage Windows expérimental passe par Dokany dans `openfs-tool`. Build réussi ne signifie pas filesystem montable.
 >
 > CI HEAD 4127059d : build WDK et tests C réussis ; formatage/tests Rust réussis ; Clippy échoue sur `unused_mut` dans `crash_sweep.rs:551`.
 
@@ -91,3 +91,10 @@ The parser is called by the mount dispatch routine through `OpenFSDeviceIo.c`. T
 A successful probe is only recognition, not a mount. The dispatch returns `STATUS_NOT_IMPLEMENTED` for a valid OpenFS volume until a VCB/VPB lifecycle, root directory, and teardown path are implemented. It must not report a successful mount before those pieces exist.
 
 The host-side parser tests are built with strict C warnings in CI (34 assertions currently pass). They exercise supported revisions, CRC32C's standard test vector, differing revision-3/4 inventory hints, invalid magic/version/header, corrupt checksums, mismatched copies, invalid geometry, and device-length mismatch. These tests do not compile the WDK driver itself.
+
+
+## Full path-to-FCB resolution
+
+`OpenFsLookupPathFcb` now connects the validated namespace path resolver to the per-volume FCB/DCB cache. It first validates the complete root-relative UTF-8 path against the immutable namespace snapshot, then resolves each component through the cache and returns the final stable FCB pointer. The routine holds a volume rundown reference for the complete traversal, so cached nodes cannot be reclaimed during component lookups. It also checks that the resulting FCB identity matches the record selected by the namespace resolver.
+
+This is lookup infrastructure for the future `IRP_MJ_CREATE` path, not an open-file implementation: the driver still does not publish mounted volumes or handle Windows file-object lifetime, access checks, sharing, directory enumeration, or data I/O.
