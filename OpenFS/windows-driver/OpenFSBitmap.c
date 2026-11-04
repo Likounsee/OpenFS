@@ -185,3 +185,54 @@ OpenFsCountFreeBlocksInRange(
     *FreeBlocks = freeCount;
     return STATUS_SUCCESS;
 }
+
+
+/*
+ * Copy a bounded bit range between bitmap buffers. Bits are numbered least
+ * significant first within each byte, matching the on-disk OpenFS bitmap and
+ * Windows VOLUME_BITMAP_BUFFER representation.
+ */
+NTSTATUS
+OpenFsCopyBitmapBits(
+    _In_reads_bytes_(SourceBytes) const UCHAR* Source,
+    _In_ SIZE_T SourceBytes,
+    _In_ ULONGLONG SourceBitOffset,
+    _In_ ULONGLONG BitCount,
+    _Out_writes_bytes_(DestinationBytes) UCHAR* Destination,
+    _In_ SIZE_T DestinationBytes,
+    _In_ ULONGLONG DestinationBitOffset
+    )
+{
+    ULONGLONG sourceCapacity;
+    ULONGLONG destinationCapacity;
+    ULONGLONG index;
+
+    if (Source == NULL || Destination == NULL ||
+        SourceBytes == 0 || DestinationBytes == 0 ||
+        (ULONGLONG)SourceBytes > MAXULONGLONG / 8u ||
+        (ULONGLONG)DestinationBytes > MAXULONGLONG / 8u)
+        return STATUS_INVALID_PARAMETER;
+
+    sourceCapacity = (ULONGLONG)SourceBytes * 8u;
+    destinationCapacity = (ULONGLONG)DestinationBytes * 8u;
+    if (SourceBitOffset > sourceCapacity ||
+        BitCount > sourceCapacity - SourceBitOffset ||
+        DestinationBitOffset > destinationCapacity ||
+        BitCount > destinationCapacity - DestinationBitOffset)
+        return STATUS_BUFFER_TOO_SMALL;
+
+    for (index = 0; index < BitCount; ++index) {
+        ULONGLONG sourceBit = SourceBitOffset + index;
+        ULONGLONG destinationBit = DestinationBitOffset + index;
+        UCHAR sourceMask = (UCHAR)(1u << (sourceBit % 8u));
+        UCHAR destinationMask = (UCHAR)(1u << (destinationBit % 8u));
+
+        if ((Source[(SIZE_T)(sourceBit / 8u)] & sourceMask) != 0)
+            Destination[(SIZE_T)(destinationBit / 8u)] |= destinationMask;
+        else
+            Destination[(SIZE_T)(destinationBit / 8u)] &=
+                (UCHAR)~destinationMask;
+    }
+
+    return STATUS_SUCCESS;
+}
