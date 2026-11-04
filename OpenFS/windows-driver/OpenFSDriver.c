@@ -526,9 +526,13 @@ OpenFsDispatchQueryVolumeInformation(
             goto VolumeQueryExit;
         }
         totalBlocks = layout.BackupSuperblockBlock - layout.DataStartBlock;
-        status = OpenFsCountFreeDataBlocks(vcb->RealDeviceObject,
-            &vcb->Geometry, &freeBlocks);
-        if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+        if (!vcb->FreeDataBlockCountValid) {
+            status = OpenFsCountFreeDataBlocks(vcb->RealDeviceObject,
+                &vcb->Geometry, &vcb->FreeDataBlockCount);
+            if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+            vcb->FreeDataBlockCountValid = TRUE;
+        }
+        freeBlocks = vcb->FreeDataBlockCount;
         if (totalBlocks > MAXLONGLONG || freeBlocks > totalBlocks) {
             status = STATUS_INTEGER_OVERFLOW;
             goto VolumeQueryExit;
