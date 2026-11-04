@@ -29,3 +29,16 @@ OpenFsCountFreeBlocksInRange(
     _In_ ULONGLONG RangeEnd,
     _Out_ ULONGLONG* FreeBlocks
     );
+
+
+/* Copy a bounded LSB-first bit range between bitmap buffers. */
+NTSTATUS
+OpenFsCopyBitmapBits(
+    _In_reads_bytes_(SourceBytes) const UCHAR* Source,
+    _In_ SIZE_T SourceBytes,
+    _In_ ULONGLONG SourceBitOffset,
+    _In_ ULONGLONG BitCount,
+    _Out_writes_bytes_(DestinationBytes) UCHAR* Destination,
+    _In_ SIZE_T DestinationBytes,
+    _In_ ULONGLONG DestinationBitOffset
+    );
