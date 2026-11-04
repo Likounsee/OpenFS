@@ -448,6 +448,46 @@ OpenFsDispatchQueryVolumeInformation(
             info->FileSystemNameLength);
         break;
     }
+    case FileFsSizeInformation:
+    {
+        PFILE_FS_SIZE_INFORMATION info =
+            (PFILE_FS_SIZE_INFORMATION)output;
+        OPENFS_VOLUME_LAYOUT layout;
+        ULONGLONG freeBlocks = 0;
+        ULONGLONG totalBlocks;
+        ULONG sectorSize = vcb->RealDeviceObject != NULL
+            ? vcb->RealDeviceObject->SectorSize : 0;
+
+        required = sizeof(*info);
+        if (length < required) break;
+        if (sectorSize == 0 ||
+            vcb->Geometry.BlockSize % sectorSize != 0) {
+            status = STATUS_INVALID_DEVICE_STATE;
+            goto VolumeQueryExit;
+        }
+        status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
+            vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+        if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+        if (layout.BackupSuperblockBlock <= layout.DataStartBlock) {
+            status = STATUS_DISK_CORRUPT_ERROR;
+            goto VolumeQueryExit;
+        }
+        totalBlocks = layout.BackupSuperblockBlock - layout.DataStartBlock;
+        status = OpenFsCountFreeDataBlocks(vcb->RealDeviceObject,
+            &vcb->Geometry, &freeBlocks);
+        if (!NT_SUCCESS(status)) goto VolumeQueryExit;
+        if (totalBlocks > MAXLONGLONG || freeBlocks > totalBlocks) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto VolumeQueryExit;
+        }
+        RtlZeroMemory(info, required);
+        info->TotalAllocationUnits.QuadPart = (LONGLONG)totalBlocks;
+        info->AvailableAllocationUnits.QuadPart = (LONGLONG)freeBlocks;
+        info->SectorsPerAllocationUnit =
+            vcb->Geometry.BlockSize / sectorSize;
+        info->BytesPerSector = sectorSize;
+        break;
+    }
     case FileFsDeviceInformation:
     {
         PFILE_FS_DEVICE_INFORMATION info =
