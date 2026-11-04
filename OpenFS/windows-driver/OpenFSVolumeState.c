@@ -76,3 +76,24 @@ OpenFsVolumeStateCanLock(
         VpbMounted &&
         !RemovePending;
 }
+
+int
+OpenFsVolumeStateCanDismount(
+    OPENFS_VOLUME_STATE State,
+    unsigned long long TotalOpenHandles,
+    int CallerOwnsVolumeLock,
+    int VpbMounted,
+    int RemovePending
+    )
+{
+    /*
+     * Dismount is only admissible after an exclusive lock has excluded new
+     * opens and all other file/volume handles have been closed. This is a
+     * policy gate, not permission to tear down the VDO from the FSCTL stack.
+     */
+    return State == OpenFsVolumeMounted &&
+        TotalOpenHandles == 1 &&
+        CallerOwnsVolumeLock &&
+        VpbMounted &&
+        !RemovePending;
+}
