@@ -1,53 +1,47 @@
-# Intégration Windows et pilote natif
+# Pilote Windows natif OpenFS
 
-OpenFS a deux chemins Windows distincts. Il est important de ne pas les confondre.
+## État actuel
 
-## 1. Montage expérimental avec Dokany
+Le dépôt contient deux voies Windows distinctes :
 
-Le programme Rust openfs-tool utilise Dokany pour exposer une image OpenFS comme lecteur Windows. C'est actuellement le chemin de développement pour tester les opérations depuis l'Explorateur et les applications Windows.
+1. **Adaptateur Rust/Dokany** : voie expérimentale user-mode pour exposer une image OpenFS sous Windows.
+2. **Pilote WDM natif en C** : véritable système de fichiers noyau, situé dans `OpenFS/windows-driver/`.
 
-Il nécessite Windows et Dokany. Il n'est pas considéré comme prêt pour des données importantes ni pour un usage de production.
+Le pilote natif n'est plus au stade d'une simple sonde : le dispatch `IRP_MN_MOUNT_VOLUME` appelle `OpenFsProbeVolume`, crée le périphérique de volume privé, attache la pile, installe le snapshot du namespace, réserve le VPB puis publie le volume. Le code fournit également des dispatchs en lecture seule pour l'ouverture, la lecture, les informations, les répertoires et plusieurs FSCTL.
 
-## 2. Pilote WDM natif en C
+**État de validation :** compilation WDK x64 et tests C/Rust CI réussis sur le commit `59bf12e`. Aucun test de montage sur matériel réel n'a encore été effectué.
 
-Le code est dans OpenFS/windows-driver/. Il s'agit d'un véritable pilote de système de fichiers noyau, pas d'un minifiltre.
+## Capacités présentes dans le code
 
-### Ce qui existe
+- Enregistrement auprès du gestionnaire d'E/S avec `IoRegisterFileSystem`.
+- Sonde en lecture seule des superblocs primaire et secondaire.
+- Validation des révisions internes, CRC32C, géométrie, taille exacte, bitmap d'allocation et inventaire.
+- Snapshot du namespace, DCB racine et cache FCB/DCB.
+- Création du VDO/VCB, attachement au périphérique inférieur et publication du VPB après initialisation.
+- Ouverture de fichiers et répertoires en lecture seule, partage et durée de vie des FCB.
+- Lecture des données via les extents.
+- Informations fichiers/volumes, énumération de répertoires et FSCTL bitmap, retrieval pointers et allocated ranges.
+- Verrouillage du volume.
 
-- Enregistrement du système de fichiers auprès du gestionnaire d'E/S Windows.
-- Réception des demandes de détection/montage.
-- Lecture en lecture seule des superblocs principal et secondaire.
-- Validation de la géométrie, des révisions, des CRC et de plusieurs structures.
-- État de volume privé, protection de durée de vie et cache FCB/DCB.
-- Résolution complète de chemins UTF-8 vers les FCB/DCB, avec validation du namespace et protection contre la destruction du VCB pendant le parcours.
-- Tests C exécutables sur l'hôte pour plusieurs codecs et structures.
+## Limites importantes
 
-### Ce qui manque encore
+- Le build de développement n'est pas signé pour une installation standard sur Windows 11.
+- L'artefact CI est actuellement constitué du `.sys` et de l'INF ; il ne fournit pas encore un package signé prêt à installer.
+- Aucun essai sur un vrai périphérique USB n'a validé le montage ni la lecture.
+- Le démontage complet n'est pas disponible : `FSCTL_DISMOUNT_VOLUME` retourne `STATUS_DEVICE_BUSY` tant que la destruction différée et la désinscription du VPB ne sont pas sûres.
+- Le pilote est volontairement en lecture seule. Aucun formatage ni aucune écriture n'est pris en charge.
+- L'intégration complète Cache Manager / Memory Manager, les aspects de sécurité, la concurrence, la récupération après panne et la validation HLK restent à faire.
 
-Le pilote ne publie pas de volume monté : une sonde réussie se termine encore par STATUS_NOT_IMPLEMENTED. Il reste notamment à :
+## Compilation
 
-1. intégrer le VCB, le snapshot namespace et le DCB racine dans un vrai cycle de montage ;
-2. publier le VPB uniquement lorsque le volume est complètement initialisé ;
-3. gérer proprement démontage, vérification et erreurs ;
-4. implémenter l'ouverture des fichiers Windows et la durée de vie des FILE_OBJECT ;
-5. ajouter informations, énumération des répertoires et lecture ;
-6. ajouter écriture, suppression, renommage, partage et synchronisation ;
-7. intégrer les exigences Cache Manager, Memory Manager, sécurité et concurrence.
-
-La présence d'une fonction ou d'une structure de préparation ne signifie pas que le parcours Windows correspondant fonctionne.
-
-## Compiler le pilote
-
-Prérequis : Visual Studio avec les outils C++, Windows SDK et WDK compatibles, outils x64.
-
-Depuis une invite développeur WDK :
+Prérequis : Visual Studio avec outils C++, Windows SDK et WDK compatibles, outils x64.
 
 ```powershell
 msbuild .\OpenFSDriver.vcxproj /m /p:Configuration=Debug /p:Platform=x64
 ```
 
-La compilation produit un pilote de développement non signé. Elle ne prouve ni qu'il peut être installé en sécurité, ni qu'il peut monter un volume. Une distribution nécessite un package et une signature adaptés, ainsi que des validations sur Windows réel.
+La compilation ne prouve pas le chargement du pilote ni le bon fonctionnement du montage. Ne pas désactiver Secure Boot ou activer le mode test sur le PC principal pour installer le build non signé. La première validation de chargement doit être faite dans une VM Windows de test avec instantané.
 
-## Règle de développement
+## Plan de validation USB
 
-Ne jamais retourner un succès de montage avant que le VCB, le VPB, le namespace racine, les dispatchs et le démontage soient cohérents. Un volume reconnu n'est pas un volume monté.
+Voir [WINDOWS_DRIVER_USB_TEST_PLAN.md](WINDOWS_DRIVER_USB_TEST_PLAN.md). La clé de test doit être identifiée par son modèle, sa capacité et son numéro de série à chaque étape. Les disques système ne doivent jamais être ciblés. La création d'un volume OpenFS attendra un formateur validé ; aucune commande de formatage brut ne fait partie des tests actuels.
