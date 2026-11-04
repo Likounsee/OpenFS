@@ -562,6 +562,8 @@ OpenFsLookupChildFcb(
     if (VolumeDeviceObject == NULL || ParentFcb == NULL ||
         Name == NULL || NameLength == 0 || ChildFcb == NULL)
         return STATUS_INVALID_PARAMETER;
+    if (NameLength > OPENFS_DIRECTORY_NAME_MAX_BYTES)
+        return STATUS_OBJECT_NAME_INVALID;
     *ChildFcb = NULL;
 
     ObReferenceObject(VolumeDeviceObject);
@@ -613,6 +615,12 @@ OpenFsLookupChildFcb(
     }
 
     record = &vcb->Namespace->Records[recordIndex];
+    if (record->ParentIdLow != cached->ObjectIdLow ||
+        record->ParentIdHigh != cached->ObjectIdHigh ||
+        (record->Kind != 1u && record->Kind != 2u)) {
+        status = STATUS_DISK_CORRUPT_ERROR;
+        goto Exit;
+    }
     for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
          link = link->Flink) {
         POPENFS_FCB candidate =
@@ -623,6 +631,11 @@ OpenFsLookupChildFcb(
             status = STATUS_SUCCESS;
             goto Exit;
         }
+    }
+
+    if (vcb->CachedFcbCount == MAXULONG) {
+        status = STATUS_INTEGER_OVERFLOW;
+        goto Exit;
     }
 
     if (record->Kind == 2u) {
@@ -704,7 +717,8 @@ OpenFsLookupPathFcb(
     USHORT offset = 0;
     NTSTATUS status;
 
-    if (VolumeDeviceObject == NULL || Path == NULL || FileFcb == NULL)
+    if (VolumeDeviceObject == NULL || FileFcb == NULL ||
+        (Path == NULL && PathLength != 0))
         return STATUS_INVALID_PARAMETER;
     *FileFcb = NULL;
 
