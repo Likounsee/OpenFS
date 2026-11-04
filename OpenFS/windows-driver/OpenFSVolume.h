@@ -49,6 +49,7 @@ typedef struct _OPENFS_VCB {
     PDEVICE_OBJECT RealDeviceObject;
     PDEVICE_OBJECT AttachedDeviceObject;
     PVPB Vpb;
+    PFILE_OBJECT LockFileObject;
     OPENFS_VOLUME_GEOMETRY Geometry;
     POPENFS_NAMESPACE_SNAPSHOT Namespace;
     POPENFS_DCB RootDcb;
@@ -176,4 +177,19 @@ OpenFsGetFcbLogicalRun(
     _Out_ PULONGLONG NextVcn,
     _Out_ PULONGLONG PhysicalBlock,
     _Out_ PBOOLEAN IsAllocated
+    );
+
+
+/* Lock a mounted volume for the sole open volume-root handle. */
+NTSTATUS
+OpenFsLockVolume(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PFILE_OBJECT FileObject
+    );
+
+/* Unlock only when called through the file object that owns the lock. */
+NTSTATUS
+OpenFsUnlockVolume(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ PFILE_OBJECT FileObject
     );
