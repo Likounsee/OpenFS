@@ -134,6 +134,17 @@ OpenFsLoadFcbExtents(
     _In_ POPENFS_FCB FileFcb
     );
 
+/* Read a byte range from a cached regular-file extent map (EOF is short read). */
+NTSTATUS
+OpenFsReadFcbData(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _Out_writes_bytes_(Length) UCHAR* Buffer,
+    _In_ ULONG Length,
+    _Out_ PULONG BytesRead
+    );
+
 /* Resolve a complete UTF-8 root-relative path and cache each FCB/DCB. */
 NTSTATUS
 OpenFsLookupPathFcb(
