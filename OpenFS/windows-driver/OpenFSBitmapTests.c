@@ -109,6 +109,27 @@ main(void)
         NULL, sizeof(bitmap), 0u, 50u, 2u, 2u, 4u, 6u)
         == STATUS_INVALID_PARAMETER);
 
+
+    /* Count free bits only in the requested data range. */
+    SetAllAllocated(bitmap, sizeof(bitmap));
+    for (ULONGLONG block = 100u; block < 120u; ++block)
+        SetBit(bitmap, block, FALSE);
+    {
+        ULONGLONG freeBlocks = 999u;
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 96u, 128u, &freeBlocks) == STATUS_SUCCESS);
+        CHECK(freeBlocks == 20u);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 32760u, 32777u, &freeBlocks) == STATUS_INVALID_PARAMETER);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 120u, 100u, &freeBlocks) == STATUS_INVALID_PARAMETER);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            0u, 96u, 128u, NULL) == STATUS_INVALID_PARAMETER);
+        CHECK(OpenFsCountFreeBlocksInRange(bitmap, sizeof(bitmap),
+            MAXULONGLONG - 7u, MAXULONGLONG - 7u,
+            MAXULONGLONG, &freeBlocks) == STATUS_INTEGER_OVERFLOW);
+    }
+
     puts("OpenFS bitmap validation tests passed.");
     printf("%u checks passed.\n", g_tests);
     return 0;
