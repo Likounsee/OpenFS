@@ -97,8 +97,9 @@ OpenFsDispatchCreate(
     }
 
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        vcb->State != OpenFsVolumeMounted ||
         fcb->OpenHandleCount == MAXULONG) {
-        status = STATUS_INVALID_DEVICE_STATE;
+        status = STATUS_VOLUME_DISMOUNTED;
     } else {
         ++fcb->OpenHandleCount;
         fileObject->FsContext = fcb;
