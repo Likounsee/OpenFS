@@ -24,6 +24,7 @@ typedef struct _OPENFS_FCB {
     UCHAR Kind;
     BOOLEAN IsRoot;
     BOOLEAN ExtentsLoaded;
+    ULONG OpenHandleCount;
     ULONG ExtentCount;
     POPENFS_EXTENT Extents;
     LIST_ENTRY CacheLink;
