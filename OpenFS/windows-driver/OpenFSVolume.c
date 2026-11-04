@@ -1338,6 +1338,7 @@ OpenFsLockVolume(
     POPENFS_VCB vcb;
     POPENFS_FCB rootFcb;
     PLIST_ENTRY link;
+    BOOLEAN rootFound = FALSE;
     ULONGLONG totalOpenHandles = 0;
     KIRQL oldIrql;
     NTSTATUS status = STATUS_SUCCESS;
@@ -1363,9 +1364,22 @@ OpenFsLockVolume(
     }
 
     rootFcb = (POPENFS_FCB)FileObject->FsContext;
-    if (vcb->State != OpenFsVolumeMounted || vcb->Vpb == NULL ||
-        rootFcb->Signature != OPENFS_FCB_SIGNATURE || !rootFcb->IsRoot) {
+    if (vcb->State != OpenFsVolumeMounted || vcb->Vpb == NULL) {
         status = STATUS_VOLUME_DISMOUNTED;
+        goto LockExit;
+    }
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        POPENFS_FCB candidate =
+            CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
+        if (candidate == rootFcb) {
+            rootFound = TRUE;
+            break;
+        }
+    }
+    if (!rootFound || rootFcb->Signature != OPENFS_FCB_SIGNATURE ||
+        !rootFcb->IsRoot) {
+        status = STATUS_INVALID_PARAMETER;
         goto LockExit;
     }
     if (vcb->LockFileObject != NULL) {
@@ -1435,9 +1449,12 @@ OpenFsUnlockVolume(
         status = STATUS_ACCESS_DENIED;
     } else {
         IoAcquireVpbSpinLock(&oldIrql);
-        if (vcb->Vpb->DeviceObject == VolumeDeviceObject)
+        if (vcb->Vpb->DeviceObject == VolumeDeviceObject) {
             vcb->Vpb->Flags &= (USHORT)~VPB_LOCKED;
-        vcb->LockFileObject = NULL;
+            vcb->LockFileObject = NULL;
+        } else {
+            status = STATUS_VOLUME_DISMOUNTED;
+        }
         IoReleaseVpbSpinLock(oldIrql);
     }
 
