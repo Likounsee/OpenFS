@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ntifs.h>
-#include "OpenFSSuperblock.h"
+#include "OpenFSNamespace.h"
 
 /*
  * Read-only recognition probe for a partition/volume device supplied by
