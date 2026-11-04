@@ -33,3 +33,15 @@ OpenFsVolumeStateCanDestroy(
     OPENFS_VOLUME_STATE State,
     int HasVpb
     );
+
+
+/* Pure policy check for an exclusive volume lock attempt. */
+int
+OpenFsVolumeStateCanLock(
+    OPENFS_VOLUME_STATE State,
+    unsigned long long TotalOpenHandles,
+    int CallerIsVolumeHandle,
+    int LockAlreadyHeld,
+    int VpbMounted,
+    int RemovePending
+    );
