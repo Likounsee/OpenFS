@@ -84,14 +84,3 @@ VOID
 OpenFsFreeNamespaceSnapshot(
     _In_opt_ POPENFS_NAMESPACE_SNAPSHOT Snapshot
     );
-
-/* Resolve one exact, case-sensitive child name in a validated snapshot. */
-NTSTATUS
-OpenFsLookupNamespaceChild(
-    _In_ const OPENFS_NAMESPACE_SNAPSHOT* Snapshot,
-    _In_ ULONGLONG ParentIdLow,
-    _In_ ULONGLONG ParentIdHigh,
-    _In_reads_bytes_(NameLength) const UCHAR* Name,
-    _In_ UCHAR NameLength,
-    _Out_ PULONG RecordIndex
-    );

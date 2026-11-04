@@ -93,7 +93,7 @@ OpenFsDispatchFileSystemControl(
         if (NT_SUCCESS(status)) {
             /* Keep the validated namespace in a private VCB. It is not published:
              * root FCB/DCB and file dispatch are still absent. Roll back cleanly. */
-            status = OpenFsCreateVolumeDevice(DeviceObject->DriverObject,
+            status = OpenFsCreateVolumeDevice(DriverObject,
                 volumeDeviceObject, &geometry, &privateVolumeDevice);
             if (NT_SUCCESS(status)) {
                 if (namespaceSnapshot != NULL) {

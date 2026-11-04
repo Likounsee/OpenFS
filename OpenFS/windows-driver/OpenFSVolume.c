@@ -1,8 +1,6 @@
 #include "OpenFSVolume.h"
 #include "OpenFSLayout.h"
 
-#define OPENFS_FCB_POOL_TAG 0x4F734646UL
-
 NTSTATUS
 OpenFsCreateVolumeDevice(
     _In_ PDRIVER_OBJECT DriverObject,
@@ -77,7 +75,6 @@ OpenFsCreateVolumeDevice(
     vcb->RealDeviceObject = RealDeviceObject;
     vcb->Vpb = NULL;
     vcb->Namespace = NULL;
-    vcb->RootDcb = NULL;
     RtlCopyMemory(&vcb->Geometry, Geometry, sizeof(vcb->Geometry));
 
     volumeDeviceObject->StackSize =
@@ -136,10 +133,6 @@ OpenFsDestroyVolumeDevice(
         return status;
     }
     vcb->Signature = 0;
-    if (vcb->RootDcb != NULL) {
-        ExFreePoolWithTag(vcb->RootDcb, OPENFS_FCB_POOL_TAG);
-        vcb->RootDcb = NULL;
-    }
     OpenFsFreeNamespaceSnapshot(vcb->Namespace);
     vcb->Namespace = NULL;
     if (vcb->RealDeviceObject != NULL) {
@@ -477,43 +470,10 @@ OpenFsSetVolumeNamespace(
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
         vcb->State != OpenFsVolumeInitializing) {
         status = STATUS_INVALID_DEVICE_STATE;
-    } else if (vcb->Namespace != NULL || vcb->RootDcb != NULL) {
+    } else if (vcb->Namespace != NULL) {
         status = STATUS_DEVICE_BUSY;
     } else {
-        POPENFS_DCB rootDcb = (POPENFS_DCB)ExAllocatePool2(
-            POOL_FLAG_NON_PAGED, sizeof(*rootDcb), OPENFS_FCB_POOL_TAG);
-        if (rootDcb == NULL) {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-        } else {
-            const OPENFS_METADATA_RECORD* rootRecord = NULL;
-            ULONG index;
-            RtlZeroMemory(rootDcb, sizeof(*rootDcb));
-            if (NamespaceSnapshot->RootRecordIndex <
-                NamespaceSnapshot->RecordCount) {
-                rootRecord = &NamespaceSnapshot->Records[
-                    NamespaceSnapshot->RootRecordIndex];
-            }
-            rootDcb->Fcb.Signature = OPENFS_FCB_SIGNATURE;
-            rootDcb->Fcb.NodeType = OPENFS_DCB_NODE_TYPE;
-            rootDcb->Fcb.ObjectIdLow = NamespaceSnapshot->RootIdLow;
-            rootDcb->Fcb.ObjectIdHigh = NamespaceSnapshot->RootIdHigh;
-            rootDcb->Fcb.Kind = 2u;
-            rootDcb->Fcb.IsRoot = TRUE;
-            if (rootRecord != NULL) {
-                rootDcb->Fcb.FileSize = rootRecord->Size;
-                rootDcb->Fcb.ExtentRootBlock = rootRecord->ExtentRootBlock;
-                rootDcb->Fcb.Generation = rootRecord->Generation;
-            }
-            for (index = 0; index < NamespaceSnapshot->EntryCount; ++index) {
-                const OPENFS_DIRECTORY_ENTRY* entry =
-                    &NamespaceSnapshot->Entries[index];
-                if (entry->ParentIdLow == NamespaceSnapshot->RootIdLow &&
-                    entry->ParentIdHigh == NamespaceSnapshot->RootIdHigh)
-                    ++rootDcb->ChildCount;
-            }
-            vcb->RootDcb = rootDcb;
-            vcb->Namespace = NamespaceSnapshot;
-        }
+        vcb->Namespace = NamespaceSnapshot;
     }
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);

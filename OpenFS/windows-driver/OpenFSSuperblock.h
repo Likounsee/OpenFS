@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdlib.h>
 
 typedef uint8_t UCHAR;
 typedef uint16_t USHORT;
@@ -15,7 +14,6 @@ typedef size_t SIZE_T;
 typedef int32_t NTSTATUS;
 typedef int32_t LONG;
 typedef int BOOLEAN;
-typedef void VOID;
 typedef void VOID;
 
 #define TRUE 1
@@ -30,8 +28,6 @@ typedef void VOID;
 #define _Out_writes_bytes_(Length)
 #define _Outptr_
 #define _In_opt_
-#define _Outptr_
-#define _In_opt_
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
 #define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)
@@ -40,6 +36,7 @@ typedef void VOID;
 #define STATUS_DISK_CORRUPT_ERROR ((NTSTATUS)0xC0000032L)
 #define STATUS_INTEGER_OVERFLOW ((NTSTATUS)0xC0000095L)
 #define STATUS_INSUFFICIENT_RESOURCES ((NTSTATUS)0xC000009AL)
+#define STATUS_NOT_FOUND ((NTSTATUS)0xC0000225L)
 #define MAXULONG UINT32_MAX
 typedef ULONG* PULONG;
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)

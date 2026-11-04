@@ -248,6 +248,9 @@ main(void)
                 "snapshot rejects a zero root identifier");
             {
                 ULONG foundIndex = MAXULONG;
+                Check(OpenFsCreateNamespaceSnapshot(records, 3, entries, 2,
+                    1, 0, &snapshot) == STATUS_SUCCESS,
+                    "snapshot recreated for namespace lookup");
                 Check(OpenFsLookupNamespaceChild(snapshot, 1, 0,
                     (const UCHAR*)"file.txt", 8, &foundIndex) == STATUS_SUCCESS &&
                     foundIndex == 1,
@@ -258,6 +261,8 @@ main(void)
                 Check(OpenFsLookupNamespaceChild(snapshot, 42, 0,
                     (const UCHAR*)"missing", 7, &foundIndex) == STATUS_NOT_FOUND,
                     "namespace lookup refuses a non-directory parent");
+                OpenFsFreeNamespaceSnapshot(snapshot);
+                snapshot = NULL;
             }
         }
 
