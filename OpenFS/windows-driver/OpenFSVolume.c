@@ -681,3 +681,128 @@ Exit:
     ObDereferenceObject(VolumeDeviceObject);
     return status;
 }
+
+
+/*
+ * Resolve a complete UTF-8, root-relative path and materialize each component
+ * in the VCB FCB cache. The outer rundown reference keeps every returned FCB
+ * alive while the component helper takes and releases its own references.
+ */
+NTSTATUS
+OpenFsLookupPathFcb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_reads_bytes_(PathLength) const UCHAR* Path,
+    _In_ USHORT PathLength,
+    _Outptr_ POPENFS_FCB* FileFcb
+    )
+{
+    POPENFS_VCB vcb;
+    POPENFS_FCB current;
+    ULONG resolvedIndex;
+    ULONGLONG expectedIdLow;
+    ULONGLONG expectedIdHigh;
+    USHORT offset = 0;
+    NTSTATUS status;
+
+    if (VolumeDeviceObject == NULL || Path == NULL || FileFcb == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *FileFcb = NULL;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
+        (vcb->State != OpenFsVolumeInitializing &&
+         vcb->State != OpenFsVolumeMounted) ||
+        vcb->Namespace == NULL || vcb->RootDcb == NULL) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    } else {
+        status = OpenFsResolveNamespacePath(vcb->Namespace, Path,
+            PathLength, &resolvedIndex);
+    }
+
+    if (!NT_SUCCESS(status)) {
+        ExReleaseResourceLite(&vcb->Resource);
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return status;
+    }
+
+    if (resolvedIndex >= vcb->Namespace->RecordCount) {
+        ExReleaseResourceLite(&vcb->Resource);
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    current = &vcb->RootDcb->Fcb;
+    expectedIdLow = vcb->Namespace->Records[resolvedIndex].ObjectIdLow;
+    expectedIdHigh = vcb->Namespace->Records[resolvedIndex].ObjectIdHigh;
+    ExReleaseResourceLite(&vcb->Resource);
+
+    while (offset < PathLength) {
+        USHORT componentStart;
+        USHORT componentLength;
+
+        while (offset < PathLength &&
+            (Path[offset] == (UCHAR)'/' || Path[offset] == (UCHAR)'\\'))
+            ++offset;
+        if (offset == PathLength)
+            break;
+
+        componentStart = offset;
+        while (offset < PathLength &&
+            Path[offset] != (UCHAR)'/' &&
+            Path[offset] != (UCHAR)'\\')
+            ++offset;
+        componentLength = (USHORT)(offset - componentStart);
+
+        /*
+         * OpenFsResolveNamespacePath has already validated component syntax
+         * and the directory semantics. Keep this bound explicit before the
+         * UCHAR conversion required by OpenFsLookupChildFcb.
+         */
+        if (componentLength == 0 ||
+            componentLength > OPENFS_DIRECTORY_NAME_MAX_BYTES ||
+            componentLength > MAXUCHAR) {
+            status = STATUS_OBJECT_NAME_INVALID;
+            goto Exit;
+        }
+
+        {
+            POPENFS_FCB child = NULL;
+            status = OpenFsLookupChildFcb(VolumeDeviceObject, current,
+                Path + componentStart, (UCHAR)componentLength, &child);
+            if (!NT_SUCCESS(status))
+                goto Exit;
+            current = child;
+        }
+    }
+
+    if (current->ObjectIdLow != expectedIdLow ||
+        current->ObjectIdHigh != expectedIdHigh) {
+        status = STATUS_DISK_CORRUPT_ERROR;
+        goto Exit;
+    }
+
+    *FileFcb = current;
+    status = STATUS_SUCCESS;
+
+Exit:
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}

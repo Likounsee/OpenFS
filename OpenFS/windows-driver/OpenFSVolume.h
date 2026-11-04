@@ -122,6 +122,16 @@ OpenFsLookupChildFcb(
     _Outptr_ POPENFS_FCB* ChildFcb
     );
 
+
+/* Resolve a complete UTF-8 root-relative path and cache each FCB/DCB. */
+NTSTATUS
+OpenFsLookupPathFcb(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_reads_bytes_(PathLength) const UCHAR* Path,
+    _In_ USHORT PathLength,
+    _Outptr_ POPENFS_FCB* FileFcb
+    );
+
 /* Transfer ownership of a fully validated immutable namespace to the private VCB. */
 NTSTATUS
 OpenFsSetVolumeNamespace(
