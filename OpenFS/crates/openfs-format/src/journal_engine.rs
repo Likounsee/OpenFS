@@ -368,9 +368,11 @@ pub(crate) fn open_without_journal<D: BlockDevice>(
         ));
     }
     let mut protected = Vec::new();
-    protected.try_reserve_exact(protected_blocks.len()).map_err(|_| {
-        Error::AllocationFailed("unable to allocate protected Basic volume targets")
-    })?;
+    protected
+        .try_reserve_exact(protected_blocks.len())
+        .map_err(|_| {
+            Error::AllocationFailed("unable to allocate protected Basic volume targets")
+        })?;
     protected.extend_from_slice(protected_blocks);
     protected.sort_unstable();
     protected.dedup();
