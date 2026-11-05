@@ -9357,7 +9357,8 @@ mod tests {
             let path = image_path(&format!("replacement-recovery-{failure_kind}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -9593,7 +9594,8 @@ mod tests {
                 let path = image_path(&format!("descriptor-corruption-{corruption}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 64).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor = PersistentInventoryDescriptor {
                         root_id: ObjectId(1),
@@ -10196,7 +10198,8 @@ mod tests {
             });
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let descriptor_block = volume.allocate_block(&mut device).unwrap();
 
@@ -10315,7 +10318,8 @@ mod tests {
             let path = image_path(&format!("inventory-discovery-batch-read-failure-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let allocated = volume.allocate_blocks(&mut device, 130).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
@@ -10368,7 +10372,8 @@ mod tests {
             ));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 // Keep the descriptor first so its scan batch cannot be mistaken for
                 // either packed namespace-stream read.
                 let descriptor_block = volume.allocate_block(&mut device).unwrap();
@@ -10552,7 +10557,8 @@ mod tests {
             let path = image_path("inventory-descriptor-ambiguous-discovery");
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let descriptor_blocks = volume.allocate_blocks(&mut device, 2).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
@@ -10588,7 +10594,8 @@ mod tests {
             let path = image_path(&format!("invalid-inventory-no-write-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 // The allocated metadata block deliberately contains no valid record.
                 let descriptor = PersistentInventoryDescriptor {
@@ -10648,7 +10655,8 @@ mod tests {
                 let path = image_path(&format!("descriptor-atomic-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
                         id: ObjectId(1),
@@ -10794,7 +10802,8 @@ mod tests {
             let path = image_path(&format!("orphan-allocation-publication-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let orphan_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
@@ -10869,7 +10878,8 @@ mod tests {
                     armed: false,
                     flushes_before_failure: 2,
                 };
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -10963,7 +10973,8 @@ mod tests {
                     inner: raw,
                     fail_next_write: false,
                 };
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -11069,7 +11080,8 @@ mod tests {
                         armed: false,
                         prefix_len,
                     };
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
                         id: ObjectId(1),
@@ -11205,7 +11217,8 @@ mod tests {
                     inner: raw,
                     fail_next_flush: false,
                 };
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -11292,7 +11305,8 @@ mod tests {
             let path = image_path(&format!("duplicate-inventory-descriptors-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
@@ -11375,7 +11389,8 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor = match alias_kind {
                         "metadata" => PersistentInventoryDescriptor {
@@ -11427,7 +11442,8 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let directory_block = volume.allocate_block(&mut device).unwrap();
                     let descriptor_block = volume.allocate_block(&mut device).unwrap();
@@ -11812,7 +11828,8 @@ mod tests {
             let path = image_path(&format!("persistent-extent-map-read-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let directory_block = volume.allocate_block(&mut device).unwrap();
                 let extent_root = volume.allocate_block(&mut device).unwrap();
@@ -12258,7 +12275,8 @@ mod tests {
             let path = image_path(&format!("persistent-extent-map-alias-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let directory_block = volume.allocate_block(&mut device).unwrap();
                 let first_root = volume.allocate_block(&mut device).unwrap();
@@ -12384,7 +12402,8 @@ mod tests {
             let path = image_path(&format!("many-extent-roots-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let file_count = 32_usize;
                 let allocated = volume
                     .allocate_blocks(&mut device, (file_count * 2) as u64)
@@ -12795,7 +12814,8 @@ mod tests {
             let path = image_path(&format!("block-size-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 32).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 assert_eq!(second, first + 1);
@@ -12883,7 +12903,8 @@ mod tests {
             let path = image_path(&format!("mutated-layout-{mutation}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let original_layout = volume.volume.layout;
                 // The one bitmap block and six journal blocks occupy blocks 1..8
                 // for this 256-block, 4 KiB test volume.
@@ -13017,7 +13038,8 @@ mod tests {
             {
                 // The minimum valid canonical geometry has exactly three data blocks.
                 let mut device = ImageDevice::create(&path, block_size, 24).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
 
@@ -13115,7 +13137,8 @@ mod tests {
                         writes_until_failure: None,
                         flushes_until_failure: None,
                     };
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let blocks = [
                         volume.allocate_block(&mut device).unwrap(),
                         volume.allocate_block(&mut device).unwrap(),
@@ -13174,7 +13197,8 @@ mod tests {
             let path = image_path(&format!("allocator-batch-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let first = volume.allocate_block(&mut device).unwrap();
                 let second = volume.allocate_block(&mut device).unwrap();
                 let third = volume.allocate_block(&mut device).unwrap();
@@ -13263,7 +13287,8 @@ mod tests {
             let path = image_path(&format!("invalid-free-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let allocated = volume.allocate_block(&mut device).unwrap();
                 let first_data_block = volume.volume.layout.data_start;
                 let backup_superblock = volume.volume.layout.backup_superblock;
@@ -13462,7 +13487,8 @@ mod tests {
                 let path = image_path(&format!("descriptor-flush-failure-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
                         id: ObjectId(1),
@@ -13619,7 +13645,8 @@ mod tests {
                 let path = image_path(&format!("descriptor-torn-stage-{block_size}-{case}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
                         id: ObjectId(1),
@@ -13685,7 +13712,8 @@ mod tests {
             let path = image_path(&format!("bitmap-read-failure-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let initial_checkpoint = volume.journal.checkpoint();
 
                 let mut failing = FailReadAt {
@@ -13750,7 +13778,8 @@ mod tests {
                 let path = image_path(&format!("allocation-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.volume.layout.data_start;
                     let mut failing = FailWriteAt {
                         inner: device,
@@ -13783,7 +13812,8 @@ mod tests {
                 let path = image_path(&format!("allocation-recovery-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.volume.layout.data_start;
                     let mut failing = FailWriteAt {
                         inner: device,
@@ -13823,7 +13853,8 @@ mod tests {
             let path = image_path(&format!("inventory-alias-no-write-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let owned_block = volume.allocate_block(&mut device).unwrap();
                 let descriptor = PersistentInventoryDescriptor {
                     root_id: ObjectId(1),
@@ -14108,7 +14139,8 @@ mod tests {
                 let path = image_path(&format!("{label}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + bit / bits_per_bitmap_block;
                     let local = bit % bits_per_bitmap_block;
@@ -14193,7 +14225,8 @@ mod tests {
                 let path = image_path(&format!("reserved-block-{reserved}-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + *reserved / bits_per_bitmap_block;
                     let local = *reserved % bits_per_bitmap_block;
@@ -14307,7 +14340,8 @@ mod tests {
                 let path = image_path(&format!("{kind}-replay-{block_size}-{corrupted_block}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 24).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
                     let bitmap_block =
                         volume.volume.layout.bitmap_start + corrupted_block / bits_per_bitmap_block;
@@ -14414,7 +14448,8 @@ mod tests {
                 let path = image_path(&format!("free-precommit-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -14453,7 +14488,8 @@ mod tests {
                 let path = image_path(&format!("free-recovery-{block_size}-{fail_at}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FailWriteAt {
@@ -14522,7 +14558,8 @@ mod tests {
             let path = image_path(&format!("minimum-volume-exhaustion-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 24).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let layout = volume.volume.layout;
                 assert_eq!(layout.data_blocks(), 3);
 
@@ -14914,7 +14951,8 @@ mod tests {
                 let path = image_path(&format!("bitmap-validator-{block_size}-{label}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                    let volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     volume.validate_allocation_bitmap(&mut device).unwrap();
 
                     let bits_per_bitmap_block = u64::from(block_size) * 8;
@@ -14945,7 +14983,8 @@ mod tests {
             let path = image_path(&format!("batch-roundtrip-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 257).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let initial = volume.allocation_stats(&mut device).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 4).unwrap();
                 assert_eq!(blocks.len(), 4);
@@ -15350,7 +15389,8 @@ mod tests {
             let path = image_path(&format!("allocated-block-inventory-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 assert!(volume
                     .allocated_data_block_inventory(&mut device)
                     .unwrap()
@@ -15432,7 +15472,8 @@ mod tests {
             let path = image_path(&format!("range-ownership-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let blocks = volume.allocate_blocks(&mut device, 6).unwrap();
                 let map = ExtentMap::new(vec![
                     Extent {
@@ -15687,7 +15728,8 @@ mod tests {
             ));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let orphan_block = volume.allocate_block(&mut device).unwrap();
 
@@ -15764,7 +15806,8 @@ mod tests {
                         writes_until_failure: None,
                         flushes_until_failure: None,
                     };
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let metadata_block = volume.allocate_block(&mut device).unwrap();
                     let directory_block = volume.allocate_block(&mut device).unwrap();
                     let root = MetadataRecord {
@@ -15923,7 +15966,8 @@ mod tests {
                     writes_until_failure: None,
                     flushes_until_failure: None,
                 };
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_capacity = 4096 / crate::METADATA_RECORD_SIZE;
                 let entries_per_block = 4096 / crate::DIRECTORY_ENTRY_SIZE;
                 assert!(metadata_capacity > 1 && entries_per_block > 0);
@@ -16108,7 +16152,8 @@ mod tests {
             let path = image_path(&format!("descriptor-replacement-rejected-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
                     id: ObjectId(1),
@@ -16413,7 +16458,8 @@ mod tests {
             let path = image_path(&format!("descriptor-replacement-shared-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
 
                 let metadata_block = volume.allocate_block(&mut device).unwrap();
                 let root = MetadataRecord {
@@ -16547,7 +16593,8 @@ mod tests {
             let path = image_path(&format!("empty-persistent-range-write-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -16582,7 +16629,8 @@ mod tests {
             {
                 let image = ImageDevice::create(&path, block_size, 256).unwrap();
                 let mut device = FaultInjectingDevice::new(image);
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -16759,7 +16807,8 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     volume
                         .initialize_persistent_namespace(&mut device, ObjectId(1))
                         .unwrap();
@@ -16845,7 +16894,8 @@ mod tests {
             let path = image_path(&format!("persistent-path-rename-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -17001,7 +17051,8 @@ mod tests {
             let path = image_path(&format!("persistent-batch-rename-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -17118,7 +17169,8 @@ mod tests {
             let path = image_path(&format!("persistent-batch-removal-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -17558,7 +17610,8 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     let first = volume.volume.layout.data_start;
 
                     // Seed a free candidate with stale bytes. Allocation must clear it
@@ -17612,7 +17665,8 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                    let mut volume =
+                        format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                     volume
                         .initialize_persistent_namespace(&mut device, ObjectId(1))
                         .unwrap();
@@ -18466,7 +18520,8 @@ mod tests {
             let path = image_path(&format!("truncate-recovery-{label}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
@@ -18548,7 +18603,8 @@ mod tests {
             let path = image_path(&format!("replace-recovery-{label}-{fail_at}"));
             {
                 let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-                let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+                let mut volume =
+                    format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
