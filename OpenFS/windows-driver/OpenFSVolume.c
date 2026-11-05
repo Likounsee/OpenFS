@@ -1490,8 +1490,12 @@ OpenFsWriteFcbData(
         currentOffset += chunk;
     }
 
-    if (NT_SUCCESS(status) && completed != 0)
-        status = OpenFsFlushVolumeDevice(vcb->RealDeviceObject);
+    if (completed != 0) {
+        NTSTATUS flushStatus =
+            OpenFsFlushVolumeDevice(vcb->RealDeviceObject);
+        if (NT_SUCCESS(status) && !NT_SUCCESS(flushStatus))
+            status = flushStatus;
+    }
     *BytesWritten = completed;
 
 WriteExit:
