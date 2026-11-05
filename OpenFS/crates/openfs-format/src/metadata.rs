@@ -204,7 +204,9 @@ impl MetadataRecord {
             return Err(Error::UnsupportedVersion(version));
         }
         if version == LEGACY_VERSION && bytes[64..76].iter().any(|byte| *byte != 0) {
-            return Err(Error::Corrupt("legacy metadata reserved bytes must be zero"));
+            return Err(Error::Corrupt(
+                "legacy metadata reserved bytes must be zero",
+            ));
         }
         let stored = u32::from_le_bytes(
             bytes[CHECKSUM_OFFSET..]
@@ -250,9 +252,33 @@ impl MetadataRecord {
                     .try_into()
                     .map_err(|_| Error::Corrupt("invalid generation"))?,
             ),
-            created_at: if version == VERSION { u32::from_le_bytes(bytes[64..68].try_into().map_err(|_| Error::Corrupt("invalid creation timestamp"))?) } else { 0 },
-            modified_at: if version == VERSION { u32::from_le_bytes(bytes[68..72].try_into().map_err(|_| Error::Corrupt("invalid modification timestamp"))?) } else { 0 },
-            accessed_at: if version == VERSION { u32::from_le_bytes(bytes[72..76].try_into().map_err(|_| Error::Corrupt("invalid access timestamp"))?) } else { 0 },
+            created_at: if version == VERSION {
+                u32::from_le_bytes(
+                    bytes[64..68]
+                        .try_into()
+                        .map_err(|_| Error::Corrupt("invalid creation timestamp"))?,
+                )
+            } else {
+                0
+            },
+            modified_at: if version == VERSION {
+                u32::from_le_bytes(
+                    bytes[68..72]
+                        .try_into()
+                        .map_err(|_| Error::Corrupt("invalid modification timestamp"))?,
+                )
+            } else {
+                0
+            },
+            accessed_at: if version == VERSION {
+                u32::from_le_bytes(
+                    bytes[72..76]
+                        .try_into()
+                        .map_err(|_| Error::Corrupt("invalid access timestamp"))?,
+                )
+            } else {
+                0
+            },
         };
         if record.kind == ObjectKind::Directory
             && (record.size != 0 || record.extent_root_block.is_some())
@@ -372,7 +398,9 @@ mod tests {
         bytes[76..80].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(
             MetadataRecord::decode(&bytes),
-            Err(Error::Corrupt("legacy metadata reserved bytes must be zero"))
+            Err(Error::Corrupt(
+                "legacy metadata reserved bytes must be zero"
+            ))
         ));
         let mut bytes = file().encode().unwrap();
         bytes[10] = 99;
