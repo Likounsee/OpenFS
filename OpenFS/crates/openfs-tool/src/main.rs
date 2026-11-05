@@ -644,7 +644,12 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     let report = check_volume(&mut device)?;
     println!("OpenFS volume check completed (read-only; no recovery performed).");
     print_volume_geometry(path, &report);
-    println!("Filesystem mode: {}", if report.journal_enabled { "Secure (journal enabled)" } else { "Basic (journal disabled)" });
+    let filesystem_mode = if report.journal_enabled {
+        "Secure (journal enabled)"
+    } else {
+        "Basic (journal disabled)"
+    };
+    println!("Filesystem mode: {filesystem_mode}");
     println!("Journal generation: {}", report.journal_generation);
     println!(
         "Journal checkpoint sequence: {}",
@@ -678,7 +683,9 @@ fn check_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
     if report.journal_enabled {
         println!("Secure journal framing was also checked without modifying the image.");
     } else {
-        println!("Basic mode has no transaction journal; this check cannot provide crash-recovery guarantees.");
+        println!(
+            "Basic mode has no transaction journal; this check cannot provide crash-recovery guarantees."
+        );
     }
     println!("A present descriptor is not a substitute for full namespace and file-data ownership validation.");
     Ok(())
@@ -1679,7 +1686,10 @@ fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> 
     let mut device = ImageDevice::open(path, block_size)?;
     let preflight = check_volume(&mut device)?;
     if !preflight.journal_enabled {
-        return Err("recover-image applies only to OpenFS Secure volumes; Basic has no transaction journal to replay".into());
+        return Err(
+            "recover-image applies only to OpenFS Secure volumes; Basic has no transaction journal to replay"
+                .into(),
+        );
     }
     println!("WARNING: recover-image may modify the image while replaying the journal.");
     println!("Path: {}", path.display());
