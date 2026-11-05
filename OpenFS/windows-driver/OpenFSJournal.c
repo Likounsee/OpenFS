@@ -1,6 +1,9 @@
 #include "OpenFSJournal.h"
 #define JREC_MAGIC "OFSJNL\0\0"
 #define JCP_MAGIC "OFSCKP\0\0"
+static void w16(UCHAR*p,USHORT v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);}
+static void w32(UCHAR*p,ULONG v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);p[2]=(UCHAR)(v>>16);p[3]=(UCHAR)(v>>24);}
+static void w64(UCHAR*p,ULONGLONG v){w32(p,(ULONG)v);w32(p+4,(ULONG)(v>>32));}
 static USHORT r16(const UCHAR*p){return (USHORT)(p[0]|((USHORT)p[1]<<8));}
 static ULONG r32(const UCHAR*p){return (ULONG)p[0]|((ULONG)p[1]<<8)|((ULONG)p[2]<<16)|((ULONG)p[3]<<24);}
 static ULONGLONG r64(const UCHAR*p){return (ULONGLONG)r32(p)|((ULONGLONG)r32(p+4)<<32);}
@@ -154,5 +157,75 @@ OpenFsPlanJournalRecovery(
             }
         }
     }
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OpenFsEncodeJournalCheckpointBlock(
+    _In_ const OPENFS_JOURNAL_CHECKPOINT* Cp,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG RingBlocks,
+    _Out_ UCHAR* Block
+    )
+{
+    if (Cp == NULL || Block == NULL || RingBlocks < 4u ||
+        BlockSize < 4096u || BlockSize > 65536u ||
+        (BlockSize & (BlockSize - 1u)) != 0)
+        return STATUS_INVALID_PARAMETER;
+    if (Cp->Generation == 0 || Cp->CheckpointSequence == MAXULONGLONG ||
+        Cp->NextSequence != Cp->CheckpointSequence + 1u ||
+        Cp->NextTransactionId == 0 ||
+        Cp->NextTransactionId > Cp->CheckpointSequence + 1u ||
+        Cp->HeadBlock != 0 || Cp->TailBlock != 0)
+        return STATUS_INVALID_PARAMETER;
+
+    RtlZeroMemory(Block, BlockSize);
+    RtlCopyMemory(Block, JCP_MAGIC, 8);
+    w16(Block + 8, 1);
+    w16(Block + 10, OPENFS_JOURNAL_CHECKPOINT_BYTES);
+    w64(Block + 16, Cp->Generation);
+    w64(Block + 24, Cp->CheckpointSequence);
+    w64(Block + 32, Cp->NextSequence);
+    w64(Block + 40, Cp->NextTransactionId);
+    w64(Block + 48, Cp->HeadBlock);
+    w64(Block + 56, Cp->TailBlock);
+    w32(Block + 64, OpenFsCrc32C(Block, 64));
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OpenFsEncodeJournalRecordBlock(
+    _In_ OPENFS_JOURNAL_RECORD_KIND Kind,
+    _In_ ULONGLONG Sequence,
+    _In_ ULONGLONG TransactionId,
+    _In_reads_bytes_(PayloadLength) const UCHAR* Payload,
+    _In_ ULONG PayloadLength,
+    _In_ ULONG BlockSize,
+    _Out_ UCHAR* Block
+    )
+{
+    if (Block == NULL || BlockSize < 4096u || BlockSize > 65536u ||
+        (BlockSize & (BlockSize - 1u)) != 0 ||
+        Kind < OpenFsJournalBegin || Kind > OpenFsJournalAbort ||
+        Sequence == 0 || TransactionId == 0 ||
+        PayloadLength > OPENFS_JOURNAL_MAX_PAYLOAD_BYTES ||
+        PayloadLength > BlockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES ||
+        (PayloadLength != 0 && Payload == NULL) ||
+        (Kind != OpenFsJournalUpdate && PayloadLength != 0))
+        return STATUS_INVALID_PARAMETER;
+
+    RtlZeroMemory(Block, BlockSize);
+    RtlCopyMemory(Block, JREC_MAGIC, 8);
+    w16(Block + 8, 1);
+    w16(Block + 10, OPENFS_JOURNAL_RECORD_HEADER_BYTES);
+    w16(Block + 12, (USHORT)Kind);
+    w64(Block + 16, Sequence);
+    w64(Block + 24, TransactionId);
+    w32(Block + 32, PayloadLength);
+    if (PayloadLength != 0)
+        RtlCopyMemory(Block + OPENFS_JOURNAL_RECORD_HEADER_BYTES,
+            Payload, PayloadLength);
+    w32(Block + 36, record_crc(Block,
+        Block + OPENFS_JOURNAL_RECORD_HEADER_BYTES, PayloadLength));
     return STATUS_SUCCESS;
 }
