@@ -3505,11 +3505,9 @@ mod tests {
             device.write_blocks(bitmap_block, &bitmap).unwrap();
             free_after_damage = volume.free_data_block_count(&mut device).unwrap();
             device.flush().unwrap();
-            image_before_repair = vec![{
-                let mut bytes = vec![0_u8; BLOCK_SIZE as usize * 256];
-                device.read_blocks(0, &mut bytes).unwrap();
-                bytes
-            }];
+            let mut bytes = vec![0_u8; BLOCK_SIZE as usize * 256];
+            device.read_blocks(0, &mut bytes).unwrap();
+            image_before_repair = bytes;
         }
 
         assert!(super::repair_basic_image(&path, BLOCK_SIZE).is_err());
@@ -3518,8 +3516,7 @@ mod tests {
         let mut image_after_repair = vec![0_u8; BLOCK_SIZE as usize * 256];
         device.read_blocks(0, &mut image_after_repair).unwrap();
         assert_eq!(
-            image_after_repair,
-            image_before_repair[0],
+            image_after_repair, image_before_repair,
             "refusing a dangling reference must preserve every image byte"
         );
         let volume = open_volume(&mut device).unwrap();
