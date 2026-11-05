@@ -255,7 +255,8 @@ OpenFsWriteVolumeBlocks(
     } else if (NT_SUCCESS(status)) {
         status = ioStatus.Status;
     } else if (NT_SUCCESS(ioStatus.Status)) {
-        status = ioStatus.Status;
+        /* Keep the dispatch failure when the lower driver left IOSB untouched. */
+        ioStatus.Status = status;
     }
     if (NT_SUCCESS(status) && ioStatus.Information != byteLength)
         status = STATUS_DEVICE_DATA_ERROR;
@@ -295,7 +296,8 @@ OpenFsFlushVolumeDevice(
     } else if (NT_SUCCESS(status)) {
         status = ioStatus.Status;
     } else if (NT_SUCCESS(ioStatus.Status)) {
-        status = ioStatus.Status;
+        /* Keep the dispatch failure when the lower driver left IOSB untouched. */
+        ioStatus.Status = status;
     }
     return status;
 }
