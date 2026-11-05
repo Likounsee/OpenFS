@@ -114,7 +114,7 @@ jobs:
         run: ./openfs-write-plan-tests
       - name: Compile native journal codec tests
         working-directory: OpenFS/windows-driver
-        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSJournal.c OpenFSJournalTests.c -o openfs-journal-tests
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSJournal.c OpenFSJournalTests.c -o openfs-journal-tests
       - name: Run native journal codec tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-journal-tests
