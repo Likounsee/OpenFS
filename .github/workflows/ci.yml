@@ -224,10 +224,14 @@ jobs:
           & $signtool.FullName sign /fd SHA256 /f $pfx /p (ConvertFrom-SecureString $password -AsPlainText) (Join-Path $package 'OpenFS.cat')
           if ($LASTEXITCODE -ne 0) { throw "Test signing failed: $LASTEXITCODE" }
           Remove-Item -Force $pfx
+          $sumFile = Join-Path $package 'SHA256SUMS.txt'
+          $sumTemp = Join-Path $env:RUNNER_TEMP 'openfs-final-SHA256SUMS.txt'
           Get-ChildItem $package -File |
+            Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
             Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
-            Set-Content (Join-Path $package 'SHA256SUMS.txt')
+            Set-Content -Path $sumTemp
+          Move-Item -Force -Path $sumTemp -Destination $sumFile
           Write-Host 'VM-only test-signed package created. The certificate is public only; its private key is discarded.'
       - name: Publish VM test package
         uses: actions/upload-artifact@v4
