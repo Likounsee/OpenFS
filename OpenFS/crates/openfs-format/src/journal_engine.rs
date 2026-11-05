@@ -93,6 +93,8 @@ pub struct PersistentJournal {
     active_checkpoint_copy: u8,
     recovery_required: bool,
     protected_blocks: Vec<u64>,
+    /// False for OpenFS Basic: updates are written directly without redo logging.
+    enabled: bool,
 }
 
 /// Initialize a reserved journal region. Destructive; only call while formatting.
@@ -221,6 +223,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
                 active_checkpoint_copy: next_copy,
                 recovery_required: false,
                 protected_blocks,
+                enabled: true,
             });
         }
         if scanned.first_malformed_slot.is_some() {
@@ -232,6 +235,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             active_checkpoint_copy: active_copy,
             recovery_required: false,
             protected_blocks,
+            enabled: true,
         });
     }
     if !plan.is_empty() {
@@ -326,6 +330,7 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
             active_checkpoint_copy: next_copy,
             recovery_required: false,
             protected_blocks,
+            enabled: true,
         });
     }
 
@@ -335,6 +340,48 @@ pub(crate) fn open_journal_protected<D: BlockDevice>(
         active_checkpoint_copy: active_copy,
         recovery_required: false,
         protected_blocks,
+        enabled: true,
+    })
+}
+
+/// Open the reserved journal area in Basic mode without reading or replaying it.
+///
+/// The region remains reserved in the common on-disk layout so a future conversion to
+/// Secure can initialize it without relocating filesystem data. Commits in this mode
+/// validate all redo images first, then write home blocks directly and flush once. They
+/// are deliberately not crash-atomic; callers must not describe Basic as journaled.
+pub(crate) fn open_without_journal<D: BlockDevice>(
+    device: &D,
+    region: JournalRegion,
+    protected_blocks: &[u64],
+) -> Result<PersistentJournal> {
+    region.validate(device)?;
+    if protected_blocks.iter().any(|block| *block >= device.block_count())
+        || protected_blocks.iter().any(|block| region.contains_journal_block(*block))
+    {
+        return Err(Error::InvalidInput("invalid protected block for Basic volume"));
+    }
+    let mut protected = Vec::new();
+    protected.try_reserve_exact(protected_blocks.len()).map_err(|_| {
+        Error::AllocationFailed("unable to allocate protected Basic volume targets")
+    })?;
+    protected.extend_from_slice(protected_blocks);
+    protected.sort_unstable();
+    protected.dedup();
+    Ok(PersistentJournal {
+        region,
+        checkpoint: JournalCheckpoint {
+            generation: 0,
+            checkpoint_sequence: 0,
+            next_sequence: 1,
+            next_transaction_id: 1,
+            head_block: 0,
+            tail_block: 0,
+        },
+        active_checkpoint_copy: 0,
+        recovery_required: false,
+        protected_blocks: protected,
+        enabled: false,
     })
 }
 
@@ -358,6 +405,9 @@ impl PersistentJournal {
             return Err(Error::InvalidInput(
                 "journal transaction must contain redo updates",
             ));
+        }
+        if !self.enabled {
+            return Ok(update_count);
         }
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
@@ -390,6 +440,9 @@ impl PersistentJournal {
     /// still handle I/O errors by reopening the volume when a commit outcome is uncertain.
     pub fn max_update_count<D: BlockDevice>(&self, device: &D) -> Result<usize> {
         self.region.validate(device)?;
+        if !self.enabled {
+            return Ok(usize::MAX);
+        }
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
         let chunk_capacity = redo_chunk_size(block_size)?;
@@ -428,6 +481,41 @@ impl PersistentJournal {
         self.region.validate(device)?;
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
+        if !self.enabled {
+            let block_size = usize::try_from(device.block_size())
+                .map_err(|_| Error::ArithmeticOverflow)?;
+            let mut targets = Vec::new();
+            targets.try_reserve_exact(updates.len()).map_err(|_| {
+                Error::AllocationFailed("unable to reserve Basic write targets")
+            })?;
+            for update in updates {
+                if update.contents.len() != block_size {
+                    return Err(Error::InvalidInput("redo image must be exactly one device block"));
+                }
+                validate_home_target(device, self.region, update.target_block, block_size)?;
+                validate_protected_target(&self.protected_blocks, update.target_block)?;
+                targets.push(update.target_block);
+            }
+            targets.sort_unstable();
+            if targets.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(Error::InvalidInput("Basic write batch contains duplicate targets"));
+            }
+            let next_sequence = self.checkpoint.next_sequence
+                .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            for update in updates {
+                if let Err(error) = device.write_blocks(update.target_block, &update.contents) {
+                    self.recovery_required = true;
+                    return Err(error);
+                }
+            }
+            if let Err(error) = device.flush() {
+                self.recovery_required = true;
+                return Err(error);
+            }
+            self.checkpoint.checkpoint_sequence = self.checkpoint.next_sequence;
+            self.checkpoint.next_sequence = next_sequence;
+            return Ok(self.checkpoint.checkpoint_sequence);
+        }
 
         // Reject transactions that cannot fit before walking every target or
         // allocating the duplicate-detection set. The journal has a fixed ring, so
