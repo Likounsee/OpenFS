@@ -199,7 +199,8 @@ pub use metadata::{
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
 pub use volume::{
-    check_volume, format_volume, format_volume_secure, open_volume, OpenedVolume, Volume,
+    check_basic_repair_preflight, check_volume, format_volume, format_volume_secure, open_volume,
+    OpenedVolume, Volume,
     VolumeCheckReport, VolumeLayout, VolumeSession, FEATURE_SECURE_JOURNAL,
 };
 
