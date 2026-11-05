@@ -65,7 +65,7 @@ int main(void){
   assert(OpenFsDecodeRedoImage(chunks,0,2,4096,&target,image)==STATUS_SUCCESS&&target==42);
   assert(image[0]==0&&image[4043]==(UCHAR)(4043&0xff)&&image[4044]==9&&image[4095]==60);
   p16(p1+8,0);
-  RtlFillMemory(image,sizeof(image),0xCC);
+  memset(image,0xCC,sizeof(image));
   assert(OpenFsDecodeRedoImage(chunks,0,2,4096,&target,image)==STATUS_DISK_CORRUPT_ERROR&&image[0]==0xCC);
  }
 
