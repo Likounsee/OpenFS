@@ -8977,8 +8977,16 @@ impl<D: BlockDevice> VolumeSession<D> {
         after_name: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
+        let record = self.stat(path)?;
+        let entries = self.opened.list_persistent_directory(
+            &mut self.device,
+            path,
+            after_name,
+            limit,
+        )?;
         self.opened
-            .list_persistent_directory(&mut self.device, path, after_name, limit)
+            .touch_persistent_accessed(&mut self.device, record.id)?;
+        Ok(entries)
     }
 
     /// List one lexical page of a directory addressed by its stable object ID.
@@ -8990,12 +8998,15 @@ impl<D: BlockDevice> VolumeSession<D> {
         after_name: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
-        self.opened.list_persistent_directory_by_id(
+        let entries = self.opened.list_persistent_directory_by_id(
             &mut self.device,
             directory_id,
             after_name,
             limit,
-        )
+        )?;
+        self.opened
+            .touch_persistent_accessed(&mut self.device, directory_id)?;
+        Ok(entries)
     }
 
     /// Read a complete regular file into memory.
@@ -20023,5 +20034,63 @@ impl<D: BlockDevice> VolumeSession<D> {
     ) -> Result<()> {
         self.opened
             .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)
+    }
+}
+
+
+#[cfg(test)]
+mod directory_access_timestamp_tests {
+    use super::{format_volume, VolumeSession};
+    use crate::ObjectId;
+    use openfs_block::{BlockDevice, ImageDevice};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn image_path() -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("openfs-directory-atime-{nonce}.img"))
+    }
+
+    #[test]
+    fn directory_reads_persist_relatime_by_path_and_stable_id() {
+        let path = image_path();
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut formatted = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            formatted
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_directory("/", ObjectId(2), "docs").unwrap();
+
+            let entries = mounted.read_directory("/", None, 16).unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].name, "docs");
+            let first_root_atime = mounted.stat("/").unwrap().accessed_at;
+            assert_ne!(first_root_atime, 0);
+
+            // Relatime avoids rewriting the inventory for an immediate repeat read.
+            mounted.read_directory("/", None, 16).unwrap();
+            assert_eq!(mounted.stat("/").unwrap().accessed_at, first_root_atime);
+
+            // Stable-ID enumeration updates the same persistent timestamp, including
+            // an empty directory page.
+            assert!(mounted
+                .read_directory_by_id(ObjectId(2), None, 16)
+                .unwrap()
+                .is_empty());
+            assert_ne!(mounted.stat_object(ObjectId(2)).unwrap().accessed_at, 0);
+
+            drop(mounted.unmount().unwrap());
+        }
+
+        std::fs::remove_file(path).unwrap();
     }
 }
