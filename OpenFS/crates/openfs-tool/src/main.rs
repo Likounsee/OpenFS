@@ -17,10 +17,9 @@ use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(test)]
 use openfs_format::VolumeSession;
 use openfs_format::{
-    check_basic_repair_preflight, check_volume, format_volume, open_volume, ExtentMap,
-    ObjectId, ObjectKind,
-    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM,
-    METADATA_FLAG_TEMPORARY,
+    check_basic_repair_preflight, check_volume, format_volume, open_volume, ExtentMap, ObjectId,
+    ObjectKind, METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY,
+    METADATA_FLAG_SYSTEM, METADATA_FLAG_TEMPORARY,
 };
 use openfs_partition::{plan_openfs_gpt, write_gpt, PartitionDevice};
 
