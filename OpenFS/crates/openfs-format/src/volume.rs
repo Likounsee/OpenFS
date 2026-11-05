@@ -9404,8 +9404,8 @@ mod tests {
     #[test]
     fn basic_persistent_attributes_survive_remount_and_enforce_read_only() {
         use super::VolumeSession;
-        use crate::{METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY};
         use crate::ObjectId;
+        use crate::{METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY};
         use std::io::Cursor;
 
         let path = image_path("basic-persistent-attributes");
@@ -9421,8 +9421,12 @@ mod tests {
         {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
-            mounted.create_file("/", ObjectId(2), "attributes.txt").unwrap();
-            mounted.create_file("/", ObjectId(4), "batch-hidden.txt").unwrap();
+            mounted
+                .create_file("/", ObjectId(2), "attributes.txt")
+                .unwrap();
+            mounted
+                .create_file("/", ObjectId(4), "batch-hidden.txt")
+                .unwrap();
             mounted.write_file("/attributes.txt", b"preserved").unwrap();
             mounted
                 .set_attributes("/attributes.txt", METADATA_FLAG_HIDDEN, true)
