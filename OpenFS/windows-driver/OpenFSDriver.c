@@ -1279,6 +1279,7 @@ OpenFsDispatchFileSystemControl(
             ULONGLONG fileSize;
             ULONG blockSize;
             ULONGLONG currentVcn;
+            ULONGLONG expectedFileBlockCount;
             ULONG outputLength =
                 stack->Parameters.FileSystemControl.OutputBufferLength;
             ULONG capacity;
@@ -1346,6 +1347,10 @@ OpenFsDispatchFileSystemControl(
             if (requestEnd > MAXLONGLONG)
                 requestEnd = MAXLONGLONG;
 
+            expectedFileBlockCount = fileSize / blockSize;
+            if ((fileSize % blockSize) != 0)
+                ++expectedFileBlockCount;
+
             capacity = outputLength / sizeof(FILE_ALLOCATED_RANGE_BUFFER);
             currentVcn = requestStart / blockSize;
             __try {
@@ -1364,7 +1369,8 @@ OpenFsDispatchFileSystemControl(
                         &physicalBlock, &allocated);
                     if (!NT_SUCCESS(status))
                         break;
-                    if (nextVcn <= currentVcn ||
+                    if (fileBlockCount != expectedFileBlockCount ||
+                        nextVcn <= currentVcn ||
                         nextVcn > fileBlockCount) {
                         status = STATUS_DISK_CORRUPT_ERROR;
                         break;
