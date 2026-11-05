@@ -426,7 +426,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     // A freshly formatted volume must already have a persistent root namespace
     // before it can be opened by VolumeSession or mounted through the native WDM driver.
     let initialization = (|| -> openfs_core::Result<()> {
-        format_volume_secure(&mut device, uuid, 0)?;
+        format_volume(&mut device, uuid, 0)?;
         let mut volume = open_volume(&mut device)?;
         volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
         device.flush()?;
@@ -442,7 +442,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     println!("Path: {}", path.display());
     println!("Size: {size_mib} MiB ({block_count} blocks × {BLOCK_SIZE} bytes)");
     println!("UUID: {}", format_uuid(uuid));
-    println!("Format: OpenFS journaled filesystem (versioned journal + persistent root namespace)");
+    println!("Format: OpenFS Basic (non-journaled + persistent root namespace)");
     println!("The image is ready to mount; this command created a regular image file, not a physical USB volume.");
     Ok(())
 }
@@ -474,7 +474,7 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
         .ok_or("partition size overflow")?;
 
     let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
-    format_volume_secure(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
     let mut volume = open_volume(&mut filesystem)?;
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
@@ -2854,7 +2854,7 @@ fn format_disk_device(
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let mut volume_uuid = timestamp.to_le_bytes();
     volume_uuid[8..12].copy_from_slice(&disk_index.to_le_bytes());
-    format_volume_secure(&mut device, volume_uuid, 0)?;
+    format_volume(&mut device, volume_uuid, 0)?;
     let mut volume = open_volume(&mut device)?;
     volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
     device.flush()?;
@@ -2942,7 +2942,7 @@ fn format_gpt_disk_device(
     // Initialize OpenFS before publishing GPT metadata so an interrupted
     // initialization is not exposed as a valid, mountable partition.
     let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, block_size)?;
-    format_volume_secure(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
     let mut volume = open_volume(&mut filesystem)?;
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
