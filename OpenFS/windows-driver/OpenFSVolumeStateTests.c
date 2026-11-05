@@ -74,6 +74,36 @@ main(void)
         "dead cannot be resurrected"
         );
 
+    /*
+     * Exhaustively verify the transition matrix. This catches accidental
+     * lifecycle shortcuts when new states or teardown paths are introduced.
+     */
+    {
+        static const int expected[6][6] = {
+            { 0, 1, 0, 0, 0, 0 },
+            { 0, 0, 1, 0, 0, 1 },
+            { 0, 0, 0, 1, 0, 1 },
+            { 0, 0, 0, 0, 1, 0 },
+            { 0, 0, 0, 0, 0, 1 },
+            { 0, 0, 0, 0, 0, 0 }
+        };
+        int current;
+        int next;
+        for (current = OpenFsVolumeUninitialized;
+             current <= OpenFsVolumeDead; ++current) {
+            for (next = OpenFsVolumeUninitialized;
+                 next <= OpenFsVolumeDead; ++next) {
+                Check(
+                    OpenFsVolumeStateCanTransition(
+                        (OPENFS_VOLUME_STATE)current,
+                        (OPENFS_VOLUME_STATE)next) ==
+                        expected[current][next],
+                    "exhaustive lifecycle transition matrix"
+                    );
+            }
+        }
+    }
+
     state = OpenFsVolumeUninitialized;
     Check(
         OpenFsVolumeStateTryTransition(
@@ -183,5 +213,5 @@ main(void)
 
     printf("OpenFS volume-state tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
-    return g_Checks == 34 && g_Failures == 0 ? 0 : 1;
+    return g_Checks == 70 && g_Failures == 0 ? 0 : 1;
 }
