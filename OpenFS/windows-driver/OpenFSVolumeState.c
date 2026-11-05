@@ -102,13 +102,15 @@ OpenFsVolumeStateCanDismount(
 }
 
 int
-OpenFsVolumeStateCanReleaseLockOnClose(
+OpenFsVolumeStateCanForgetLockOwnerOnClose(
     OPENFS_VOLUME_STATE State
     )
 {
     /*
-     * Once dismount has been committed, the lock must remain in force until
-     * the deferred VPB teardown completes. CLOSE must not reopen the volume.
+     * CLOSE must forget the owner FILE_OBJECT before the I/O manager frees
+     * it. For a deferred dismount, this is deliberately separate from
+     * releasing VPB_LOCKED: the VPB remains locked until teardown commits.
      */
-    return State == OpenFsVolumeMounted;
+    return State == OpenFsVolumeMounted ||
+        State == OpenFsVolumeDismounting;
 }

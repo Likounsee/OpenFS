@@ -320,13 +320,20 @@ OpenFsDispatchClose(
                     OpenFsFindFcbLocked(vcb, fileObject->FsContext);
 
                 if (vcb->LockFileObject == fileObject && vcb->Vpb != NULL &&
-                    OpenFsVolumeStateCanReleaseLockOnClose(vcb->State)) {
-                    KIRQL oldIrql;
-                    IoAcquireVpbSpinLock(&oldIrql);
-                    if (vcb->Vpb->DeviceObject == DeviceObject)
-                        vcb->Vpb->Flags &= (USHORT)~VPB_LOCKED;
+                    OpenFsVolumeStateCanForgetLockOwnerOnClose(vcb->State)) {
+                    /*
+                     * A normal close releases the VPB lock. During deferred
+                     * dismount, keep VPB_LOCKED set to block remounts, but
+                     * drop the owner FILE_OBJECT pointer before it is freed.
+                     */
+                    if (vcb->State == OpenFsVolumeMounted) {
+                        KIRQL oldIrql;
+                        IoAcquireVpbSpinLock(&oldIrql);
+                        if (vcb->Vpb->DeviceObject == DeviceObject)
+                            vcb->Vpb->Flags &= (USHORT)~VPB_LOCKED;
+                        IoReleaseVpbSpinLock(oldIrql);
+                    }
                     vcb->LockFileObject = NULL;
-                    IoReleaseVpbSpinLock(oldIrql);
                 }
 
                 if (fcb != NULL &&

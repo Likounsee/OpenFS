@@ -57,8 +57,8 @@ OpenFsVolumeStateCanDismount(
     int RemovePending
     );
 
-/* Whether CLOSE may release an explicit VPB lock for this volume state. */
+/* Whether CLOSE may clear the lock-owner FILE_OBJECT for this volume state. */
 int
-OpenFsVolumeStateCanReleaseLockOnClose(
+OpenFsVolumeStateCanForgetLockOwnerOnClose(
     OPENFS_VOLUME_STATE State
     );

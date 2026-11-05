@@ -252,10 +252,11 @@ main(void)
         for (current = OpenFsVolumeUninitialized;
              current <= OpenFsVolumeDead; ++current) {
             Check(
-                OpenFsVolumeStateCanReleaseLockOnClose(
+                OpenFsVolumeStateCanForgetLockOwnerOnClose(
                     (OPENFS_VOLUME_STATE)current) ==
-                    (current == OpenFsVolumeMounted),
-                "only a mounted volume may release its VPB lock on close"
+                    (current == OpenFsVolumeMounted ||
+                     current == OpenFsVolumeDismounting),
+                "close forgets lock owner but preserves deferred dismount lock"
                 );
         }
     }
