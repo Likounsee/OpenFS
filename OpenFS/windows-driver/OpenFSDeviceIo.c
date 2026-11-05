@@ -4,6 +4,7 @@
 #include "OpenFSBitmap.h"
 #include "OpenFSLayout.h"
 #include "OpenFSInventory.h"
+#include "OpenFSJournal.h"
 #include "OpenFSNamespace.h"
 
 #define OPENFS_DEVICE_IO_TAG 'iFsO'
@@ -1144,6 +1145,123 @@ Exit:
     return status;
 }
 
+/*
+ * Read and validate the persistent journal before publishing a mounted volume.
+ *
+ * This driver is still read-only: if the ring contains a committed transaction,
+ * its home blocks may be stale and the namespace/bitmap must not be exposed until
+ * a recovery-capable implementation replays REDO and durably advances a checkpoint.
+ * An incomplete tail is safe to ignore because COMMIT is the durability boundary.
+ */
+static NTSTATUS
+OpenFsValidateJournalOnDevice(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
+    _In_ const OPENFS_VOLUME_LAYOUT* Layout
+    )
+{
+    UCHAR* checkpointBuffer = NULL;
+    UCHAR* ringBuffer = NULL;
+    const UCHAR* ringBlocks[16];
+    OPENFS_JOURNAL_CHECKPOINT firstCheckpoint;
+    OPENFS_JOURNAL_CHECKPOINT secondCheckpoint;
+    OPENFS_JOURNAL_CHECKPOINT selectedCheckpoint;
+    OPENFS_JOURNAL_RECORD_VIEW records[16];
+    OPENFS_JOURNAL_TRANSACTION_VIEW transactions[16];
+    ULONG ringCount;
+    ULONG recordCount = 0;
+    ULONG transactionCount = 0;
+    ULONG index;
+    SIZE_T ringBytes;
+    NTSTATUS firstStatus;
+    NTSTATUS secondStatus;
+    NTSTATUS status;
+    UCHAR activeCopy;
+
+    if (DeviceObject == NULL || Geometry == NULL || Layout == NULL ||
+        Geometry->BlockSize == 0 ||
+        Layout->RingEndBlock <= Layout->RingStartBlock)
+        return STATUS_INVALID_PARAMETER;
+
+    ringCount = (ULONG)(Layout->RingEndBlock - Layout->RingStartBlock);
+    if (ringCount < 4u || ringCount > RTL_NUMBER_OF(ringBlocks) ||
+        ringCount > MAXULONG / Geometry->BlockSize)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    checkpointBuffer = (UCHAR*)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, Geometry->BlockSize, OPENFS_DEVICE_IO_TAG);
+    if (checkpointBuffer == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    firstStatus = OpenFsReadVolumeBlocks(DeviceObject, Geometry->BlockSize,
+        Geometry->TotalBlocks, Layout->CheckpointA, 1u,
+        checkpointBuffer, Geometry->BlockSize);
+    if (NT_SUCCESS(firstStatus)) {
+        firstStatus = OpenFsDecodeJournalCheckpointBlock(
+            checkpointBuffer, Geometry->BlockSize, ringCount, &firstCheckpoint);
+    }
+
+    secondStatus = OpenFsReadVolumeBlocks(DeviceObject, Geometry->BlockSize,
+        Geometry->TotalBlocks, Layout->CheckpointB, 1u,
+        checkpointBuffer, Geometry->BlockSize);
+    if (NT_SUCCESS(secondStatus)) {
+        secondStatus = OpenFsDecodeJournalCheckpointBlock(
+            checkpointBuffer, Geometry->BlockSize, ringCount, &secondCheckpoint);
+    }
+    ExFreePoolWithTag(checkpointBuffer, OPENFS_DEVICE_IO_TAG);
+    checkpointBuffer = NULL;
+
+    status = OpenFsSelectJournalCheckpoint(firstStatus,
+        NT_SUCCESS(firstStatus) ? &firstCheckpoint : NULL,
+        secondStatus,
+        NT_SUCCESS(secondStatus) ? &secondCheckpoint : NULL,
+        &selectedCheckpoint, &activeCopy);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    ringBytes = (SIZE_T)ringCount * Geometry->BlockSize;
+    ringBuffer = (UCHAR*)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, ringBytes, OPENFS_DEVICE_IO_TAG);
+    if (ringBuffer == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    status = OpenFsReadVolumeBlocks(DeviceObject, Geometry->BlockSize,
+        Geometry->TotalBlocks, Layout->RingStartBlock, ringCount,
+        ringBuffer, ringBytes);
+    if (!NT_SUCCESS(status))
+        goto Exit;
+
+    for (index = 0; index < ringCount; ++index) {
+        ringBlocks[index] = ringBuffer +
+            ((SIZE_T)index * Geometry->BlockSize);
+    }
+
+    status = OpenFsScanJournalRing(ringBlocks, ringCount,
+        Geometry->BlockSize, selectedCheckpoint.CheckpointSequence,
+        selectedCheckpoint.NextTransactionId, records,
+        RTL_NUMBER_OF(records), &recordCount);
+    if (!NT_SUCCESS(status))
+        goto Exit;
+
+    status = OpenFsPlanJournalRecovery(records, recordCount,
+        selectedCheckpoint.CheckpointSequence,
+        selectedCheckpoint.NextTransactionId, transactions,
+        RTL_NUMBER_OF(transactions), &transactionCount);
+    if (!NT_SUCCESS(status))
+        goto Exit;
+
+    /*
+     * Never expose stale home blocks as a successful mount. A committed REDO
+     * transaction requires replay, which is intentionally not enabled yet.
+     */
+    if (transactionCount != 0)
+        status = STATUS_DEVICE_NOT_READY;
+
+Exit:
+    ExFreePoolWithTag(ringBuffer, OPENFS_DEVICE_IO_TAG);
+    return status;
+}
+
 NTSTATUS
 OpenFsProbeVolume(
     _In_ PDEVICE_OBJECT VolumeDeviceObject,
@@ -1241,6 +1359,14 @@ OpenFsProbeVolume(
     status = OpenFsValidateSuperblocks(primary, backup, deviceLength, Geometry);
     if (NT_SUCCESS(status)) {
         status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry, deviceLength);
+    }
+    if (NT_SUCCESS(status)) {
+        OPENFS_VOLUME_LAYOUT layout;
+        status = OpenFsCalculateVolumeLayout(Geometry->BlockSize,
+            Geometry->TotalBlocks, Geometry->Version, &layout);
+        if (NT_SUCCESS(status))
+            status = OpenFsValidateJournalOnDevice(targetDeviceObject,
+                Geometry, &layout);
     }
     if (NT_SUCCESS(status)) {
         status = OpenFsDiscoverInventoryDescriptor(targetDeviceObject, Geometry,
