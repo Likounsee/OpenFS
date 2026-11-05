@@ -9037,13 +9037,19 @@ impl<D: BlockDevice> VolumeSession<D> {
         length: u64,
         writer: &mut W,
     ) -> Result<u64> {
-        self.opened.stream_persistent_path_range_to_writer(
+        let record = self.stat(path)?;
+        let written = self.opened.stream_persistent_path_range_to_writer(
             &mut self.device,
             path,
             offset,
             length,
             writer,
-        )
+        )?;
+        if written > 0 {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, record.id)?;
+        }
+        Ok(written)
     }
 
     /// Stream a bounded file range through a stable object handle.
@@ -9056,13 +9062,18 @@ impl<D: BlockDevice> VolumeSession<D> {
         length: u64,
         writer: &mut W,
     ) -> Result<u64> {
-        self.opened.stream_persistent_object_range_to_writer(
+        let written = self.opened.stream_persistent_object_range_to_writer(
             &mut self.device,
             object_id,
             offset,
             length,
             writer,
-        )
+        )?;
+        if written > 0 {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, object_id)?;
+        }
+        Ok(written)
     }
 
     /// Stream an entire regular file to a writer without materializing it in memory.
@@ -9075,8 +9086,15 @@ impl<D: BlockDevice> VolumeSession<D> {
         path: &str,
         writer: &mut W,
     ) -> Result<u64> {
-        self.opened
-            .stream_persistent_file_to_writer(&mut self.device, path, writer)
+        let record = self.stat(path)?;
+        let written = self
+            .opened
+            .stream_persistent_file_to_writer(&mut self.device, path, writer)?;
+        if written > 0 {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, record.id)?;
+        }
+        Ok(written)
     }
 
     /// Create a regular file using an ID allocated uniquely within this open session.
