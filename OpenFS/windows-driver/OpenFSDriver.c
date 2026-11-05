@@ -65,6 +65,12 @@ OpenFsDispatchUnsupported(
  * The filesystem control device is not a mounted volume. Accepting CREATE
  * here would falsely advertise file access that the driver cannot service.
  */
+static POPENFS_FCB
+OpenFsFindFcbLocked(
+    _In_ POPENFS_VCB Vcb,
+    _In_opt_ PVOID Candidate
+    );
+
 static NTSTATUS
 OpenFsDispatchCreate(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -137,11 +143,12 @@ OpenFsDispatchCreate(
     if (!NT_SUCCESS(status))
         return OpenFsCompleteIrp(Irp, status);
 
-    if ((createOptions & FILE_DIRECTORY_FILE) != 0 && fcb->Kind != 2u)
-        return OpenFsCompleteIrp(Irp, STATUS_NOT_A_DIRECTORY);
-    if ((createOptions & FILE_NON_DIRECTORY_FILE) != 0 && fcb->Kind == 2u)
-        return OpenFsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY);
-
+    /*
+     * LookupPathFcb returns a cache pointer, not a lifetime reference.
+     * The entry may have been retired by volume teardown before this CREATE
+     * reaches the publication lock, so validate membership before reading
+     * any FCB field.
+     */
     if (!ExAcquireRundownProtection(&vcb->RundownProtection))
         return OpenFsCompleteIrp(Irp, STATUS_DELETE_PENDING);
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
@@ -152,22 +159,32 @@ OpenFsDispatchCreate(
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
         vcb->State != OpenFsVolumeMounted) {
         status = STATUS_VOLUME_DISMOUNTED;
-    } else if (vcb->LockFileObject != NULL) {
-        status = STATUS_ACCESS_DENIED;
-    } else if (fcb->OpenHandleCount == MAXULONG) {
-        status = STATUS_TOO_MANY_OPENED_FILES;
     } else {
-        /*
-         * Enforce the caller's read/write/delete sharing contract before
-         * publishing FsContext. The FCB resource serializes this with other
-         * creates and cleanup's IoRemoveShareAccess.
-         */
-        status = IoCheckShareAccess(desiredAccess,
-            stack->Parameters.Create.ShareAccess, fileObject,
-            &fcb->ShareAccess, TRUE);
-        if (NT_SUCCESS(status)) {
-            ++fcb->OpenHandleCount;
-            fileObject->FsContext = fcb;
+        fcb = OpenFsFindFcbLocked(vcb, fcb);
+        if (fcb == NULL || fcb->Signature != OPENFS_FCB_SIGNATURE) {
+            status = STATUS_INVALID_DEVICE_STATE;
+        } else if ((createOptions & FILE_DIRECTORY_FILE) != 0 &&
+            fcb->Kind != 2u) {
+            status = STATUS_NOT_A_DIRECTORY;
+        } else if ((createOptions & FILE_NON_DIRECTORY_FILE) != 0 &&
+            fcb->Kind == 2u) {
+            status = STATUS_FILE_IS_A_DIRECTORY;
+        } else if (vcb->LockFileObject != NULL) {
+            status = STATUS_ACCESS_DENIED;
+        } else if (fcb->OpenHandleCount == MAXULONG) {
+            status = STATUS_TOO_MANY_OPENED_FILES;
+        } else {
+            /*
+             * Enforce the caller's sharing contract while the VCB lock
+             * serializes this with other creates and CLEANUP.
+             */
+            status = IoCheckShareAccess(desiredAccess,
+                stack->Parameters.Create.ShareAccess, fileObject,
+                &fcb->ShareAccess, TRUE);
+            if (NT_SUCCESS(status)) {
+                ++fcb->OpenHandleCount;
+                fileObject->FsContext = fcb;
+            }
         }
     }
 
