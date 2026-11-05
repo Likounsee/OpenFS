@@ -829,15 +829,25 @@ OpenFsDispatchDirectoryControl(
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_INFO_CLASS);
 
     vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
-    directoryFcb = (POPENFS_FCB)fileObject->FsContext;
-    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        directoryFcb->Signature != OPENFS_FCB_SIGNATURE)
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
     if (!ExAcquireRundownProtection(&vcb->RundownProtection))
         return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
     if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
         ExReleaseRundownProtection(&vcb->RundownProtection);
         return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+    /*
+     * FsContext is caller-visible per-handle state. Resolve it against the
+     * VCB's live FCB list before dereferencing it; a stale pointer must never
+     * be trusted merely because memory at that address resembles an FCB.
+     */
+    directoryFcb = OpenFsFindFcbLocked(vcb, fileObject->FsContext);
+    if (directoryFcb == NULL ||
+        directoryFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto DirectoryExit;
     }
 
     if (vcb->State != OpenFsVolumeMounted || vcb->Namespace == NULL ||
