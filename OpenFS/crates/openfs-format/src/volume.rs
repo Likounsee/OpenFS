@@ -7562,6 +7562,10 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
         block_size,
         "allocation failed while preparing persistent I/O buffer",
     )?;
+    // A bitmap block covers thousands of data blocks. Keep the most recently
+    // read page while walking small scan batches instead of issuing the same
+    // physical read once for every 64-block batch on large volumes.
+    let mut cached_scan_bitmap_index = None;
 
     while batch_start < layout.backup_superblock {
         let batch_end = layout
@@ -7580,11 +7584,14 @@ fn check_inventory_descriptor_read_only<D: BlockDevice>(
                 Error::AllocationFailed("allocation failed while scanning inventory blocks")
             })?;
         for bitmap_index in first_bitmap_index..=last_bitmap_index {
-            let bitmap_block = layout
-                .bitmap_start
-                .checked_add(bitmap_index)
-                .ok_or(Error::ArithmeticOverflow)?;
-            device.read_blocks(bitmap_block, &mut scan_bitmap)?;
+            if cached_scan_bitmap_index != Some(bitmap_index) {
+                let bitmap_block = layout
+                    .bitmap_start
+                    .checked_add(bitmap_index)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                device.read_blocks(bitmap_block, &mut scan_bitmap)?;
+                cached_scan_bitmap_index = Some(bitmap_index);
+            }
             let bitmap_base = bitmap_index
                 .checked_mul(bits_per_bitmap_block)
                 .ok_or(Error::ArithmeticOverflow)?;
