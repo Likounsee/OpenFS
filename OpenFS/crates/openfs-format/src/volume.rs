@@ -17932,7 +17932,7 @@ mod tests {
                     "a remounted Basic allocator should reuse the first free block (block size {block_size})"
                 );
                 assert!(
-                    !volume.is_data_block_allocated(&mut device, reused).unwrap() == false,
+                    volume.is_data_block_allocated(&mut device, reused).unwrap(),
                     "the reused block must be marked allocated (block size {block_size})"
                 );
 
