@@ -1855,7 +1855,6 @@ impl OpenedVolume {
         Ok(())
     }
 
-
     ///
     /// The lookup remains valid after rename/move operations and avoids requiring
     /// callers to cache or reconstruct a path from the object ID.
