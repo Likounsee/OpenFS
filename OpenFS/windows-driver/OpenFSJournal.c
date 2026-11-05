@@ -462,6 +462,8 @@ OpenFsValidateRedoTargets(
                 chunksPerImage, BlockSize, &target, ScratchImage);
             if (!NT_SUCCESS(status))
                 return status;
+            if (Records[cursor].TransactionId != tx->TransactionId)
+                return STATUS_DISK_CORRUPT_ERROR;
             if (target < FirstAllowedBlock || target >= EndAllowedBlock)
                 return STATUS_DISK_CORRUPT_ERROR;
             for (prior = 0; prior < txTargetCount; ++prior)
