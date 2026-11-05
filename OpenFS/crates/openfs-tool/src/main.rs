@@ -3213,7 +3213,9 @@ fn print_usage() {
 mod tests {
     use super::{audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
-    use openfs_format::{format_volume, format_volume_secure, open_journal, open_volume, ObjectId, RedoUpdate};
+    use openfs_format::{
+        format_volume, format_volume_secure, open_journal, open_volume, ObjectId, RedoUpdate,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
