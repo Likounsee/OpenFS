@@ -278,7 +278,8 @@ mod tests {
 
         let mut too_long_for_legacy = legacy;
         too_long_for_legacy[11] = 65;
-        too_long_for_legacy[44..109].fill(b'a');
+        // Keep the legacy reserved tail zeroed while testing its 64-byte limit.
+        too_long_for_legacy[44..108].fill(b'a');
         let checksum = crate::crc32c(&too_long_for_legacy[..124]);
         too_long_for_legacy[124..128].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(
@@ -414,7 +415,7 @@ mod tests {
 
     #[test]
     fn decoder_rejects_zero_name_length_and_lengths_over_capacity() {
-        for name_len in [0_u8, 65, 255] {
+        for name_len in [0_u8, 81, 255] {
             let mut bytes = sample().encode().unwrap();
             bytes[11] = name_len;
             let crc = crate::crc32c(&bytes[..124]);
@@ -492,6 +493,9 @@ mod tests {
     #[test]
     fn directory_entry_decoder_rejects_nonzero_reserved_bytes_with_valid_checksum() {
         let mut bytes = sample().encode().unwrap();
+        // Reserved bytes exist in the legacy v1 layout after its 64-byte name field.
+        bytes[8..10].copy_from_slice(&1_u16.to_le_bytes());
+        bytes[44 + 64..124].fill(0);
         bytes[110] = 1;
         let crc = crate::crc32c(&bytes[..124]);
         bytes[124..128].copy_from_slice(&crc.to_le_bytes());
@@ -499,7 +503,7 @@ mod tests {
         assert!(matches!(
             DirectoryEntry::decode(&bytes),
             Err(Error::Corrupt(
-                "directory-entry reserved bytes must be zero"
+                "legacy directory-entry reserved bytes must be zero"
             ))
         ));
     }
