@@ -1456,6 +1456,55 @@ mod tests {
     }
 
     #[test]
+    fn basic_direct_write_failure_can_leave_a_prefix_and_poisons_the_handle() {
+        let mut device = MemoryDevice::new();
+        device.write_blocks(HOME, &vec![0x11; BS as usize]).unwrap();
+        device
+            .write_blocks(HOME + 1, &vec![0x22; BS as usize])
+            .unwrap();
+        device.flush().unwrap();
+
+        let mut journal = super::open_without_journal(&device, REGION, &[]).unwrap();
+        assert!(!journal.is_enabled());
+        assert_eq!(journal.max_update_count(&device).unwrap(), 0);
+
+        let updates = [
+            update(0xA5),
+            RedoUpdate {
+                target_block: HOME + 1,
+                contents: vec![0xB6; BS as usize],
+            },
+        ];
+
+        // The first home write succeeds and the second fails. Basic has no redo
+        // log, so the first block remains changed and the second remains untouched.
+        let mut failing = FailAt::new(device.clone(), usize::MAX / 2 + 1);
+        assert!(matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))));
+        let mut device = failing.into_inner();
+        assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
+        assert_eq!(read_block(&mut device, HOME + 1), vec![0x22; BS as usize]);
+
+        // The failed handle must refuse further writes until it is reopened.
+        assert!(matches!(
+            journal.commit(&mut device, &[update(0x5A)]),
+            Err(Error::InvalidInput(
+                "volume write state is uncertain after a previous I/O error; reopen before further mutation"
+            ))
+        ));
+
+        // Reopening Basic clears only the volatile failure latch; it does not
+        // pretend to roll back the prefix or replay a journal transaction.
+        let mut reopened = super::open_without_journal(&device, REGION, &[]).unwrap();
+        assert!(reopened.commit(&mut device, &[update(0x5A)]).is_ok());
+        assert_eq!(read_home(&mut device), vec![0x5A; BS as usize]);
+        assert_eq!(
+            read_block(&mut device, REGION.ring_start),
+            vec![0; BS as usize],
+            "Basic direct writes must never create journal records"
+        );
+    }
+
+    #[test]
     fn open_ignores_and_clears_uncommitted_record_after_empty_ring_slot() {
         // A power cut inside the unflushed BEGIN/UPDATE window may persist a later slot
         // without an earlier one. With no COMMIT the transaction was never acknowledged.
