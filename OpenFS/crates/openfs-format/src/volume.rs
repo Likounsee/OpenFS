@@ -9090,9 +9090,9 @@ impl<D: BlockDevice> VolumeSession<D> {
         writer: &mut W,
     ) -> Result<u64> {
         let record = self.stat(path)?;
-        let written = self
-            .opened
-            .stream_persistent_file_to_writer(&mut self.device, path, writer)?;
+        let written =
+            self.opened
+                .stream_persistent_file_to_writer(&mut self.device, path, writer)?;
         if written > 0 {
             self.opened
                 .touch_persistent_accessed(&mut self.device, record.id)?;
