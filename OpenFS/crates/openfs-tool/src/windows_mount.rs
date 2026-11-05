@@ -15,7 +15,7 @@ use dokan::{
 };
 use openfs_block::{BlockDevice, ImageDevice, RawDevice};
 use openfs_core::Error as CoreError;
-use openfs_format::{ObjectId, ObjectKind, VolumeSession};
+use openfs_format::{format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
 use openfs_partition::{read_gpt, GptLayout, PartitionDevice, OPENFS_PARTITION_TYPE_GUID};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
@@ -356,6 +356,35 @@ impl<D: BlockDevice> OpenFsHandler<D> {
     }
 }
 
+/// Apply a Dokany write while preserving Windows EOF and append semantics.
+fn write_file_with_extension<D: BlockDevice>(
+    session: &mut VolumeSession<D>,
+    path: &str,
+    offset: i64,
+    buffer: &[u8],
+    append: bool,
+) -> openfs_core::Result<usize> {
+    let write_offset = if append {
+        session.stat(path)?.size
+    } else {
+        if offset < 0 {
+            return Err(CoreError::InvalidInput("negative write offset"));
+        }
+        offset as u64
+    };
+    let write_length =
+        u64::try_from(buffer.len()).map_err(|_| CoreError::ArithmeticOverflow)?;
+    let write_end = write_offset
+        .checked_add(write_length)
+        .ok_or(CoreError::ArithmeticOverflow)?;
+    let current_size = session.stat(path)?.size;
+    if write_end > current_size {
+        session.set_file_len(path, write_end)?;
+    }
+    session.write_file_range(path, write_offset, buffer)?;
+    Ok(buffer.len())
+}
+
 fn map_core_error(error: CoreError) -> OperationError {
     match error {
         CoreError::InvalidInput("path component does not exist") => {
@@ -609,30 +638,16 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
         };
         self.require_handle_access(*context, required_access)?;
         let written = self.with_path(context, |session, path| {
-            let write_offset = if info.write_to_eof() {
-                session.stat(path)?.size
-            } else {
-                if offset < 0 {
-                    return Err(CoreError::InvalidInput("negative write offset"));
-                }
-                offset as u64
-            };
-            // Windows permits a write to extend a file beyond its current EOF.
-            // OpenFS range writes intentionally reject out-of-EOF ranges, so grow
-            // the persistent file first through the journaled sparse-truncation path.
-            // Keep both operations under this session lock to prevent an intervening
-            // namespace or length change between the size check and the data write.
-            let write_length =
-                u64::try_from(buffer.len()).map_err(|_| CoreError::ArithmeticOverflow)?;
-            let write_end = write_offset
-                .checked_add(write_length)
-                .ok_or(CoreError::ArithmeticOverflow)?;
-            let current_size = session.stat(path)?.size;
-            if write_end > current_size {
-                session.set_file_len(path, write_end)?;
-            }
-            session.write_file_range(path, write_offset, buffer)?;
-            Ok(buffer.len())
+            // The path lookup, EOF growth and range write all run under the
+            // same VolumeSession mutex, so concurrent Dokany callbacks cannot
+            // interleave a rename or another write between these operations.
+            write_file_with_extension(
+                session,
+                path,
+                offset,
+                buffer,
+                info.write_to_eof(),
+            )
         })?;
         Ok(written as u32)
     }
@@ -1097,6 +1112,98 @@ pub fn unmount_drive(mount_point: &str) -> Result<(), Box<dyn StdError>> {
 
 #[cfg(test)]
 mod tests {
+    fn test_session() -> (std::path::PathBuf, VolumeSession<ImageDevice>) {
+        use openfs_block::ImageDevice;
+        use openfs_format::{format_volume, open_volume, ObjectId};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "openfs-dokan-write-{}-{nonce}.img",
+            std::process::id()
+        ));
+        let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+        format_volume(&mut device, *b"dokan-write-test", 0).unwrap();
+        let mut volume = open_volume(&mut device).unwrap();
+        volume
+            .initialize_persistent_namespace(&mut device, ObjectId::new(1).unwrap())
+            .unwrap();
+        drop(volume);
+        let session = VolumeSession::open(device).unwrap();
+        (path, session)
+    }
+
+    #[test]
+    fn windows_write_callback_semantics_extend_files_with_sparse_zeroes() {
+        let (path, mut session) = test_session();
+        session.create_file_auto("/", "copy.bin").unwrap();
+        session.write_file("/copy.bin", b"abc").unwrap();
+
+        let written = super::write_file_with_extension(
+            &mut session,
+            "/copy.bin",
+            5,
+            b"XYZ",
+            false,
+        )
+        .unwrap();
+        assert_eq!(written, 3);
+        assert_eq!(session.stat("/copy.bin").unwrap().size, 8);
+        assert_eq!(
+            session.read_file("/copy.bin").unwrap(),
+            b"abc\0\0XYZ"
+        );
+
+        session.flush().unwrap();
+        drop(session);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn windows_append_write_uses_current_eof_not_supplied_offset() {
+        let (path, mut session) = test_session();
+        session.create_file_auto("/", "append.txt").unwrap();
+        session.write_file("/append.txt", b"start").unwrap();
+
+        super::write_file_with_extension(
+            &mut session,
+            "/append.txt",
+            0,
+            b"-end",
+            true,
+        )
+        .unwrap();
+        assert_eq!(session.read_file("/append.txt").unwrap(), b"start-end");
+
+        session.flush().unwrap();
+        drop(session);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn windows_write_rejects_negative_offsets_without_changing_file() {
+        let (path, mut session) = test_session();
+        session.create_file_auto("/", "safe.txt").unwrap();
+        session.write_file("/safe.txt", b"unchanged").unwrap();
+
+        assert!(super::write_file_with_extension(
+            &mut session,
+            "/safe.txt",
+            -1,
+            b"overwrite",
+            false,
+        )
+        .is_err());
+        assert_eq!(session.read_file("/safe.txt").unwrap(), b"unchanged");
+
+        session.flush().unwrap();
+        drop(session);
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn dokan_create_disposition_constants_use_native_nt_values() {
         assert_eq!(super::FILE_OPEN, 1);
