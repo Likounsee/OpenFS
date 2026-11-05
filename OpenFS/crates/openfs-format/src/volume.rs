@@ -9347,6 +9347,72 @@ mod tests {
     }
 
     #[test]
+    fn basic_persistent_attributes_survive_remount_and_enforce_read_only() {
+        use super::VolumeSession;
+        use crate::{METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY};
+        use crate::ObjectId;
+        use std::io::Cursor;
+
+        let path = image_path("basic-persistent-attributes");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_file("/", ObjectId(2), "attributes.txt").unwrap();
+            mounted.write_file("/attributes.txt", b"preserved").unwrap();
+            mounted.set_attributes(
+                "/attributes.txt",
+                METADATA_FLAG_READ_ONLY | METADATA_FLAG_HIDDEN,
+                true,
+            ).unwrap();
+            let record = mounted.stat("/attributes.txt").unwrap();
+            assert!(record.is_read_only());
+            assert!(record.is_hidden());
+            assert_eq!(record.generation, 3);
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            let record = mounted.stat("/attributes.txt").unwrap();
+            assert!(record.is_read_only());
+            assert!(record.is_hidden());
+            assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"preserved");
+            assert!(matches!(
+                mounted.write_file("/attributes.txt", b"replacement"),
+                Err(Error::InvalidInput("cannot write to a read-only file"))
+            ));
+            assert!(matches!(
+                mounted.write_file_range("/attributes.txt", 0, b"overwrite"),
+                Err(Error::InvalidInput("cannot write to a read-only file"))
+            ));
+            assert!(matches!(
+                mounted.write_file_from_reader("/attributes.txt", &mut Cursor::new(b"stream")),
+                Err(Error::InvalidInput("cannot write to a read-only file"))
+            ));
+            assert!(matches!(
+                mounted.set_file_len("/attributes.txt", 2),
+                Err(Error::InvalidInput("cannot resize a read-only file"))
+            ));
+            assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"preserved");
+            mounted.set_attributes("/attributes.txt", METADATA_FLAG_READ_ONLY, false).unwrap();
+            mounted.write_file("/attributes.txt", b"editable").unwrap();
+            assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"editable");
+            mounted.unmount().unwrap();
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_sparse_growth_and_shrink_survive_remount() {
         use super::VolumeSession;
         use crate::ObjectId;
