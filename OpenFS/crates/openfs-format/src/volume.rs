@@ -9236,6 +9236,69 @@ mod tests {
     }
 
     #[test]
+    fn basic_streaming_multiblock_write_and_range_patch_survive_remount() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+        use std::io::Cursor;
+
+        let path = image_path("basic-streaming-multiblock");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 1024).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        let mut expected: Vec<u8> = (0..(4096 * 3 + 137))
+            .map(|index| (index % 251) as u8)
+            .collect();
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_file("/", ObjectId(2), "large.bin").unwrap();
+
+            let written = mounted
+                .write_file_from_reader("/large.bin", &mut Cursor::new(&expected))
+                .unwrap();
+            assert_eq!(written, expected.len() as u64);
+
+            // Cross a block boundary so the Basic path must preserve both partial
+            // edge blocks while directly writing the multi-block range.
+            let patch = b"OPENFS-BASIC-RANGE-PATCH";
+            mounted
+                .write_file_range("/large.bin", 4090, patch)
+                .unwrap();
+            expected[4090..4090 + patch.len()].copy_from_slice(patch);
+            assert_eq!(mounted.read_file("/large.bin").unwrap(), expected);
+
+            // Basic mode does not use the redo journal for either data or metadata.
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(mounted.read_file("/large.bin").unwrap(), expected);
+            mounted.set_file_len("/large.bin", 4099).unwrap();
+            expected.truncate(4099);
+            assert_eq!(mounted.read_file("/large.bin").unwrap(), expected);
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let report = check_volume(&mut device).unwrap();
+            assert!(!report.journal_enabled);
+            assert_eq!(report.pending_journal_records, 0);
+            assert_eq!(report.recoverable_transactions, 0);
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn owned_ranges_are_sorted_coalesced_and_reject_aliases() {
         let mut ranges = vec![(20, 24), (10, 12), (12, 15), (30, 31)];
         normalize_owned_ranges(&mut ranges).unwrap();
