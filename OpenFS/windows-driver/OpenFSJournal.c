@@ -429,8 +429,8 @@ OpenFsBuildJournalTransaction(
     _Out_writes_bytes_(EncodedBytes) UCHAR* EncodedBlocks,
     _In_ SIZE_T EncodedBytes,
     _Out_ PULONG RequiredRecordCount,
-    _Out_ PULONGLONG CommitSequence,
-    _Out_ PULONGLONG NextSequence,
+    _Out_ ULONGLONG* CommitSequence,
+    _Out_ ULONGLONG* NextSequence,
     _Out_writes_bytes_(BlockSize) UCHAR* PayloadScratch
     )
 {
