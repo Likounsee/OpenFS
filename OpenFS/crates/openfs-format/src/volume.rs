@@ -1759,6 +1759,22 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved path has no metadata record"))
     }
 
+    /// Persist a last-access timestamp update without changing the object's generation.
+    pub fn touch_persistent_accessed<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        object_id: ObjectId,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        namespace.touch_accessed(object_id)?;
+        self.replace_persistent_namespace_inventory(device, &namespace)
+    }
+
     /// Look up persistent metadata by its stable object identifier.
     ///
     /// Unlike a path lookup, this remains valid after rename or move operations and
