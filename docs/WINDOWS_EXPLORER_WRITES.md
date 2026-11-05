@@ -75,3 +75,9 @@ only; a final transaction without COMMIT is ignored. Output capacity is checked
 before any transaction descriptors are published. This is still planning only:
 ring scanning, torn-tail classification, redo application and durable checkpoint
 publication remain unimplemented.
+
+
+The journal codec now also encodes zero-padded checkpoint and record blocks with
+the exact little-endian field layout and CRC32C used by the Rust format library.
+The host tests round-trip both encoders through the strict decoders and reject
+invalid control-record payloads and unsupported non-zero ring positions.
