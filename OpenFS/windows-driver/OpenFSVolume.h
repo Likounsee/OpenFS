@@ -155,6 +155,17 @@ OpenFsPlanFcbWrite(
     _In_ ULONG PhysicalBlockCapacity
     );
 
+/* Experimental overwrite-only data path: no allocation or EOF extension. */
+NTSTATUS
+OpenFsWriteFcbData(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _In_reads_bytes_(Length) const UCHAR* Buffer,
+    _In_ ULONG Length,
+    _Out_ PULONG BytesWritten
+    );
+
 /* Read a byte range from a cached regular-file extent map (EOF is short read). */
 NTSTATUS
 OpenFsReadFcbData(
