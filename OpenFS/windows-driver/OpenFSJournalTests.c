@@ -17,6 +17,7 @@ int main(void){
  b[36]^=1;assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_CRC_ERROR);
  record(b,OpenFsJournalBegin,1,1,NULL,0);b[4095]=1;assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
  record(b,99,1,1,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
+ record(b,OpenFsJournalBegin,1,1,payload,3);assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
  record(b,OpenFsJournalCommit,1,1,NULL,0);p64(b+16,0);p32(b+36,crc_record(b,NULL,0));assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
- puts("OpenFS journal codec tests: 9 checks passed");return 0;
+ puts("OpenFS journal codec tests: 12 checks passed");return 0;
 }
