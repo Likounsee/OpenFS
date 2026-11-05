@@ -4997,8 +4997,7 @@ impl OpenedVolume {
             {
                 if self.free_block(device, root).is_err() {
                     return Err(Error::Corrupt(
-                        "failed to reclaim staged extent-map root after truncation staging failed",
-                    ));
+                        "failed to reclaim staged extent-map root after truncation staging failed",                    ));
                 }
                 return Err(error);
             }
@@ -9997,8 +9996,7 @@ mod tests {
 
             volume
                 .create_persistent_file(&mut device, root, ObjectId(2), "hello.txt")
-                .unwrap();
-            volume
+                .unwrap();            volume
                 .write_persistent_file_contents(&mut device, "/hello.txt", expected)
                 .unwrap();
             assert_eq!(
@@ -14997,8 +14995,7 @@ mod tests {
                 Some(first)
             );
             let allocated = volume.allocate_contiguous_blocks(&mut device, 3).unwrap();
-            assert_eq!(allocated, first);
-            for block in first..first + 3 {
+            assert_eq!(allocated, first);            for block in first..first + 3 {
                 assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
             }
             assert_eq!(
@@ -19025,6 +19022,121 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+
+    #[test]
+    fn basic_namespace_file_lifecycle_survives_remount_without_journal() {
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("basic-namespace-lifecycle-{block_size}"));
+            let payload: Vec<u8> = (0..(block_size as usize * 2 + 137))
+                .map(|index| ((index * 31 + 19) % 251) as u8)
+                .collect();
+
+            {
+                let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                let mut volume =
+                    format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                volume
+                    .create_persistent_directory_at_path(
+                        &mut device,
+                        "/",
+                        ObjectId(2),
+                        "documents",
+                    )
+                    .unwrap();
+                volume
+                    .create_persistent_file_at_path(
+                        &mut device,
+                        "/documents",
+                        ObjectId(3),
+                        "draft.bin",
+                    )
+                    .unwrap();
+                volume
+                    .write_persistent_file_contents(&mut device, "/documents/draft.bin", &payload)
+                    .unwrap();
+                volume
+                    .rename_persistent_path(
+                        &mut device,
+                        "/documents/draft.bin",
+                        "/documents",
+                        "final.bin",
+                    )
+                    .unwrap();
+
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/documents/final.bin",
+                            0,
+                            payload.len() as u64,
+                        )
+                        .unwrap(),
+                    payload,
+                    "Basic namespace operations must expose the complete renamed file (block size {block_size})"
+                );
+                let report = check_volume(&mut device).unwrap();
+                assert!(!report.journal_enabled);
+                assert_eq!(report.pending_journal_records, 0);
+                assert_eq!(report.recoverable_transactions, 0);
+            }
+
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
+                assert_eq!(
+                    volume
+                        .read_persistent_path_range(
+                            &mut device,
+                            "/documents/final.bin",
+                            0,
+                            payload.len() as u64,
+                        )
+                        .unwrap(),
+                    payload,
+                    "Basic file contents and namespace must survive remount (block size {block_size})"
+                );
+                assert!(
+                    volume
+                        .verify_discovered_persistent_inventory(&mut device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent(),
+                    "Basic namespace ownership must remain consistent after remount (block size {block_size})"
+                );
+                let report = check_volume(&mut device).unwrap();
+                assert!(!report.journal_enabled);
+                assert_eq!(report.pending_journal_records, 0);
+                assert_eq!(report.recoverable_transactions, 0);
+
+                volume
+                    .remove_persistent_path(&mut device, "/documents/final.bin")
+                    .unwrap();
+                volume
+                    .remove_persistent_path(&mut device, "/documents")
+                    .unwrap();
+                assert!(
+                    volume
+                        .verify_discovered_persistent_inventory(&mut device)
+                        .unwrap()
+                        .unwrap()
+                        .is_consistent(),
+                    "Basic file and directory removal must preserve inventory consistency (block size {block_size})"
+                );
+                let report = check_volume(&mut device).unwrap();
+                assert!(!report.journal_enabled);
+                assert_eq!(report.pending_journal_records, 0);
+            }
+
+            fs::remove_file(path).unwrap();
+        }
+    }
+
 }
 
 impl OpenedVolume {
