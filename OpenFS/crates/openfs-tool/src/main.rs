@@ -3463,6 +3463,7 @@ mod tests {
         let orphan_block;
         let referenced_block;
         let free_after_damage;
+        let image_before_repair;
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
@@ -3504,11 +3505,23 @@ mod tests {
             device.write_blocks(bitmap_block, &bitmap).unwrap();
             free_after_damage = volume.free_data_block_count(&mut device).unwrap();
             device.flush().unwrap();
+            image_before_repair = vec![{
+                let mut bytes = vec![0_u8; BLOCK_SIZE as usize * 256];
+                device.read_blocks(0, &mut bytes).unwrap();
+                bytes
+            }];
         }
 
         assert!(super::repair_basic_image(&path, BLOCK_SIZE).is_err());
 
         let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+        let mut image_after_repair = vec![0_u8; BLOCK_SIZE as usize * 256];
+        device.read_blocks(0, &mut image_after_repair).unwrap();
+        assert_eq!(
+            image_after_repair,
+            image_before_repair[0],
+            "refusing a dangling reference must preserve every image byte"
+        );
         let volume = open_volume(&mut device).unwrap();
         assert_eq!(
             volume.free_data_block_count(&mut device).unwrap(),
