@@ -4146,10 +4146,11 @@ impl OpenedVolume {
     ///
     /// This operation does not extend files, allocate blocks, or update metadata. It
     /// rejects ranges that cross EOF or touch sparse holes before writing any bytes.
-    /// The complete set of touched data blocks is committed through the redo journal.
-    /// Ranges that exceed journal capacity are rejected before any data write. If I/O
-    /// fails after the commit record is durable, drop this volume and reopen it so journal
-    /// recovery can finish applying the transaction before further mutations.
+    /// The complete set of touched data blocks is written as one redo transaction in
+    /// Secure mode, or directly to home blocks in Basic mode. Secure rejects ranges that
+    /// exceed journal capacity before any data write. Basic has no crash-atomic guarantee:
+    /// after an I/O error, the volume handle is reopened before returning the error, but
+    /// the caller must inspect the file because a prefix of the requested range may persist.
     pub fn write_file_range<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -4329,6 +4330,16 @@ impl OpenedVolume {
             ));
         }
         if let Err(error) = self.journal.commit(device, &updates) {
+            if !self.journal.is_enabled() {
+                // Basic writes home blocks directly. A failed write or flush may leave
+                // any prefix persisted; reopening only clears the in-memory uncertain
+                // state and does not imply rollback or replay. Preserve the original I/O
+                // error so callers know to inspect the file before retrying.
+                *self = open_volume(device).map_err(|_| {
+                    Error::Corrupt("Basic file write failed and the volume could not be reopened")
+                })?;
+                return Err(error);
+            }
             // A multi-block data transaction may have crossed its durable COMMIT
             // point before an I/O or flush error was returned. Recover before
             // reporting failure, then verify the complete requested postcondition.
