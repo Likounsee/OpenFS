@@ -116,7 +116,7 @@ typedef struct _OPENFS_JOURNAL_REDO_UPDATE {
 } OPENFS_JOURNAL_REDO_UPDATE, *POPENFS_JOURNAL_REDO_UPDATE;
 
 /*
- * Pre-encode one complete BEGIN/UPDATE*/COMMIT transaction into caller-owned
+ * Pre-encode one complete BEGIN, UPDATE and COMMIT transaction into caller-owned
  * ring storage. No device I/O occurs; outputs are untouched on validation error.
  */
 NTSTATUS
@@ -132,7 +132,7 @@ OpenFsBuildJournalTransaction(
     _Out_writes_bytes_(EncodedBytes) UCHAR* EncodedBlocks,
     _In_ SIZE_T EncodedBytes,
     _Out_ PULONG RequiredRecordCount,
-    _Out_ PULONGLONG CommitSequence,
-    _Out_ PULONGLONG NextSequence,
+    _Out_ ULONGLONG* CommitSequence,
+    _Out_ ULONGLONG* NextSequence,
     _Out_writes_bytes_(BlockSize) UCHAR* PayloadScratch
     );
