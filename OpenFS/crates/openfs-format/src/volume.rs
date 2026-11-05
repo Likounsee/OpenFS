@@ -8996,8 +8996,12 @@ impl<D: BlockDevice> VolumeSession<D> {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
         let length = usize::try_from(record.size).map_err(|_| Error::ArithmeticOverflow)?;
+        let data = self
+            .opened
+            .read_persistent_path_range(&mut self.device, path, 0, length)?;
         self.opened
-            .read_persistent_path_range(&mut self.device, path, 0, length)
+            .touch_persistent_accessed(&mut self.device, record.id)?;
+        Ok(data)
     }
 
     /// Read a bounded range of a regular file without loading the entire file.
