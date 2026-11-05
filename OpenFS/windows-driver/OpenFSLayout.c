@@ -21,7 +21,8 @@ OpenFsCalculateVolumeLayout(
     if (BlockSize < 4096u || BlockSize > 65536u ||
         (BlockSize & (BlockSize - 1u)) != 0 ||
         TotalBlocks < 12u ||
-        (FormatVersion != 2u && FormatVersion != 3u && FormatVersion != 4u)) {
+        (FormatVersion != 2u && FormatVersion != 3u && FormatVersion != 4u &&
+         FormatVersion != 5u)) {
         return STATUS_DISK_CORRUPT_ERROR;
     }
     if (TotalBlocks > MAXULONGLONG / BlockSize) {
@@ -34,7 +35,7 @@ OpenFsCalculateVolumeLayout(
         ++bitmapBlocks;
     }
 
-    journalBlocks = (FormatVersion == 4u) ? 18u : 6u;
+    journalBlocks = (FormatVersion >= 4u) ? 18u : 6u;
     if (bitmapBlocks > MAXULONGLONG - 1u - journalBlocks) {
         return STATUS_INTEGER_OVERFLOW;
     }
@@ -52,7 +53,7 @@ OpenFsCalculateVolumeLayout(
     Layout->CheckpointB = Layout->JournalStartBlock + 1u;
     Layout->RingStartBlock = Layout->JournalStartBlock + 2u;
     Layout->RingEndBlock = Layout->RingStartBlock +
-        ((FormatVersion == 4u) ? 16u : 4u);
+        ((FormatVersion >= 4u) ? 16u : 4u);
     Layout->DataStartBlock = dataStart;
     Layout->BackupSuperblockBlock = TotalBlocks - 1u;
 
