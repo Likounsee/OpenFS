@@ -1,6 +1,7 @@
 #include "OpenFSVolume.h"
 #include "OpenFSLayout.h"
 #include "OpenFSDeviceIo.h"
+#include "OpenFSWritePlan.h"
 
 #define OPENFS_FCB_POOL_TAG 0x4F734646UL
 
@@ -1023,6 +1024,99 @@ Exit:
     return status;
 }
 
+
+
+
+/*
+ * Resolve a regular FCB's write range into physical data blocks without
+ * changing the volume. The returned plan is safe only while the caller
+ * serializes writers and revalidates journal capacity before staging data.
+ */
+NTSTATUS
+OpenFsPlanFcbWrite(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _In_ ULONG ByteLength,
+    _Out_ PULONG RequiredBlockCount,
+    _Out_ ULONGLONG* PhysicalBlocks,
+    _In_ ULONG PhysicalBlockCapacity
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    BOOLEAN owned = FALSE;
+    OPENFS_VOLUME_LAYOUT layout;
+    NTSTATUS status;
+
+    if (RequiredBlockCount == NULL ||
+        (PhysicalBlockCapacity != 0 && PhysicalBlocks == NULL) ||
+        VolumeDeviceObject == NULL || FileFcb == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+    *RequiredBlockCount = 0;
+
+    status = OpenFsLoadFcbExtents(VolumeDeviceObject, FileFcb);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == FileFcb) {
+            owned = TRUE;
+            break;
+        }
+    }
+    if (!owned || FileFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_PARAMETER;
+        goto PlanExit;
+    }
+    if (vcb->State != OpenFsVolumeMounted) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto PlanExit;
+    }
+    if (FileFcb->Kind != 1u) {
+        status = STATUS_FILE_IS_A_DIRECTORY;
+        goto PlanExit;
+    }
+    if (!FileFcb->ExtentsLoaded) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto PlanExit;
+    }
+    status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
+        vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+    if (!NT_SUCCESS(status))
+        goto PlanExit;
+
+    status = OpenFsBuildWriteBlockPlan(
+        FileFcb->Extents, FileFcb->ExtentCount, FileFcb->FileSize,
+        vcb->Geometry.BlockSize, ByteOffset, ByteLength,
+        layout.DataStartBlock, layout.BackupSuperblockBlock,
+        vcb->Geometry.TotalBlocks, PhysicalBlocks,
+        PhysicalBlockCapacity, RequiredBlockCount);
+
+PlanExit:
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
 
 
 /*
