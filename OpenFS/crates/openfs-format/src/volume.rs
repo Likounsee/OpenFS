@@ -4175,6 +4175,9 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("object is not a regular file"));
         }
+        if record.is_read_only() && !data.is_empty() {
+            return Err(Error::InvalidInput("cannot write to a read-only file"));
+        }
         // Even a no-op write must not accept stale or caller-forged namespace
         // metadata. Validate the persistent identity before the empty-data fast path.
         let Some((_, persistent_namespace)) = self.reconstruct_discovered_namespace(device)? else {
