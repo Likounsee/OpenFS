@@ -437,7 +437,7 @@ OpenFsValidateRedoTargets(
         RequiredTargetCount == NULL || ScratchImage == NULL ||
         BlockSize < 64u || BlockSize > 65536u ||
         FirstAllowedBlock >= EndAllowedBlock ||
-        TransactionCount > RTL_NUMBER_OF(planned) ||
+        TransactionCount > 16u ||
         (TargetCapacity != 0 && Targets == NULL))
         return STATUS_INVALID_PARAMETER;
     *RequiredTargetCount = 0;
@@ -469,7 +469,7 @@ OpenFsValidateRedoTargets(
             for (prior = 0; prior < txTargetCount; ++prior)
                 if (planned[txTargets[prior]] == target)
                     return STATUS_DISK_CORRUPT_ERROR;
-            if (plannedCount >= RTL_NUMBER_OF(planned))
+            if (plannedCount >= 16u)
                 return STATUS_BUFFER_TOO_SMALL;
             planned[plannedCount] = target;
             txTargets[txTargetCount++] = plannedCount;
