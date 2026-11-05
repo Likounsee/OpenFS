@@ -8949,9 +8949,12 @@ impl<D: BlockDevice> VolumeSession<D> {
         offset: u64,
         length: usize,
     ) -> Result<Vec<u8>> {
-        let data = self
-            .opened
-            .read_persistent_object_range(&mut self.device, object_id, offset, length)?;
+        let data = self.opened.read_persistent_object_range(
+            &mut self.device,
+            object_id,
+            offset,
+            length,
+        )?;
         if !data.is_empty() {
             self.opened
                 .touch_persistent_accessed(&mut self.device, object_id)?;
@@ -9019,9 +9022,9 @@ impl<D: BlockDevice> VolumeSession<D> {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
-        let data = self
-            .opened
-            .read_persistent_path_range(&mut self.device, path, offset, length)?;
+        let data =
+            self.opened
+                .read_persistent_path_range(&mut self.device, path, offset, length)?;
         if !data.is_empty() {
             self.opened
                 .touch_persistent_accessed(&mut self.device, record.id)?;
