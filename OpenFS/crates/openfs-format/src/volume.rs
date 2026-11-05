@@ -1771,7 +1771,9 @@ impl OpenedVolume {
                 "persistent namespace is not initialized",
             ));
         };
-        namespace.touch_accessed(object_id)?;
+        if !namespace.touch_accessed(object_id)? {
+            return Ok(());
+        }
         self.replace_persistent_namespace_inventory(device, &namespace)
     }
 
