@@ -101,25 +101,35 @@ int main(void){
   assert(OpenFsSelectJournalCheckpoint(STATUS_DISK_CORRUPT_ERROR,NULL,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1);
  }
 
+ 
  {
   OPENFS_JOURNAL_RECORD_VIEW redoRecords[4];
   OPENFS_JOURNAL_TRANSACTION_VIEW redoTx[2];
-  ULONGLONG redoTargets[4];
-  UCHAR scratch[4096];
-  ULONG requiredTargets=0;
-  redoRecords[0]=chunks[0]; redoRecords[1]=chunks[1];
+  ULONGLONG redoTargets[4], target=42;
+  UCHAR p0[4056], p1[64], scratch[4096];
+  ULONG requiredTargets=0, k;
+  RtlZeroMemory(p0,sizeof(p0)); RtlZeroMemory(p1,sizeof(p1));
+  for(k=0;k<4044;k++) p0[12+k]=(UCHAR)(k&0xff);
+  for(k=0;k<52;k++) p1[12+k]=(UCHAR)((k+9)&0xff);
+  p64(p0,target); p16(p0+8,0); p16(p0+10,2);
+  p64(p1,target); p16(p1+8,1); p16(p1+10,2);
+  redoRecords[0].Kind=OpenFsJournalUpdate; redoRecords[0].TransactionId=3;
+  redoRecords[0].Payload=p0; redoRecords[0].PayloadLength=sizeof(p0);
+  redoRecords[1].Kind=OpenFsJournalUpdate; redoRecords[1].TransactionId=3;
+  redoRecords[1].Payload=p1; redoRecords[1].PayloadLength=sizeof(p1);
   redoTx[0].TransactionId=3; redoTx[0].FirstUpdateIndex=0; redoTx[0].UpdateCount=2;
   assert(OpenFsValidateRedoTargets(redoRecords,2,redoTx,1,4096,40,100,
       redoTargets,4,&requiredTargets,scratch)==STATUS_SUCCESS);
   assert(requiredTargets==1&&redoTargets[0]==42);
   assert(OpenFsValidateRedoTargets(redoRecords,2,redoTx,1,4096,50,100,
       redoTargets,4,&requiredTargets,scratch)==STATUS_DISK_CORRUPT_ERROR);
-  redoRecords[2]=chunks[0]; redoRecords[3]=chunks[1];
+  redoRecords[2]=redoRecords[0]; redoRecords[3]=redoRecords[1];
   redoTx[0].UpdateCount=4;
   assert(OpenFsValidateRedoTargets(redoRecords,4,redoTx,1,4096,40,100,
       redoTargets,4,&requiredTargets,scratch)==STATUS_DISK_CORRUPT_ERROR);
   redoTx[0].UpdateCount=2; redoTx[1].TransactionId=4;
   redoTx[1].FirstUpdateIndex=2; redoTx[1].UpdateCount=2;
+  redoRecords[2].TransactionId=4; redoRecords[3].TransactionId=4;
   assert(OpenFsValidateRedoTargets(redoRecords,4,redoTx,2,4096,40,100,
       redoTargets,4,&requiredTargets,scratch)==STATUS_SUCCESS);
   assert(requiredTargets==2&&redoTargets[0]==42&&redoTargets[1]==42);
