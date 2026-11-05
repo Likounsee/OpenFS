@@ -133,9 +133,19 @@ OpenFsDispatchCreate(
         status = RtlUnicodeToUTF8N(utf8Path, utf8Capacity - 1u,
             &utf8Length, fileObject->FileName.Buffer,
             fileObject->FileName.Length);
-        if (NT_SUCCESS(status))
-            status = OpenFsLookupPathFcb(DeviceObject,
-                (const UCHAR*)utf8Path, (USHORT)utf8Length, &fcb);
+        if (NT_SUCCESS(status)) {
+            /*
+             * OpenFsLookupPathFcb accepts a USHORT byte length. UTF-8 can
+             * expand a UTF-16 path by up to 3x, so the source UNICODE_STRING
+             * length alone does not make this narrowing conversion safe.
+             */
+            if (utf8Length > MAXUSHORT) {
+                status = STATUS_NAME_TOO_LONG;
+            } else {
+                status = OpenFsLookupPathFcb(DeviceObject,
+                    (const UCHAR*)utf8Path, (USHORT)utf8Length, &fcb);
+            }
+        }
     }
 
     if (utf8Path != NULL)
