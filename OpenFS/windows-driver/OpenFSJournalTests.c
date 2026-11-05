@@ -100,5 +100,30 @@ int main(void){
   assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1);
   assert(OpenFsSelectJournalCheckpoint(STATUS_DISK_CORRUPT_ERROR,NULL,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1);
  }
+
+ {
+  OPENFS_JOURNAL_RECORD_VIEW redoRecords[4];
+  OPENFS_JOURNAL_TRANSACTION_VIEW redoTx[2];
+  ULONGLONG redoTargets[4];
+  UCHAR scratch[4096];
+  ULONG requiredTargets=0;
+  redoRecords[0]=chunks[0]; redoRecords[1]=chunks[1];
+  redoTx[0].TransactionId=3; redoTx[0].FirstUpdateIndex=0; redoTx[0].UpdateCount=2;
+  assert(OpenFsValidateRedoTargets(redoRecords,2,redoTx,1,4096,40,100,
+      redoTargets,4,&requiredTargets,scratch)==STATUS_SUCCESS);
+  assert(requiredTargets==1&&redoTargets[0]==42);
+  assert(OpenFsValidateRedoTargets(redoRecords,2,redoTx,1,4096,50,100,
+      redoTargets,4,&requiredTargets,scratch)==STATUS_DISK_CORRUPT_ERROR);
+  redoRecords[2]=chunks[0]; redoRecords[3]=chunks[1];
+  redoTx[0].UpdateCount=4;
+  assert(OpenFsValidateRedoTargets(redoRecords,4,redoTx,1,4096,40,100,
+      redoTargets,4,&requiredTargets,scratch)==STATUS_DISK_CORRUPT_ERROR);
+  redoTx[0].UpdateCount=2; redoTx[1].TransactionId=4;
+  redoTx[1].FirstUpdateIndex=2; redoTx[1].UpdateCount=2;
+  assert(OpenFsValidateRedoTargets(redoRecords,4,redoTx,2,4096,40,100,
+      redoTargets,4,&requiredTargets,scratch)==STATUS_SUCCESS);
+  assert(requiredTargets==2&&redoTargets[0]==42&&redoTargets[1]==42);
+ }
+
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
