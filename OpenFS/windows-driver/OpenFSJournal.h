@@ -92,3 +92,19 @@ OpenFsSelectJournalCheckpoint(
     _Out_ POPENFS_JOURNAL_CHECKPOINT Selected,
     _Out_ UCHAR* ActiveCopy
     );
+
+/* Validate every committed REDO image and its home-block target before I/O. */
+NTSTATUS
+OpenFsValidateRedoTargets(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(TransactionCount) const OPENFS_JOURNAL_TRANSACTION_VIEW* Transactions,
+    _In_ ULONG TransactionCount,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG FirstAllowedBlock,
+    _In_ ULONGLONG EndAllowedBlock,
+    _Out_writes_(TargetCapacity) ULONGLONG* Targets,
+    _In_ ULONG TargetCapacity,
+    _Out_ PULONG RequiredTargetCount,
+    _Out_writes_bytes_(BlockSize) UCHAR* ScratchImage
+    );
