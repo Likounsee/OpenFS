@@ -254,7 +254,7 @@ OpenFsDecodeRedoImage(
 
     if (Records == NULL || TargetBlock == NULL || Image == NULL ||
         BlockSize < 64u || BlockSize > 65536u ||
-        FirstRecord > RecordCount || RecordCount > MAXULONG - FirstRecord)
+        RecordCount > MAXULONG - FirstRecord)
         return STATUS_INVALID_PARAMETER;
     if (RecordCount == 0)
         return STATUS_DISK_CORRUPT_ERROR;
