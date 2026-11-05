@@ -1134,6 +1134,12 @@ impl OpenedVolume {
                     "inventory publication failed and journal recovery could not be completed",
                 )
             })?;
+            if !self.journal.is_enabled() {
+                // Reopening Basic clears the in-memory failed-I/O latch only. There is
+                // no redo log capable of deciding whether the staged inventory and its
+                // allocation bitmap were published as one unit.
+                return Err(error);
+            }
             match self.discover_persistent_inventory(device) {
                 Ok(Some((active_block, active_descriptor)))
                     if active_block == descriptor_block && active_descriptor == *descriptor =>
@@ -1442,11 +1448,11 @@ impl OpenedVolume {
         device.flush()?;
 
         // An I/O error from commit can leave its decision uncertain. Drop all cached
-        // discovery state; callers must reopen and let journal recovery choose old or new.
+        // discovery state before handling the mode-specific failure semantics.
         self.inventory_descriptor_cache = None;
-        // Exact commit point: journal.commit flushes the COMMIT record before applying
-        // home bitmap pages. Before that durable flush recovery retains old ownership;
-        // after it, recovery must replay every bitmap image even if a later write/flush fails.
+        // Secure has an exact commit point: the durable COMMIT record selects old or new
+        // ownership after recovery. Basic writes bitmap pages directly and can leave a
+        // partially applied ownership transition after an I/O failure.
         if let Err(error) = self.journal.commit(device, &updates) {
             // This transaction can change several bitmap pages at once. A failed
             // write/flush after the durable COMMIT must not be mistaken for a
