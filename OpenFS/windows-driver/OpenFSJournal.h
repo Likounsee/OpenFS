@@ -81,3 +81,14 @@ OpenFsScanJournalRing(
     _In_ ULONG RecordCapacity,
     _Out_ PULONG RequiredRecordCount
     );
+
+/* Select the newest semantically consistent checkpoint copy. */
+NTSTATUS
+OpenFsSelectJournalCheckpoint(
+    _In_ NTSTATUS FirstStatus,
+    _In_opt_ const OPENFS_JOURNAL_CHECKPOINT* First,
+    _In_ NTSTATUS SecondStatus,
+    _In_opt_ const OPENFS_JOURNAL_CHECKPOINT* Second,
+    _Out_ POPENFS_JOURNAL_CHECKPOINT Selected,
+    _Out_ UCHAR* ActiveCopy
+    );
