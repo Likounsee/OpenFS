@@ -193,6 +193,8 @@ pub use legacy_layout::{
 };
 pub use metadata::{
     decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE,
+    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM,
+    METADATA_FLAG_TEMPORARY, METADATA_KNOWN_ATTRIBUTE_FLAGS,
 };
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
