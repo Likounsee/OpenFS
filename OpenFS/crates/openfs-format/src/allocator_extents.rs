@@ -578,6 +578,11 @@ impl OpenedVolume {
                         "batch allocation failed and journal recovery could not be completed",
                     )
                 })?;
+                if !self.journal.is_enabled() {
+                    // Basic has no redo log: reopening clears the in-memory uncertain
+                    // state but cannot roll back bitmap pages already written.
+                    return Err(error);
+                }
                 let mut allocated_count = 0usize;
                 let mut recovered = try_zeroed_bytes(
                     self.volume.block_size as usize,
@@ -799,6 +804,10 @@ impl OpenedVolume {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("batch free failed and journal recovery could not be completed")
             })?;
+            if !self.journal.is_enabled() {
+                // A direct Basic write may have persisted only a prefix of bitmap pages.
+                return Err(error);
+            }
             let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered batch free",
@@ -942,6 +951,10 @@ impl OpenedVolume {
             *self = crate::volume::open_volume(device).map_err(|_| {
                 Error::Corrupt("contiguous free failed and journal recovery could not be completed")
             })?;
+            if !self.journal.is_enabled() {
+                // A direct Basic write may have persisted only a prefix of bitmap pages.
+                return Err(error);
+            }
             let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered contiguous free",
@@ -1199,6 +1212,11 @@ impl OpenedVolume {
                         "contiguous allocation failed and journal recovery could not be completed",
                     )
                 })?;
+                if !self.journal.is_enabled() {
+                    // Basic has no transaction to replay; report the uncertain partial
+                    // bitmap update instead of applying Secure all-or-nothing logic.
+                    return Err(error);
+                }
                 let mut recovered = try_zeroed_bytes(
                     self.volume.block_size as usize,
                     "allocation failed while verifying recovered contiguous allocation",
@@ -1656,6 +1674,11 @@ impl OpenedVolume {
                     "best-fit allocation failed and journal recovery could not be completed",
                 )
             })?;
+            if !self.journal.is_enabled() {
+                // Basic has no transaction to replay; report the uncertain partial
+                // bitmap update instead of applying Secure all-or-nothing logic.
+                return Err(error);
+            }
             let mut recovered = try_zeroed_bytes(
                 self.volume.block_size as usize,
                 "allocation failed while verifying recovered best-fit allocation",
