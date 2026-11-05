@@ -40,4 +40,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "OpenFS service did not start. sc.exe returned $LASTEXITCODE. Details: $state"
 }
 & sc.exe query OpenFS
-Write-Host 'OpenFS driver service started. This build is read-only; do not use it on a disk containing valuable data.'
+Write-Warning 'OpenFS is an experimental overwrite-only driver: existing regular files only, no EOF extension, allocation, create, rename, delete, or metadata writes. It is not crash-atomic.'
+Write-Warning 'Use only with disposable OpenFS disk images in an isolated VMware test VM. Never use a volume containing valuable data.'
+Write-Host 'OpenFS driver service started.'
