@@ -534,20 +534,26 @@ impl Namespace {
             .get(&object_id)
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
-        let parent_id = ObjectId::new(current.parent_id)
-            .map_err(|_| Error::Corrupt("object metadata has an invalid parent ID"))?;
-        self.validate_directory_ancestry(parent_id, None)?;
-        let indexed_name = self.entry_name_for(parent_id, object_id)?;
-        let entry = self
-            .names
-            .get(&(parent_id, try_clone_name(&indexed_name)?))
-            .ok_or(Error::Corrupt("object directory entry is missing"))?;
-        if entry.object_id != object_id.0
-            || entry.parent_id != parent_id.0
-            || entry.name != indexed_name
-            || entry.kind != current.kind
-        {
-            return Err(Error::Corrupt("object metadata disagrees with its directory entry"));
+        if object_id == self.root_id {
+            if current.parent_id != 0 || current.kind != ObjectKind::Directory {
+                return Err(Error::Corrupt("root object metadata is invalid"));
+            }
+        } else {
+            let parent_id = ObjectId::new(current.parent_id)
+                .map_err(|_| Error::Corrupt("object metadata has an invalid parent ID"))?;
+            self.validate_directory_ancestry(parent_id, None)?;
+            let indexed_name = self.entry_name_for(parent_id, object_id)?;
+            let entry = self
+                .names
+                .get(&(parent_id, try_clone_name(&indexed_name)?))
+                .ok_or(Error::Corrupt("object directory entry is missing"))?;
+            if entry.object_id != object_id.0
+                || entry.parent_id != parent_id.0
+                || entry.name != indexed_name
+                || entry.kind != current.kind
+            {
+                return Err(Error::Corrupt("object metadata disagrees with its directory entry"));
+            }
         }
         let mut updated = current;
         updated.set_attributes(attributes, enabled);
@@ -1140,6 +1146,56 @@ mod tests {
             kind,
             name: name.to_owned(),
         }
+    }
+
+    #[test]
+    fn attribute_updates_preserve_other_flags_and_advance_generation_once() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "report.txt", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+
+        ns.set_attributes(
+            ObjectId(2),
+            crate::METADATA_FLAG_READ_ONLY | crate::METADATA_FLAG_HIDDEN,
+            true,
+        )
+        .unwrap();
+        let updated = ns.object(ObjectId(2)).unwrap();
+        assert!(updated.is_read_only());
+        assert!(updated.is_hidden());
+        assert_eq!(updated.generation, 2);
+
+        ns.set_attributes(ObjectId(2), crate::METADATA_FLAG_HIDDEN, false)
+            .unwrap();
+        let updated = ns.object(ObjectId(2)).unwrap();
+        assert!(updated.is_read_only());
+        assert!(!updated.is_hidden());
+        assert_eq!(updated.generation, 3);
+
+        ns.set_attributes(ObjectId(2), crate::METADATA_FLAG_HIDDEN, false)
+            .unwrap();
+        assert_eq!(ns.object(ObjectId(2)).unwrap().generation, 3);
+        assert!(matches!(
+            ns.set_attributes(ObjectId(2), 0x80, true),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ns.set_attributes(ObjectId(2), 0, true),
+            Err(Error::InvalidInput(_))
+        ));
+        ns.validate().unwrap();
+    }
+
+    #[test]
+    fn root_directory_can_receive_attributes_without_a_parent_entry() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.set_attributes(ObjectId(1), crate::METADATA_FLAG_HIDDEN, true)
+            .unwrap();
+        assert!(ns.object(ObjectId(1)).unwrap().is_hidden());
+        ns.validate().unwrap();
     }
 
     #[test]
