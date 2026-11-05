@@ -17808,8 +17808,7 @@ mod tests {
                 ));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
                     let first = volume.volume.layout.data_start;
 
                     // A free block may contain remnants from an earlier owner. Basic
@@ -17862,13 +17861,10 @@ mod tests {
     fn basic_free_reports_the_bitmap_state_after_direct_write_failures() {
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
-                let path = image_path(&format!(
-                    "basic-free-{failure_kind}-failure-{block_size}"
-                ));
+                let path = image_path(&format!("basic-free-{failure_kind}-failure-{block_size}"));
                 {
                     let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
                     let block = volume.allocate_block(&mut device).unwrap();
 
                     let mut failing = FaultInjectingDevice::new(device);
