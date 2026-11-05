@@ -226,6 +226,198 @@ fn parse_verified_geometry(output: &str) -> Result<(u64, u32), String> {
     Ok((size_bytes, logical_sector_size))
 }
 
+/// Validate a selected physical disk, dismount its mounted filesystem volumes, and report geometry.
+///
+/// The physical disk remains Online. OpenFS dismounts mounted filesystem volumes while preserving
+/// their existing drive-letter/directory mount-point configuration. The caller must
+/// then acquire an exclusive PhysicalDrive handle; failure to do so aborts the operation.
+/// Boot and system disks are always rejected.
+#[cfg(windows)]
+pub fn prepare_disk_for_raw_access(
+    index: u32,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
+        return Err("exact non-empty USB model, serial number and capacity are required".into());
+    }
+
+    // Use the composite media identity throughout; some USB bridges expose only
+    // the generic UniqueId "USB", which is not a reliable per-device identifier.
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$index = [int]$env:OPENFS_DISK_INDEX
+
+function Get-VerifiedOpenFsDisk {
+    $disk = Get-Disk -Number $index -ErrorAction Stop
+    $drive = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+        Where-Object { [int]$_.Index -eq $index } |
+        Select-Object -First 1
+    if ($null -eq $drive) { throw 'Windows could not confirm the physical disk PnP identity' }
+    if ([string]$disk.FriendlyName -cne [string]$env:OPENFS_EXPECTED_MODEL) {
+        throw 'physical disk model changed; refusing raw access'
+    }
+    if (([string]$drive.SerialNumber).Trim() -cne [string]$env:OPENFS_EXPECTED_SERIAL) {
+        throw 'physical disk serial number changed; refusing raw access'
+    }
+    if ([uint64]$disk.Size -ne [uint64]$env:OPENFS_EXPECTED_SIZE) {
+        throw 'physical disk capacity changed; refusing raw access'
+    }
+    if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+        throw 'disk safety state prevents raw access'
+    }
+    $busType = [string]$disk.BusType
+    $pnpId = [string]$drive.PNPDeviceID
+    if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
+        throw 'refusing raw access: target is not positively identified as USB'
+    }
+    return $disk
+}
+
+$disk = Get-VerifiedOpenFsDisk
+if ([uint64]$disk.Size -eq 0 -or [uint32]$disk.LogicalSectorSize -eq 0) {
+    throw 'Windows reported invalid physical disk geometry'
+}
+
+# Win32_DiskPartition reliably reports an empty disk as zero rows. On some
+# Windows Storage providers, Get-Partition -DiskNumber throws when there are
+# no partitions at all, so only call it when CIM confirms partitions exist.
+# Errors from the CIM query itself remain fatal; we never treat provider errors
+# as an empty disk.
+$cimPartitions = @(Get-CimInstance -ClassName Win32_DiskPartition -Filter "DiskIndex = $index" -ErrorAction Stop)
+if ($cimPartitions.Count -eq 0) {
+    $partitions = @()
+} else {
+    $partitions = @(Get-Partition -DiskNumber $index -ErrorAction Stop)
+    if ($partitions.Count -ne $cimPartitions.Count) {
+        throw 'Windows partition inventories disagree; refusing raw access'
+    }
+}
+$volumePlans = @()
+foreach ($partition in $partitions) {
+    # Volume GUID paths are identifiers, not mount points.
+    $mountPoints = @($partition.AccessPaths | Where-Object {
+        $_ -and ($_ -notmatch '^\\\\\?\\Volume\{')
+    })
+    if ($mountPoints.Count -gt 0) {
+        # fsutil volume dismount accepts a drive-letter path. Refuse folder-only
+        # mounts rather than using mountvol /p, which forcibly closes open handles.
+        $drivePath = @($mountPoints | Where-Object { $_ -match '^[A-Za-z]:\\' } | Select-Object -First 1)
+        if ($drivePath.Count -eq 0) {
+            throw "partition $($partition.PartitionNumber) has a directory-only mount point; remove it or assign a temporary drive letter before raw access"
+        }
+        $volumePlans += [pscustomobject]@{
+            DrivePath = ([string]$drivePath[0]).Substring(0, 2)
+        }
+    }
+}
+
+# Dismount only after validating every mounted partition has a supported path.
+# Preserve mount-point configuration and refuse forced dismounts.
+foreach ($plan in $volumePlans) {
+    & "$env:SystemRoot\System32\fsutil.exe" volume dismount $plan.DrivePath 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "could not safely dismount volume $($plan.DrivePath); close applications using it and retry"
+    }
+}
+
+# Re-read model, serial, capacity and safety state after dismounting.
+$disk = Get-VerifiedOpenFsDisk
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+
+    use std::process::Command;
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_EXPECTED_MODEL", expected_model)
+        .env("OPENFS_EXPECTED_SERIAL", expected_serial)
+        .env("OPENFS_EXPECTED_SIZE", expected_size.to_string())
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "physical disk preflight failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    parse_verified_geometry(&String::from_utf8(output.stdout)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
+/// Verify a physical USB disk using a composite identity, not Windows UniqueId alone.
+///
+/// Some USB bridges report the generic UniqueId "USB". The model, hardware serial and
+/// exact byte capacity are therefore all required and rechecked at every destructive boundary.
+#[cfg(windows)]
+pub fn verify_usb_identity(
+    index: u32,
+    expected_model: &str,
+    expected_serial: &str,
+    expected_size: u64,
+) -> Result<(u64, u32), Box<dyn StdError>> {
+    if expected_model.trim().is_empty() || expected_serial.trim().is_empty() || expected_size == 0 {
+        return Err("exact non-empty USB model, serial number and capacity are required".into());
+    }
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$index = [int]$env:OPENFS_DISK_INDEX
+$disk = Get-Disk -Number $index -ErrorAction Stop
+$drive = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+    Where-Object { [int]$_.Index -eq $index } |
+    Select-Object -First 1
+if ($null -eq $drive) { throw 'Windows could not confirm the physical disk PnP identity' }
+if ([string]$disk.FriendlyName -cne [string]$env:OPENFS_EXPECTED_MODEL) {
+    throw 'physical disk model changed; refusing destructive access'
+}
+if (([string]$drive.SerialNumber).Trim() -cne [string]$env:OPENFS_EXPECTED_SERIAL) {
+    throw 'physical disk serial number changed; refusing destructive access'
+}
+if ([uint64]$disk.Size -ne [uint64]$env:OPENFS_EXPECTED_SIZE) {
+    throw 'physical disk capacity changed; refusing destructive access'
+}
+if ($disk.IsBoot -or $disk.IsSystem -or $disk.IsReadOnly -or $disk.IsOffline) {
+    throw 'disk safety state prevents destructive access'
+}
+$busType = [string]$disk.BusType
+$pnpId = [string]$drive.PNPDeviceID
+if ($busType -ine 'USB' -and $pnpId -notmatch '(?i)USB') {
+    throw 'refusing destructive access: target is not positively identified as USB'
+}
+[Console]::Out.WriteLine("$([uint64]$disk.Size)" + [char]9 + "$([uint32]$disk.LogicalSectorSize)")
+"#;
+    use std::process::Command;
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("OPENFS_DISK_INDEX", index.to_string())
+        .env("OPENFS_EXPECTED_MODEL", expected_model)
+        .env("OPENFS_EXPECTED_SERIAL", expected_serial)
+        .env("OPENFS_EXPECTED_SIZE", expected_size.to_string())
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "composite USB identity verification failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    parse_verified_geometry(&String::from_utf8(output.stdout)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
 #[cfg(all(not(windows), test))]
 pub fn prepare_disk_for_raw_access(
     _index: u32,
