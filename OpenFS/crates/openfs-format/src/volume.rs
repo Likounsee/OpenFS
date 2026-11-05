@@ -19246,6 +19246,84 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
+    #[test]
+    fn basic_multiblock_range_write_rolls_back_on_io_and_flush_failures() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for failure_kind in ["write", "flush"] {
+                let path = image_path(&format!(
+                    "basic-range-rollback-{failure_kind}-{block_size}"
+                ));
+                let original: Vec<u8> = (0..(block_size as usize * 3))
+                    .map(|index| (index % 239) as u8)
+                    .collect();
+                let replacement = vec![0xD7; original.len()];
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    volume
+                        .initialize_persistent_namespace(&mut device, ObjectId(1))
+                        .unwrap();
+                    device.flush().unwrap();
+                }
+
+                {
+                    let device = ImageDevice::open(&path, block_size).unwrap();
+                    let mut mounted = VolumeSession::open(device).unwrap();
+                    mounted.create_file("/", ObjectId(2), "range.bin").unwrap();
+                    mounted.write_file("/range.bin", &original).unwrap();
+
+                    let replacement_device = ImageDevice::open(&path, block_size).unwrap();
+                    let device = std::mem::replace(&mut mounted.device, replacement_device);
+                    let mut failing = FaultInjectingDevice::new(device);
+                    failing.fail_next(if failure_kind == "write" {
+                        IoOperation::Write
+                    } else {
+                        IoOperation::Flush
+                    });
+
+                    let result = mounted.opened.write_persistent_path_range(
+                        &mut failing,
+                        "/range.bin",
+                        0,
+                        &replacement,
+                    );
+                    assert!(
+                        matches!(result, Err(Error::Io(_))),
+                        "Basic {failure_kind} failure must be reported (block size {block_size})"
+                    );
+                    assert_eq!(
+                        mounted
+                            .opened
+                            .read_persistent_path_range(
+                                &mut failing,
+                                "/range.bin",
+                                0,
+                                original.len() as u64,
+                            )
+                            .unwrap(),
+                        original,
+                        "Basic failed range write must restore every original block (block size {block_size}, {failure_kind})"
+                    );
+
+                    mounted.device = failing.into_inner();
+                    mounted.unmount().unwrap();
+                }
+
+                {
+                    let device = ImageDevice::open(&path, block_size).unwrap();
+                    let mut mounted = VolumeSession::open(device).unwrap();
+                    assert_eq!(mounted.read_file("/range.bin").unwrap(), original);
+                    mounted.unmount().unwrap();
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
 }
 
 impl OpenedVolume {
