@@ -35,9 +35,10 @@ fn main() {
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
-        Some("mount" | "unmount" | "mount-disk" | "mount-usb") => {
-            Err("native Windows mounting is being implemented in the WDM driver; Dokany is not used".into())
-        }
+        Some("mount" | "unmount" | "mount-disk" | "mount-usb") => Err(
+            "native Windows mounting is being implemented in the WDM driver; Dokany is not used"
+                .into(),
+        ),
         Some(command @ ("format-disk" | "format-usb" | "format-gpt-disk")) => {
             let disk_index = args
                 .next()
