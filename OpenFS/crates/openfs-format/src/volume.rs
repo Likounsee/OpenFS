@@ -3301,7 +3301,9 @@ impl OpenedVolume {
                 .object(*id)
                 .ok_or(Error::Corrupt("subtree metadata disappeared"))?;
             if record.kind == crate::ObjectKind::File && record.is_read_only() {
-                return Err(Error::InvalidInput("cannot remove a subtree containing a read-only file"));
+                return Err(Error::InvalidInput(
+                    "cannot remove a subtree containing a read-only file",
+                ));
             }
         }
 
@@ -19290,22 +19292,15 @@ mod tests {
             );
             assert_eq!(
                 volume
-                    .read_persistent_path_range(
-                        &mut device,
-                        "/protected/important.txt",
-                        0,
-                        64,
-                    )
+                    .read_persistent_path_range(&mut device, "/protected/important.txt", 0, 64,)
                     .unwrap(),
                 b"must survive recursive deletion"
             );
-            assert!(
-                volume
-                    .verify_discovered_persistent_inventory(&mut device)
-                    .unwrap()
-                    .unwrap()
-                    .is_consistent()
-            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
         }
 
         fs::remove_file(path).unwrap();
