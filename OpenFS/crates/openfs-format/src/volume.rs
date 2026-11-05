@@ -8878,11 +8878,12 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.create_directory(parent_path, object_id, name)
     }
 
-    /// Atomically create several files and directories beneath one existing directory.
+    /// Create several files and directories beneath one existing directory.
     ///
     /// Every object receives a session-unique ID. The complete batch is validated and
-    /// published through one persistent inventory replacement, so a crash cannot expose
-    /// only a prefix of the requested entries. An empty batch is a no-op.
+    /// published through one persistent inventory replacement. Secure protects that
+    /// replacement with a journal transaction; Basic performs direct writes and can
+    /// expose a partial update after an I/O failure or power loss. An empty batch is a no-op.
     ///
     /// IDs are reserved monotonically before publication; a rejected batch may therefore
     /// leave harmless gaps in the ID sequence, but IDs are never reused in this session.
@@ -8911,11 +8912,12 @@ impl<D: BlockDevice> VolumeSession<D> {
             .create_persistent_objects_at_path(&mut self.device, parent_path, &batch)
     }
 
-    /// Atomically create objects across several existing directories.
+    /// Create objects across several existing directories.
     ///
     /// Each tuple supplies a stable parent object ID, object kind, and child name.
     /// Unlike create_objects_auto(), entries need not share one parent directory.
-    /// The entire batch is validated and published as one namespace replacement.
+    /// The entire batch is validated and published as one namespace replacement;
+    /// only Secure mode makes that publication crash-atomic through its journal.
     pub fn create_objects_auto_with_parent_ids(
         &mut self,
         objects: &[(ObjectId, crate::ObjectKind, &str)],
@@ -9061,10 +9063,11 @@ impl<D: BlockDevice> VolumeSession<D> {
             .rename_persistent_path(&mut self.device, path, new_parent_path, new_name)
     }
 
-    /// Atomically move or rename several objects in one namespace publication.
+    /// Move or rename several objects in one namespace publication.
     ///
-    /// Each change is (object ID, destination directory ID, new name). This is useful
-    /// for adapters implementing multi-entry operations without exposing partial moves.
+    /// Each change is (object ID, destination directory ID, new name). Secure mode
+    /// journals the publication atomically; Basic uses direct writes and may expose a
+    /// partial update after an I/O failure or power loss.
     pub fn rename_objects(&mut self, changes: &[(ObjectId, ObjectId, String)]) -> Result<()> {
         self.opened
             .rename_persistent_objects(&mut self.device, changes)
@@ -9090,10 +9093,11 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.remove_persistent_path(&mut self.device, path)
     }
 
-    /// Atomically remove several files or empty directories by stable object ID.
+    /// Remove several files or empty directories by stable object ID.
     ///
     /// All targets are validated against one namespace snapshot and published together.
     /// File extents are reclaimed only after the new inventory is confirmed active.
+    /// Only Secure mode provides crash-atomic publication; Basic uses direct writes.
     pub fn remove_objects(&mut self, object_ids: &[ObjectId]) -> Result<()> {
         self.opened
             .remove_persistent_objects(&mut self.device, object_ids)
@@ -9108,6 +9112,7 @@ impl<D: BlockDevice> VolumeSession<D> {
     ///
     /// File extents and metadata roots are reclaimed only after the updated inventory
     /// has been published and rediscovery confirms that the removed objects are unreachable.
+    /// Secure journals the publication; Basic does not guarantee crash atomicity.
     pub fn remove_tree(&mut self, path: &str) -> Result<()> {
         self.opened
             .remove_persistent_tree_at_path(&mut self.device, path)
