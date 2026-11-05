@@ -6,8 +6,8 @@
 
 use crate::crc32c;
 use crate::metadata::ObjectKind;
-use std::collections::HashSet;
 use openfs_core::{Error, Result};
+use std::collections::HashSet;
 
 pub const DIRECTORY_ENTRY_SIZE: usize = 128;
 pub const DIRECTORY_NAME_MAX_BYTES: usize = 64;
