@@ -104,6 +104,37 @@ main(void)
         }
     }
 
+    Check(
+        !OpenFsVolumeStateCanTransition(
+            (OPENFS_VOLUME_STATE)-1, OpenFsVolumeProbing),
+        "negative lifecycle state is rejected"
+        );
+    Check(
+        !OpenFsVolumeStateCanTransition(
+            (OPENFS_VOLUME_STATE)6, OpenFsVolumeProbing),
+        "out-of-range lifecycle state is rejected"
+        );
+
+    /*
+     * Destruction is legal only for an initializing private VDO that has
+     * not reserved a VPB. Check every state/VPB combination.
+     */
+    {
+        int current;
+        int hasVpb;
+        for (current = OpenFsVolumeUninitialized;
+             current <= OpenFsVolumeDead; ++current) {
+            for (hasVpb = 0; hasVpb <= 1; ++hasVpb) {
+                Check(
+                    OpenFsVolumeStateCanDestroy(
+                        (OPENFS_VOLUME_STATE)current, hasVpb) ==
+                        (current == OpenFsVolumeInitializing && !hasVpb),
+                    "exhaustive private-volume destruction policy"
+                    );
+            }
+        }
+    }
+
     state = OpenFsVolumeUninitialized;
     Check(
         OpenFsVolumeStateTryTransition(
@@ -213,5 +244,5 @@ main(void)
 
     printf("OpenFS volume-state tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
-    return g_Checks == 70 && g_Failures == 0 ? 0 : 1;
+    return g_Checks == 84 && g_Failures == 0 ? 0 : 1;
 }
