@@ -3587,6 +3587,23 @@ mod tests {
     }
 
     #[test]
+    fn fresh_volume_verification_rejects_missing_persistent_inventory() {
+        let path = unique_path("format-verification-no-inventory");
+        let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+        format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        device.flush().unwrap();
+
+        let result = super::verify_fresh_volume(&mut device);
+        assert!(
+            result.is_err(),
+            "post-format verification must reject a volume without its persistent root inventory"
+        );
+
+        drop(device);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn audit_of_clean_volume_without_inventory_does_not_modify_image() {
         let path = unique_path("audit-no-inventory");
         {
