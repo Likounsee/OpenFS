@@ -8809,7 +8809,7 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.stat_persistent_path(&mut self.device, path)
     }
 
-    /// Look up persistent metadata by a stable object handle.    /// Change supported Basic attributes on a persistent object and publish the new inventory.
+    /// Change supported Basic attributes on a persistent object and publish the new inventory.
     ///
     /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
     /// publication path and does not claim power-loss atomicity.
@@ -8832,7 +8832,11 @@ impl<D: BlockDevice> VolumeSession<D> {
             .ok_or(Error::Corrupt("resolved object metadata is missing"))?
             .generation;
         namespace.set_attributes(object_id, attributes, enabled)?;
-        if namespace.object(object_id).map(|record| record.generation) == Some(previous_generation) {
+        if namespace
+            .object(object_id)
+            .map(|record| record.generation)
+            == Some(previous_generation)
+        {
             return Ok(());
         }
         self.replace_persistent_namespace_inventory(device, &namespace)?;
@@ -8848,7 +8852,7 @@ impl<D: BlockDevice> VolumeSession<D> {
             .stat_persistent_object(&mut self.device, object_id)
     }
 
-    /// Read a bounded range from a regular file addressed by stable object ID.    /// Set or clear supported Basic attributes on a persistent path.
+    /// Set or clear supported Basic attributes on a persistent path.
     pub fn set_attributes(&mut self, path: &str, attributes: u8, enabled: bool) -> Result<()> {
         self.opened.set_persistent_attributes(
             &mut self.device,
@@ -9407,7 +9411,9 @@ mod tests {
                 Err(Error::InvalidInput("cannot resize a read-only file"))
             ));
             assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"preserved");
-            mounted.set_attributes("/attributes.txt", METADATA_FLAG_READ_ONLY, false).unwrap();
+            mounted
+                .set_attributes("/attributes.txt", METADATA_FLAG_READ_ONLY, false)
+                .unwrap();
             mounted.write_file("/attributes.txt", b"editable").unwrap();
             assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"editable");
             mounted.unmount().unwrap();
