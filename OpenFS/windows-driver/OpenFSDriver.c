@@ -203,10 +203,14 @@ OpenFsDispatchRead(
 
     vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
     fcb = (POPENFS_FCB)fileObject->FsContext;
-    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        fcb->Signature != OPENFS_FCB_SIGNATURE)
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
 
+    /*
+     * FsContext is opaque input from the I/O manager. Do not dereference it
+     * here: OpenFsReadFcbData first validates FCB membership under the VCB
+     * resource (including before loading the extent map).
+     */
     offset = stack->Parameters.Read.ByteOffset;
     if (offset.QuadPart == FILE_USE_FILE_POINTER_POSITION) {
         if ((fileObject->Flags & FO_SYNCHRONOUS_IO) == 0)
