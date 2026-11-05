@@ -17907,6 +17907,50 @@ mod tests {
     }
 
     #[test]
+    fn basic_free_remount_reallocate_clears_previous_contents() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("basic-free-remount-reallocate-{block_size}"));
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                let block = volume.allocate_block(&mut device).unwrap();
+                let marker = vec![0xA5; block_size as usize];
+                device.write_blocks(block, &marker).unwrap();
+                device.flush().unwrap();
+
+                volume.free_block(&mut device, block).unwrap();
+                drop(volume);
+                drop(device);
+            }
+
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let mut volume = open_volume(&mut device).unwrap();
+                let reused = volume.allocate_block(&mut device).unwrap();
+                assert_eq!(
+                    reused, volume.volume.layout.data_start,
+                    "a remounted Basic allocator should reuse the first free block (block size {block_size})"
+                );
+                assert!(
+                    !volume.is_data_block_allocated(&mut device, reused).unwrap() == false,
+                    "the reused block must be marked allocated (block size {block_size})"
+                );
+
+                let mut contents = vec![0xFF; block_size as usize];
+                device.read_blocks(reused, &mut contents).unwrap();
+                assert!(
+                    contents.iter().all(|byte| *byte == 0),
+                    "reallocated Basic blocks must not expose previous contents (block size {block_size})"
+                );
+                let report = check_volume(&mut device).unwrap();
+                assert!(!report.journal_enabled);
+                assert_eq!(report.pending_journal_records, 0);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn persistent_path_rename_recovers_old_or_new_namespace_after_flush_failure() {
         use crate::ObjectId;
 
