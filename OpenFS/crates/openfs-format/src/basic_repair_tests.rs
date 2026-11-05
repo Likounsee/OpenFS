@@ -95,5 +95,4 @@ fn basic_does_not_guess_ownership_when_namespace_is_absent() {
         );
         assert!(orphan >= volume.volume.layout.data_start);
     }
-
 }
