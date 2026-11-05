@@ -65,3 +65,13 @@ This is a codec only. It does not yet select the newest valid checkpoint,
 scan the ring, validate transaction ordering across records, replay REDO,
 write journal records, or publish checkpoints. Those steps must be implemented
 and tested before any mutating IRP is enabled.
+
+
+The C journal layer also validates decoded record streams against the single-writer
+protocol: contiguous sequence numbers, strictly increasing transaction IDs,
+non-interleaved BEGIN/UPDATE/COMMIT/ABORT sequences, and at least one REDO update
+for every committed transaction. It returns index ranges for committed updates
+only; a final transaction without COMMIT is ignored. Output capacity is checked
+before any transaction descriptors are published. This is still planning only:
+ring scanning, torn-tail classification, redo application and durable checkpoint
+publication remain unimplemented.
