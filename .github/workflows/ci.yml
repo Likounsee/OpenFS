@@ -204,8 +204,10 @@ jobs:
             (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\\10'),
             (Join-Path $env:ProgramFiles 'Windows Kits\\10')
           ) | Where-Object { Test-Path $_ }
+          # Inf2Cat is commonly shipped in the x86 tools directory; it is
+          # architecture-neutral for generating the catalog. SignTool must be x64.
           $inf2cat = Get-ChildItem -Path $kits -Filter Inf2Cat.exe -File -Recurse -ErrorAction Stop |
-            Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
+            Select-Object -First 1
           $signtool = Get-ChildItem -Path $kits -Filter signtool.exe -File -Recurse -ErrorAction Stop |
             Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
           if ($null -eq $inf2cat -or $null -eq $signtool) {
