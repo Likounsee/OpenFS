@@ -165,6 +165,141 @@ OpenFsReadVolumeBlocks(
         Buffer, (ULONG)byteLength);
 }
 
+
+/*
+ * Write a bounded range of complete filesystem blocks to the backing device.
+ *
+ * This primitive is intentionally not wired to IRP_MJ_WRITE yet. The future
+ * filesystem mutation layer must stage data, commit journal metadata, recover
+ * indeterminate commits, and serialize writers before calling it.
+ */
+NTSTATUS
+OpenFsWriteVolumeBlocks(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG FirstBlock,
+    _In_ ULONG BlockCount,
+    _In_reads_bytes_(BufferLength) const UCHAR* Buffer,
+    _In_ SIZE_T BufferLength
+    )
+{
+    PVOID allocation;
+    PUCHAR alignedBuffer;
+    SIZE_T allocationLength;
+    ULONG_PTR alignmentMask;
+    ULONGLONG deviceLength;
+    ULONGLONG byteOffset;
+    ULONGLONG byteLength;
+    LARGE_INTEGER offset;
+    KEVENT event;
+    IO_STATUS_BLOCK ioStatus;
+    PIRP irp;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL || Buffer == NULL ||
+        BlockSize == 0 || TotalBlocks == 0 || BlockCount == 0 ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+
+    if (TotalBlocks > MAXULONGLONG / BlockSize ||
+        FirstBlock >= TotalBlocks ||
+        (ULONGLONG)BlockCount > TotalBlocks - FirstBlock)
+        return STATUS_DISK_CORRUPT_ERROR;
+    if ((ULONGLONG)BlockCount > MAXULONG / BlockSize)
+        return STATUS_INTEGER_OVERFLOW;
+
+    byteLength = (ULONGLONG)BlockCount * BlockSize;
+    if (BufferLength != (SIZE_T)byteLength)
+        return STATUS_INVALID_BUFFER_SIZE;
+
+    deviceLength = TotalBlocks * BlockSize;
+    byteOffset = FirstBlock * BlockSize;
+    status = OpenFsValidateReadRange(deviceLength, byteOffset, byteLength);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    if (DeviceObject->SectorSize != 0 &&
+        ((byteOffset % DeviceObject->SectorSize) != 0 ||
+         (byteLength % DeviceObject->SectorSize) != 0))
+        return STATUS_INVALID_PARAMETER;
+
+    alignmentMask = DeviceObject->AlignmentRequirement;
+    if (alignmentMask > MAXULONG_PTR - (SIZE_T)byteLength)
+        return STATUS_INTEGER_OVERFLOW;
+    allocationLength = (SIZE_T)byteLength + (SIZE_T)alignmentMask;
+    allocation = ExAllocatePool2(POOL_FLAG_NON_PAGED, allocationLength,
+        OPENFS_DEVICE_IO_TAG);
+    if (allocation == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    alignedBuffer = (PUCHAR)(((ULONG_PTR)allocation + alignmentMask) &
+        ~alignmentMask);
+    RtlCopyMemory(alignedBuffer, Buffer, (SIZE_T)byteLength);
+    offset.QuadPart = (LONGLONG)byteOffset;
+    KeInitializeEvent(&event, NotificationEvent, FALSE);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+
+    irp = IoBuildSynchronousFsdRequest(
+        IRP_MJ_WRITE, DeviceObject, alignedBuffer, (ULONG)byteLength,
+        &offset, &event, &ioStatus);
+    if (irp == NULL) {
+        ExFreePoolWithTag(allocation, OPENFS_DEVICE_IO_TAG);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = IoCallDriver(DeviceObject, irp);
+    if (status == STATUS_PENDING) {
+        KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(status)) {
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(ioStatus.Status)) {
+        status = ioStatus.Status;
+    }
+    if (NT_SUCCESS(status) && ioStatus.Information != byteLength)
+        status = STATUS_DEVICE_DATA_ERROR;
+
+    ExFreePoolWithTag(allocation, OPENFS_DEVICE_IO_TAG);
+    return status;
+}
+
+/*
+ * Force lower-device cached writes to stable storage before a journal
+ * publication step is considered durable.
+ */
+NTSTATUS
+OpenFsFlushVolumeDevice(
+    _In_ PDEVICE_OBJECT DeviceObject
+    )
+{
+    KEVENT event;
+    IO_STATUS_BLOCK ioStatus;
+    PIRP irp;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL || KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+
+    KeInitializeEvent(&event, NotificationEvent, FALSE);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    irp = IoBuildSynchronousFsdRequest(
+        IRP_MJ_FLUSH_BUFFERS, DeviceObject, NULL, 0, NULL, &event, &ioStatus);
+    if (irp == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    status = IoCallDriver(DeviceObject, irp);
+    if (status == STATUS_PENDING) {
+        KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(status)) {
+        status = ioStatus.Status;
+    } else if (NT_SUCCESS(ioStatus.Status)) {
+        status = ioStatus.Status;
+    }
+    return status;
+}
+
 static NTSTATUS
 OpenFsQueryDeviceLength(
     _In_ PDEVICE_OBJECT DeviceObject,
