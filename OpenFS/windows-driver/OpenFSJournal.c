@@ -51,6 +51,7 @@ OpenFsPlanJournalRecovery(
     _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
     _In_ ULONG RecordCount,
     _In_ ULONGLONG CheckpointSequence,
+    _In_ ULONGLONG NextTransactionId,
     _Out_ POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
     _In_ ULONG TransactionCapacity,
     _Out_ PULONG RequiredTransactionCount
@@ -58,7 +59,7 @@ OpenFsPlanJournalRecovery(
 {
     ULONGLONG expectedSequence;
     ULONGLONG activeTransaction = 0;
-    ULONGLONG lastTransaction = 0;
+    ULONGLONG expectedTransactionId;
     ULONG activeUpdateCount = 0;
     ULONG committedCount = 0;
     ULONG index;
@@ -73,9 +74,11 @@ OpenFsPlanJournalRecovery(
 
     if (RecordCount == 0)
         return STATUS_SUCCESS;
-    if (CheckpointSequence == MAXULONGLONG)
+    if (CheckpointSequence == MAXULONGLONG || NextTransactionId == 0 ||
+        NextTransactionId > CheckpointSequence + 1u)
         return STATUS_INTEGER_OVERFLOW;
     expectedSequence = CheckpointSequence + 1u;
+    expectedTransactionId = NextTransactionId;
 
     /* First pass validates the entire stream before touching caller output. */
     for (index = 0; index < RecordCount; ++index) {
@@ -93,11 +96,13 @@ OpenFsPlanJournalRecovery(
 
         switch (record->Kind) {
         case OpenFsJournalBegin:
-            if (active || record->TransactionId <= lastTransaction)
+            if (active || record->TransactionId != expectedTransactionId)
                 return STATUS_DISK_CORRUPT_ERROR;
+            if (expectedTransactionId == MAXULONGLONG)
+                return STATUS_INTEGER_OVERFLOW;
+            ++expectedTransactionId;
             active = TRUE;
             activeTransaction = record->TransactionId;
-            lastTransaction = record->TransactionId;
             activeUpdateCount = 0;
             break;
         case OpenFsJournalUpdate:
@@ -227,5 +232,95 @@ OpenFsEncodeJournalRecordBlock(
             Payload, PayloadLength);
     w32(Block + 36, record_crc(Block,
         Block + OPENFS_JOURNAL_RECORD_HEADER_BYTES, PayloadLength));
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OpenFsDecodeRedoImage(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG FirstRecord,
+    _In_ ULONG RecordCount,
+    _In_ ULONG BlockSize,
+    _Out_ PULONGLONG TargetBlock,
+    _Out_writes_bytes_(BlockSize) UCHAR* Image
+    )
+{
+    ULONG chunkCapacity;
+    ULONG expectedChunks;
+    ULONG index;
+    ULONG bytesCopied = 0;
+    ULONGLONG target;
+    USHORT declaredChunks;
+
+    if (Records == NULL || TargetBlock == NULL || Image == NULL ||
+        BlockSize < 64u || BlockSize > 65536u ||
+        FirstRecord > RecordCount || RecordCount > MAXULONG - FirstRecord)
+        return STATUS_INVALID_PARAMETER;
+    if (RecordCount == 0)
+        return STATUS_DISK_CORRUPT_ERROR;
+    chunkCapacity = BlockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES - 12u;
+    expectedChunks = (BlockSize + chunkCapacity - 1u) / chunkCapacity;
+    if (expectedChunks > MAXUSHORT || RecordCount != expectedChunks)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    if (Records[FirstRecord].Kind != OpenFsJournalUpdate ||
+        Records[FirstRecord].Payload == NULL ||
+        Records[FirstRecord].PayloadLength < 12u)
+        return STATUS_DISK_CORRUPT_ERROR;
+    target = (ULONGLONG)Records[FirstRecord].Payload[0] |
+        ((ULONGLONG)Records[FirstRecord].Payload[1] << 8) |
+        ((ULONGLONG)Records[FirstRecord].Payload[2] << 16) |
+        ((ULONGLONG)Records[FirstRecord].Payload[3] << 24) |
+        ((ULONGLONG)Records[FirstRecord].Payload[4] << 32) |
+        ((ULONGLONG)Records[FirstRecord].Payload[5] << 40) |
+        ((ULONGLONG)Records[FirstRecord].Payload[6] << 48) |
+        ((ULONGLONG)Records[FirstRecord].Payload[7] << 56);
+    declaredChunks = (USHORT)(Records[FirstRecord].Payload[10] |
+        ((USHORT)Records[FirstRecord].Payload[11] << 8));
+    if (declaredChunks != expectedChunks)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    /* Validate every chunk before changing the caller's output image. */
+    for (index = 0; index < expectedChunks; ++index) {
+        const OPENFS_JOURNAL_RECORD_VIEW* record = &Records[FirstRecord + index];
+        ULONG expectedData = index + 1u < expectedChunks
+            ? chunkCapacity : BlockSize - (chunkCapacity * (expectedChunks - 1u));
+        ULONGLONG currentTarget;
+        USHORT chunkIndex;
+        USHORT chunkCount;
+
+        if (record->Kind != OpenFsJournalUpdate ||
+            record->TransactionId != Records[FirstRecord].TransactionId ||
+            record->Payload == NULL ||
+            record->PayloadLength != 12u + expectedData)
+            return STATUS_DISK_CORRUPT_ERROR;
+        currentTarget = (ULONGLONG)record->Payload[0] |
+            ((ULONGLONG)record->Payload[1] << 8) |
+            ((ULONGLONG)record->Payload[2] << 16) |
+            ((ULONGLONG)record->Payload[3] << 24) |
+            ((ULONGLONG)record->Payload[4] << 32) |
+            ((ULONGLONG)record->Payload[5] << 40) |
+            ((ULONGLONG)record->Payload[6] << 48) |
+            ((ULONGLONG)record->Payload[7] << 56);
+        chunkIndex = (USHORT)(record->Payload[8] |
+            ((USHORT)record->Payload[9] << 8));
+        chunkCount = (USHORT)(record->Payload[10] |
+            ((USHORT)record->Payload[11] << 8));
+        if (currentTarget != target || chunkIndex != index ||
+            chunkCount != expectedChunks)
+            return STATUS_DISK_CORRUPT_ERROR;
+        bytesCopied += expectedData;
+    }
+    if (bytesCopied != BlockSize)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    bytesCopied = 0;
+    for (index = 0; index < expectedChunks; ++index) {
+        const OPENFS_JOURNAL_RECORD_VIEW* record = &Records[FirstRecord + index];
+        ULONG dataLength = record->PayloadLength - 12u;
+        RtlCopyMemory(Image + bytesCopied, record->Payload + 12u, dataLength);
+        bytesCopied += dataLength;
+    }
+    *TargetBlock = target;
     return STATUS_SUCCESS;
 }
