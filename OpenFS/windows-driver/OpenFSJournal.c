@@ -13,7 +13,7 @@ NTSTATUS OpenFsDecodeJournalCheckpointBlock(const UCHAR*Block,ULONG BlockSize,UL
  if(!zeroes(Block+12,4)||!zeroes(Block+68,4)||!zeroes(Block+72,BlockSize-72))return STATUS_DISK_CORRUPT_ERROR;
  if(r32(Block+64)!=OpenFsCrc32C(Block,64))return STATUS_CRC_ERROR;
  Cp->Generation=r64(Block+16);Cp->CheckpointSequence=r64(Block+24);Cp->NextSequence=r64(Block+32);Cp->NextTransactionId=r64(Block+40);Cp->HeadBlock=r64(Block+48);Cp->TailBlock=r64(Block+56);
- if(!Cp->Generation||Cp->CheckpointSequence==MAXULONGLONG||Cp->NextSequence!=Cp->CheckpointSequence+1u||!Cp->NextTransactionId||Cp->NextTransactionId>Cp->CheckpointSequence+1u||Cp->HeadBlock>=RingBlocks||Cp->TailBlock>=RingBlocks)return STATUS_DISK_CORRUPT_ERROR;
+ if(!Cp->Generation||Cp->CheckpointSequence==MAXULONGLONG||Cp->NextSequence!=Cp->CheckpointSequence+1u||!Cp->NextTransactionId||Cp->NextTransactionId>Cp->CheckpointSequence+1u||Cp->HeadBlock>=RingBlocks||Cp->TailBlock>=RingBlocks||Cp->HeadBlock!=0||Cp->TailBlock!=0)return STATUS_DISK_CORRUPT_ERROR;
  return STATUS_SUCCESS;
 }
 NTSTATUS OpenFsDecodeJournalRecordBlock(const UCHAR*Block,ULONG BlockSize,POPENFS_JOURNAL_RECORD_VIEW Rec){
