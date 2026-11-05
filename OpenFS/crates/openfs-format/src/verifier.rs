@@ -251,6 +251,9 @@ mod tests {
             size: 0,
             extent_root_block: None,
             generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
         }
     }
 
