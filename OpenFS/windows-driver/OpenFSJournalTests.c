@@ -5,11 +5,11 @@ static void p16(UCHAR*p,USHORT v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);}
 static void p32(UCHAR*p,ULONG v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);p[2]=(UCHAR)(v>>16);p[3]=(UCHAR)(v>>24);}
 static void p64(UCHAR*p,ULONGLONG v){p32(p,(ULONG)v);p32(p+4,(ULONG)(v>>32));}
 static ULONG crc_record(UCHAR*b,const UCHAR*p,ULONG n){ULONG c=0xFFFFFFFFu,i,k;for(i=0;i<36;i++){c^=b[i];for(k=0;k<8;k++)c=(c>>1)^((c&1u)?0x82F63B78u:0u);}for(i=0;i<n;i++){c^=p[i];for(k=0;k<8;k++)c=(c>>1)^((c&1u)?0x82F63B78u:0u);}return ~c;}
-static void checkpoint(UCHAR*b){RtlZeroMemory(b,4096);RtlCopyMemory(b,"OFSCKP\0\0",8);p16(b+8,1);p16(b+10,72);p64(b+16,3);p64(b+24,8);p64(b+32,9);p64(b+40,5);p64(b+48,2);p64(b+56,1);p32(b+64,OpenFsCrc32C(b,64));}
+static void checkpoint(UCHAR*b){RtlZeroMemory(b,4096);RtlCopyMemory(b,"OFSCKP\0\0",8);p16(b+8,1);p16(b+10,72);p64(b+16,3);p64(b+24,8);p64(b+32,9);p64(b+40,5);p64(b+48,0);p64(b+56,0);p32(b+64,OpenFsCrc32C(b,64));}
 static void record(UCHAR*b,USHORT kind,ULONGLONG seq,ULONGLONG tx,const UCHAR*p,ULONG n){RtlZeroMemory(b,4096);RtlCopyMemory(b,"OFSJNL\0\0",8);p16(b+8,1);p16(b+10,40);p16(b+12,kind);p64(b+16,seq);p64(b+24,tx);p32(b+32,n);if(n)RtlCopyMemory(b+40,p,n);p32(b+36,crc_record(b,p,n));}
 int main(void){
  UCHAR b[4096],payload[3]={1,2,3};OPENFS_JOURNAL_CHECKPOINT cp;OPENFS_JOURNAL_RECORD_VIEW r;
- checkpoint(b);assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&cp)==STATUS_SUCCESS);assert(cp.Generation==3&&cp.NextTransactionId==5&&cp.HeadBlock==2);
+ checkpoint(b);assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&cp)==STATUS_SUCCESS);assert(cp.Generation==3&&cp.NextTransactionId==5&&cp.HeadBlock==0&&cp.TailBlock==0);
  b[64]^=1;assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&cp)==STATUS_CRC_ERROR);
  checkpoint(b);b[90]=1;assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&cp)==STATUS_DISK_CORRUPT_ERROR);
  checkpoint(b);p64(b+48,8);p32(b+64,OpenFsCrc32C(b,64));assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&cp)==STATUS_DISK_CORRUPT_ERROR);
