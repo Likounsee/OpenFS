@@ -9556,6 +9556,49 @@ mod tests {
     }
 
     #[test]
+    fn basic_creation_and_modification_timestamps_survive_remount() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        let path = image_path("basic-metadata-timestamps");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        let (created_at, modified_at) = {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_file("/", ObjectId(2), "timestamps.txt").unwrap();
+            let created = mounted.stat("/timestamps.txt").unwrap();
+            assert_ne!(created.created_at, 0);
+            assert_ne!(created.modified_at, 0);
+
+            mounted.write_file("/timestamps.txt", b"timestamp data").unwrap();
+            let modified = mounted.stat("/timestamps.txt").unwrap();
+            assert_ne!(modified.modified_at, 0);
+            let result = (modified.created_at, modified.modified_at);
+            mounted.unmount().unwrap();
+            result
+        };
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            let restored = mounted.stat("/timestamps.txt").unwrap();
+            assert_eq!(restored.created_at, created_at);
+            assert_eq!(restored.modified_at, modified_at);
+            assert_eq!(mounted.read_file("/timestamps.txt").unwrap(), b"timestamp data");
+            mounted.unmount().unwrap();
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_version_two_unicode_directory_name_survives_remount() {
         use super::VolumeSession;
         use crate::ObjectId;
