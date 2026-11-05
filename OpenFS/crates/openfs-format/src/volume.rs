@@ -9446,30 +9446,59 @@ mod tests {
             volume
                 .initialize_persistent_namespace(&mut device, ObjectId(1))
                 .unwrap();
-            volume.create_persistent_file_at_path(&mut device, "/", ObjectId(2), "protected.txt").unwrap();
-            volume.create_persistent_file_at_path(&mut device, "/", ObjectId(3), "replacement.txt").unwrap();
-            volume.write_persistent_file_contents(&mut device, "/protected.txt", b"keep").unwrap();
-            volume.write_persistent_file_contents(&mut device, "/replacement.txt", b"new").unwrap();
-            volume.set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, true).unwrap();
-            volume.set_persistent_attributes(&mut device, "/replacement.txt", METADATA_FLAG_READ_ONLY, true).unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "protected.txt")
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(3), "replacement.txt")
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/protected.txt", b"keep")
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/replacement.txt", b"new")
+                .unwrap();
+            volume
+                .set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, true)
+                .unwrap();
+            volume
+                .set_persistent_attributes(&mut device, "/replacement.txt", METADATA_FLAG_READ_ONLY, true)
+                .unwrap();
             assert!(volume.remove_persistent_path(&mut device, "/protected.txt").is_err());
             assert!(volume.remove_persistent_objects(&mut device, &[ObjectId(2)]).is_err());
-            assert!(volume.replace_persistent_file_at_path(&mut device, "/replacement.txt", "/", "protected.txt").is_err());
-            let (_, namespace) = volume.reconstruct_discovered_namespace(&mut device).unwrap().unwrap();
+            assert!(volume
+                .replace_persistent_file_at_path(
+                    &mut device,
+                    "/replacement.txt",
+                    "/",
+                    "protected.txt",
+                )
+                .is_err());
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
             assert!(namespace.object(ObjectId(2)).is_some());
             assert!(namespace.object(ObjectId(3)).is_some());
             assert_eq!(
-                volume.read_persistent_path_range(&mut device, "/protected.txt", 0, 16).unwrap(),
+                volume
+                    .read_persistent_path_range(&mut device, "/protected.txt", 0, 16)
+                    .unwrap(),
                 b"keep"
             );
-            volume.set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, false).unwrap();
+            volume
+                .set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, false)
+                .unwrap();
             volume.remove_persistent_path(&mut device, "/protected.txt").unwrap();
             device.flush().unwrap();
         }
         {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             let volume = open_volume(&mut device).unwrap();
-            let (_, namespace) = volume.reconstruct_discovered_namespace(&mut device).unwrap().unwrap();
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
             assert!(namespace.object(ObjectId(2)).is_none());
             assert!(namespace.object(ObjectId(3)).is_some());
         }
