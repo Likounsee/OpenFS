@@ -8316,10 +8316,15 @@ fn format_volume_mode<D: BlockDevice>(
     } else {
         // Keep the journal's future location reserved and clean, but do not create
         // checkpoints or redo records in Basic mode.
-        let journal_end = layout.journal.ring_start
+        let journal_end = layout
+            .journal
+            .ring_start
             .checked_add(layout.journal.ring_blocks)
             .ok_or(Error::ArithmeticOverflow)?;
-        let zero = try_zeroed_bytes(block_size, "unable to allocate Basic reserved-region buffer")?;
+        let zero = try_zeroed_bytes(
+            block_size,
+            "unable to allocate Basic reserved-region buffer",
+        )?;
         for block in layout.journal.checkpoint_a..journal_end {
             device.write_blocks(block, &zero)?;
         }
@@ -8427,7 +8432,11 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
         return Err(Error::Corrupt("bad superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION && version != PREVIOUS_VERSION && version != INVENTORY_HINT_VERSION && version != LEGACY_VERSION {
+    if version != VERSION
+        && version != PREVIOUS_VERSION
+        && version != INVENTORY_HINT_VERSION
+        && version != LEGACY_VERSION
+    {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
@@ -9106,7 +9115,8 @@ impl<D: BlockDevice> VolumeSession<D> {
 mod tests {
     use super::{
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
-        format_volume, format_volume_secure, normalize_owned_ranges, open_volume, owned_ranges_contain,
+        format_volume, format_volume_secure, normalize_owned_ranges, open_volume,
+        owned_ranges_contain,
         persist_inventory_hint, read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE,
         INVENTORY_HINT_OFFSET, MAGIC, VERSION,
     };
