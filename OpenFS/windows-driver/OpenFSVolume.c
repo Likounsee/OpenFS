@@ -142,15 +142,26 @@ OpenFsDestroyVolumeDevice(
     }
     {
         PLIST_ENTRY link;
+        ULONGLONG totalOpenHandles = 0;
+
+        /*
+         * FCBs are bounded by CachedFcbCount (ULONG), and each per-FCB
+         * handle count is ULONG, so the product fits in ULONGLONG. Keep the
+         * aggregate in the destruction policy instead of splitting the
+         * lifetime check across two independent conditions.
+         */
         for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
              link = link->Flink) {
             POPENFS_FCB fcb =
                 CONTAINING_RECORD(link, OPENFS_FCB, CacheLink);
-            if (fcb->OpenHandleCount != 0) {
-                ExReleaseResourceLite(&vcb->Resource);
-                ObDereferenceObject(VolumeDeviceObject);
-                return STATUS_DEVICE_BUSY;
-            }
+            totalOpenHandles += fcb->OpenHandleCount;
+        }
+
+        if (!OpenFsVolumeStateCanDestroy(vcb->State,
+                vcb->Vpb != NULL, totalOpenHandles)) {
+            ExReleaseResourceLite(&vcb->Resource);
+            ObDereferenceObject(VolumeDeviceObject);
+            return STATUS_DEVICE_BUSY;
         }
     }
     if (!OpenFsVolumeStateTryTransition(&vcb->State,
