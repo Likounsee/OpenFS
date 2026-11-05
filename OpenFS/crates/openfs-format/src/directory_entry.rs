@@ -304,26 +304,26 @@ mod tests {
         entry.object_id = entry.parent_id;
         assert!(matches!(entry.encode(), Err(Error::InvalidInput(_))));
         let mut entry = sample();
-        entry.name = "é".repeat(33);
+        entry.name = "é".repeat(41);
         assert!(matches!(entry.encode(), Err(Error::InvalidInput(_))));
     }
 
     #[test]
     fn utf8_name_limit_is_measured_in_bytes_and_round_trips_at_boundary() {
         let mut entry = sample();
-        entry.name = "é".repeat(32);
-        assert_eq!(entry.name.len(), 64);
+        entry.name = "é".repeat(40);
+        assert_eq!(entry.name.len(), 80);
         assert_eq!(
             DirectoryEntry::decode(&entry.encode().unwrap()).unwrap(),
             entry
         );
 
         let mut too_long = sample();
-        too_long.name = "é".repeat(33);
+        too_long.name = "é".repeat(41);
         assert!(matches!(
             too_long.encode(),
             Err(Error::InvalidInput(
-                "directory name must contain 1 to 64 UTF-8 bytes"
+                "directory name must contain 1 to 80 UTF-8 bytes"
             ))
         ));
     }
