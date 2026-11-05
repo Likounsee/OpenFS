@@ -516,6 +516,53 @@ impl Namespace {
         Ok(())
     }
 
+    /// Update the supported Basic attributes of an object in memory.
+    ///
+    /// Unknown flag bits are preserved; callers may only change the defined attribute
+    /// mask. A real change advances the metadata generation exactly once.
+    pub fn set_attributes(
+        &mut self,
+        object_id: ObjectId,
+        attributes: u8,
+        enabled: bool,
+    ) -> Result<()> {
+        if attributes == 0 || attributes & !crate::METADATA_KNOWN_ATTRIBUTE_FLAGS != 0 {
+            return Err(Error::InvalidInput("unsupported or empty metadata attribute mask"));
+        }
+        let current = self
+            .objects
+            .get(&object_id)
+            .cloned()
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        let parent_id = ObjectId::new(current.parent_id)
+            .map_err(|_| Error::Corrupt("object metadata has an invalid parent ID"))?;
+        self.validate_directory_ancestry(parent_id, None)?;
+        let indexed_name = self.entry_name_for(parent_id, object_id)?;
+        let entry = self
+            .names
+            .get(&(parent_id, try_clone_name(&indexed_name)?))
+            .ok_or(Error::Corrupt("object directory entry is missing"))?;
+        if entry.object_id != object_id.0
+            || entry.parent_id != parent_id.0
+            || entry.name != indexed_name
+            || entry.kind != current.kind
+        {
+            return Err(Error::Corrupt("object metadata disagrees with its directory entry"));
+        }
+        let mut updated = current;
+        updated.set_attributes(attributes, enabled);
+        if updated.flags == self.objects[&object_id].flags {
+            return Ok(());
+        }
+        updated.generation = updated
+            .generation
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        updated.encode()?;
+        self.objects.insert(object_id, updated);
+        Ok(())
+    }
+
     /// Update file length and extent-root metadata in memory.
     ///
     /// An empty file must have no extent root; directory records cannot be resized.
