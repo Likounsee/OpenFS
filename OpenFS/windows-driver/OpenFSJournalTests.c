@@ -27,11 +27,11 @@ int main(void){
   record(b,OpenFsJournalCommit,3,1,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[2])==STATUS_SUCCESS);
   record(b,OpenFsJournalBegin,4,2,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[3])==STATUS_SUCCESS);
   record(b,OpenFsJournalUpdate,5,2,payload,3);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[4])==STATUS_SUCCESS);
-  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,2,&required)==STATUS_SUCCESS);
+  assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,2,&required)==STATUS_SUCCESS);
   assert(required==1&&tx[0].TransactionId==1&&tx[0].FirstUpdateIndex==1&&tx[0].UpdateCount==1);
-  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,0,&required)==STATUS_BUFFER_TOO_SMALL&&required==1);
+  assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,0,&required)==STATUS_BUFFER_TOO_SMALL&&required==1);
   stream[4].TransactionId=99;
-  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
+  assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
  }
 
  {
@@ -46,6 +46,24 @@ int main(void){
   assert(OpenFsEncodeJournalRecordBlock(OpenFsJournalCommit,78,9,payload,3,4096,b)==STATUS_INVALID_PARAMETER);
   outCp.HeadBlock=1;
   assert(OpenFsEncodeJournalCheckpointBlock(&outCp,4096,8,b)==STATUS_INVALID_PARAMETER);
+ }
+
+ {
+  OPENFS_JOURNAL_RECORD_VIEW chunks[2]; UCHAR p0[12+4044],p1[12+52],image[4096];
+  ULONGLONG target=0; ULONG k;
+  RtlZeroMemory(p0,sizeof(p0));RtlZeroMemory(p1,sizeof(p1));
+  p64(p0,42);p16(p0+8,0);p16(p0+10,2);
+  p64(p1,42);p16(p1+8,1);p16(p1+10,2);
+  for(k=0;k<4044;k++)p0[12+k]=(UCHAR)(k&0xff);
+  for(k=0;k<52;k++)p1[12+k]=(UCHAR)((k+9)&0xff);
+  chunks[0].Kind=OpenFsJournalUpdate;chunks[0].Sequence=1;chunks[0].TransactionId=3;chunks[0].PayloadLength=sizeof(p0);chunks[0].Payload=p0;
+  chunks[1].Kind=OpenFsJournalUpdate;chunks[1].Sequence=2;chunks[1].TransactionId=3;chunks[1].PayloadLength=sizeof(p1);chunks[1].Payload=p1;
+  RtlFillMemory(image,sizeof(image),0xCC);
+  assert(OpenFsDecodeRedoImage(chunks,0,2,4096,&target,image)==STATUS_SUCCESS&&target==42);
+  assert(image[0]==0&&image[4043]==(UCHAR)(4043&0xff)&&image[4044]==9&&image[4095]==60);
+  p16(p1+8,0);
+  RtlFillMemory(image,sizeof(image),0xCC);
+  assert(OpenFsDecodeRedoImage(chunks,0,2,4096,&target,image)==STATUS_DISK_CORRUPT_ERROR&&image[0]==0xCC);
  }
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
