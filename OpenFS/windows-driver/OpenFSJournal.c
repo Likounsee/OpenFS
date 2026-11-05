@@ -399,3 +399,84 @@ OpenFsScanJournalRing(
     }
     return STATUS_SUCCESS;
 }
+
+static BOOLEAN
+OpenFsJournalCheckpointsEqual(
+    _In_ const OPENFS_JOURNAL_CHECKPOINT* Left,
+    _In_ const OPENFS_JOURNAL_CHECKPOINT* Right
+    )
+{
+    return Left->Generation == Right->Generation &&
+        Left->CheckpointSequence == Right->CheckpointSequence &&
+        Left->NextSequence == Right->NextSequence &&
+        Left->NextTransactionId == Right->NextTransactionId &&
+        Left->HeadBlock == Right->HeadBlock &&
+        Left->TailBlock == Right->TailBlock;
+}
+
+NTSTATUS
+OpenFsSelectJournalCheckpoint(
+    _In_ NTSTATUS FirstStatus,
+    _In_opt_ const OPENFS_JOURNAL_CHECKPOINT* First,
+    _In_ NTSTATUS SecondStatus,
+    _In_opt_ const OPENFS_JOURNAL_CHECKPOINT* Second,
+    _Out_ POPENFS_JOURNAL_CHECKPOINT Selected,
+    _Out_ UCHAR* ActiveCopy
+    )
+{
+    const OPENFS_JOURNAL_CHECKPOINT* newer;
+    const OPENFS_JOURNAL_CHECKPOINT* older;
+    UCHAR newerCopy;
+
+    if (Selected == NULL || ActiveCopy == NULL ||
+        (NT_SUCCESS(FirstStatus) && First == NULL) ||
+        (NT_SUCCESS(SecondStatus) && Second == NULL))
+        return STATUS_INVALID_PARAMETER;
+    RtlZeroMemory(Selected, sizeof(*Selected));
+    *ActiveCopy = 0;
+
+    if (!NT_SUCCESS(FirstStatus) && !NT_SUCCESS(SecondStatus))
+        return FirstStatus;
+    if (NT_SUCCESS(FirstStatus) && !NT_SUCCESS(SecondStatus)) {
+        *Selected = *First;
+        *ActiveCopy = 0;
+        return STATUS_SUCCESS;
+    }
+    if (!NT_SUCCESS(FirstStatus) && NT_SUCCESS(SecondStatus)) {
+        *Selected = *Second;
+        *ActiveCopy = 1;
+        return STATUS_SUCCESS;
+    }
+
+    if (First->Generation == Second->Generation) {
+        if (!OpenFsJournalCheckpointsEqual(First, Second))
+            return STATUS_DISK_CORRUPT_ERROR;
+        *Selected = *First;
+        *ActiveCopy = 0;
+        return STATUS_SUCCESS;
+    }
+    if (First->Generation > Second->Generation) {
+        newer = First; older = Second; newerCopy = 0;
+    } else {
+        newer = Second; older = First; newerCopy = 1;
+    }
+
+    if (newer->Generation - older->Generation != 1u ||
+        newer->CheckpointSequence < older->CheckpointSequence ||
+        newer->NextTransactionId < older->NextTransactionId)
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    if (newer->CheckpointSequence == older->CheckpointSequence) {
+        if (!(newer->Generation == 2u && older->Generation == 1u &&
+              newer->CheckpointSequence == 0u &&
+              newer->NextTransactionId == 1u &&
+              older->NextTransactionId == 1u))
+            return STATUS_DISK_CORRUPT_ERROR;
+    } else if (newer->NextTransactionId == older->NextTransactionId) {
+        return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    *Selected = *newer;
+    *ActiveCopy = newerCopy;
+    return STATUS_SUCCESS;
+}
