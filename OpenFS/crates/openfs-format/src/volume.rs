@@ -430,7 +430,8 @@ impl OpenedVolume {
             .ok_or(Error::ArithmeticOverflow)
     }
 
-    /// Allocate and journal the bitmap update before exposing the new allocation.
+    /// Allocate a block, publishing its bitmap bit through the selected mode's write path.
+    /// Secure mode journals the bitmap update; Basic writes it directly and is not crash-atomic.
     pub fn allocate_block<D: BlockDevice>(&mut self, device: &mut D) -> Result<u64> {
         self.validate_device(device)?;
         let block_size = self.volume.block_size as usize;
@@ -689,7 +690,8 @@ impl OpenedVolume {
         Ok(free)
     }
 
-    /// Free a data block through the journal; reserved and already-free blocks are rejected.
+    /// Free a data block; Secure mode journals the bitmap update, while Basic writes it directly.
+    /// Reserved and already-free blocks are rejected.
     pub fn free_block<D: BlockDevice>(&mut self, device: &mut D, block: u64) -> Result<()> {
         self.validate_device(device)?;
         if block < self.volume.layout.data_start || block >= self.volume.layout.backup_superblock {
