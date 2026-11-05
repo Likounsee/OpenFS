@@ -19,5 +19,19 @@ int main(void){
  record(b,99,1,1,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
  record(b,OpenFsJournalBegin,1,1,payload,3);assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
  record(b,OpenFsJournalCommit,1,1,NULL,0);p64(b+16,0);p32(b+36,crc_record(b,NULL,0));assert(OpenFsDecodeJournalRecordBlock(b,4096,&r)==STATUS_DISK_CORRUPT_ERROR);
- puts("OpenFS journal codec tests: 12 checks passed");return 0;
+ {
+  OPENFS_JOURNAL_RECORD_VIEW stream[5]; OPENFS_JOURNAL_TRANSACTION_VIEW tx[2];
+  ULONG required=0;
+  record(b,OpenFsJournalBegin,1,1,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[0])==STATUS_SUCCESS);
+  record(b,OpenFsJournalUpdate,2,1,payload,3);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[1])==STATUS_SUCCESS);
+  record(b,OpenFsJournalCommit,3,1,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[2])==STATUS_SUCCESS);
+  record(b,OpenFsJournalBegin,4,2,NULL,0);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[3])==STATUS_SUCCESS);
+  record(b,OpenFsJournalUpdate,5,2,payload,3);assert(OpenFsDecodeJournalRecordBlock(b,4096,&stream[4])==STATUS_SUCCESS);
+  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,2,&required)==STATUS_SUCCESS);
+  assert(required==1&&tx[0].TransactionId==1&&tx[0].FirstUpdateIndex==1&&tx[0].UpdateCount==1);
+  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,0,&required)==STATUS_BUFFER_TOO_SMALL&&required==1);
+  stream[4].TransactionId=99;
+  assert(OpenFsPlanJournalRecovery(stream,5,0,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
+ }
+ puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
