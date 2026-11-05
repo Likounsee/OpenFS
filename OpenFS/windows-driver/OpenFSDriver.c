@@ -25,9 +25,8 @@ OpenFsCompleteIrp(
  * function pointer become an accidental dispatch path.
  */
 /*
- * OpenFS is currently mounted read-only. A flush therefore has no dirty
- * filesystem cache to write, but it must still validate that the target is a
- * live mounted volume rather than blindly succeeding on the control device.
+ * Flush the backing device for a mounted volume. The prototype performs
+ * synchronous, non-cached data writes and has no Cache Manager dirty pages.
  */
 static NTSTATUS
 OpenFsDispatchFlushBuffers(
@@ -62,13 +61,9 @@ OpenFsDispatchUnsupported(
 }
 
 /*
- * The current driver release is intentionally read-only. Return the native
- * filesystem status for mutation requests instead of the generic unsupported
- * status, so callers (including the Windows shell) can distinguish a mounted
- * read-only volume from an unhandled filesystem operation.
- *
- * Keep this gate centralized until journal-backed namespace/data mutation is
- * implemented; never expose the low-level block writer directly to IRPs.
+ * Metadata and namespace mutations remain unsupported. Existing-file data
+ * overwrites are handled separately by OpenFsDispatchWrite and are restricted
+ * to already allocated blocks wholly inside EOF in the VM-test prototype.
  */
 static NTSTATUS
 OpenFsDispatchReadOnlyMutation(
@@ -316,8 +311,6 @@ OpenFsFindFcbLocked(
 
     return NULL;
 }
-
-static NTSTATUS
 
 static NTSTATUS
 OpenFsDispatchWrite(
