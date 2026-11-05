@@ -260,8 +260,14 @@ main(void)
                 );
         }
     }
+    Check(!OpenFsVolumeStateCanForgetLockOwnerOnClose(
+            (OPENFS_VOLUME_STATE)-1),
+        "invalid negative state cannot release lock owner");
+    Check(!OpenFsVolumeStateCanForgetLockOwnerOnClose(
+            (OPENFS_VOLUME_STATE)6),
+        "out-of-range state cannot release lock owner");
 
     printf("OpenFS volume-state tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
-    return g_Checks == 102 && g_Failures == 0 ? 0 : 1;
+    return g_Checks == 104 && g_Failures == 0 ? 0 : 1;
 }
