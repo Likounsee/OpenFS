@@ -8861,6 +8861,7 @@ impl<D: BlockDevice> VolumeSession<D> {
         Ok(())
     }
 
+    /// Set or clear supported Basic attributes on one persistent path.
     pub fn set_persistent_attributes<D: BlockDevice>(
         &mut self,
         device: &mut D,
