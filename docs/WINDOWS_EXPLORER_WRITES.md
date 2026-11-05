@@ -117,27 +117,28 @@ format's generation and durable-counter rules: it accepts the initial
 generation-1/generation-2 pair, rejects conflicting copies at one generation,
 generation gaps, counter regressions and sequence advancement without a new
 transaction ID, and chooses the newer valid copy when the pair is consistent.
-It consumes independently decoded checkpoint results; actual reads from the
-two checkpoint blocks and recovery replay are still to be wired to the VCB.
+The WDM device-I/O layer now reads both checkpoint blocks during probing and
+the mount path runs recovery before publishing the VCB namespace.
 
 
-## Read-only journal preflight on mount
+## Journal scan and mount-time recovery
 
-The WDM probe now reads both on-disk checkpoint blocks and the complete bounded
-journal ring before it discovers/publishes the namespace. It selects the valid
-checkpoint pair, scans the post-checkpoint prefix, and validates transaction
-ordering using the native C journal helpers.
+The WDM probe reads both on-disk checkpoint blocks and the complete bounded
+journal ring, selects the valid checkpoint pair, scans the post-checkpoint
+prefix, and validates transaction ordering. During mount, a separate recovery
+pass validates every committed REDO image and its transaction ID before any
+home-block write. The portable target validator rejects out-of-data-region
+targets and duplicate targets within one transaction; it is also covered by
+host C tests.
 
-The mount path now performs a separate recovery pass after the initial
-read-only geometry/metadata probe and before publishing the volume namespace.
-It preflights all committed REDO images, restricts targets to the data region,
-rejects duplicate targets within a transaction, clears only an uncommitted
-suffix, replays committed home blocks, flushes them, and finally publishes the
-alternate checkpoint copy and flushes again. The namespace is probed again
-after replay so the published snapshot reflects recovered metadata.
+Recovery clears an uncommitted suffix, replays committed home blocks, flushes
+them, publishes the alternate checkpoint copy, flushes again, and then clears
+the now-stale ring before returning. The namespace is probed again after replay
+so the published snapshot reflects recovered metadata. If replay fails before
+checkpoint publication, committed REDO remains available for another mount
+attempt. If ring cleanup fails after checkpoint publication, remaining records
+are stale by sequence and can be safely cleaned on a later mount.
 
-This is the first device-backed recovery path, not yet a complete write engine:
-there is still no journal transaction writer connected to file mutations,
-no allocation/namespace mutation transaction, and no Explorer write support.
-A crash during replay remains recoverable because committed REDO is retained
-until the new checkpoint is durable.
+This is a recovery engine, not yet a complete write engine: there is still no
+journal transaction writer connected to file mutations, no allocation/namespace
+mutation transaction, and no Explorer write support.
