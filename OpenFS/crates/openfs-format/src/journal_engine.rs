@@ -1479,7 +1479,10 @@ mod tests {
         // The first home write succeeds and the second fails. Basic has no redo
         // log, so the first block remains changed and the second remains untouched.
         let mut failing = FailAt::new(device.clone(), usize::MAX / 2 + 1);
-        assert!(matches!(journal.commit(&mut failing, &updates), Err(Error::Io(_))));
+        assert!(matches!(
+            journal.commit(&mut failing, &updates),
+            Err(Error::Io(_))
+        ));
         let mut device = failing.into_inner();
         assert_eq!(read_home(&mut device), vec![0xA5; BS as usize]);
         assert_eq!(read_block(&mut device, HOME + 1), vec![0x22; BS as usize]);
