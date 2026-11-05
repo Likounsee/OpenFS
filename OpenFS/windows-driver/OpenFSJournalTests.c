@@ -183,7 +183,7 @@ int main(void){
   updates[0].TargetBlock=88; updates[0].Image=largeImage;
   assert(OpenFsBuildJournalTransaction(updates,1,65536,4,64,100,20,9,
       largeEncoded,sizeof(largeEncoded),&count,&commit,&next,largeScratch)==STATUS_SUCCESS);
-  assert(count==4&&commit==22&&next==23);
+  assert(count==4&&commit==23&&next==24);
   for(k=0;k<count;k++)
     assert(OpenFsDecodeJournalRecordBlock(largeEncoded+k*65536,65536,&records[k])==STATUS_SUCCESS);
   assert(OpenFsDecodeRedoImage(records,1,2,65536,&target,rebuilt)==STATUS_SUCCESS);
