@@ -3458,6 +3458,43 @@ mod tests {
     }
 
     #[test]
+    fn basic_repair_cli_reclaims_orphans_across_bounded_inventory_batches() {
+        let path = unique_path("basic-repair-multiple-batches");
+        const ORPHANS: usize = 70;
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId::new(1).unwrap())
+                .unwrap();
+            for _ in 0..ORPHANS {
+                volume.allocate_block(&mut device).unwrap();
+            }
+            let before = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert_eq!(before.orphaned_block_count(), ORPHANS as u64);
+            assert_eq!(before.allocation.orphaned_allocations.len(), 64);
+            assert!(before.allocation.orphaned_allocations_truncated);
+            device.flush().unwrap();
+        }
+
+        super::repair_basic_image(&path, BLOCK_SIZE).unwrap();
+
+        let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        let after = volume
+            .verify_discovered_persistent_inventory(&mut device)
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.orphaned_block_count(), 0);
+        assert_eq!(after.dangling_reference_count(), 0);
+        assert!(after.is_consistent());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_repair_cli_refuses_dangling_file_references_without_reclaiming_orphans() {
         let path = unique_path("basic-repair-dangling-reference");
         let orphan_block;
