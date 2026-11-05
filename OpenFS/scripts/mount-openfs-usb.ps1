@@ -83,6 +83,18 @@ if ($disk.IsReadOnly) {
     throw "Refusing disk $DiskNumber: the disk is read-only."
 }
 
+# The CLI independently revalidates this composite identity after taking the
+# disk offline and again after acquiring the exclusive PhysicalDrive handle.
+$diskModel = [string]$disk.FriendlyName
+$diskSerial = ([string]$disk.SerialNumber).Trim()
+$diskSize = [string]$disk.Size
+if ($Action -eq "Format" -and
+    ([string]::IsNullOrWhiteSpace($diskModel) -or
+     [string]::IsNullOrWhiteSpace($diskSerial) -or
+     [string]::IsNullOrWhiteSpace($diskSize))) {
+    throw "Refusing to format: Windows did not provide a complete model, serial number and capacity for disk $DiskNumber."
+}
+
 $changedOfflineState = -not $disk.IsOffline
 try {
     if ($changedOfflineState) {
@@ -100,7 +112,7 @@ try {
 
     if ($Action -eq "Format") {
         Write-Warning "ERASING ALL DATA AND PARTITIONS on USB disk $DiskNumber ($UniqueId)."
-        & $exePath format-usb $DiskNumber $UniqueId ERASE-ALL-DATA
+        & $exePath format-usb $DiskNumber $diskModel $diskSerial $diskSize ERASE-ALL-DATA
         if ($LASTEXITCODE -ne 0) {
             throw "OpenFS format-usb failed with exit code $LASTEXITCODE."
         }
