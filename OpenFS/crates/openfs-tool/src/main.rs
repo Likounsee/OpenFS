@@ -17,7 +17,8 @@ use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(test)]
 use openfs_format::VolumeSession;
 use openfs_format::{
-    check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind,
+    check_basic_repair_preflight, check_volume, format_volume, open_volume, ExtentMap,
+    ObjectId, ObjectKind,
     METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM,
     METADATA_FLAG_TEMPORARY,
 };
@@ -1405,6 +1406,9 @@ fn parse_attribute_flag(name: &str) -> Result<u8, Box<dyn StdError>> {
 }
 
 fn parse_attribute_mask(names: &[String]) -> Result<u8, Box<dyn StdError>> {
+    if names.is_empty() {
+        return Err("provide at least one attribute name".into());
+    }
     let mut mask = 0_u8;
     for name in names {
         let flag = parse_attribute_flag(name)?;
@@ -1835,13 +1839,10 @@ fn repair_basic_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdErr
     }
 
     let mut device = ImageDevice::open(path, block_size)?;
-    let preflight = check_volume(&mut device)?;
-    if preflight.journal_enabled {
-        return Err(
-            "repair-basic-image applies only to Basic volumes; use recover-image for Secure volumes"
-                .into(),
-        );
-    }
+    // The full checker correctly rejects orphaned allocations, but those are
+    // precisely what this repair command is designed to reclaim. Use the narrower
+    // read-only preflight to validate geometry and refuse Secure before any writes.
+    check_basic_repair_preflight(&mut device)?;
 
     let mut volume = open_volume(&mut device)?;
     let before = volume
@@ -3490,9 +3491,18 @@ mod tests {
             referenced_block =
                 maps.get(&ObjectId::new(2).unwrap()).unwrap().extents()[0].physical_start;
             orphan_block = volume.allocate_block(&mut device).unwrap();
-            // Simulate a damaged bitmap: the namespace still references this data block,
-            // but the allocation bitmap now incorrectly marks it free.
-            volume.free_block(&mut device, referenced_block).unwrap();
+            // Simulate on-disk bitmap damage directly. The public free API correctly
+            // refuses to release a block still owned by a file, so bypass it only while
+            // constructing this deliberately corrupted test image.
+            let bits_per_bitmap_block = u64::from(BLOCK_SIZE) * 8;
+            let bitmap_index = referenced_block / bits_per_bitmap_block;
+            let bitmap_block = volume.volume.layout.bitmap_start + bitmap_index;
+            let local = referenced_block % bits_per_bitmap_block;
+            let mut bitmap = vec![0_u8; BLOCK_SIZE as usize];
+            device.read_blocks(bitmap_block, &mut bitmap).unwrap();
+            let byte = usize::try_from(local / 8).unwrap();
+            bitmap[byte] &= !(1_u8 << (local % 8));
+            device.write_blocks(bitmap_block, &bitmap).unwrap();
             free_after_damage = volume.free_data_block_count(&mut device).unwrap();
             device.flush().unwrap();
         }
