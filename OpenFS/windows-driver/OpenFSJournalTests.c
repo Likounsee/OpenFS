@@ -33,5 +33,19 @@ int main(void){
   stream[4].TransactionId=99;
   assert(OpenFsPlanJournalRecovery(stream,5,0,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
  }
+
+ {
+  OPENFS_JOURNAL_CHECKPOINT outCp={3,8,9,5,0,0}, decodedCp;
+  OPENFS_JOURNAL_RECORD_VIEW decodedRecord;
+  assert(OpenFsEncodeJournalCheckpointBlock(&outCp,4096,8,b)==STATUS_SUCCESS);
+  assert(OpenFsDecodeJournalCheckpointBlock(b,4096,8,&decodedCp)==STATUS_SUCCESS);
+  assert(decodedCp.Generation==outCp.Generation&&decodedCp.CheckpointSequence==outCp.CheckpointSequence);
+  assert(OpenFsEncodeJournalRecordBlock(OpenFsJournalUpdate,77,9,payload,3,4096,b)==STATUS_SUCCESS);
+  assert(OpenFsDecodeJournalRecordBlock(b,4096,&decodedRecord)==STATUS_SUCCESS);
+  assert(decodedRecord.Sequence==77&&decodedRecord.TransactionId==9&&decodedRecord.PayloadLength==3);
+  assert(OpenFsEncodeJournalRecordBlock(OpenFsJournalCommit,78,9,payload,3,4096,b)==STATUS_INVALID_PARAMETER);
+  outCp.HeadBlock=1;
+  assert(OpenFsEncodeJournalCheckpointBlock(&outCp,4096,8,b)==STATUS_INVALID_PARAMETER);
+ }
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
