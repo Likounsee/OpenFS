@@ -15,7 +15,7 @@ use dokan::{
 };
 use openfs_block::{BlockDevice, ImageDevice, RawDevice};
 use openfs_core::Error as CoreError;
-use openfs_format::{format_volume, open_volume, ObjectId, ObjectKind, VolumeSession};
+use openfs_format::{ObjectId, ObjectKind, VolumeSession};
 use openfs_partition::{read_gpt, GptLayout, PartitionDevice, OPENFS_PARTITION_TYPE_GUID};
 use widestring::{U16CStr, U16CString};
 use winapi::shared::winerror::{
