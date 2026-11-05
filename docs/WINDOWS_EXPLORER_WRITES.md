@@ -142,3 +142,16 @@ are stale by sequence and can be safely cleaned on a later mount.
 This is a recovery engine, not yet a complete write engine: there is still no
 journal transaction writer connected to file mutations, no allocation/namespace
 mutation transaction, and no Explorer write support.
+
+
+## Native transaction encoder (host-tested)
+
+The WDM journal now has a portable transaction encoder that prepares a complete
+BEGIN / UPDATE-chunk / COMMIT sequence in caller-owned ring storage before any
+persistent write. It validates block targets, rejects duplicates, checks ring
+capacity and sequence/transaction counter overflow, and produces the same
+chunk payload format consumed by the REDO decoder. Host C tests decode the
+resulting records and reconstruct the original full-block image.
+
+This is preparation only: it is not yet connected to device I/O, does not
+publish a durable COMMIT, and does not make file writes available to Windows.
