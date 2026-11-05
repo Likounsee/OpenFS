@@ -27,6 +27,7 @@ OpenFsPlanJournalRecovery(
     _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
     _In_ ULONG RecordCount,
     _In_ ULONGLONG CheckpointSequence,
+    _In_ ULONGLONG NextTransactionId,
     _Out_ POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
     _In_ ULONG TransactionCapacity,
     _Out_ PULONG RequiredTransactionCount
@@ -49,4 +50,18 @@ OpenFsEncodeJournalRecordBlock(
     _In_ ULONG PayloadLength,
     _In_ ULONG BlockSize,
     _Out_ UCHAR* Block
+    );
+
+/*
+ * Reconstruct one full home-block REDO image from its UPDATE chunk records.
+ * The destination remains untouched when validation fails.
+ */
+NTSTATUS
+OpenFsDecodeRedoImage(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG FirstRecord,
+    _In_ ULONG RecordCount,
+    _In_ ULONG BlockSize,
+    _Out_ PULONGLONG TargetBlock,
+    _Out_writes_bytes_(BlockSize) UCHAR* Image
     );
