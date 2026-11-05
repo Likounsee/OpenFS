@@ -324,3 +324,78 @@ OpenFsDecodeRedoImage(
     *TargetBlock = target;
     return STATUS_SUCCESS;
 }
+
+NTSTATUS
+OpenFsScanJournalRing(
+    _In_reads_(RingBlocks) const UCHAR* const* Blocks,
+    _In_ ULONG RingBlocks,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG CheckpointSequence,
+    _In_ ULONGLONG NextTransactionId,
+    _Out_ POPENFS_JOURNAL_RECORD_VIEW Records,
+    _In_ ULONG RecordCapacity,
+    _Out_ PULONG RequiredRecordCount
+    )
+{
+    ULONG slot;
+    ULONG retained = 0;
+    BOOLEAN gapSeen = FALSE;
+    NTSTATUS status;
+
+    if (Blocks == NULL || RequiredRecordCount == NULL || RingBlocks < 4u ||
+        BlockSize < 4096u || BlockSize > 65536u ||
+        (BlockSize & (BlockSize - 1u)) != 0 ||
+        NextTransactionId == 0 ||
+        (RecordCapacity != 0 && Records == NULL))
+        return STATUS_INVALID_PARAMETER;
+    *RequiredRecordCount = 0;
+
+    /* Pass one: determine the contiguous post-checkpoint prefix without output. */
+    for (slot = 0; slot < RingBlocks; ++slot) {
+        OPENFS_JOURNAL_RECORD_VIEW record;
+        const UCHAR* block = Blocks[slot];
+        if (block == NULL)
+            return STATUS_INVALID_PARAMETER;
+        if (zeroes(block, BlockSize)) {
+            gapSeen = TRUE;
+            continue;
+        }
+        status = OpenFsDecodeJournalRecordBlock(block, BlockSize, &record);
+        if (!NT_SUCCESS(status)) {
+            gapSeen = TRUE;
+            continue;
+        }
+        if (record.Sequence <= CheckpointSequence) {
+            gapSeen = TRUE;
+            continue;
+        }
+        if (record.TransactionId < NextTransactionId)
+            return STATUS_DISK_CORRUPT_ERROR;
+        if (gapSeen) {
+            if (record.Kind == OpenFsJournalCommit)
+                return STATUS_DISK_CORRUPT_ERROR;
+            continue;
+        }
+        if (retained == MAXULONG)
+            return STATUS_INTEGER_OVERFLOW;
+        ++retained;
+    }
+
+    *RequiredRecordCount = retained;
+    if (retained > RecordCapacity)
+        return STATUS_BUFFER_TOO_SMALL;
+
+    /* Pass two: publish zero-copy views for the contiguous prefix only. */
+    retained = 0;
+    for (slot = 0; slot < RingBlocks; ++slot) {
+        OPENFS_JOURNAL_RECORD_VIEW record;
+        const UCHAR* block = Blocks[slot];
+        if (zeroes(block, BlockSize))
+            break;
+        status = OpenFsDecodeJournalRecordBlock(block, BlockSize, &record);
+        if (!NT_SUCCESS(status) || record.Sequence <= CheckpointSequence)
+            break;
+        Records[retained++] = record;
+    }
+    return STATUS_SUCCESS;
+}
