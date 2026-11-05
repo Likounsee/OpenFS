@@ -78,7 +78,7 @@ TestRejectsUnsupportedVersionAndHeader(void)
     UCHAR backup[OPENFS_SUPERBLOCK_BYTES];
     OPENFS_VOLUME_GEOMETRY geometry;
 
-    MakeSuperblock(primary, 5, TEST_DEVICE_BLOCKS);
+    MakeSuperblock(primary, 6, TEST_DEVICE_BLOCKS);
     memcpy(backup, primary, sizeof(backup));
     CHECK(OpenFsValidateSuperblocks(primary, backup, TEST_DEVICE_BYTES, &geometry)
         == STATUS_UNRECOGNIZED_VOLUME);
@@ -100,7 +100,7 @@ TestValidRevisions(void)
     OPENFS_VOLUME_GEOMETRY geometry;
     USHORT version;
 
-    for (version = 2; version <= 4; ++version) {
+    for (version = 2; version <= 5; ++version) {
         MakeSuperblock(primary, version, TEST_DEVICE_BLOCKS);
         memcpy(backup, primary, sizeof(backup));
         if (version >= 3) {
