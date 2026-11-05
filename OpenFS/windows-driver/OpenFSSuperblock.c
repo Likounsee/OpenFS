@@ -56,7 +56,7 @@ OpenFsDecodeSuperblock(
 
     version = (USHORT)(Bytes[8] | ((USHORT)Bytes[9] << 8));
     headerSize = (USHORT)(Bytes[10] | ((USHORT)Bytes[11] << 8));
-    if ((version != 2 && version != 3 && version != 4) || headerSize != 48) {
+    if ((version != 2 && version != 3 && version != 4 && version != 5) || headerSize != 48) {
         return STATUS_UNRECOGNIZED_VOLUME;
     }
 
