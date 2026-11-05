@@ -13,7 +13,7 @@ test_multi_extent_partial_range(void)
     ULONG required = 0;
 
     assert(OpenFsBuildWriteBlockPlan(extents, 2, 5u * 4096u,
-        4096u, 4090u, 8200u, 50, 900, 1000,
+        4096u, 4090u, 8198u, 50, 900, 1000,
         blocks, 3, &required) == STATUS_SUCCESS);
     assert(required == 3);
     assert(blocks[0] == 100);
