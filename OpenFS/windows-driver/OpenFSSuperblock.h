@@ -64,6 +64,7 @@ OpenFsHostCompareMemory(const void* Left, const void* Right, SIZE_T Length)
 
 #define OPENFS_SUPERBLOCK_BYTES 4096u
 #define OPENFS_SUPERBLOCK_CHECKSUM_OFFSET 4088u
+#define OPENFS_FEATURE_SECURE_JOURNAL (((ULONGLONG)1) << 63)
 
 typedef struct _OPENFS_VOLUME_GEOMETRY {
     ULONG BlockSize;
