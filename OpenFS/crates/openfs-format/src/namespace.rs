@@ -1204,6 +1204,27 @@ mod tests {
     }
 
     #[test]
+    fn relatime_refreshes_stale_access_time_but_skips_recent_reads() {
+        let mut ns = Namespace::new(ObjectId(1)).unwrap();
+        ns.insert(
+            entry(1, 2, "atime.txt", ObjectKind::File),
+            record(2, 1, ObjectKind::File),
+        )
+        .unwrap();
+
+        let modified = super::current_timestamp();
+        let object = ns.objects.get_mut(&ObjectId(2)).unwrap();
+        object.modified_at = modified;
+        object.accessed_at = 0;
+
+        assert!(ns.touch_accessed(ObjectId(2)).unwrap());
+        let refreshed = ns.object(ObjectId(2)).unwrap().accessed_at;
+        assert!(refreshed >= modified);
+        assert!(!ns.touch_accessed(ObjectId(2)).unwrap());
+        assert_eq!(ns.object(ObjectId(2)).unwrap().accessed_at, refreshed);
+    }
+
+    #[test]
     fn attribute_updates_preserve_other_flags_and_advance_generation_once() {
         let mut ns = Namespace::new(ObjectId(1)).unwrap();
         ns.insert(
