@@ -1785,17 +1785,24 @@ BitmapExit:
         if (!NT_SUCCESS(status))
             return OpenFsCompleteIrp(Irp, status);
 
-        /* Replay durable REDO before publishing any namespace snapshot. */
-        status = OpenFsRecoverVolumeJournal(realDeviceObject, &geometry);
-        if (!NT_SUCCESS(status)) {
+        /*
+         * Revisions 2-4 are legacy journaled volumes. Revision 5 uses the
+         * Secure feature bit to opt into redo recovery; Basic deliberately
+         * leaves its reserved journal area uninitialized.
+         */
+        if (geometry.Version < 5u ||
+            (geometry.Features & OPENFS_FEATURE_SECURE_JOURNAL) != 0) {
+            status = OpenFsRecoverVolumeJournal(realDeviceObject, &geometry);
+            if (!NT_SUCCESS(status)) {
+                OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
+                return OpenFsCompleteIrp(Irp, status);
+            }
             OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
-            return OpenFsCompleteIrp(Irp, status);
+            namespaceSnapshot = NULL;
+            status = OpenFsProbeVolume(realDeviceObject, &geometry, &namespaceSnapshot);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
         }
-        OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
-        namespaceSnapshot = NULL;
-        status = OpenFsProbeVolume(realDeviceObject, &geometry, &namespaceSnapshot);
-        if (!NT_SUCCESS(status))
-            return OpenFsCompleteIrp(Irp, status);
 
         status = OpenFsCreateVolumeDevice(DeviceObject->DriverObject,
             realDeviceObject, &geometry, &privateVolumeDevice);
