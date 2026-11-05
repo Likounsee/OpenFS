@@ -9263,6 +9263,11 @@ mod tests {
                 let mut mounted = VolumeSession::open(device).unwrap();
                 mounted.create_file("/", ObjectId(2), "sparse.bin").unwrap();
                 mounted.set_file_len("/sparse.bin", original_size).unwrap();
+                // Sparse growth allocates its extent-map metadata root, but no data blocks.
+                let sparse_free_blocks = mounted
+                    .opened
+                    .free_data_block_count(&mut mounted.device)
+                    .unwrap();
                 let contents = mounted.read_file("/sparse.bin").unwrap();
                 assert_eq!(contents.len(), original_size as usize);
                 assert!(
@@ -9271,6 +9276,14 @@ mod tests {
                 );
                 mounted.set_file_len("/sparse.bin", shortened_size).unwrap();
                 mounted.set_file_len("/sparse.bin", extended_size).unwrap();
+                assert_eq!(
+                    mounted
+                        .opened
+                        .free_data_block_count(&mut mounted.device)
+                        .unwrap(),
+                    sparse_free_blocks,
+                    "Basic sparse resize must not allocate data blocks (block size {block_size})"
+                );
                 let contents = mounted.read_file("/sparse.bin").unwrap();
                 assert_eq!(contents.len(), extended_size as usize);
                 assert!(
