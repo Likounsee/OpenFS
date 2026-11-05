@@ -461,6 +461,22 @@ fn run() -> Result<(), Box<dyn StdError>> {
     }
 }
 
+/// Read-only post-format verification shared by image and physical-media formatters.
+fn verify_fresh_volume<D: BlockDevice>(device: &mut D) -> openfs_core::Result<()> {
+    let report = check_volume(device)?;
+    if !report.persistent_inventory_present {
+        return Err(openfs_core::Error::Corrupt(
+            "formatted volume is missing its persistent namespace inventory",
+        ));
+    }
+    if report.pending_journal_records != 0 || report.recoverable_transactions != 0 {
+        return Err(openfs_core::Error::Corrupt(
+            "freshly formatted volume has pending journal transactions",
+        ));
+    }
+    Ok(())
+}
+
 fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     if size_mib == 0 || size_mib > MAX_IMAGE_SIZE_MIB {
         return Err("image size must be between 1 MiB and 1 TiB".into());
@@ -480,7 +496,8 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
         format_volume(&mut device, uuid, 0)?;
         let mut volume = open_volume(&mut device)?;
         volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
-        device.flush()
+        device.flush()?;
+        verify_fresh_volume(&mut device)
     })();
     if let Err(error) = initialization {
         drop(device);
@@ -529,6 +546,7 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
     filesystem.flush()?;
+    verify_fresh_volume(&mut filesystem)?;
 
     let mut disk = filesystem.into_inner();
     write_gpt(&mut disk, &layout)?;
@@ -2907,6 +2925,7 @@ fn format_disk_device(
     let mut volume = open_volume(&mut device)?;
     volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
     device.flush()?;
+    verify_fresh_volume(&mut device)?;
     println!("OpenFS physical disk formatted and initialized.");
     println!("OpenFS metadata has been initialized on the physical disk.");
     println!("Previous file contents outside the new filesystem metadata may remain recoverable; this is not a secure erase.");
@@ -2995,6 +3014,7 @@ fn format_gpt_disk_device(
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
     filesystem.flush()?;
+    verify_fresh_volume(&mut filesystem)?;
     let mut disk = filesystem.into_inner();
 
     write_gpt(&mut disk, &layout)?;
