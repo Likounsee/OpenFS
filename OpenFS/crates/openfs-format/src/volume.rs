@@ -8495,7 +8495,9 @@ fn superblocks_match(primary: &[u8; SUPERBLOCK_SIZE], backup: &[u8; SUPERBLOCK_S
     let primary_version = u16::from_le_bytes([primary[8], primary[9]]);
     let backup_version = u16::from_le_bytes([backup[8], backup[9]]);
     if primary_version != backup_version
-        || (primary_version != VERSION && primary_version != PREVIOUS_VERSION)
+        || (primary_version != VERSION
+            && primary_version != PREVIOUS_VERSION
+            && primary_version != INVENTORY_HINT_VERSION)
     {
         return false;
     }
@@ -8520,7 +8522,7 @@ fn persist_inventory_hint<D: BlockDevice>(device: &mut D, hint: u64) -> Result<(
     if version == LEGACY_VERSION {
         return Ok(());
     }
-    if version != VERSION && version != PREVIOUS_VERSION {
+    if version != VERSION && version != PREVIOUS_VERSION && version != INVENTORY_HINT_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     let backup = read_superblock(device, last)?;
