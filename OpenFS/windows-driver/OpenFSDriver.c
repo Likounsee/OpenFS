@@ -387,6 +387,7 @@ OpenFsDispatchWrite(
     return status;
 }
 
+static NTSTATUS
 OpenFsDispatchClose(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
