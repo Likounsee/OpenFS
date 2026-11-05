@@ -1170,9 +1170,6 @@ OpenFsDispatchCleanup(
     POPENFS_VCB vcb;
     POPENFS_FCB fcb;
 
-    if (fileObject != NULL)
-        OpenFsFreeDirectoryContext(fileObject);
-
     if (DeviceObject == NULL || fileObject == NULL ||
         fileObject->FsContext == NULL ||
         DeviceObject == g_OpenFsFileSystemDevice)
@@ -1182,8 +1179,16 @@ OpenFsDispatchCleanup(
     if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
         return OpenFsCompleteIrp(Irp, STATUS_SUCCESS);
 
+    /*
+     * Directory enumeration requests use the same VCB resource while
+     * reading and updating FileObject->FsContext2. Free that per-handle
+     * state only after taking the resource exclusively; freeing it before
+     * this lock allowed CLEANUP to race an in-flight QUERY_DIRECTORY.
+     */
     if (ExAcquireRundownProtection(&vcb->RundownProtection)) {
         if (ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+            OpenFsFreeDirectoryContext(fileObject);
+
             fcb = OpenFsFindFcbLocked(vcb, fileObject->FsContext);
             if (fcb != NULL && fcb->Signature == OPENFS_FCB_SIGNATURE) {
                 /*
