@@ -1970,6 +1970,50 @@ impl OpenedVolume {
         namespace.list_directory(directory_id, after_name, limit)
     }
 
+    /// List a persistent directory page and persist its access timestamp from the
+    /// same validated namespace snapshot. This avoids rebuilding the namespace for
+    /// path resolution, listing, and the subsequent timestamp update.
+    pub fn list_and_touch_persistent_directory<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        directory_path: &str,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        let directory_id = namespace.resolve_path(directory_path)?;
+        let entries = namespace.list_directory(directory_id, after_name, limit)?;
+        if namespace.touch_accessed(directory_id)? {
+            self.replace_persistent_namespace_inventory(device, &namespace)?;
+        }
+        Ok(entries)
+    }
+
+    /// List a persistent directory page by stable ID and update its access timestamp
+    /// using the same validated namespace snapshot.
+    pub fn list_and_touch_persistent_directory_by_id<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        directory_id: ObjectId,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>> {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent namespace is not initialized",
+            ));
+        };
+        let entries = namespace.list_directory(directory_id, after_name, limit)?;
+        if namespace.touch_accessed(directory_id)? {
+            self.replace_persistent_namespace_inventory(device, &namespace)?;
+        }
+        Ok(entries)
+    }
+
     /// Create an empty file beneath a directory resolved by its persistent path.
     ///
     /// This path-oriented entry point complements the object-ID API for callers such as
@@ -9027,13 +9071,12 @@ impl<D: BlockDevice> VolumeSession<D> {
         after_name: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
-        let record = self.stat(path)?;
-        let entries =
-            self.opened
-                .list_persistent_directory(&mut self.device, path, after_name, limit)?;
-        self.opened
-            .touch_persistent_accessed(&mut self.device, record.id)?;
-        Ok(entries)
+        self.opened.list_and_touch_persistent_directory(
+            &mut self.device,
+            path,
+            after_name,
+            limit,
+        )
     }
 
     /// List one lexical page of a directory addressed by its stable object ID.
@@ -9045,15 +9088,12 @@ impl<D: BlockDevice> VolumeSession<D> {
         after_name: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
-        let entries = self.opened.list_persistent_directory_by_id(
+        self.opened.list_and_touch_persistent_directory_by_id(
             &mut self.device,
             directory_id,
             after_name,
             limit,
-        )?;
-        self.opened
-            .touch_persistent_accessed(&mut self.device, directory_id)?;
-        Ok(entries)
+        )
     }
 
     /// Read a complete regular file into memory.
