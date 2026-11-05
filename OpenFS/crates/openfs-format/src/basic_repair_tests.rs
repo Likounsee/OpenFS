@@ -195,50 +195,54 @@ fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
         }
     }
 
-    let image = TestImage::new("stream-replacement-reader-failure");
     let original = b"the previous Basic file must remain intact";
-    {
-        let mut device = ImageDevice::create(&image.0, 4096, 512).unwrap();
-        let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
-        volume
-            .initialize_persistent_namespace(&mut device, ObjectId(1))
-            .unwrap();
-        device.flush().unwrap();
-    }
+    for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+        let image = TestImage::new(&format!("stream-replacement-reader-failure-{block_size}"));
+        {
+            let mut device = ImageDevice::create(&image.0, block_size, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
 
-    {
-        let device = ImageDevice::open(&image.0, 4096).unwrap();
-        let mut session = VolumeSession::open(device).unwrap();
-        session.create_file_auto("/", "data.bin").unwrap();
-        session.write_file("/data.bin", original).unwrap();
+        {
+            let device = ImageDevice::open(&image.0, block_size).unwrap();
+            let mut session = VolumeSession::open(device).unwrap();
+            session.create_file_auto("/", "data.bin").unwrap();
+            session.write_file("/data.bin", original).unwrap();
 
-        let mut source = FailingReader { remaining: 8192 };
-        assert!(matches!(
-            session.write_file_from_reader("/data.bin", &mut source),
-            Err(crate::Error::Io(_))
-        ));
-        assert_eq!(session.read_file("/data.bin").unwrap(), original);
-        let mut device = session.unmount().unwrap();
-        let volume = open_volume(&mut device).unwrap();
-        let ownership = volume
-            .verify_discovered_persistent_inventory(&mut device)
-            .unwrap()
-            .unwrap();
-        assert!(ownership.is_consistent());
-        assert_eq!(ownership.orphaned_block_count(), 0);
-    }
+            let mut source = FailingReader {
+                remaining: block_size as usize * 2,
+            };
+            assert!(matches!(
+                session.write_file_from_reader("/data.bin", &mut source),
+                Err(crate::Error::Io(_))
+            ));
+            assert_eq!(session.read_file("/data.bin").unwrap(), original);
+            let mut device = session.unmount().unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let ownership = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert!(ownership.is_consistent());
+            assert_eq!(ownership.orphaned_block_count(), 0);
+        }
 
-    {
-        let mut device = ImageDevice::open(&image.0, 4096).unwrap();
-        let mut session = VolumeSession::open(device).unwrap();
-        assert_eq!(session.read_file("/data.bin").unwrap(), original);
-        device = session.unmount().unwrap();
-        let volume = open_volume(&mut device).unwrap();
-        let ownership = volume
-            .verify_discovered_persistent_inventory(&mut device)
-            .unwrap()
-            .unwrap();
-        assert!(ownership.is_consistent());
-        assert_eq!(ownership.orphaned_block_count(), 0);
+        {
+            let device = ImageDevice::open(&image.0, block_size).unwrap();
+            let mut session = VolumeSession::open(device).unwrap();
+            assert_eq!(session.read_file("/data.bin").unwrap(), original);
+            let mut device = session.unmount().unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let ownership = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert!(ownership.is_consistent());
+            assert_eq!(ownership.orphaned_block_count(), 0);
+        }
     }
 }
