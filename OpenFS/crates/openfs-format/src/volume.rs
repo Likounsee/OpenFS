@@ -9544,6 +9544,42 @@ mod tests {
     }
 
     #[test]
+    fn basic_version_two_unicode_directory_name_survives_remount() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        let path = image_path("basic-v2-long-unicode-name");
+        let name = "é".repeat(40);
+        let file_path = format!("/{name}");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_file("/", ObjectId(2), &name).unwrap();
+            mounted.write_file(&file_path, b"version-two-name").unwrap();
+            assert_eq!(mounted.read_file(&file_path).unwrap(), b"version-two-name");
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(mounted.stat(&file_path).unwrap().id, ObjectId(2));
+            assert_eq!(mounted.read_file(&file_path).unwrap(), b"version-two-name");
+            mounted.unmount().unwrap();
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_sparse_growth_and_shrink_survive_remount() {
         use super::VolumeSession;
         use crate::ObjectId;
