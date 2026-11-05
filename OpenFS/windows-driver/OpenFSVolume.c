@@ -135,11 +135,6 @@ OpenFsDestroyVolumeDevice(
         ObDereferenceObject(VolumeDeviceObject);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    if (!OpenFsVolumeStateCanDestroy(vcb->State, vcb->Vpb != NULL)) {
-        ExReleaseResourceLite(&vcb->Resource);
-        ObDereferenceObject(VolumeDeviceObject);
-        return STATUS_DEVICE_BUSY;
-    }
     {
         PLIST_ENTRY link;
         ULONGLONG totalOpenHandles = 0;
