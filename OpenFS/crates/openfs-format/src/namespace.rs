@@ -598,6 +598,19 @@ impl Namespace {
         Ok(())
     }
 
+    /// Update the last-access timestamp without advancing the content generation.
+    pub fn touch_accessed(&mut self, object_id: ObjectId) -> Result<()> {
+        let mut record = self
+            .objects
+            .get(&object_id)
+            .cloned()
+            .ok_or(Error::InvalidInput("object does not exist"))?;
+        record.accessed_at = current_timestamp();
+        record.encode()?;
+        self.objects.insert(object_id, record);
+        Ok(())
+    }
+
     /// Update file length and extent-root metadata in memory.
     ///
     /// An empty file must have no extent root; directory records cannot be resized.
