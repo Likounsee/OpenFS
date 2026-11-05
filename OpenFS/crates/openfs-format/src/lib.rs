@@ -192,9 +192,9 @@ pub use legacy_layout::{
     Volume as LegacyVolume, VolumeLayout as LegacyVolumeLayout, BITMAP_START_BLOCK,
 };
 pub use metadata::{
-    decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_RECORD_SIZE,
-    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM,
-    METADATA_FLAG_TEMPORARY, METADATA_KNOWN_ATTRIBUTE_FLAGS,
+    decode_metadata_records, MetadataRecord, ObjectId, ObjectKind, METADATA_FLAG_ARCHIVE,
+    METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM, METADATA_FLAG_TEMPORARY,
+    METADATA_KNOWN_ATTRIBUTE_FLAGS, METADATA_RECORD_SIZE,
 };
 pub use namespace::Namespace;
 pub use verifier::PersistentInventoryReport;
