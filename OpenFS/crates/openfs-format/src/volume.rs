@@ -1779,10 +1779,6 @@ impl OpenedVolume {
             .ok_or(Error::InvalidInput("object does not exist"))
     }
 
-    /// Change supported Basic attributes on a persistent object and publish the new inventory.
-    ///
-    /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
-    /// publication path and does not claim power-loss atomicity.
     /// Apply attribute changes to multiple persistent objects with one inventory publication.
     ///
     /// Each tuple is (object ID, attribute mask, enabled). Duplicate object IDs are
@@ -1851,10 +1847,7 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved object metadata is missing"))?
             .generation;
         namespace.set_attributes(object_id, attributes, enabled)?;
-        if namespace
-            .object(object_id)
-            .map(|record| record.generation)
-            == Some(previous_generation)
+        if namespace.object(object_id).map(|record| record.generation) == Some(previous_generation)
         {
             return Ok(());
         }
@@ -8913,15 +8906,11 @@ impl<D: BlockDevice> VolumeSession<D> {
 
     /// Set or clear supported Basic attributes on a persistent path.
     pub fn set_attributes(&mut self, path: &str, attributes: u8, enabled: bool) -> Result<()> {
-        self.opened.set_persistent_attributes(
-            &mut self.device,
-            path,
-            attributes,
-            enabled,
-        )
+        self.opened
+            .set_persistent_attributes(&mut self.device, path, attributes, enabled)
     }
 
-
+    /// Read a bounded range through a stable object handle.
     ///
     /// This remains valid after rename or move and avoids path caching in adapters.
     pub fn read_file_range_by_id(
