@@ -57,6 +57,9 @@ pub struct MetadataRecord {
     pub size: u64,
     pub extent_root_block: Option<u64>,
     pub generation: u32,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
 }
 
 /// Basic file attributes stored in the existing metadata flags byte.
@@ -267,6 +270,9 @@ mod tests {
             size: 4096,
             extent_root_block: Some(17),
             generation: 3,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
         }
     }
 
