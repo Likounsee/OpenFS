@@ -402,7 +402,11 @@ impl OpenedVolume {
         // Each entry stores one authoritative bitmap image. The same bitmap can be
         // encountered in both wraparound passes when the cursor is inside a segment.
         let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
         pages
             .try_reserve(max_updates.min(requested_count))
             .map_err(|_| {
@@ -693,7 +697,11 @@ impl OpenedVolume {
                 previous_index = index;
             }
         }
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
         if page_count > max_updates {
             return Err(Error::InvalidInput(
                 "batch free exceeds the journal's atomic bitmap-update capacity",
@@ -859,9 +867,16 @@ impl OpenedVolume {
             ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
-        let max_blocks =
-            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
+        let max_blocks = if self.journal.is_enabled() {
+            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?
+        } else {
+            layout.data_blocks()
+        };
         if count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous free extent exceeds the journal's atomic bitmap capacity",
@@ -978,12 +993,20 @@ impl OpenedVolume {
     ) -> Result<Option<u64>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
-        let max_blocks = max_atomic_extent_blocks(
-            max_updates,
-            bits_per_block,
-            self.volume.layout.data_blocks(),
-        )?;
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
+        let max_blocks = if self.journal.is_enabled() {
+            max_atomic_extent_blocks(
+                max_updates,
+                bits_per_block,
+                self.volume.layout.data_blocks(),
+            )?
+        } else {
+            self.volume.layout.data_blocks()
+        };
         if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous extent length exceeds the journal's atomic bitmap capacity",
@@ -1087,9 +1110,16 @@ impl OpenedVolume {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
-        let max_blocks =
-            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
+        let max_blocks = if self.journal.is_enabled() {
+            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?
+        } else {
+            layout.data_blocks()
+        };
         if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "contiguous extent length exceeds the journal's atomic bitmap capacity",
@@ -1383,12 +1413,20 @@ impl OpenedVolume {
     ) -> Result<Option<FreeExtent>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
-        let max_blocks = max_atomic_extent_blocks(
-            max_updates,
-            bits_per_block,
-            self.volume.layout.data_blocks(),
-        )?;
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
+        let max_blocks = if self.journal.is_enabled() {
+            max_atomic_extent_blocks(
+                max_updates,
+                bits_per_block,
+                self.volume.layout.data_blocks(),
+            )?
+        } else {
+            self.volume.layout.data_blocks()
+        };
         if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "best-fit extent length exceeds the journal's atomic bitmap capacity",
@@ -1531,9 +1569,16 @@ impl OpenedVolume {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
-        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
-        let max_blocks =
-            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
+        let max_updates = if self.journal.is_enabled() {
+            self.journal.max_update_count(device)?
+        } else {
+            usize::MAX
+        };
+        let max_blocks = if self.journal.is_enabled() {
+            max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?
+        } else {
+            layout.data_blocks()
+        };
         if count == 0 || count > max_blocks {
             return Err(Error::InvalidInput(
                 "best-fit allocation length exceeds the journal's atomic bitmap capacity",
