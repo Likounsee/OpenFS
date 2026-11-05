@@ -16,7 +16,11 @@ use openfs_block::RawDevice;
 use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 #[cfg(test)]
 use openfs_format::VolumeSession;
-use openfs_format::{check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind};
+use openfs_format::{
+    check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind,
+    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY,
+    METADATA_FLAG_SYSTEM, METADATA_FLAG_TEMPORARY,
+};
 use openfs_partition::{plan_openfs_gpt, write_gpt, PartitionDevice};
 
 mod windows_device;
@@ -314,6 +318,21 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let target = args.next().ok_or("missing namespace file path")?;
             ensure_no_args(&mut args)?;
             import_host_file(Path::new(&path), block_size, Path::new(&input), &target)
+        }
+        Some("attrib") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            let target = args.next().ok_or("missing namespace path")?;
+            let attribute = args.next().ok_or("missing attribute name")?;
+            let state = args.next().ok_or("missing attribute state (on/off)")?;
+            ensure_no_args(&mut args)?;
+            let flag = parse_attribute_flag(&attribute)?;
+            let enabled = match state.as_str() {
+                "on" | "enable" => true,
+                "off" | "disable" => false,
+                _ => return Err("attribute state must be on or off".into()),
+            };
+            set_namespace_attribute(Path::new(&path), block_size, &target, flag, enabled)
         }
         Some("stat") => {
             let path = args.next().ok_or("missing image path")?;
@@ -1364,6 +1383,43 @@ fn import_host_file(
     Ok(())
 }
 
+fn parse_attribute_flag(name: &str) -> Result<u8, Box<dyn StdError>> {
+    match name {
+        "archive" => Ok(METADATA_FLAG_ARCHIVE),
+        "hidden" => Ok(METADATA_FLAG_HIDDEN),
+        "readonly" | "read-only" => Ok(METADATA_FLAG_READ_ONLY),
+        "system" => Ok(METADATA_FLAG_SYSTEM),
+        "temporary" => Ok(METADATA_FLAG_TEMPORARY),
+        _ => Err("unknown attribute; choose archive, hidden, readonly, system, or temporary".into()),
+    }
+}
+
+fn set_namespace_attribute(
+    path: &Path,
+    block_size: u32,
+    target: &str,
+    attribute: u8,
+    enabled: bool,
+) -> Result<(), Box<dyn StdError>> {
+    let mut device = ImageDevice::open(path, block_size)?;
+    let mut volume = open_volume(&mut device)?;
+    volume.set_persistent_attributes(&mut device, target, attribute, enabled)?;
+    device.flush()?;
+    println!(
+        "Attribute {} {} on '{target}'.",
+        if enabled { "enabled" } else { "disabled" },
+        match attribute {
+            METADATA_FLAG_ARCHIVE => "archive",
+            METADATA_FLAG_HIDDEN => "hidden",
+            METADATA_FLAG_READ_ONLY => "readonly",
+            METADATA_FLAG_SYSTEM => "system",
+            METADATA_FLAG_TEMPORARY => "temporary",
+            _ => "unknown",
+        }
+    );
+    Ok(())
+}
+
 fn stat_namespace_entry(
     path: &Path,
     block_size: u32,
@@ -1384,6 +1440,22 @@ fn stat_namespace_entry(
     println!("Type: {kind}");
     println!("Size: {} bytes", record.size);
     println!("Generation: {}", record.generation);
+    let mut attributes = Vec::new();
+    for (flag, name) in [
+        (METADATA_FLAG_ARCHIVE, "archive"),
+        (METADATA_FLAG_HIDDEN, "hidden"),
+        (METADATA_FLAG_READ_ONLY, "readonly"),
+        (METADATA_FLAG_SYSTEM, "system"),
+        (METADATA_FLAG_TEMPORARY, "temporary"),
+    ] {
+        if record.flags & flag != 0 {
+            attributes.push(name);
+        }
+    }
+    println!(
+        "Attributes: {}",
+        if attributes.is_empty() { "none".to_owned() } else { attributes.join(", ") }
+    );
     match record.extent_root_block {
         Some(block) => println!("Extent-map root block: {block}"),
         None => println!("Extent-map root block: none"),
@@ -3033,7 +3105,8 @@ fn print_usage() {
     eprintln!("  copy streams through a temporary host file; destination must already exist.");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
-    eprintln!("  openfs stat <image> <block-size> <path>");
+    eprintln!("  openfs attrib <image> <block-size> <path> <archive|hidden|readonly|system|temporary> <on|off>");
+    eprintln!("  openfs stat <image> <block-size> <path>  (includes persistent attributes)");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs write-range <image> <block-size> <file-path> <offset> <text...>");
     eprintln!("  openfs write-stdin <image> <block-size> <file-path>  (replace file from stdin)");
@@ -3258,6 +3331,40 @@ mod tests {
             drop(device);
         }
 
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn persistent_attributes_cli_round_trip_and_reject_unknown_values() {
+        let path = unique_path("attributes-cli");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
+            device.flush().unwrap();
+        }
+        super::initialize_namespace_image(&path, BLOCK_SIZE).unwrap();
+        super::create_namespace_entry(&path, BLOCK_SIZE, "/private.txt", false).unwrap();
+
+        let flag = super::parse_attribute_flag("hidden").unwrap();
+        super::set_namespace_attribute(&path, BLOCK_SIZE, "/private.txt", flag, true).unwrap();
+        super::set_namespace_attribute(&path, BLOCK_SIZE, "/private.txt", flag, false).unwrap();
+        super::set_namespace_attribute(
+            &path,
+            BLOCK_SIZE,
+            "/private.txt",
+            super::parse_attribute_flag("readonly").unwrap(),
+            true,
+        )
+        .unwrap();
+
+        let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        let record = volume.stat_persistent_path(&mut device, "/private.txt").unwrap();
+        assert_eq!(record.flags & openfs_format::METADATA_FLAG_READ_ONLY, openfs_format::METADATA_FLAG_READ_ONLY);
+        assert_eq!(record.flags & openfs_format::METADATA_FLAG_HIDDEN, 0);
+        assert!(super::parse_attribute_flag("unknown").is_err());
+        assert!(super::parse_attribute_flag("").is_err());
+        drop(device);
         fs::remove_file(path).unwrap();
     }
 
