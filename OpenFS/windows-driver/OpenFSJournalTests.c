@@ -163,9 +163,12 @@ int main(void){
   assert(OpenFsBuildJournalTransaction(&update,1,4096,4,64,100,9,5,
       encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_DISK_CORRUPT_ERROR);
   assert(encoded[0]==0xA5);
-  update.TargetBlock=77;
-  assert(OpenFsBuildJournalTransaction(&update,1,4096,3,64,100,9,5,
-      encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_BUFFER_TOO_SMALL);
+  {
+    OPENFS_JOURNAL_REDO_UPDATE tooMany[2];
+    tooMany[0]=update; tooMany[1].TargetBlock=78; tooMany[1].Image=image;
+    assert(OpenFsBuildJournalTransaction(tooMany,2,4096,4,64,100,9,5,
+        encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_BUFFER_TOO_SMALL);
+  }
  }
 
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
