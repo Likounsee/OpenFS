@@ -356,10 +356,16 @@ pub(crate) fn open_without_journal<D: BlockDevice>(
     protected_blocks: &[u64],
 ) -> Result<PersistentJournal> {
     region.validate(device)?;
-    if protected_blocks.iter().any(|block| *block >= device.block_count())
-        || protected_blocks.iter().any(|block| region.contains_journal_block(*block))
+    if protected_blocks
+        .iter()
+        .any(|block| *block >= device.block_count())
+        || protected_blocks
+            .iter()
+            .any(|block| region.contains_journal_block(*block))
     {
-        return Err(Error::InvalidInput("invalid protected block for Basic volume"));
+        return Err(Error::InvalidInput(
+            "invalid protected block for Basic volume",
+        ));
     }
     let mut protected = Vec::new();
     protected.try_reserve_exact(protected_blocks.len()).map_err(|_| {
@@ -487,15 +493,15 @@ impl PersistentJournal {
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
         if !self.enabled {
-            let block_size = usize::try_from(device.block_size())
-                .map_err(|_| Error::ArithmeticOverflow)?;
             let mut targets = Vec::new();
-            targets.try_reserve_exact(updates.len()).map_err(|_| {
-                Error::AllocationFailed("unable to reserve Basic write targets")
-            })?;
+            targets
+                .try_reserve_exact(updates.len())
+                .map_err(|_| Error::AllocationFailed("unable to reserve Basic write targets"))?;
             for update in updates {
                 if update.contents.len() != block_size {
-                    return Err(Error::InvalidInput("redo image must be exactly one device block"));
+                    return Err(Error::InvalidInput(
+                        "redo image must be exactly one device block",
+                    ));
                 }
                 validate_home_target(device, self.region, update.target_block, block_size)?;
                 validate_protected_target(&self.protected_blocks, update.target_block)?;
@@ -503,10 +509,15 @@ impl PersistentJournal {
             }
             targets.sort_unstable();
             if targets.windows(2).any(|pair| pair[0] == pair[1]) {
-                return Err(Error::InvalidInput("Basic write batch contains duplicate targets"));
+                return Err(Error::InvalidInput(
+                    "Basic write batch contains duplicate targets",
+                ));
             }
-            let next_sequence = self.checkpoint.next_sequence
-                .checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+            let next_sequence = self
+                .checkpoint
+                .next_sequence
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
             for update in updates {
                 if let Err(error) = device.write_blocks(update.target_block, &update.contents) {
                     self.recovery_required = true;
