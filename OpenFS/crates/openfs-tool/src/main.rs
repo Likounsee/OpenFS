@@ -168,6 +168,12 @@ fn run() -> Result<(), Box<dyn StdError>> {
             ensure_no_args(&mut args)?;
             audit_image(Path::new(&path), block_size)
         }
+        Some("repair-basic-image") => {
+            let path = args.next().ok_or("missing image path")?;
+            let block_size = parse_block_size(args.next())?;
+            ensure_no_args(&mut args)?;
+            repair_basic_image(Path::new(&path), block_size)
+        }
         Some("recover-image") => {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(
@@ -1814,6 +1820,61 @@ fn recover_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> 
     Ok(())
 }
 
+/// Repair a Basic image by reclaiming only blocks proven unowned by its inventory.
+///
+/// This is deliberately separate from Secure journal recovery. It refuses volumes with
+/// dangling references, malformed inventories, or no discoverable namespace, and it never
+/// guesses ownership when the namespace is unavailable. Keep a backup before using it.
+fn repair_basic_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdError>> {
+    if ![4096, 8192, 16_384, 32_768, 65_536].contains(&block_size) {
+        return Err("unsupported block size; choose 4096, 8192, 16384, 32768, or 65536".into());
+    }
+
+    let mut device = ImageDevice::open(path, block_size)?;
+    let preflight = check_volume(&mut device)?;
+    if preflight.journal_enabled {
+        return Err(
+            "repair-basic-image applies only to Basic volumes; use recover-image for Secure volumes"
+                .into(),
+        );
+    }
+
+    let mut volume = open_volume(&mut device)?;
+    let before = volume
+        .verify_discovered_persistent_inventory(&mut device)?
+        .ok_or("no discoverable namespace; refusing to guess block ownership")?;
+    if before.dangling_reference_count() != 0 {
+        return Err(
+            "Basic repair refused: the inventory references free blocks; preserve the image and investigate".into(),
+        );
+    }
+
+    let orphaned_before = before.orphaned_block_count();
+    println!("WARNING: Basic repair modifies the image; keep a backup first.");
+    println!("Path: {}", path.display());
+    println!("Orphaned allocated blocks before repair: {orphaned_before}");
+
+    let reclaimed = volume.reclaim_orphaned_blocks(&mut device)?;
+    device.flush()?;
+
+    let after = volume
+        .verify_discovered_persistent_inventory(&mut device)?
+        .ok_or("persistent namespace disappeared during Basic repair")?;
+    if after.dangling_reference_count() != 0 || after.orphaned_block_count() != 0 {
+        return Err(
+            "Basic repair did not restore consistent allocation ownership; preserve the image and investigate"
+                .into(),
+        );
+    }
+
+    println!("OpenFS Basic repair completed.");
+    println!("Orphaned blocks reclaimed: {reclaimed}");
+    println!("Remaining orphaned blocks: {}", after.orphaned_block_count());
+    println!("Dangling references: {}", after.dangling_reference_count());
+    println!("Allocation ownership consistent: {}", after.is_consistent());
+    Ok(())
+}
+
 fn development_uuid() -> [u8; 16] {
     // A volume label only; this is not a cryptographic random identifier.
     let time = SystemTime::now()
@@ -3105,6 +3166,7 @@ fn print_usage() {
     eprintln!("  openfs check-image <path> <block-size>");
     eprintln!("  openfs audit-image <path> <block-size>");
     eprintln!("  openfs recover-image <path> <block-size>");
+    eprintln!("  openfs repair-basic-image <path> <block-size>  (reclaim verified orphaned blocks; backup first)");
     eprintln!("  openfs init-namespace <path> <block-size>");
     eprintln!("  openfs mkdir <image> <block-size> <path>");
     eprintln!("  openfs mkdir-p <image> <block-size> <path>  (create missing parent directories)");
@@ -3351,6 +3413,70 @@ mod tests {
         }
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn basic_repair_cli_reclaims_only_verified_orphans() {
+        let path = unique_path("basic-repair-cli");
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId::new(1).unwrap())
+                .unwrap();
+            let free_before = volume.free_data_block_count(&mut device).unwrap();
+            volume.allocate_block(&mut device).unwrap();
+            volume.allocate_block(&mut device).unwrap();
+            assert_eq!(
+                volume.free_data_block_count(&mut device).unwrap(),
+                free_before - 2
+            );
+            device.flush().unwrap();
+        }
+
+        super::repair_basic_image(&path, BLOCK_SIZE).unwrap();
+
+        let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        let report = volume
+            .verify_discovered_persistent_inventory(&mut device)
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.orphaned_block_count(), 0);
+        assert_eq!(report.dangling_reference_count(), 0);
+        assert!(report.is_consistent());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn basic_repair_cli_refuses_secure_volumes_and_unknown_ownership() {
+        let secure_path = unique_path("basic-repair-secure-refused");
+        {
+            let mut device = ImageDevice::create(&secure_path, BLOCK_SIZE, 256).unwrap();
+            format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
+            device.flush().unwrap();
+        }
+        assert!(super::repair_basic_image(&secure_path, BLOCK_SIZE).is_err());
+        fs::remove_file(secure_path).unwrap();
+
+        let unknown_path = unique_path("basic-repair-no-namespace");
+        {
+            let mut device = ImageDevice::create(&unknown_path, BLOCK_SIZE, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            let free_before = volume.free_data_block_count(&mut device).unwrap();
+            volume.allocate_block(&mut device).unwrap();
+            let free_after_allocation = volume.free_data_block_count(&mut device).unwrap();
+            assert_eq!(free_after_allocation, free_before - 1);
+            device.flush().unwrap();
+        }
+        assert!(super::repair_basic_image(&unknown_path, BLOCK_SIZE).is_err());
+        let mut device = ImageDevice::open(&unknown_path, BLOCK_SIZE).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        assert_eq!(
+            volume.free_data_block_count(&mut device).unwrap(),
+            255 - volume.volume.layout.data_start
+        );
+        fs::remove_file(unknown_path).unwrap();
     }
 
     #[test]
