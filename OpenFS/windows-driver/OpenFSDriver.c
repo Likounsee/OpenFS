@@ -1976,6 +1976,13 @@ DriverEntry(
 
     UNREFERENCED_PARAMETER(RegistryPath);
 
+    DbgPrintEx(
+        DPFLTR_IHVDRIVER_ID,
+        DPFLTR_ERROR_LEVEL,
+        "OpenFS: DriverEntry entered (DriverObject=%p)\\n",
+        DriverObject
+        );
+
     RtlInitUnicodeString(&deviceName, L"\\FileSystem\\OpenFS");
 
     status = IoCreateDevice(
@@ -1986,6 +1993,13 @@ DriverEntry(
         FILE_DEVICE_SECURE_OPEN,
         FALSE,
         &g_OpenFsFileSystemDevice
+        );
+
+    DbgPrintEx(
+        DPFLTR_IHVDRIVER_ID,
+        DPFLTR_ERROR_LEVEL,
+        "OpenFS: IoCreateDevice returned 0x%08X\\n",
+        status
         );
 
     if (!NT_SUCCESS(status)) {
@@ -2026,6 +2040,12 @@ DriverEntry(
 
     IoRegisterFileSystem(g_OpenFsFileSystemDevice);
     g_OpenFsFileSystemDevice->Flags &= ~DO_DEVICE_INITIALIZING;
+
+    DbgPrintEx(
+        DPFLTR_IHVDRIVER_ID,
+        DPFLTR_ERROR_LEVEL,
+        "OpenFS: filesystem registered; DriverEntry returning STATUS_SUCCESS\\n"
+        );
 
     return STATUS_SUCCESS;
 }
