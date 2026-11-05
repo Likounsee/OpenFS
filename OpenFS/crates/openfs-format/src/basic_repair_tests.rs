@@ -31,8 +31,7 @@ fn basic_reclaims_only_unowned_allocations_and_survives_remount() {
         let image = TestImage::new(&format!("orphan-reclaim-{block_size}"));
         {
             let mut device = ImageDevice::create(&image.0, block_size, 512).unwrap();
-            let mut volume =
-                format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
             volume
                 .initialize_persistent_namespace(&mut device, ObjectId(1))
                 .unwrap();
