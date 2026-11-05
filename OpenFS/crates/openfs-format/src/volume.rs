@@ -19390,7 +19390,7 @@ mod tests {
                             &mut device,
                             "/documents/final.bin",
                             0,
-                            payload.len() as u64,
+                            payload.len(),
                         )
                         .unwrap(),
                     payload,
@@ -19411,7 +19411,7 @@ mod tests {
                             &mut device,
                             "/documents/final.bin",
                             0,
-                            payload.len() as u64,
+                            payload.len(),
                         )
                         .unwrap(),
                     payload,
@@ -19555,7 +19555,7 @@ mod tests {
                                 &mut failing,
                                 "/range.bin",
                                 0,
-                                original.len() as u64,
+                                original.len(),
                             )
                             .unwrap(),
                         original,
