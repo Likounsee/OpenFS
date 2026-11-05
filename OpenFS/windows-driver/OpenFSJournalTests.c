@@ -173,7 +173,7 @@ int main(void){
 
 
  {
-  static UCHAR largeImage[65536], largeEncoded[4*65536], largeScratch[65536];
+  static UCHAR largeImage[65536], largeEncoded[6*65536], largeScratch[65536];
   OPENFS_JOURNAL_REDO_UPDATE updates[2];
   OPENFS_JOURNAL_RECORD_VIEW records[4];
   ULONG count=0, k;
@@ -191,7 +191,7 @@ int main(void){
 
   updates[1]=updates[0];
   memset(largeEncoded,0x6B,sizeof(largeEncoded));
-  assert(OpenFsBuildJournalTransaction(updates,2,65536,4,64,100,20,9,
+  assert(OpenFsBuildJournalTransaction(updates,2,65536,6,64,100,20,9,
       largeEncoded,sizeof(largeEncoded),&count,&commit,&next,largeScratch)==STATUS_DISK_CORRUPT_ERROR);
   assert(largeEncoded[0]==0x6B);
   updates[1].TargetBlock=89;
