@@ -247,7 +247,20 @@ main(void)
     Check(!OpenFsVolumeStateCanDismount(OpenFsVolumeInitializing, 1, 1, 1, 0),
         "unpublished volume cannot be dismounted");
 
+    {
+        int current;
+        for (current = OpenFsVolumeUninitialized;
+             current <= OpenFsVolumeDead; ++current) {
+            Check(
+                OpenFsVolumeStateCanReleaseLockOnClose(
+                    (OPENFS_VOLUME_STATE)current) ==
+                    (current == OpenFsVolumeMounted),
+                "only a mounted volume may release its VPB lock on close"
+                );
+        }
+    }
+
     printf("OpenFS volume-state tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
-    return g_Checks == 96 && g_Failures == 0 ? 0 : 1;
+    return g_Checks == 102 && g_Failures == 0 ? 0 : 1;
 }
