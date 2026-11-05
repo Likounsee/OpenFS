@@ -9071,12 +9071,8 @@ impl<D: BlockDevice> VolumeSession<D> {
         after_name: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
-        self.opened.list_and_touch_persistent_directory(
-            &mut self.device,
-            path,
-            after_name,
-            limit,
-        )
+        self.opened
+            .list_and_touch_persistent_directory(&mut self.device, path, after_name, limit)
     }
 
     /// List one lexical page of a directory addressed by its stable object ID.
