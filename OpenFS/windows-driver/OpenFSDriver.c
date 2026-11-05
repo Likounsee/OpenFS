@@ -345,26 +345,23 @@ OpenFsDispatchQueryInformation(
     }
 
     if (vcb->Signature != OPENFS_VCB_SIGNATURE ||
-        vcb->State != OpenFsVolumeMounted ||
-        fcb->Signature != OPENFS_FCB_SIGNATURE) {
+        vcb->State != OpenFsVolumeMounted) {
         status = STATUS_VOLUME_DISMOUNTED;
         goto QueryExit;
     }
-    {
-        PLIST_ENTRY link;
-        BOOLEAN found = FALSE;
-        for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
-             link = link->Flink) {
-            if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == fcb) {
-                found = TRUE;
-                break;
-            }
-        }
-        if (!found || fcb->FileSize > MAXLONGLONG ||
-            vcb->Geometry.BlockSize == 0) {
-            status = STATUS_INVALID_DEVICE_STATE;
-            goto QueryExit;
-        }
+    /*
+     * Resolve the opaque per-handle pointer against the live cache while
+     * holding the VCB resource. Do not inspect FCB fields before membership
+     * is established, or a stale FsContext can cause a kernel access fault.
+     */
+    fcb = OpenFsFindFcbLocked(vcb, fileObject->FsContext);
+    if (fcb == NULL || fcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto QueryExit;
+    }
+    if (fcb->FileSize > MAXLONGLONG || vcb->Geometry.BlockSize == 0) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto QueryExit;
     }
 
     switch (informationClass) {
