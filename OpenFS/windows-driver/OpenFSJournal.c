@@ -424,7 +424,7 @@ OpenFsValidateRedoTargets(
     _In_ ULONG BlockSize,
     _In_ ULONGLONG FirstAllowedBlock,
     _In_ ULONGLONG EndAllowedBlock,
-    _Out_writes_(TargetCapacity) ULONGLONG* Targets,
+    _Out_ ULONGLONG* Targets,
     _In_ ULONG TargetCapacity,
     _Out_ PULONG RequiredTargetCount,
     _Out_writes_bytes_(BlockSize) UCHAR* ScratchImage
