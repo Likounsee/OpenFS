@@ -19148,6 +19148,56 @@ mod tests {
             fs::remove_file(path).unwrap();
         }
     }
+    #[test]
+    fn basic_session_open_reclaims_orphaned_blocks_before_accepting_writes() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        let path = image_path("basic-session-startup-repair");
+        let free_before_orphan;
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            free_before_orphan = volume.free_data_block_count(&mut device).unwrap();
+
+            // Simulate a crash after allocating storage but before publishing an owner.
+            let orphan = volume.allocate_block(&mut device).unwrap();
+            assert!(volume.is_data_block_allocated(&mut device, orphan).unwrap());
+            assert_eq!(
+                volume.free_data_block_count(&mut device).unwrap(),
+                free_before_orphan - 1
+            );
+            device.flush().unwrap();
+        }
+
+        {
+            // Opening a writable session must repair unreachable allocations before
+            // returning control to the caller, including in Basic mode without a journal.
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut session = VolumeSession::open(device).unwrap();
+            assert_eq!(session.free_data_blocks().unwrap(), free_before_orphan);
+
+            let report = check_volume(&mut session.device).unwrap();
+            assert!(!report.journal_enabled);
+            assert_eq!(report.pending_journal_records, 0);
+            assert_eq!(report.recoverable_transactions, 0);
+            let ownership = session
+                .opened
+                .verify_discovered_persistent_inventory(&mut session.device)
+                .unwrap()
+                .unwrap();
+            assert!(ownership.is_consistent());
+            assert_eq!(ownership.orphaned_block_count(), 0);
+
+            drop(session.unmount().unwrap());
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
 }
 
 impl OpenedVolume {
