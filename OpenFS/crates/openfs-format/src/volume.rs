@@ -17798,6 +17798,65 @@ mod tests {
     }
 
     #[test]
+    fn basic_allocation_candidate_clear_failures_leave_bitmap_free() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for failure_kind in ["write", "flush"] {
+                let path = image_path(&format!(
+                    "basic-allocation-clear-{failure_kind}-{block_size}"
+                ));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    let first = volume.volume.layout.data_start;
+
+                    // A free block may contain remnants from an earlier owner. Basic
+                    // must clear it before making its allocation bit visible.
+                    device
+                        .write_blocks(first, &vec![0xA5; block_size as usize])
+                        .unwrap();
+                    device.flush().unwrap();
+
+                    let mut failing = FaultInjectingDevice::new(device);
+                    failing.fail_next(if failure_kind == "write" {
+                        IoOperation::Write
+                    } else {
+                        IoOperation::Flush
+                    });
+                    assert!(
+                        matches!(volume.allocate_block(&mut failing), Err(Error::Io(_))),
+                        "Basic candidate-clear {failure_kind} failure must abort allocation (block size {block_size})"
+                    );
+
+                    let mut device = failing.into_inner();
+                    drop(volume);
+                    let mut reopened = open_volume(&mut device).unwrap();
+                    assert!(
+                        !reopened.is_data_block_allocated(&mut device, first).unwrap(),
+                        "failed Basic candidate clearing must leave the bitmap free (block size {block_size}, {failure_kind})"
+                    );
+                    assert_eq!(
+                        reopened.allocate_block(&mut device).unwrap(),
+                        first,
+                        "failed Basic candidate clearing must not consume the first free block (block size {block_size}, {failure_kind})"
+                    );
+
+                    let mut contents = vec![0xFF; block_size as usize];
+                    device.read_blocks(first, &mut contents).unwrap();
+                    assert!(
+                        contents.iter().all(|byte| *byte == 0),
+                        "Basic reuse must not expose stale bytes (block size {block_size}, {failure_kind})"
+                    );
+                    let report = check_volume(&mut device).unwrap();
+                    assert!(!report.journal_enabled);
+                    assert_eq!(report.pending_journal_records, 0);
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn persistent_path_rename_recovers_old_or_new_namespace_after_flush_failure() {
         use crate::ObjectId;
 
