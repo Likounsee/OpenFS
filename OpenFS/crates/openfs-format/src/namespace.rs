@@ -5,9 +5,17 @@
 //! in-memory model and does not independently provide persistence or crash consistency.
 
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{DirectoryEntry, MetadataRecord, ObjectId, ObjectKind};
 use openfs_core::{Error, Result};
+
+fn current_timestamp() -> u32 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().min(u64::from(u32::MAX)) as u32)
+        .unwrap_or(0)
+}
 
 fn try_clone_name(value: &str) -> Result<String> {
     let mut cloned = String::new();
@@ -323,7 +331,7 @@ impl Namespace {
     ///
     /// This is an in-memory operation only. The future persistent layer must perform
     /// equivalent checks inside a journal transaction before publishing disk changes.
-    pub fn insert(&mut self, entry: DirectoryEntry, record: MetadataRecord) -> Result<()> {
+    pub fn insert(&mut self, entry: DirectoryEntry, mut record: MetadataRecord) -> Result<()> {
         if entry.object_id != record.id.0
             || entry.parent_id != record.parent_id
             || entry.kind != record.kind
@@ -331,6 +339,15 @@ impl Namespace {
             return Err(Error::InvalidInput(
                 "directory entry and metadata record disagree",
             ));
+        }
+        // New objects receive persistent creation/modification times unless the caller
+        // supplied explicit values (for example, during restore/import).
+        let timestamp = current_timestamp();
+        if record.created_at == 0 {
+            record.created_at = timestamp;
+        }
+        if record.modified_at == 0 {
+            record.modified_at = timestamp;
         }
         // Reuse the format validators before accepting caller-created structs.
         entry.encode()?;
@@ -382,6 +399,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        updated_parent.modified_at = timestamp;
         updated_parent.encode()?;
 
         // No fallible work follows the first mutation: both indexes stay consistent.
@@ -465,6 +483,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        updated_record.modified_at = current_timestamp();
         updated_record.encode()?;
 
         // Directory generations track child-name changes too. Prepare both parent
@@ -481,6 +500,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        updated_old_parent.modified_at = current_timestamp();
         updated_old_parent.encode()?;
         let updated_new_parent = if new_parent_id == old_parent_id {
             None
@@ -494,6 +514,7 @@ impl Namespace {
                 .generation
                 .checked_add(1)
                 .ok_or(Error::ArithmeticOverflow)?;
+            parent.modified_at = current_timestamp();
             parent.encode()?;
             Some(parent)
         };
@@ -571,6 +592,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        updated.modified_at = current_timestamp();
         updated.encode()?;
         self.objects.insert(object_id, updated);
         Ok(())
@@ -664,6 +686,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        updated.modified_at = current_timestamp();
         updated.encode()?;
         if old_root != extent_root_block {
             if let Some(old_root) = old_root {
@@ -741,6 +764,7 @@ impl Namespace {
             .generation
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        parent_record.modified_at = current_timestamp();
         parent_record.encode()?;
 
         if let Some(root_block) = record.extent_root_block {
