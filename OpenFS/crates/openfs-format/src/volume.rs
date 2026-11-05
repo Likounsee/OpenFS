@@ -9117,8 +9117,7 @@ mod tests {
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
         format_volume, format_volume_secure, normalize_owned_ranges, open_volume,
         owned_ranges_contain, persist_inventory_hint, read_superblock, VolumeLayout,
-        CHECKSUM_OFFSET, HEADER_SIZE,
-        INVENTORY_HINT_OFFSET, MAGIC, VERSION,
+        CHECKSUM_OFFSET, HEADER_SIZE, INVENTORY_HINT_OFFSET, MAGIC, VERSION,
     };
     use crate::{Extent, ExtentMap, JournalCheckpoint};
     use openfs_block::{BlockDevice, FaultInjectingDevice, ImageDevice, IoOperation, RawDevice};
@@ -9136,8 +9135,7 @@ mod tests {
 
         let layout = opened.volume.layout;
         let journal_end = layout.journal.ring_start + layout.journal.ring_blocks;
-        let mut reserved =
-            vec![0_u8; (journal_end - layout.journal.checkpoint_a) as usize * 4096];
+        let mut reserved = vec![0_u8; (journal_end - layout.journal.checkpoint_a) as usize * 4096];
         device
             .read_blocks(layout.journal.checkpoint_a, &mut reserved)
             .unwrap();
