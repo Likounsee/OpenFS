@@ -6,6 +6,7 @@
 
 use crate::crc32c;
 use crate::metadata::ObjectKind;
+use std::collections::HashSet;
 use openfs_core::{Error, Result};
 
 pub const DIRECTORY_ENTRY_SIZE: usize = 128;
@@ -28,8 +29,10 @@ pub struct DirectoryEntry {
 /// Decode a packed inventory of fixed-width directory entries.
 ///
 /// The byte slice must contain complete records only. Every entry is individually
-/// checked for checksum, UTF-8, reserved-byte, ID, and name validity. This does not
-/// infer the on-disk location or ordering of a directory index.
+/// checked for checksum, UTF-8, reserved-byte, ID, and name validity. The inventory
+/// also rejects duplicate sibling names and multiple parent entries for one object,
+/// matching the current no-hard-links namespace model. This does not infer the on-disk
+/// location or ordering of a directory index.
 pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
     if bytes.len() % DIRECTORY_ENTRY_SIZE != 0 {
         return Err(Error::InvalidInput(
@@ -41,8 +44,28 @@ pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
     entries
         .try_reserve_exact(record_count)
         .map_err(|_| Error::AllocationFailed("unable to allocate decoded directory entries"))?;
+    let mut sibling_names = HashSet::new();
+    sibling_names.try_reserve(record_count).map_err(|_| {
+        Error::AllocationFailed("unable to allocate directory-name validation set")
+    })?;
+    let mut linked_objects = HashSet::new();
+    linked_objects.try_reserve(record_count).map_err(|_| {
+        Error::AllocationFailed("unable to allocate directory-object validation set")
+    })?;
+
     for record in bytes.chunks_exact(DIRECTORY_ENTRY_SIZE) {
-        entries.push(DirectoryEntry::decode(record)?);
+        let entry = DirectoryEntry::decode(record)?;
+        if !sibling_names.insert((entry.parent_id, entry.name.clone())) {
+            return Err(Error::Corrupt(
+                "directory inventory contains duplicate sibling names",
+            ));
+        }
+        if !linked_objects.insert(entry.object_id) {
+            return Err(Error::Corrupt(
+                "directory inventory contains multiple parent entries for one object",
+            ));
+        }
+        entries.push(entry);
     }
     Ok(entries)
 }
@@ -182,6 +205,39 @@ mod tests {
         assert!(matches!(
             super::decode_directory_entries(&packed),
             Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn packed_inventory_rejects_duplicate_sibling_names() {
+        let first = sample();
+        let mut duplicate = sample();
+        duplicate.object_id = 43;
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&duplicate.encode().unwrap());
+
+        assert!(matches!(
+            super::decode_directory_entries(&packed),
+            Err(Error::Corrupt(
+                "directory inventory contains duplicate sibling names"
+            ))
+        ));
+    }
+
+    #[test]
+    fn packed_inventory_rejects_multiple_parent_entries_for_one_object() {
+        let first = sample();
+        let mut duplicate_object = sample();
+        duplicate_object.parent_id = 2;
+        duplicate_object.name = "elsewhere".to_owned();
+        let mut packed = first.encode().unwrap().to_vec();
+        packed.extend_from_slice(&duplicate_object.encode().unwrap());
+
+        assert!(matches!(
+            super::decode_directory_entries(&packed),
+            Err(Error::Corrupt(
+                "directory inventory contains multiple parent entries for one object"
+            ))
         ));
     }
 
