@@ -3449,6 +3449,64 @@ mod tests {
     }
 
     #[test]
+    fn basic_repair_cli_refuses_dangling_file_references_without_reclaiming_orphans() {
+        let path = unique_path("basic-repair-dangling-reference");
+        let orphan_block;
+        let referenced_block;
+        let free_after_damage;
+        {
+            let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId::new(1).unwrap())
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(
+                    &mut device,
+                    "/",
+                    ObjectId::new(2).unwrap(),
+                    "owned.bin",
+                )
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/owned.bin", b"owned data")
+                .unwrap();
+            let (_, namespace) = volume
+                .reconstruct_discovered_namespace(&mut device)
+                .unwrap()
+                .unwrap();
+            let maps = volume
+                .read_namespace_extent_maps(&mut device, &namespace)
+                .unwrap();
+            referenced_block = maps
+                .get(&ObjectId::new(2).unwrap())
+                .unwrap()
+                .extents()[0]
+                .physical_start;
+            orphan_block = volume.allocate_block(&mut device).unwrap();
+            // Simulate a damaged bitmap: the namespace still references this data block,
+            // but the allocation bitmap now incorrectly marks it free.
+            volume.free_block(&mut device, referenced_block).unwrap();
+            free_after_damage = volume.free_data_block_count(&mut device).unwrap();
+            device.flush().unwrap();
+        }
+
+        assert!(super::repair_basic_image(&path, BLOCK_SIZE).is_err());
+
+        let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        assert_eq!(
+            volume.free_data_block_count(&mut device).unwrap(),
+            free_after_damage
+        );
+        assert!(volume.is_data_block_allocated(&mut device, orphan_block).unwrap());
+        assert!(!volume
+            .is_data_block_allocated(&mut device, referenced_block)
+            .unwrap());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_repair_cli_refuses_secure_volumes_and_unknown_ownership() {
         let secure_path = unique_path("basic-repair-secure-refused");
         {
