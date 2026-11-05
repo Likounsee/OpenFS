@@ -338,6 +338,9 @@ OpenFsDispatchWrite(
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
     if (KeGetCurrentIrql() != PASSIVE_LEVEL)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+    /* No Cache Manager/paging-write integration exists in this prototype. */
+    if ((Irp->Flags & IRP_PAGING_IO) != 0)
+        return OpenFsCompleteIrp(Irp, STATUS_NOT_SUPPORTED);
     if (stack->Parameters.Write.Length != 0 &&
         Irp->AssociatedIrp.SystemBuffer == NULL)
         return OpenFsCompleteIrp(Irp, STATUS_INVALID_USER_BUFFER);
