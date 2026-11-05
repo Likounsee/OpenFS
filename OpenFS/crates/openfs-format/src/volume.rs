@@ -9238,6 +9238,70 @@ mod tests {
     }
 
     #[test]
+    fn basic_sparse_growth_and_shrink_survive_remount() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            let path = image_path(&format!("basic-sparse-resize-{block_size}"));
+            let original_size = u64::from(block_size) * 3 + 19;
+            let shortened_size = u64::from(block_size) + 7;
+            let extended_size = u64::from(block_size) * 4 + 3;
+            {
+                let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                volume
+                    .initialize_persistent_namespace(&mut device, ObjectId(1))
+                    .unwrap();
+                device.flush().unwrap();
+            }
+
+            {
+                let device = ImageDevice::open(&path, block_size).unwrap();
+                let mut mounted = VolumeSession::open(device).unwrap();
+                mounted.create_file("/", ObjectId(2), "sparse.bin").unwrap();
+                mounted.set_file_len("/sparse.bin", original_size).unwrap();
+                let contents = mounted.read_file("/sparse.bin").unwrap();
+                assert_eq!(contents.len(), original_size as usize);
+                assert!(
+                    contents.iter().all(|byte| *byte == 0),
+                    "Basic sparse growth must read as zeroes (block size {block_size})"
+                );
+                mounted.set_file_len("/sparse.bin", shortened_size).unwrap();
+                mounted.set_file_len("/sparse.bin", extended_size).unwrap();
+                let contents = mounted.read_file("/sparse.bin").unwrap();
+                assert_eq!(contents.len(), extended_size as usize);
+                assert!(
+                    contents.iter().all(|byte| *byte == 0),
+                    "Basic shrink then sparse regrowth must not reveal truncated data (block size {block_size})"
+                );
+                mounted.unmount().unwrap();
+            }
+
+            {
+                let device = ImageDevice::open(&path, block_size).unwrap();
+                let mut mounted = VolumeSession::open(device).unwrap();
+                let contents = mounted.read_file("/sparse.bin").unwrap();
+                assert_eq!(contents.len(), extended_size as usize);
+                assert!(
+                    contents.iter().all(|byte| *byte == 0),
+                    "Basic sparse contents must survive remount (block size {block_size})"
+                );
+                mounted.unmount().unwrap();
+            }
+
+            {
+                let mut device = ImageDevice::open(&path, block_size).unwrap();
+                let report = check_volume(&mut device).unwrap();
+                assert!(!report.journal_enabled);
+                assert_eq!(report.pending_journal_records, 0);
+                assert_eq!(report.recoverable_transactions, 0);
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn basic_streaming_multiblock_write_and_range_patch_survive_remount() {
         use super::VolumeSession;
         use crate::ObjectId;
