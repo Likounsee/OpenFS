@@ -1362,28 +1362,12 @@ OpenFsRecoverVolumeJournal(
     if (chunkCapacity == 0) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
     chunksPerImage = (blockSize + chunkCapacity - 1u) / chunkCapacity;
 
-    /* Preflight all committed images and reject metadata or duplicate targets before replay. */
-    for (i = 0; i < txCount; ++i) {
-        ULONG cursor = txs[i].FirstUpdateIndex, end, prior;
-        if (cursor > recordCount || txs[i].UpdateCount > recordCount - cursor) {
-            status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery;
-        }
-        end = cursor + txs[i].UpdateCount; targetCount = 0;
-        while (cursor < end) {
-            ULONGLONG target;
-            if (chunksPerImage > end - cursor) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
-            status = OpenFsDecodeRedoImage(records, cursor, chunksPerImage, blockSize, &target, image);
-            if (!NT_SUCCESS(status)) goto ExitRecovery;
-            if (target < layout.DataStartBlock || target >= layout.BackupSuperblockBlock) {
-                status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery;
-            }
-            for (prior = 0; prior < targetCount; ++prior)
-                if (targets[prior] == target) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
-            if (targetCount >= RTL_NUMBER_OF(targets)) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
-            targets[targetCount++] = target; cursor += chunksPerImage;
-        }
-        if (cursor != end) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
-    }
+    /* Portable preflight validates every committed image before any disk write. */
+    status = OpenFsValidateRedoTargets(records, recordCount, txs, txCount,
+        blockSize, layout.DataStartBlock, layout.BackupSuperblockBlock,
+        targets, RTL_NUMBER_OF(targets), &targetCount, image);
+    if (!NT_SUCCESS(status))
+        goto ExitRecovery;
 
     /* Erase only the incomplete suffix; keep committed REDO until checkpoint publication. */
     for (i = lastCommit + 1u; i < ringCount; ++i) {
