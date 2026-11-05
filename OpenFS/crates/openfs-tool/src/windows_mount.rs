@@ -363,7 +363,12 @@ fn write_file_with_extension<D: BlockDevice>(
     offset: i64,
     buffer: &[u8],
     append: bool,
-) -> openfs_core::Result<usize> {
+ ) -> openfs_core::Result<usize> {
+    // Windows zero-byte writes are no-ops; in particular they must not grow
+    // the file merely because the supplied offset lies beyond the current EOF.
+    if buffer.is_empty() {
+        return Ok(0);
+    }
     let write_offset = if append {
         session.stat(path)?.size
     } else {
@@ -1187,6 +1192,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(session.read_file("/append.txt").unwrap(), b"start-end");
+
+        session.flush().unwrap();
+        drop(session);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn zero_length_windows_write_does_not_extend_file() {
+        let (path, mut session) = test_session();
+        session.create_file_auto("/", "empty-write.txt").unwrap();
+        session.write_file("/empty-write.txt", b"keep").unwrap();
+
+        let written = super::write_file_with_extension(
+            &mut session,
+            "/empty-write.txt",
+            1024,
+            &[],
+            false,
+        )
+        .unwrap();
+        assert_eq!(written, 0);
+        assert_eq!(session.stat("/empty-write.txt").unwrap().size, 4);
+        assert_eq!(session.read_file("/empty-write.txt").unwrap(), b"keep");
 
         session.flush().unwrap();
         drop(session);
