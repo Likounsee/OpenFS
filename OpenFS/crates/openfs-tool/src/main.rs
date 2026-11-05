@@ -20,8 +20,6 @@ use openfs_format::{check_volume, format_volume, open_volume, ExtentMap, ObjectI
 use openfs_partition::{plan_openfs_gpt, write_gpt, PartitionDevice};
 
 mod windows_device;
-#[cfg(windows)]
-mod windows_mount;
 
 const BLOCK_SIZE: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -37,33 +35,8 @@ fn main() {
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
-        Some("mount") => {
-            let image = args.next().ok_or("missing image path")?;
-            let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
-            let block_size = parse_optional_block_size(args.next())?;
-            ensure_no_args(&mut args)?;
-            #[cfg(windows)]
-            {
-                windows_mount::mount_image(Path::new(&image), &mount_point, block_size)
-            }
-            #[cfg(not(windows))]
-            {
-                let _ = (image, mount_point, block_size);
-                Err("mount is currently supported only on Windows through Dokany".into())
-            }
-        }
-        Some("unmount") => {
-            let mount_point = args.next().ok_or("missing mount point (for example X:)")?;
-            ensure_no_args(&mut args)?;
-            #[cfg(windows)]
-            {
-                windows_mount::unmount_drive(&mount_point)
-            }
-            #[cfg(not(windows))]
-            {
-                let _ = mount_point;
-                Err("unmount is currently supported only on Windows through Dokany".into())
-            }
+        Some("mount" | "unmount" | "mount-disk" | "mount-usb") => {
+            Err("native Windows mounting is being implemented in the WDM driver; Dokany is not used".into())
         }
         Some(command @ ("format-disk" | "format-usb" | "format-gpt-disk")) => {
             let disk_index = args
@@ -158,7 +131,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
                     mount_point,
                     block_size,
                 );
-                Err("mount-disk currently requires Windows + Dokany".into())
+                Err("mount-disk currently requires Windows native WDM".into())
             }
         }
         Some("list-devices") => {
@@ -491,7 +464,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     let uuid = development_uuid();
 
     // A freshly formatted volume must already have a persistent root namespace
-    // before it can be opened by VolumeSession or mounted through Dokany.
+    // before it can be opened by VolumeSession or mounted through the native WDM driver.
     let initialization = (|| -> openfs_core::Result<()> {
         format_volume(&mut device, uuid, 0)?;
         let mut volume = open_volume(&mut device)?;
@@ -3040,9 +3013,9 @@ fn print_usage() {
     eprintln!("  openfs create-gpt-image <path> <size-MiB>  (creates GPT + one OpenFS partition)");
     eprintln!("  openfs format-gpt-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; GPT + OpenFS partition; Windows only)");
     eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
-    eprintln!("  openfs unmount <drive-letter>  (Windows + Dokany)");
+    eprintln!("  unmount via Windows mount manager / native OpenFS WDM driver");
     eprintln!("  openfs format-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
-    eprintln!("  openfs mount-disk <disk-index> <exact-UniqueId> <exact-model> <exact-serial> <exact-size-bytes> <drive-letter> [block-size]  (Windows + Dokany; mounted volumes are dismounted)");
+    eprintln!("  mount a disk through native OpenFS WDM driver (not yet enabled)");
     eprintln!("  openfs probe-device <path> <block-size> <block-count>  (read-only)");
     eprintln!(
         "  openfs inspect-device <path> <block-size> <block-count>  (read-only GPT validation)"
