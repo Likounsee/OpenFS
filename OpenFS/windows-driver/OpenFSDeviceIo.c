@@ -1316,7 +1316,23 @@ OpenFsRecoverVolumeJournal(
     status = OpenFsPlanJournalRecovery(records, recordCount, cp.CheckpointSequence,
         cp.NextTransactionId, txs, RTL_NUMBER_OF(txs), &txCount);
     if (!NT_SUCCESS(status)) goto ExitRecovery;
-    if (recordCount == 0) { status = STATUS_SUCCESS; goto ExitRecovery; }
+    if (recordCount == 0) {
+        /*
+         * No post-checkpoint record is retained. This can mean an empty ring,
+         * stale records already covered by the checkpoint, or a malformed
+         * terminal slot. Normalize the ring now so the next writer can safely
+         * start at slot zero instead of encountering a stale gap after BEGIN.
+         */
+        for (i = 0; i < ringCount; ++i) {
+            status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize,
+                Geometry->TotalBlocks, layout.RingStartBlock + i,
+                1u, zero, blockSize);
+            if (!NT_SUCCESS(status))
+                goto ExitRecovery;
+        }
+        status = OpenFsFlushVolumeDevice(DeviceObject);
+        goto ExitRecovery;
+    }
     if (cp.Generation == MAXULONGLONG) { status = STATUS_INTEGER_OVERFLOW; goto ExitRecovery; }
     nextCopy = (UCHAR)(1u - activeCopy);
 
