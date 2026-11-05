@@ -1,5 +1,5 @@
 //! Focused regression tests for Basic-mode repair operations.
-use crate::{format_volume, open_volume, ObjectId};
+use crate::{format_volume, open_volume, ObjectId, VolumeSession};
 use openfs_block::ImageDevice;
 use std::fs;
 use std::path::PathBuf;
@@ -172,5 +172,73 @@ fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
             .unwrap()
             .unwrap()
             .is_consistent());
+    }
+}
+
+#[test]
+fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
+    use std::io::{self, Read};
+
+    struct FailingReader {
+        remaining: usize,
+    }
+
+    impl Read for FailingReader {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::other("injected source read failure"));
+            }
+            let count = output.len().min(self.remaining);
+            output[..count].fill(0xA5);
+            self.remaining -= count;
+            Ok(count)
+        }
+    }
+
+    let image = TestImage::new("stream-replacement-reader-failure");
+    let original = b"the previous Basic file must remain intact";
+    {
+        let mut device = ImageDevice::create(&image.0, 4096, 512).unwrap();
+        let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+        volume
+            .initialize_persistent_namespace(&mut device, ObjectId(1))
+            .unwrap();
+        device.flush().unwrap();
+    }
+
+    {
+        let device = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut session = VolumeSession::open(device).unwrap();
+        session.create_file_auto("/", "data.bin").unwrap();
+        session.write_file("/data.bin", original).unwrap();
+
+        let mut source = FailingReader { remaining: 8192 };
+        assert!(matches!(
+            session.write_file_from_reader("/data.bin", &mut source),
+            Err(crate::Error::Io(_))
+        ));
+        assert_eq!(session.read_file("/data.bin").unwrap(), original);
+        let ownership = session
+            .opened
+            .verify_discovered_persistent_inventory(&mut session.device)
+            .unwrap()
+            .unwrap();
+        assert!(ownership.is_consistent());
+        assert_eq!(ownership.orphaned_block_count(), 0);
+        drop(session.unmount().unwrap());
+    }
+
+    {
+        let device = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut session = VolumeSession::open(device).unwrap();
+        assert_eq!(session.read_file("/data.bin").unwrap(), original);
+        let ownership = session
+            .opened
+            .verify_discovered_persistent_inventory(&mut session.device)
+            .unwrap()
+            .unwrap();
+        assert!(ownership.is_consistent());
+        assert_eq!(ownership.orphaned_block_count(), 0);
+        drop(session.unmount().unwrap());
     }
 }
