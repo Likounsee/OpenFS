@@ -81,3 +81,18 @@ The journal codec now also encodes zero-padded checkpoint and record blocks with
 the exact little-endian field layout and CRC32C used by the Rust format library.
 The host tests round-trip both encoders through the strict decoders and reject
 invalid control-record payloads and unsupported non-zero ring positions.
+
+
+## REDO image decoding and transaction-ID continuity
+
+The journal recovery planner now checks that each post-checkpoint BEGIN consumes
+exactly the checkpoint's next transaction ID, incrementing by one for every
+subsequent BEGIN. Gaps and reuse are rejected instead of being accepted as merely
+increasing IDs.
+
+A bounded REDO image decoder validates the complete chunk sequence (target block,
+transaction ID, chunk index/count and exact data lengths) before changing its
+caller-provided output buffer. It reconstructs one complete filesystem block
+without allocating memory, allowing recovery to preflight and replay images one
+at a time. This still does not perform ring scanning, checkpoint selection or
+home-block replay itself.
