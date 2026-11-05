@@ -85,5 +85,20 @@ int main(void){
   record(ring[2],OpenFsJournalUpdate,3,1,payload,3);
   assert(OpenFsScanJournalRing(slots,4,4096,0,1,scanned,4,&required)==STATUS_SUCCESS&&required==1);
  }
+
+ {
+  OPENFS_JOURNAL_CHECKPOINT a={1,0,1,1,0,0}, bcp={2,0,1,1,0,0}, selected;
+  UCHAR active=9;
+  assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1&&selected.Generation==2);
+  bcp.Generation=3;
+  assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_DISK_CORRUPT_ERROR);
+  bcp.Generation=2;bcp.NextTransactionId=2;
+  assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_DISK_CORRUPT_ERROR);
+  bcp.Generation=2;bcp.NextTransactionId=1;bcp.CheckpointSequence=1;bcp.NextSequence=2;
+  assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_DISK_CORRUPT_ERROR);
+  bcp.Generation=2;bcp.NextTransactionId=1;bcp.CheckpointSequence=0;bcp.NextSequence=1;
+  assert(OpenFsSelectJournalCheckpoint(STATUS_SUCCESS,&a,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1);
+  assert(OpenFsSelectJournalCheckpoint(STATUS_DISK_CORRUPT_ERROR,NULL,STATUS_SUCCESS,&bcp,&selected,&active)==STATUS_SUCCESS&&active==1);
+ }
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
