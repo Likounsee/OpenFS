@@ -2760,6 +2760,12 @@ mod allocation_bitmap_report_tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
+
+                    created_at: 0,
+
+                    modified_at: 0,
+
+                    accessed_at: 0,
                 };
                 let mut metadata = vec![0_u8; block_size as usize];
                 metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -2857,6 +2863,12 @@ mod allocation_bitmap_report_tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
+
+                    created_at: 0,
+
+                    modified_at: 0,
+
+                    accessed_at: 0,
                 };
                 let mut metadata = vec![0_u8; block_size as usize];
                 metadata[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -2950,6 +2962,12 @@ mod allocation_bitmap_report_tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
+
+                        created_at: 0,
+
+                        modified_at: 0,
+
+                        accessed_at: 0,
                     };
                     let mut metadata = vec![0_u8; block_size as usize];
                     metadata[..crate::METADATA_RECORD_SIZE]
