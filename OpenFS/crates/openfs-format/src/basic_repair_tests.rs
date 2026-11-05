@@ -1,6 +1,6 @@
 //! Focused regression tests for Basic-mode repair operations.
 use crate::{format_volume, open_volume, ObjectId, VolumeSession};
-use openfs_block::ImageDevice;
+use openfs_block::{BlockDevice, ImageDevice};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -99,8 +99,6 @@ fn basic_does_not_guess_ownership_when_namespace_is_absent() {
 #[test]
 fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
     use crate::METADATA_FLAG_READ_ONLY;
-    use openfs_block::BlockDevice;
-
     let image = TestImage::new("readonly-subtree");
     {
         let mut device = ImageDevice::create(&image.0, 4096, 256).unwrap();
