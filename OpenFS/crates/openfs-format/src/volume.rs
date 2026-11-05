@@ -19970,7 +19970,7 @@ impl OpenedVolume {
     /// once, then streams borrowed entry/metadata pairs to the visitor without building a
     /// second directory-sized collection.
     pub fn visit_persistent_directory<D, F>(
-        &self,
+        &mut self,
         device: &mut D,
         directory_path: &str,
         visitor: F,
@@ -19979,13 +19979,17 @@ impl OpenedVolume {
         D: BlockDevice,
         F: FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     {
-        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent namespace is not initialized",
             ));
         };
         let directory_id = namespace.resolve_path(directory_path)?;
-        namespace.visit_directory(directory_id, visitor)
+        namespace.visit_directory(directory_id, visitor)?;
+        if namespace.touch_accessed(directory_id)? {
+            self.replace_persistent_namespace_inventory(device, &namespace)?;
+        }
+        Ok(())
     }
 
     /// Visit a persistent directory by stable object ID from one validated snapshot.
@@ -19993,7 +19997,7 @@ impl OpenedVolume {
     /// This avoids path resolution for open directory handles and remains valid after
     /// the directory is renamed or moved.
     pub fn visit_persistent_directory_by_id<D, F>(
-        &self,
+        &mut self,
         device: &mut D,
         directory_id: ObjectId,
         visitor: F,
@@ -20002,12 +20006,16 @@ impl OpenedVolume {
         D: BlockDevice,
         F: FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     {
-        let Some((_, namespace)) = self.reconstruct_discovered_namespace(device)? else {
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
             return Err(Error::InvalidInput(
                 "persistent namespace is not initialized",
             ));
         };
-        namespace.visit_directory(directory_id, visitor)
+        namespace.visit_directory(directory_id, visitor)?;
+        if namespace.touch_accessed(directory_id)? {
+            self.replace_persistent_namespace_inventory(device, &namespace)?;
+        }
+        Ok(())
     }
 }
 
@@ -20021,11 +20029,8 @@ impl<D: BlockDevice> VolumeSession<D> {
         directory_path: &str,
         visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     ) -> Result<()> {
-        let record = self.stat(directory_path)?;
         self.opened
-            .visit_persistent_directory(&mut self.device, directory_path, visitor)?;
-        self.opened
-            .touch_persistent_accessed(&mut self.device, record.id)
+            .visit_persistent_directory(&mut self.device, directory_path, visitor)
     }
 
     /// Visit a directory by stable object ID from one validated disk snapshot.
@@ -20038,9 +20043,7 @@ impl<D: BlockDevice> VolumeSession<D> {
         visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     ) -> Result<()> {
         self.opened
-            .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)?;
-        self.opened
-            .touch_persistent_accessed(&mut self.device, directory_id)
+            .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)
     }
 }
 
