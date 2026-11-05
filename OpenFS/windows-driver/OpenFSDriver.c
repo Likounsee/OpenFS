@@ -62,6 +62,25 @@ OpenFsDispatchUnsupported(
 }
 
 /*
+ * The current driver release is intentionally read-only. Return the native
+ * filesystem status for mutation requests instead of the generic unsupported
+ * status, so callers (including the Windows shell) can distinguish a mounted
+ * read-only volume from an unhandled filesystem operation.
+ *
+ * Keep this gate centralized until journal-backed namespace/data mutation is
+ * implemented; never expose the low-level block writer directly to IRPs.
+ */
+static NTSTATUS
+OpenFsDispatchReadOnlyMutation(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    return OpenFsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED);
+}
+
+/*
  * The filesystem control device is not a mounted volume. Accepting CREATE
  * here would falsely advertise file access that the driver cannot service.
  */
@@ -1915,6 +1934,13 @@ DriverEntry(
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
     DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
+    DriverObject->MajorFunction[IRP_MJ_WRITE] = OpenFsDispatchReadOnlyMutation;
+    DriverObject->MajorFunction[IRP_MJ_SET_INFORMATION] =
+        OpenFsDispatchReadOnlyMutation;
+    DriverObject->MajorFunction[IRP_MJ_SET_EA] =
+        OpenFsDispatchReadOnlyMutation;
+    DriverObject->MajorFunction[IRP_MJ_SET_SECURITY] =
+        OpenFsDispatchReadOnlyMutation;
     DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS] =
         OpenFsDispatchFlushBuffers;
     DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =
