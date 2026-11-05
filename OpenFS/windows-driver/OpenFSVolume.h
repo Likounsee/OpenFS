@@ -140,6 +140,21 @@ OpenFsLoadFcbExtents(
     _In_ POPENFS_FCB FileFcb
     );
 
+/*
+ * Preflight a regular-file byte range and return all touched physical blocks.
+ * This performs no writes and rejects sparse holes and EOF extension.
+ */
+NTSTATUS
+OpenFsPlanFcbWrite(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _In_ ULONG ByteLength,
+    _Out_ PULONG RequiredBlockCount,
+    _Out_ ULONGLONG* PhysicalBlocks,
+    _In_ ULONG PhysicalBlockCapacity
+    );
+
 /* Read a byte range from a cached regular-file extent map (EOF is short read). */
 NTSTATUS
 OpenFsReadFcbData(
