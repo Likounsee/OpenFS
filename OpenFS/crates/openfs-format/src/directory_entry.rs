@@ -10,12 +10,14 @@ use openfs_core::{Error, Result};
 use std::collections::HashSet;
 
 pub const DIRECTORY_ENTRY_SIZE: usize = 128;
-pub const DIRECTORY_NAME_MAX_BYTES: usize = 64;
+pub const DIRECTORY_NAME_MAX_BYTES: usize = 80;
 const MAGIC: &[u8; 8] = b"OFSDENT\0";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
+const LEGACY_VERSION: u16 = 1;
+const LEGACY_NAME_MAX_BYTES: usize = 64;
 const CHECKSUM_OFFSET: usize = 124;
 const NAME_OFFSET: usize = 44;
-const NAME_END: usize = NAME_OFFSET + DIRECTORY_NAME_MAX_BYTES;
+const NAME_END: usize = CHECKSUM_OFFSET;
 
 /// One directory name referring to an object. Names are case-sensitive in this draft.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,12 +106,16 @@ impl DirectoryEntry {
             return Err(Error::Corrupt("bad directory-entry magic"));
         }
         let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-        if version != VERSION {
+        if version != VERSION && version != LEGACY_VERSION {
             return Err(Error::UnsupportedVersion(version));
         }
-        if bytes[108..CHECKSUM_OFFSET].iter().any(|byte| *byte != 0) {
+        if version == LEGACY_VERSION
+            && bytes[NAME_OFFSET + LEGACY_NAME_MAX_BYTES..CHECKSUM_OFFSET]
+                .iter()
+                .any(|byte| *byte != 0)
+        {
             return Err(Error::Corrupt(
-                "directory-entry reserved bytes must be zero",
+                "legacy directory-entry reserved bytes must be zero",
             ));
         }
         let stored = u32::from_le_bytes(
@@ -121,7 +127,12 @@ impl DirectoryEntry {
             return Err(Error::Corrupt("directory-entry CRC32C mismatch"));
         }
         let name_len = usize::from(bytes[11]);
-        if name_len == 0 || name_len > DIRECTORY_NAME_MAX_BYTES {
+        let name_max = if version == LEGACY_VERSION {
+            LEGACY_NAME_MAX_BYTES
+        } else {
+            DIRECTORY_NAME_MAX_BYTES
+        };
+        if name_len == 0 || name_len > name_max {
             return Err(Error::Corrupt("invalid directory-entry name length"));
         }
         if bytes[NAME_OFFSET + name_len..NAME_END]
@@ -160,7 +171,7 @@ impl DirectoryEntry {
 fn validate_name(name: &str) -> std::result::Result<(), &'static str> {
     let bytes = name.as_bytes();
     if bytes.is_empty() || bytes.len() > DIRECTORY_NAME_MAX_BYTES {
-        return Err("directory name must contain 1 to 64 UTF-8 bytes");
+        return Err("directory name must contain 1 to 80 UTF-8 bytes");
     }
     if name == "." || name == ".." {
         return Err("dot components are reserved");
@@ -248,6 +259,32 @@ mod tests {
         assert_eq!(bytes.len(), DIRECTORY_ENTRY_SIZE);
         assert_eq!(&bytes[..8], b"OFSDENT\0");
         assert_eq!(DirectoryEntry::decode(&bytes).unwrap(), entry);
+    }
+
+    #[test]
+    fn version_two_supports_eighty_byte_utf8_names_and_reads_legacy_v1() {
+        let mut extended = sample();
+        extended.name = "é".repeat(40);
+        let encoded = extended.encode().unwrap();
+        assert_eq!(u16::from_le_bytes([encoded[8], encoded[9]]), 2);
+        assert_eq!(DirectoryEntry::decode(&encoded).unwrap(), extended);
+
+        let mut legacy = sample().encode().unwrap();
+        legacy[8..10].copy_from_slice(&1_u16.to_le_bytes());
+        legacy[44 + 64..124].fill(0);
+        let checksum = crate::crc32c(&legacy[..124]);
+        legacy[124..128].copy_from_slice(&checksum.to_le_bytes());
+        assert_eq!(DirectoryEntry::decode(&legacy).unwrap(), sample());
+
+        let mut too_long_for_legacy = legacy;
+        too_long_for_legacy[11] = 65;
+        too_long_for_legacy[44..109].fill(b'a');
+        let checksum = crate::crc32c(&too_long_for_legacy[..124]);
+        too_long_for_legacy[124..128].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            DirectoryEntry::decode(&too_long_for_legacy),
+            Err(Error::Corrupt("invalid directory-entry name length"))
+        ));
     }
 
     #[test]
