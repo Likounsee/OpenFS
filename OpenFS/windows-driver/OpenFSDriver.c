@@ -1446,7 +1446,10 @@ OpenFsDispatchFileSystemControl(
             STARTING_VCN_INPUT_BUFFER inputCopy;
             POPENFS_VCB vcb;
             POPENFS_FCB fcb;
+            OPENFS_VOLUME_GEOMETRY geometry;
             OPENFS_VOLUME_LAYOUT layout;
+            ULONGLONG fileSize = 0;
+            ULONG blockSize = 0;
             ULONGLONG currentVcn;
             ULONGLONG fileBlockCount = 0;
             ULONG outputLength =
@@ -1493,8 +1496,37 @@ OpenFsDispatchFileSystemControl(
             if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
                 return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
 
-            status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
-                vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+            /*
+             * Snapshot the immutable geometry under VCB lifetime protection.
+             * Do not read VCB fields directly in a METHOD_NEITHER path while
+             * a future dismount implementation may be retiring the volume.
+             */
+            if (!ExAcquireRundownProtection(&vcb->RundownProtection))
+                return OpenFsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED);
+            if (!ExAcquireResourceSharedLite(&vcb->Resource, TRUE)) {
+                ExReleaseRundownProtection(&vcb->RundownProtection);
+                return OpenFsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
+            }
+            if (vcb->State != OpenFsVolumeMounted) {
+                status = STATUS_VOLUME_DISMOUNTED;
+            } else {
+                RtlCopyMemory(&geometry, &vcb->Geometry, sizeof(geometry));
+                status = STATUS_SUCCESS;
+            }
+            ExReleaseResourceLite(&vcb->Resource);
+            ExReleaseRundownProtection(&vcb->RundownProtection);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
+
+            status = OpenFsQueryFcbMetadata(DeviceObject, fcb,
+                &fileSize, &blockSize);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
+            if (blockSize != geometry.BlockSize)
+                return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
+
+            status = OpenFsCalculateVolumeLayout(blockSize,
+                geometry.TotalBlocks, geometry.Version, &layout);
             if (!NT_SUCCESS(status))
                 return OpenFsCompleteIrp(Irp, status);
             if (layout.BackupSuperblockBlock <= layout.DataStartBlock)
