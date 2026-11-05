@@ -18,8 +18,8 @@ use openfs_block::{BlockDevice, ImageDevice, ReadOnlyRawDevice};
 use openfs_format::VolumeSession;
 use openfs_format::{
     check_volume, format_volume, open_volume, ExtentMap, ObjectId, ObjectKind,
-    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY,
-    METADATA_FLAG_SYSTEM, METADATA_FLAG_TEMPORARY,
+    METADATA_FLAG_ARCHIVE, METADATA_FLAG_HIDDEN, METADATA_FLAG_READ_ONLY, METADATA_FLAG_SYSTEM,
+    METADATA_FLAG_TEMPORARY,
 };
 use openfs_partition::{plan_openfs_gpt, write_gpt, PartitionDevice};
 
@@ -1398,9 +1398,9 @@ fn parse_attribute_flag(name: &str) -> Result<u8, Box<dyn StdError>> {
         "readonly" | "read-only" => Ok(METADATA_FLAG_READ_ONLY),
         "system" => Ok(METADATA_FLAG_SYSTEM),
         "temporary" => Ok(METADATA_FLAG_TEMPORARY),
-        _ => Err(
-            "unknown attribute; choose archive, hidden, readonly, system, or temporary".into(),
-        ),
+        _ => {
+            Err("unknown attribute; choose archive, hidden, readonly, system, or temporary".into())
+        }
     }
 }
 
@@ -1479,7 +1479,11 @@ fn stat_namespace_entry(
     }
     println!(
         "Attributes: {}",
-        if attributes.is_empty() { "none".to_owned() } else { attributes.join(", ") }
+        if attributes.is_empty() {
+            "none".to_owned()
+        } else {
+            attributes.join(", ")
+        }
     );
     match record.extent_root_block {
         Some(block) => println!("Extent-map root block: {block}"),
@@ -1869,7 +1873,10 @@ fn repair_basic_image(path: &Path, block_size: u32) -> Result<(), Box<dyn StdErr
 
     println!("OpenFS Basic repair completed.");
     println!("Orphaned blocks reclaimed: {reclaimed}");
-    println!("Remaining orphaned blocks: {}", after.orphaned_block_count());
+    println!(
+        "Remaining orphaned blocks: {}",
+        after.orphaned_block_count()
+    );
     println!("Dangling references: {}", after.dangling_reference_count());
     println!("Allocation ownership consistent: {}", after.is_consistent());
     Ok(())
@@ -3582,8 +3589,13 @@ mod tests {
 
         let mut device = ImageDevice::open(&path, BLOCK_SIZE).unwrap();
         let volume = open_volume(&mut device).unwrap();
-        let record = volume.stat_persistent_path(&mut device, "/private.txt").unwrap();
-        assert_eq!(record.flags & openfs_format::METADATA_FLAG_READ_ONLY, openfs_format::METADATA_FLAG_READ_ONLY);
+        let record = volume
+            .stat_persistent_path(&mut device, "/private.txt")
+            .unwrap();
+        assert_eq!(
+            record.flags & openfs_format::METADATA_FLAG_READ_ONLY,
+            openfs_format::METADATA_FLAG_READ_ONLY
+        );
         assert_eq!(record.flags & openfs_format::METADATA_FLAG_HIDDEN, 0);
         assert!(super::parse_attribute_flag("unknown").is_err());
         assert!(super::parse_attribute_flag("").is_err());
