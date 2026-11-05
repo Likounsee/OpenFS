@@ -51,3 +51,17 @@ The native WDM project now includes `OpenFSWritePlan.c/.h`. Its side-effect-free
 This is deliberately not advertised as Explorer write support: the planner does not stage block images or emit redo records. The VCB still has no live persistent-journal writer context, and the kernel driver does not yet have a C implementation of the on-disk redo transaction engine. The next required layer is journal open/recovery/commit in the WDM code, followed by safe allocation and `IRP_MJ_WRITE` integration.
 
 The FCB layer now exposes `OpenFsPlanFcbWrite`, which loads the file's extent map, validates that the FCB still belongs to the mounted VCB, checks the mounted-volume state, and delegates to the write planner while holding rundown protection and the VCB resource. This is the kernel-side bridge for future `IRP_MJ_WRITE` staging; it remains preflight-only and does not alter disk contents.
+
+
+## Native journal codec groundwork
+
+The WDM driver now has a C decoder for the existing on-disk journal checkpoint
+and single-block record formats. It validates CRC32C, format versions, reserved
+bytes, zero padding, sequence and transaction identifiers, ring-relative
+checkpoint positions, record kinds, and control-record payload rules. Record
+payloads are exposed as zero-copy views into the caller-owned block buffer.
+
+This is a codec only. It does not yet select the newest valid checkpoint,
+scan the ring, validate transaction ordering across records, replay REDO,
+write journal records, or publish checkpoints. Those steps must be implemented
+and tested before any mutating IRP is enabled.
