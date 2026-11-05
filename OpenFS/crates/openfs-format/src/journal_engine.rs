@@ -83,8 +83,8 @@ pub struct RedoUpdate {
     pub contents: Vec<u8>,
 }
 
-/// Open, recovered, single-writer journal state. Any I/O error during commit poisons
-/// this instance; drop it and reopen before attempting another mutation.
+/// Write state for a single mounted volume. Secure instances own a recovered journal;
+/// Basic instances use validated direct writes. Any uncertain I/O failure poisons the handle.
 /// Deliberately not `Clone`: duplicated writer state could reuse transaction IDs and ring slots.
 #[derive(Debug)]
 pub struct PersistentJournal {
@@ -446,7 +446,8 @@ impl PersistentJournal {
         Ok(required_records)
     }
 
-    /// Return the maximum number of distinct full-block updates that fit in one transaction.
+    /// Return the maximum number of distinct full-block updates in one journal transaction.
+    /// Returns zero when the journal is disabled in Basic mode.
     ///
     /// This is a capacity estimate for callers that want to split large operations into
     /// bounded atomic transactions. It does not reserve journal space, and a caller must
@@ -475,7 +476,8 @@ impl PersistentJournal {
         .map_err(|_| Error::ArithmeticOverflow)
     }
 
-    /// Append, durably commit, apply, flush home blocks, then persist the checkpoint.
+    /// Apply a validated update batch: redo-log it in Secure mode or write home blocks
+    /// directly in Basic mode. Basic writes are not crash-atomic.
     pub fn commit<D: BlockDevice>(
         &mut self,
         device: &mut D,
@@ -483,7 +485,7 @@ impl PersistentJournal {
     ) -> Result<u64> {
         if self.recovery_required {
             return Err(Error::InvalidInput(
-                "journal requires recovery after a previous I/O error",
+                "volume write state is uncertain after a previous I/O error; reopen before further mutation",
             ));
         }
         if updates.is_empty() {
