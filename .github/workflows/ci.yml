@@ -106,6 +106,12 @@ jobs:
       - name: Run native inventory descriptor tests
         working-directory: OpenFS/windows-driver
         run: ./openfs-inventory-tests
+      - name: Compile native write-range planning tests
+        working-directory: OpenFS/windows-driver
+        run: cc -std=c11 -Wall -Wextra -Werror -DOPENFS_HOST_TEST OpenFSSuperblock.c OpenFSLayout.c OpenFSExtentMap.c OpenFSWritePlan.c OpenFSWritePlanTests.c -o openfs-write-plan-tests
+      - name: Run native write-range planning tests
+        working-directory: OpenFS/windows-driver
+        run: ./openfs-write-plan-tests
 
   windows-driver-wdk:
     name: Native Windows filesystem driver (WDK x64)
