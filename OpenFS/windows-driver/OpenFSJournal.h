@@ -108,3 +108,31 @@ OpenFsValidateRedoTargets(
     _Out_ PULONG RequiredTargetCount,
     _Out_writes_bytes_(BlockSize) UCHAR* ScratchImage
     );
+
+
+typedef struct _OPENFS_JOURNAL_REDO_UPDATE {
+    ULONGLONG TargetBlock;
+    const UCHAR* Image;
+} OPENFS_JOURNAL_REDO_UPDATE, *POPENFS_JOURNAL_REDO_UPDATE;
+
+/*
+ * Pre-encode one complete BEGIN/UPDATE*/COMMIT transaction into caller-owned
+ * ring storage. No device I/O occurs; outputs are untouched on validation error.
+ */
+NTSTATUS
+OpenFsBuildJournalTransaction(
+    _In_reads_(UpdateCount) const OPENFS_JOURNAL_REDO_UPDATE* Updates,
+    _In_ ULONG UpdateCount,
+    _In_ ULONG BlockSize,
+    _In_ ULONG RingBlocks,
+    _In_ ULONGLONG FirstAllowedBlock,
+    _In_ ULONGLONG EndAllowedBlock,
+    _In_ ULONGLONG FirstSequence,
+    _In_ ULONGLONG TransactionId,
+    _Out_writes_bytes_(EncodedBytes) UCHAR* EncodedBlocks,
+    _In_ SIZE_T EncodedBytes,
+    _Out_ PULONG RequiredRecordCount,
+    _Out_ PULONGLONG CommitSequence,
+    _Out_ PULONGLONG NextSequence,
+    _Out_writes_bytes_(BlockSize) UCHAR* PayloadScratch
+    );
