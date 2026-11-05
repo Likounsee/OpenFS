@@ -402,7 +402,7 @@ impl OpenedVolume {
         // Each entry stores one authoritative bitmap image. The same bitmap can be
         // encountered in both wraparound passes when the cursor is inside a segment.
         let mut pages: Vec<(u64, u64, Vec<u8>)> = Vec::new();
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         pages
             .try_reserve(max_updates.min(requested_count))
             .map_err(|_| {
@@ -693,7 +693,7 @@ impl OpenedVolume {
                 previous_index = index;
             }
         }
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         if page_count > max_updates {
             return Err(Error::InvalidInput(
                 "batch free exceeds the journal's atomic bitmap-update capacity",
@@ -859,7 +859,7 @@ impl OpenedVolume {
             ));
         }
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         let max_blocks =
             max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
         if count > max_blocks {
@@ -978,7 +978,7 @@ impl OpenedVolume {
     ) -> Result<Option<u64>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         let max_blocks = max_atomic_extent_blocks(
             max_updates,
             bits_per_block,
@@ -1087,7 +1087,7 @@ impl OpenedVolume {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         let max_blocks =
             max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
         if count == 0 || count > max_blocks {
@@ -1383,7 +1383,7 @@ impl OpenedVolume {
     ) -> Result<Option<FreeExtent>> {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         let max_blocks = max_atomic_extent_blocks(
             max_updates,
             bits_per_block,
@@ -1531,7 +1531,7 @@ impl OpenedVolume {
         validate_device(self, device)?;
         let bits_per_block = u64::from(self.volume.block_size) * 8;
         let layout = self.volume.layout;
-        let max_updates = self.journal.max_update_count(device)?;
+        let max_updates = if self.journal.is_enabled() {\n            self.journal.max_update_count(device)?\n        } else {\n            usize::MAX\n        };
         let max_blocks =
             max_atomic_extent_blocks(max_updates, bits_per_block, layout.data_blocks())?;
         if count == 0 || count > max_blocks {
