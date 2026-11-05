@@ -9101,7 +9101,7 @@ impl<D: BlockDevice> VolumeSession<D> {
 mod tests {
     use super::{
         check_volume, crc32c, decode_inventory_hint, decode_superblock, encode_superblock,
-        format_volume, normalize_owned_ranges, open_volume, owned_ranges_contain,
+        format_volume, format_volume_secure, normalize_owned_ranges, open_volume, owned_ranges_contain,
         persist_inventory_hint, read_superblock, VolumeLayout, CHECKSUM_OFFSET, HEADER_SIZE,
         INVENTORY_HINT_OFFSET, MAGIC, VERSION,
     };
@@ -9110,6 +9110,29 @@ mod tests {
     use openfs_core::Error;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn basic_format_has_explicit_mode_and_never_initializes_journal() {
+        let path = image_path("basic-mode");
+        let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+        let opened = format_volume(&mut device, *b"openfs-basic-01", 0).unwrap();
+        assert_eq!(opened.volume.features & super::FEATURE_SECURE_JOURNAL, 0);
+        assert_eq!(opened.journal.checkpoint().generation, 0);
+
+        let layout = opened.volume.layout;
+        let journal_end = layout.journal.ring_start + layout.journal.ring_blocks;
+        let mut reserved = vec![0_u8; (journal_end - layout.journal.checkpoint_a) as usize * 4096];
+        device.read_blocks(layout.journal.checkpoint_a, &mut reserved).unwrap();
+        assert!(reserved.iter().all(|byte| *byte == 0));
+
+        let report = check_volume(&mut device).unwrap();
+        assert_eq!(report.journal_generation, 0);
+        assert_eq!(report.pending_journal_records, 0);
+        assert_eq!(report.recoverable_transactions, 0);
+        drop(opened);
+        drop(device);
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn owned_ranges_are_sorted_coalesced_and_reject_aliases() {
