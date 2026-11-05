@@ -123,12 +123,10 @@ OpenFsDispatchCreate(
     createDisposition = (stack->Parameters.Create.Options >> 24) & 0xffu;
     createOptions = stack->Parameters.Create.Options & 0x00ffffffu;
 
-    /* The first native driver release is deliberately read-only. */
-    if ((desiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA |
-            FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE |
-            WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL |
-            MAXIMUM_ALLOWED)) != 0)
-        return OpenFsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED);
+    /* Permit bounded existing-file data writes in the VM-test build. */
+    if ((desiredAccess & (DELETE | WRITE_DAC | WRITE_OWNER |
+            GENERIC_ALL | MAXIMUM_ALLOWED)) != 0)
+        return OpenFsCompleteIrp(Irp, STATUS_ACCESS_DENIED);
     if (createDisposition != FILE_OPEN && createDisposition != FILE_OPEN_IF)
         return OpenFsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED);
     if ((createOptions & (FILE_DELETE_ON_CLOSE | FILE_OPEN_BY_FILE_ID)) != 0)
@@ -320,6 +318,79 @@ OpenFsFindFcbLocked(
 }
 
 static NTSTATUS
+
+static NTSTATUS
+OpenFsDispatchWrite(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp
+    )
+{
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    PFILE_OBJECT fileObject = stack->FileObject;
+    POPENFS_VCB vcb;
+    POPENFS_FCB fcb;
+    LARGE_INTEGER offset;
+    ULONG bytesWritten = 0;
+    NTSTATUS status;
+
+    if (DeviceObject == NULL || DeviceObject == g_OpenFsFileSystemDevice ||
+        fileObject == NULL || fileObject->FsContext == NULL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+    if (stack->Parameters.Write.Length != 0 &&
+        Irp->AssociatedIrp.SystemBuffer == NULL)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_USER_BUFFER);
+
+    vcb = (POPENFS_VCB)DeviceObject->DeviceExtension;
+    fcb = (POPENFS_FCB)fileObject->FsContext;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE)
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_DEVICE_STATE);
+
+    offset = stack->Parameters.Write.ByteOffset;
+    if (offset.QuadPart == FILE_USE_FILE_POINTER_POSITION ||
+        offset.QuadPart == FILE_WRITE_TO_END_OF_FILE) {
+        if ((fileObject->Flags & FO_SYNCHRONOUS_IO) == 0)
+            return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+        if (offset.QuadPart == FILE_WRITE_TO_END_OF_FILE) {
+            ULONGLONG fileSize = 0;
+            ULONG blockSize = 0;
+            status = OpenFsQueryFcbMetadata(DeviceObject, fcb,
+                &fileSize, &blockSize);
+            if (!NT_SUCCESS(status))
+                return OpenFsCompleteIrp(Irp, status);
+            if (fileSize > MAXLONGLONG)
+                return OpenFsCompleteIrp(Irp, STATUS_INTEGER_OVERFLOW);
+            offset.QuadPart = (LONGLONG)fileSize;
+        } else {
+            offset = fileObject->CurrentByteOffset;
+        }
+    } else if (offset.QuadPart < 0) {
+        return OpenFsCompleteIrp(Irp, STATUS_INVALID_PARAMETER);
+    }
+
+    status = OpenFsWriteFcbData(DeviceObject, fcb,
+        (ULONGLONG)offset.QuadPart,
+        (const UCHAR*)Irp->AssociatedIrp.SystemBuffer,
+        stack->Parameters.Write.Length, &bytesWritten);
+
+    if (bytesWritten != 0 &&
+        (fileObject->Flags & FO_SYNCHRONOUS_IO) != 0) {
+        if (bytesWritten > (ULONGLONG)(MAXLONGLONG - offset.QuadPart)) {
+            status = STATUS_INTEGER_OVERFLOW;
+            bytesWritten = 0;
+        } else {
+            fileObject->CurrentByteOffset.QuadPart =
+                offset.QuadPart + bytesWritten;
+        }
+    }
+
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = bytesWritten;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
+
 OpenFsDispatchClose(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP Irp
@@ -1934,7 +2005,7 @@ DriverEntry(
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenFsDispatchCreate;
     DriverObject->MajorFunction[IRP_MJ_READ] = OpenFsDispatchRead;
-    DriverObject->MajorFunction[IRP_MJ_WRITE] = OpenFsDispatchReadOnlyMutation;
+    DriverObject->MajorFunction[IRP_MJ_WRITE] = OpenFsDispatchWrite;
     DriverObject->MajorFunction[IRP_MJ_SET_INFORMATION] =
         OpenFsDispatchReadOnlyMutation;
     DriverObject->MajorFunction[IRP_MJ_SET_EA] =
