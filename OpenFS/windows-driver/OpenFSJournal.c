@@ -260,7 +260,7 @@ OpenFsDecodeRedoImage(
         return STATUS_DISK_CORRUPT_ERROR;
     chunkCapacity = BlockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES - 12u;
     expectedChunks = (BlockSize + chunkCapacity - 1u) / chunkCapacity;
-    if (expectedChunks > MAXUSHORT || RecordCount != expectedChunks)
+    if (expectedChunks > 0xFFFFu || RecordCount != expectedChunks)
         return STATUS_DISK_CORRUPT_ERROR;
 
     if (Records[FirstRecord].Kind != OpenFsJournalUpdate ||
