@@ -74,3 +74,10 @@ OpenFsCountFreeDataBlocks(
     _In_ const OPENFS_VOLUME_GEOMETRY* Geometry,
     _Out_ ULONGLONG* FreeBlocks
     );
+
+/* Mount-time replay of durable REDO transactions; the probe itself stays read-only. */
+NTSTATUS
+OpenFsRecoverVolumeJournal(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry
+    );
