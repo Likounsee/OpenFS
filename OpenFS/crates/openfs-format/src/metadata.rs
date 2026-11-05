@@ -63,6 +63,7 @@ pub struct MetadataRecord {
     /// Unix timestamp in seconds; zero means unknown.
     pub modified_at: u32,
     /// Unix timestamp in seconds; zero means unknown.
+    pub accessed_at: u32,
 }
 
 /// Basic file attributes stored in the existing metadata flags byte.
