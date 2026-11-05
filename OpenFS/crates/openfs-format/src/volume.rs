@@ -1779,6 +1779,93 @@ impl OpenedVolume {
             .ok_or(Error::InvalidInput("object does not exist"))
     }
 
+    /// Change supported Basic attributes on a persistent object and publish the new inventory.
+    ///
+    /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
+    /// publication path and does not claim power-loss atomicity.
+    /// Apply attribute changes to multiple persistent objects with one inventory publication.
+    ///
+    /// Each tuple is (object ID, attribute mask, enabled). Duplicate object IDs are
+    /// rejected so the final state is unambiguous. An empty batch is a no-op.
+    pub fn set_persistent_attributes_batch<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        changes: &[(ObjectId, u8, bool)],
+    ) -> Result<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent attribute changes require a published inventory",
+            ));
+        };
+        let mut object_ids = Vec::new();
+        object_ids.try_reserve_exact(changes.len()).map_err(|_| {
+            Error::AllocationFailed("unable to allocate persistent attribute batch validation")
+        })?;
+        for (object_id, _, _) in changes {
+            object_ids.push(object_id.0);
+        }
+        object_ids.sort_unstable();
+        if object_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::InvalidInput(
+                "an object may receive attribute changes only once per batch",
+            ));
+        }
+        let mut changed = false;
+        for (object_id, attributes, enabled) in changes {
+            let previous_generation = namespace
+                .object(*object_id)
+                .ok_or(Error::InvalidInput("object does not exist"))?
+                .generation;
+            namespace.set_attributes(*object_id, *attributes, *enabled)?;
+            changed |= namespace
+                .object(*object_id)
+                .is_some_and(|record| record.generation != previous_generation);
+        }
+        if changed {
+            self.replace_persistent_namespace_inventory(device, &namespace)?;
+        }
+        Ok(())
+    }
+
+    /// Set or clear supported Basic attributes on one persistent path.
+    pub fn set_persistent_attributes<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        attributes: u8,
+        enabled: bool,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent attribute changes require a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let previous_generation = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved object metadata is missing"))?
+            .generation;
+        namespace.set_attributes(object_id, attributes, enabled)?;
+        if namespace
+            .object(object_id)
+            .map(|record| record.generation)
+            == Some(previous_generation)
+        {
+            return Ok(());
+        }
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(())
+    }
+
+
+    ///
+    /// The lookup remains valid after rename/move operations and avoids requiring
+    /// callers to cache or reconstruct a path from the object ID.
     /// Read a bounded range from a persistent file using its stable object identifier.
     ///
     /// The object can be renamed or moved without invalidating the caller's handle.
@@ -8809,92 +8896,9 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.stat_persistent_path(&mut self.device, path)
     }
 
-    /// Change supported Basic attributes on a persistent object and publish the new inventory.
+    /// Look up persistent metadata by a stable object handle.
     ///
-    /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
-    /// publication path and does not claim power-loss atomicity.
-    /// Apply attribute changes to multiple persistent objects with one inventory publication.
-    ///
-    /// Each tuple is (object ID, attribute mask, enabled). Duplicate object IDs are
-    /// rejected so the final state is unambiguous. An empty batch is a no-op.
-    pub fn set_persistent_attributes_batch<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        changes: &[(ObjectId, u8, bool)],
-    ) -> Result<()> {
-        if changes.is_empty() {
-            return Ok(());
-        }
-        self.validate_device(device)?;
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "persistent attribute changes require a published inventory",
-            ));
-        };
-        let mut object_ids = Vec::new();
-        object_ids.try_reserve_exact(changes.len()).map_err(|_| {
-            Error::AllocationFailed("unable to allocate persistent attribute batch validation")
-        })?;
-        for (object_id, _, _) in changes {
-            object_ids.push(object_id.0);
-        }
-        object_ids.sort_unstable();
-        if object_ids.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(Error::InvalidInput(
-                "an object may receive attribute changes only once per batch",
-            ));
-        }
-        let mut changed = false;
-        for (object_id, attributes, enabled) in changes {
-            let previous_generation = namespace
-                .object(*object_id)
-                .ok_or(Error::InvalidInput("object does not exist"))?
-                .generation;
-            namespace.set_attributes(*object_id, *attributes, *enabled)?;
-            changed |= namespace
-                .object(*object_id)
-                .is_some_and(|record| record.generation != previous_generation);
-        }
-        if changed {
-            self.replace_persistent_namespace_inventory(device, &namespace)?;
-        }
-        Ok(())
-    }
-
-    /// Set or clear supported Basic attributes on one persistent path.
-    pub fn set_persistent_attributes<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        path: &str,
-        attributes: u8,
-        enabled: bool,
-    ) -> Result<()> {
-        self.validate_device(device)?;
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "persistent attribute changes require a published inventory",
-            ));
-        };
-        let object_id = namespace.resolve_path(path)?;
-        let previous_generation = namespace
-            .object(object_id)
-            .ok_or(Error::Corrupt("resolved object metadata is missing"))?
-            .generation;
-        namespace.set_attributes(object_id, attributes, enabled)?;
-        if namespace
-            .object(object_id)
-            .map(|record| record.generation)
-            == Some(previous_generation)
-        {
-            return Ok(());
-        }
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
-        Ok(())
-    }
-
-
-    ///
-    /// The lookup remains valid after rename/move operations and avoids requiring
+    /// The lookup remains valid after rename or move operations and avoids requiring
     /// callers to cache or reconstruct a path from the object ID.
     pub fn stat_object(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
         self.opened
