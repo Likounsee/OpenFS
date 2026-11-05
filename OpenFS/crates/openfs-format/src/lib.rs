@@ -156,6 +156,8 @@ pub(crate) fn crc32c(bytes: &[u8]) -> u32 {
     !crc
 }
 mod allocator_extents;
+#[cfg(test)]
+mod basic_repair_tests;
 mod checkpoint;
 #[cfg(test)]
 mod crash_sweep;
