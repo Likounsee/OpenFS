@@ -241,7 +241,7 @@ OpenFsDecodeRedoImage(
     _In_ ULONG FirstRecord,
     _In_ ULONG RecordCount,
     _In_ ULONG BlockSize,
-    _Out_ PULONGLONG TargetBlock,
+    _Out_ ULONGLONG* TargetBlock,
     _Out_writes_bytes_(BlockSize) UCHAR* Image
     )
 {
