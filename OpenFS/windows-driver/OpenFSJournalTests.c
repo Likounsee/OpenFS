@@ -135,5 +135,38 @@ int main(void){
   assert(requiredTargets==2&&redoTargets[0]==42&&redoTargets[1]==42);
  }
 
+
+ {
+  OPENFS_JOURNAL_REDO_UPDATE update;
+  OPENFS_JOURNAL_RECORD_VIEW decoded[16];
+  UCHAR image[4096], encoded[4*4096], scratch[4096];
+  ULONG count=0, i;
+  ULONGLONG commit=0,next=0;
+  for(i=0;i<sizeof(image);i++) image[i]=(UCHAR)(i*7u);
+  update.TargetBlock=77; update.Image=image;
+  assert(OpenFsBuildJournalTransaction(&update,1,4096,4,64,100,9,5,
+      encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_SUCCESS);
+  assert(count==4&&commit==12&&next==13);
+  for(i=0;i<count;i++)
+    assert(OpenFsDecodeJournalRecordBlock(encoded+i*4096,4096,&decoded[i])==STATUS_SUCCESS);
+  assert(decoded[0].Kind==OpenFsJournalBegin&&decoded[0].Sequence==9);
+  assert(decoded[1].Kind==OpenFsJournalUpdate&&decoded[1].Sequence==10);
+  assert(decoded[2].Kind==OpenFsJournalUpdate&&decoded[2].Sequence==11);
+  assert(decoded[3].Kind==OpenFsJournalCommit&&decoded[3].Sequence==12);
+  {
+    UCHAR rebuilt[4096]; ULONGLONG target=0;
+    assert(OpenFsDecodeRedoImage(decoded,1,2,4096,&target,rebuilt)==STATUS_SUCCESS);
+    assert(target==77&&memcmp(rebuilt,image,sizeof(image))==0);
+  }
+  update.TargetBlock=100;
+  memset(encoded,0xA5,sizeof(encoded));
+  assert(OpenFsBuildJournalTransaction(&update,1,4096,4,64,100,9,5,
+      encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_DISK_CORRUPT_ERROR);
+  assert(encoded[0]==0xA5);
+  update.TargetBlock=77;
+  assert(OpenFsBuildJournalTransaction(&update,1,4096,3,64,100,9,5,
+      encoded,sizeof(encoded),&count,&commit,&next,scratch)==STATUS_BUFFER_TOO_SMALL);
+ }
+
  puts("OpenFS journal codec and recovery-plan tests passed");return 0;
 }
