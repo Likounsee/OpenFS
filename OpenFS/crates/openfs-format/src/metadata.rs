@@ -333,11 +333,28 @@ mod tests {
 
     #[test]
     fn metadata_record_round_trips_explicitly() {
-        let record = file();
+        let mut record = file();
+        record.created_at = 1_700_000_000;
+        record.modified_at = 1_700_000_100;
+        record.accessed_at = 1_700_000_200;
         let bytes = record.encode().unwrap();
         assert_eq!(bytes.len(), METADATA_RECORD_SIZE);
         assert_eq!(&bytes[..8], b"OFSMETA\0");
         assert_eq!(MetadataRecord::decode(&bytes).unwrap(), record);
+    }
+
+    #[test]
+    fn legacy_v1_metadata_decodes_with_unknown_timestamps() {
+        let mut bytes = file().encode().unwrap();
+        bytes[8..10].copy_from_slice(&1_u16.to_le_bytes());
+        bytes[64..76].fill(0);
+        let checksum = crate::crc32c(&bytes[..76]);
+        bytes[76..80].copy_from_slice(&checksum.to_le_bytes());
+
+        let decoded = MetadataRecord::decode(&bytes).unwrap();
+        assert_eq!(decoded.created_at, 0);
+        assert_eq!(decoded.modified_at, 0);
+        assert_eq!(decoded.accessed_at, 0);
     }
 
     #[test]
@@ -349,10 +366,13 @@ mod tests {
             Err(Error::Corrupt(_))
         ));
         let mut bytes = file().encode().unwrap();
+        bytes[8..10].copy_from_slice(&1_u16.to_le_bytes());
         bytes[64] = 1;
+        let checksum = crate::crc32c(&bytes[..76]);
+        bytes[76..80].copy_from_slice(&checksum.to_le_bytes());
         assert!(matches!(
             MetadataRecord::decode(&bytes),
-            Err(Error::Corrupt(_))
+            Err(Error::Corrupt("legacy metadata reserved bytes must be zero"))
         ));
         let mut bytes = file().encode().unwrap();
         bytes[10] = 99;
