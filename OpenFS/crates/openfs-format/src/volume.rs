@@ -16913,12 +16913,15 @@ mod tests {
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let volume = format_volume_secure(&mut device, uuid, features).unwrap();
+                let formatted_encoded =
+                    encode_superblock(block_size, 256, features | FEATURE_SECURE_JOURNAL, uuid)
+                        .unwrap();
                 for block in [0_u64, 255_u64] {
                     let mut on_disk = vec![0_u8; block_size as usize];
                     device.read_blocks(block, &mut on_disk).unwrap();
                     assert_eq!(
-                        &on_disk[..encoded.len()],
-                        &encoded,
+                        &on_disk[..formatted_encoded.len()],
+                        &formatted_encoded,
                         "formatted superblock differs from golden bytes at block {block}, block size {block_size}"
                     );
                     assert!(
@@ -19529,8 +19532,14 @@ mod tests {
                     mounted.create_file("/", ObjectId(2), "range.bin").unwrap();
                     mounted.write_file("/range.bin", &original).unwrap();
 
-                    let replacement_device = ImageDevice::open(&path, block_size).unwrap();
-                    let device = std::mem::replace(&mut mounted.device, replacement_device);
+                    // Keep the session's exclusive image lock by moving its original
+                    // device into the fault injector. A separate placeholder device is
+                    // required by the session while the injected wrapper is used directly.
+                    let placeholder_path =
+                        image_path(&format!("basic-range-placeholder-{failure_kind}-{block_size}"));
+                    let placeholder_device =
+                        ImageDevice::create(&placeholder_path, block_size, 256).unwrap();
+                    let device = std::mem::replace(&mut mounted.device, placeholder_device);
                     let mut failing = FaultInjectingDevice::new(device);
                     failing.fail_next(if failure_kind == "write" {
                         IoOperation::Write
@@ -19564,6 +19573,7 @@ mod tests {
 
                     mounted.device = failing.into_inner();
                     mounted.unmount().unwrap();
+                    fs::remove_file(placeholder_path).unwrap();
                 }
 
                 {
