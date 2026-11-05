@@ -20037,7 +20037,6 @@ impl<D: BlockDevice> VolumeSession<D> {
     }
 }
 
-
 #[cfg(test)]
 mod directory_access_timestamp_tests {
     use super::{format_volume, VolumeSession};
