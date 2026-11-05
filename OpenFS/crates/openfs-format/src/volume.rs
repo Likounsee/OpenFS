@@ -3293,6 +3293,18 @@ impl OpenedVolume {
             }
         }
 
+        // Recursive removal must honor the same read-only protection as single-file
+        // removal. Validate every descendant before reading extent maps or publishing
+        // the new inventory, so one protected file cannot be deleted indirectly.
+        for id in &removed_ids {
+            let record = namespace
+                .object(*id)
+                .ok_or(Error::Corrupt("subtree metadata disappeared"))?;
+            if record.kind == crate::ObjectKind::File && record.is_read_only() {
+                return Err(Error::InvalidInput("cannot remove a subtree containing a read-only file"));
+            }
+        }
+
         let extent_maps = self.read_namespace_extent_maps(device, namespace)?;
         let mut reclaim_capacity = 0_u64;
         for id in &removed_ids {
@@ -19221,6 +19233,84 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
+        use crate::{ObjectId, METADATA_FLAG_READ_ONLY};
+
+        let path = image_path("basic-tree-remove-readonly-descendant");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume
+                .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "protected")
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(
+                    &mut device,
+                    "/protected",
+                    ObjectId(3),
+                    "important.txt",
+                )
+                .unwrap();
+            volume
+                .write_persistent_file_contents(
+                    &mut device,
+                    "/protected/important.txt",
+                    b"must survive recursive deletion",
+                )
+                .unwrap();
+            volume
+                .set_persistent_attributes(
+                    &mut device,
+                    "/protected/important.txt",
+                    METADATA_FLAG_READ_ONLY,
+                    true,
+                )
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let before = snapshot_image_bytes(&mut device);
+            let mut volume = open_volume(&mut device).unwrap();
+            assert!(matches!(
+                volume.remove_persistent_tree_at_path(&mut device, "/protected"),
+                Err(Error::InvalidInput(
+                    "cannot remove a subtree containing a read-only file"
+                ))
+            ));
+            assert_eq!(
+                snapshot_image_bytes(&mut device),
+                before,
+                "refusing a subtree with a read-only descendant must not modify any image byte"
+            );
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/protected/important.txt",
+                        0,
+                        64,
+                    )
+                    .unwrap(),
+                b"must survive recursive deletion"
+            );
+            assert!(
+                volume
+                    .verify_discovered_persistent_inventory(&mut device)
+                    .unwrap()
+                    .unwrap()
+                    .is_consistent()
+            );
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn persistent_tree_removal_rejects_invalid_targets_before_any_write() {
         use crate::ObjectId;
