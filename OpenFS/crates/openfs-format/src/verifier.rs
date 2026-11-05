@@ -360,6 +360,12 @@ mod tests {
                     size: 1,
                     extent_root_block: Some(extent_root_block),
                     generation: 1,
+
+                    created_at: 0,
+
+                    modified_at: 0,
+
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
@@ -439,6 +445,12 @@ mod tests {
                     size: 1,
                     extent_root_block: Some(extent_root_block),
                     generation: 1,
+
+                    created_at: 0,
+
+                    modified_at: 0,
+
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
