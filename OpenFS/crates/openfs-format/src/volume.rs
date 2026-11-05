@@ -4,7 +4,7 @@
 //! data region, and protects allocator bitmap changes.
 
 use crate::{
-    crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
+    crc32c, decode_directory_entries, decode_metadata_records, plan_recovery,
     DirectoryEntry, ExtentMap, JournalCheckpoint, JournalRecord, JournalRecordKind, JournalRegion,
     MetadataRecord, Namespace, ObjectId, PersistentInventoryDescriptor, PersistentJournal,
     RedoUpdate, DIRECTORY_ENTRY_SIZE, INVENTORY_DESCRIPTOR_MAGIC, JOURNAL_CHECKPOINT_SIZE,
@@ -22,9 +22,11 @@ struct SparseRangeWrite<'a> {
 }
 
 const MAGIC: &[u8; 8] = b"OPENFS\0\0";
-const VERSION: u16 = 4;
+const VERSION: u16 = 5;
+const PREVIOUS_VERSION: u16 = 4;
+const INVENTORY_HINT_VERSION: u16 = 3;
 const LEGACY_VERSION: u16 = 2;
-const PREVIOUS_VERSION: u16 = 3;
+pub const FEATURE_SECURE_JOURNAL: u64 = 1 << 63;
 const INVENTORY_HINT_OFFSET: usize = 48;
 const HEADER_SIZE: u16 = 48;
 const CHECKSUM_OFFSET: usize = 4088;
@@ -286,7 +288,7 @@ impl VolumeLayout {
         total_blocks: u64,
         version: u16,
     ) -> Result<Self> {
-        let ring_blocks = if version == VERSION {
+        let ring_blocks = if version >= PREVIOUS_VERSION {
             JOURNAL_RING_BLOCKS
         } else {
             LEGACY_JOURNAL_RING_BLOCKS
@@ -8243,6 +8245,9 @@ pub fn format_volume<D: BlockDevice>(
     features: u64,
 ) -> Result<OpenedVolume> {
     let layout = VolumeLayout::calculate(device.block_size(), device.block_count())?;
+    // New volumes are OpenFS Basic by default. The Secure bit is reserved for the
+    // later journal-enabled format; legacy volumes remain readable as Secure.
+    let features = features & !FEATURE_SECURE_JOURNAL;
     let encoded = encode_superblock(layout.block_size, layout.total_blocks, features, uuid)?;
     write_superblock(device, layout.backup_superblock, &encoded)?;
     let block_size = layout.block_size as usize;
@@ -8273,7 +8278,15 @@ pub fn format_volume<D: BlockDevice>(
         device.write_blocks(bitmap_block, &bitmap)?;
     }
     device.flush()?;
-    format_journal(device, layout.journal)?;
+    // Keep the journal's future location reserved and clean, but do not create
+    // checkpoints or redo records in Basic mode.
+    let journal_end = layout.journal.ring_start
+        .checked_add(layout.journal.ring_blocks)
+        .ok_or(Error::ArithmeticOverflow)?;
+    let zero = try_zeroed_bytes(block_size, "unable to allocate Basic reserved-region buffer")?;
+    for block in layout.journal.checkpoint_a..journal_end {
+        device.write_blocks(block, &zero)?;
+    }
     device.flush()?;
     write_superblock(device, 0, &encoded)?;
     device.flush()?;
@@ -8311,13 +8324,25 @@ pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     let version = u16::from_le_bytes([primary[8], primary[9]]);
     let layout = VolumeLayout::calculate_for_version(block_size, total_blocks, version)?;
     validate_bitmap(device, &layout)?;
-    let journal = crate::journal_engine::open_journal_protected(
-        device,
-        layout.journal,
-        &[0, layout.backup_superblock],
-    )?;
-    // Recovery may replay a bitmap home-block image. Validate reserved bits again
-    // after replay before exposing writable volume state.
+    // Versions before v5 used the redo journal. In v5 the explicit feature bit
+    // distinguishes a future Secure volume from Basic, whose reserved journal area
+    // must never be scanned or replayed.
+    let secure = version < VERSION || (features & FEATURE_SECURE_JOURNAL) != 0;
+    let journal = if secure {
+        crate::journal_engine::open_journal_protected(
+            device,
+            layout.journal,
+            &[0, layout.backup_superblock],
+        )?
+    } else {
+        crate::journal_engine::open_without_journal(
+            device,
+            layout.journal,
+            &[0, layout.backup_superblock],
+        )?
+    };
+    // Validate allocator-reserved bits after journal replay in Secure mode and
+    // before exposing writable state in either mode.
     validate_bitmap(device, &layout)?;
     Ok(OpenedVolume {
         volume: Volume {
@@ -8365,7 +8390,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
         return Err(Error::Corrupt("bad superblock magic"));
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != VERSION && version != PREVIOUS_VERSION && version != LEGACY_VERSION {
+    if version != VERSION && version != PREVIOUS_VERSION && version != INVENTORY_HINT_VERSION && version != LEGACY_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     if u16::from_le_bytes([bytes[10], bytes[11]]) != HEADER_SIZE {
@@ -8379,7 +8404,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
     if stored != crc32c(&bytes[..CHECKSUM_OFFSET]) {
         return Err(Error::Corrupt("superblock CRC32C mismatch"));
     }
-    let reserved_start = if version >= PREVIOUS_VERSION {
+    let reserved_start = if version >= INVENTORY_HINT_VERSION {
         INVENTORY_HINT_OFFSET + 8
     } else {
         48
@@ -8406,7 +8431,7 @@ fn decode_superblock(bytes: &[u8; SUPERBLOCK_SIZE]) -> Result<(u32, u64, u64, [u
 }
 
 fn decode_inventory_hint(bytes: &[u8; SUPERBLOCK_SIZE]) -> Option<u64> {
-    if u16::from_le_bytes([bytes[8], bytes[9]]) < PREVIOUS_VERSION {
+    if u16::from_le_bytes([bytes[8], bytes[9]]) < INVENTORY_HINT_VERSION {
         return None;
     }
     let hint = u64::from_le_bytes(
