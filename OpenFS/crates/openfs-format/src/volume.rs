@@ -4987,6 +4987,9 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
+        if record.is_read_only() && new_size != record.size {
+            return Err(Error::InvalidInput("cannot resize a read-only file"));
+        }
         if new_size > record.size {
             // Match conventional resize semantics: growth publishes sparse zeroes.
             // Keep this delegation before loading extent maps for the old file.
@@ -5254,6 +5257,9 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
+        if record.is_read_only() && new_size != record.size {
+            return Err(Error::InvalidInput("cannot resize a read-only file"));
+        }
         if new_size < record.size {
             return Err(Error::InvalidInput(
                 "sparse extension cannot shrink a file; use truncation",
@@ -5495,6 +5501,9 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
         if existing.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        if existing.is_read_only() {
+            return Err(Error::InvalidInput("cannot write to a read-only file"));
         }
         let next_generation = existing
             .generation
@@ -5848,6 +5857,9 @@ impl OpenedVolume {
             .ok_or(Error::Corrupt("resolved file metadata is missing"))?;
         if existing.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        if existing.is_read_only() && (!data.is_empty() || existing.size != 0) {
+            return Err(Error::InvalidInput("cannot write to a read-only file"));
         }
         // Replacing an already-empty file with empty contents changes no persistent
         // state; avoid a generation bump and copy-on-write inventory churn.
@@ -8794,7 +8806,37 @@ impl<D: BlockDevice> VolumeSession<D> {
         self.opened.stat_persistent_path(&mut self.device, path)
     }
 
-    /// Look up persistent metadata by a stable object handle.
+    /// Look up persistent metadata by a stable object handle.    /// Change supported Basic attributes on a persistent object and publish the new inventory.
+    ///
+    /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
+    /// publication path and does not claim power-loss atomicity.
+    pub fn set_persistent_attributes<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        attributes: u8,
+        enabled: bool,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent attribute changes require a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let previous_generation = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved object metadata is missing"))?
+            .generation;
+        namespace.set_attributes(object_id, attributes, enabled)?;
+        if namespace.object(object_id).map(|record| record.generation) == Some(previous_generation) {
+            return Ok(());
+        }
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(())
+    }
+
+
     ///
     /// The lookup remains valid after rename/move operations and avoids requiring
     /// callers to cache or reconstruct a path from the object ID.
@@ -8803,7 +8845,17 @@ impl<D: BlockDevice> VolumeSession<D> {
             .stat_persistent_object(&mut self.device, object_id)
     }
 
-    /// Read a bounded range from a regular file addressed by stable object ID.
+    /// Read a bounded range from a regular file addressed by stable object ID.    /// Set or clear supported Basic attributes on a persistent path.
+    pub fn set_attributes(&mut self, path: &str, attributes: u8, enabled: bool) -> Result<()> {
+        self.opened.set_persistent_attributes(
+            &mut self.device,
+            path,
+            attributes,
+            enabled,
+        )
+    }
+
+
     ///
     /// This remains valid after rename or move and avoids path caching in adapters.
     pub fn read_file_range_by_id(
