@@ -190,10 +190,42 @@ jobs:
             ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $package 'SHA256SUMS.txt')
           Write-Host "Unsigned driver binary bundle created at $package"
-      - name: Publish unsigned development package
+      - name: Create VM test-signed driver package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $env:RUNNER_TEMP 'openfs-wdk-x64-package'
+          $kits = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\\10'),
+            (Join-Path $env:ProgramFiles 'Windows Kits\\10')
+          ) | Where-Object { Test-Path $_ }
+          $inf2cat = Get-ChildItem -Path $kits -Filter Inf2Cat.exe -File -Recurse -ErrorAction Stop |
+            Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
+          $signtool = Get-ChildItem -Path $kits -Filter signtool.exe -File -Recurse -ErrorAction Stop |
+            Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
+          if ($null -eq $inf2cat -or $null -eq $signtool) {
+            throw 'Inf2Cat.exe or x64 signtool.exe was not found in the installed WDK.'
+          }
+          & $inf2cat.FullName /driver:$package /os:10_X64
+          if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed: $LASTEXITCODE" }
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=OpenFS VM Test Signing' -CertStoreLocation 'Cert:\\CurrentUser\\My' -HashAlgorithm SHA256 -KeyLength 2048 -NotAfter (Get-Date).AddDays(30)
+          $pfx = Join-Path $env:RUNNER_TEMP 'openfs-test-signing.pfx'
+          $cer = Join-Path $package 'OpenFS-TestSigning.cer'
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          & $signtool.FullName sign /fd SHA256 /f $pfx /p (ConvertFrom-SecureString $password -AsPlainText) (Join-Path $package 'OpenFS.cat')
+          if ($LASTEXITCODE -ne 0) { throw "Test signing failed: $LASTEXITCODE" }
+          Remove-Item -Force $pfx
+          Get-ChildItem $package -File |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content (Join-Path $package 'SHA256SUMS.txt')
+          Write-Host 'VM-only test-signed package created. The certificate is public only; its private key is discarded.'
+      - name: Publish VM test package
         uses: actions/upload-artifact@v4
         with:
-          name: openfs-wdk-x64-binary-bundle
+          name: openfs-wdk-x64-vm-test-package
           path: ${{ runner.temp }}/openfs-wdk-x64-package/*
           if-no-files-found: error
           retention-days: 7
