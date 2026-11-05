@@ -8949,8 +8949,14 @@ impl<D: BlockDevice> VolumeSession<D> {
         offset: u64,
         length: usize,
     ) -> Result<Vec<u8>> {
-        self.opened
-            .read_persistent_object_range(&mut self.device, object_id, offset, length)
+        let data = self
+            .opened
+            .read_persistent_object_range(&mut self.device, object_id, offset, length)?;
+        if !data.is_empty() {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, object_id)?;
+        }
+        Ok(data)
     }
 
     /// Resolve the current path of an open object handle.
@@ -9009,8 +9015,18 @@ impl<D: BlockDevice> VolumeSession<D> {
 
     /// Read a bounded range of a regular file without loading the entire file.
     pub fn read_file_range(&mut self, path: &str, offset: u64, length: usize) -> Result<Vec<u8>> {
-        self.opened
-            .read_persistent_path_range(&mut self.device, path, offset, length)
+        let record = self.stat(path)?;
+        if record.kind != crate::ObjectKind::File {
+            return Err(Error::InvalidInput("path does not identify a regular file"));
+        }
+        let data = self
+            .opened
+            .read_persistent_path_range(&mut self.device, path, offset, length)?;
+        if !data.is_empty() {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, record.id)?;
+        }
+        Ok(data)
     }
 
     /// Stream a bounded file range to a writer using block-sized working memory.
