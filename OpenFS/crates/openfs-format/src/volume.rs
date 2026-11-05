@@ -9115,7 +9115,7 @@ mod tests {
     fn basic_format_has_explicit_mode_and_never_initializes_journal() {
         let path = image_path("basic-mode");
         let mut device = ImageDevice::create(&path, 4096, 256).unwrap();
-        let opened = format_volume(&mut device, *b"openfs-basic-01", 0).unwrap();
+        let opened = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
         assert_eq!(opened.volume.features & super::FEATURE_SECURE_JOURNAL, 0);
         assert_eq!(opened.journal.checkpoint().generation, 0);
 
