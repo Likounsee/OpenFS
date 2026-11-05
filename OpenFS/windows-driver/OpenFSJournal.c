@@ -414,6 +414,77 @@ OpenFsJournalCheckpointsEqual(
         Left->TailBlock == Right->TailBlock;
 }
 
+
+NTSTATUS
+OpenFsValidateRedoTargets(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG RecordCount,
+    _In_reads_(TransactionCount) const OPENFS_JOURNAL_TRANSACTION_VIEW* Transactions,
+    _In_ ULONG TransactionCount,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG FirstAllowedBlock,
+    _In_ ULONGLONG EndAllowedBlock,
+    _Out_writes_(TargetCapacity) ULONGLONG* Targets,
+    _In_ ULONG TargetCapacity,
+    _Out_ PULONG RequiredTargetCount,
+    _Out_writes_bytes_(BlockSize) UCHAR* ScratchImage
+    )
+{
+    ULONGLONG planned[16];
+    ULONG chunkCapacity, chunksPerImage, plannedCount = 0, txIndex;
+    if ((RecordCount != 0 && Records == NULL) ||
+        (TransactionCount != 0 && Transactions == NULL) ||
+        RequiredTargetCount == NULL || ScratchImage == NULL ||
+        BlockSize < 64u || BlockSize > 65536u ||
+        FirstAllowedBlock >= EndAllowedBlock ||
+        TransactionCount > RTL_NUMBER_OF(planned) ||
+        (TargetCapacity != 0 && Targets == NULL))
+        return STATUS_INVALID_PARAMETER;
+    *RequiredTargetCount = 0;
+    chunkCapacity = BlockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES - 12u;
+    if (chunkCapacity == 0)
+        return STATUS_INVALID_PARAMETER;
+    chunksPerImage = (BlockSize + chunkCapacity - 1u) / chunkCapacity;
+
+    for (txIndex = 0; txIndex < TransactionCount; ++txIndex) {
+        const OPENFS_JOURNAL_TRANSACTION_VIEW* tx = &Transactions[txIndex];
+        ULONG cursor, end, txTargets[16], txTargetCount = 0;
+        if (tx->UpdateCount == 0 || tx->FirstUpdateIndex > RecordCount ||
+            tx->UpdateCount > RecordCount - tx->FirstUpdateIndex ||
+            tx->UpdateCount % chunksPerImage != 0)
+            return STATUS_DISK_CORRUPT_ERROR;
+        cursor = tx->FirstUpdateIndex;
+        end = cursor + tx->UpdateCount;
+        while (cursor < end) {
+            ULONGLONG target;
+            ULONG prior;
+            NTSTATUS status = OpenFsDecodeRedoImage(Records, cursor,
+                chunksPerImage, BlockSize, &target, ScratchImage);
+            if (!NT_SUCCESS(status))
+                return status;
+            if (target < FirstAllowedBlock || target >= EndAllowedBlock)
+                return STATUS_DISK_CORRUPT_ERROR;
+            for (prior = 0; prior < txTargetCount; ++prior)
+                if (planned[txTargets[prior]] == target)
+                    return STATUS_DISK_CORRUPT_ERROR;
+            if (plannedCount >= RTL_NUMBER_OF(planned))
+                return STATUS_BUFFER_TOO_SMALL;
+            planned[plannedCount] = target;
+            txTargets[txTargetCount++] = plannedCount;
+            ++plannedCount;
+            cursor += chunksPerImage;
+        }
+    }
+
+    *RequiredTargetCount = plannedCount;
+    if (plannedCount > TargetCapacity)
+        return STATUS_BUFFER_TOO_SMALL;
+    if (plannedCount != 0)
+        RtlCopyMemory(Targets, planned, plannedCount * sizeof(ULONGLONG));
+    return STATUS_SUCCESS;
+}
+
+
 NTSTATUS
 OpenFsSelectJournalCheckpoint(
     _In_ NTSTATUS FirstStatus,
