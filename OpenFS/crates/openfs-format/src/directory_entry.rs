@@ -45,9 +45,9 @@ pub fn decode_directory_entries(bytes: &[u8]) -> Result<Vec<DirectoryEntry>> {
         .try_reserve_exact(record_count)
         .map_err(|_| Error::AllocationFailed("unable to allocate decoded directory entries"))?;
     let mut sibling_names = HashSet::new();
-    sibling_names.try_reserve(record_count).map_err(|_| {
-        Error::AllocationFailed("unable to allocate directory-name validation set")
-    })?;
+    sibling_names
+        .try_reserve(record_count)
+        .map_err(|_| Error::AllocationFailed("unable to allocate directory-name validation set"))?;
     let mut linked_objects = HashSet::new();
     linked_objects.try_reserve(record_count).map_err(|_| {
         Error::AllocationFailed("unable to allocate directory-object validation set")
