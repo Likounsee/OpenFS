@@ -1326,7 +1326,157 @@ Exit:
 
 
 /*
- * Validate an FCB against the mounted VCB before exposing immutable file
+ * 
+/*
+ * Experimental in-place overwrite path for isolated VM testing.
+ * It never allocates blocks, changes file size, or updates metadata.
+ * Sparse holes and writes beyond EOF are rejected. Partial blocks use
+ * read/modify/write under the exclusive VCB resource.
+ */
+NTSTATUS
+OpenFsWriteFcbData(
+    _In_ PDEVICE_OBJECT VolumeDeviceObject,
+    _In_ POPENFS_FCB FileFcb,
+    _In_ ULONGLONG ByteOffset,
+    _In_reads_bytes_(Length) const UCHAR* Buffer,
+    _In_ ULONG Length,
+    _Out_ PULONG BytesWritten
+    )
+{
+    POPENFS_VCB vcb;
+    PLIST_ENTRY link;
+    BOOLEAN owned = FALSE;
+    PUCHAR blockBuffer = NULL;
+    ULONGLONG currentOffset;
+    ULONG completed = 0;
+    NTSTATUS status;
+
+    if (BytesWritten == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *BytesWritten = 0;
+    if (VolumeDeviceObject == NULL || FileFcb == NULL ||
+        (Buffer == NULL && Length != 0) ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+    if (Length == 0)
+        return STATUS_SUCCESS;
+
+    status = OpenFsLoadFcbExtents(VolumeDeviceObject, FileFcb);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    ObReferenceObject(VolumeDeviceObject);
+    vcb = (POPENFS_VCB)VolumeDeviceObject->DeviceExtension;
+    if (vcb == NULL || vcb->Signature != OPENFS_VCB_SIGNATURE) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    if (!ExAcquireRundownProtection(&vcb->RundownProtection)) {
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_DELETE_PENDING;
+    }
+    if (!ExAcquireResourceExclusiveLite(&vcb->Resource, TRUE)) {
+        ExReleaseRundownProtection(&vcb->RundownProtection);
+        ObDereferenceObject(VolumeDeviceObject);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    for (link = vcb->FcbList.Flink; link != &vcb->FcbList;
+         link = link->Flink) {
+        if (CONTAINING_RECORD(link, OPENFS_FCB, CacheLink) == FileFcb) {
+            owned = TRUE;
+            break;
+        }
+    }
+    if (!owned || FileFcb->Signature != OPENFS_FCB_SIGNATURE) {
+        status = STATUS_INVALID_PARAMETER;
+        goto WriteExit;
+    }
+    if (vcb->State != OpenFsVolumeMounted) {
+        status = STATUS_VOLUME_DISMOUNTED;
+        goto WriteExit;
+    }
+    if (FileFcb->Kind != 1u || FileFcb->IsRoot) {
+        status = STATUS_FILE_IS_A_DIRECTORY;
+        goto WriteExit;
+    }
+    if (!FileFcb->ExtentsLoaded || vcb->Geometry.BlockSize == 0) {
+        status = STATUS_INVALID_DEVICE_STATE;
+        goto WriteExit;
+    }
+    if (ByteOffset > FileFcb->FileSize ||
+        (ULONGLONG)Length > FileFcb->FileSize - ByteOffset) {
+        status = STATUS_DISK_FULL;
+        goto WriteExit;
+    }
+
+    blockBuffer = (PUCHAR)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, vcb->Geometry.BlockSize, OPENFS_FCB_POOL_TAG);
+    if (blockBuffer == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto WriteExit;
+    }
+
+    currentOffset = ByteOffset;
+    status = STATUS_SUCCESS;
+    while (completed < Length) {
+        ULONGLONG logicalBlock =
+            currentOffset / vcb->Geometry.BlockSize;
+        ULONGLONG physicalBlock = 0;
+        ULONG blockOffset =
+            (ULONG)(currentOffset % vcb->Geometry.BlockSize);
+        ULONG chunk = vcb->Geometry.BlockSize - blockOffset;
+        BOOLEAN allocated = FALSE;
+
+        if (chunk > Length - completed)
+            chunk = Length - completed;
+
+        status = OpenFsMapLogicalBlock(FileFcb->Extents,
+            FileFcb->ExtentCount, logicalBlock, &physicalBlock, &allocated);
+        if (!NT_SUCCESS(status))
+            break;
+        if (!allocated) {
+            status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        if (blockOffset == 0 && chunk == vcb->Geometry.BlockSize) {
+            RtlCopyMemory(blockBuffer, Buffer + completed, chunk);
+        } else {
+            status = OpenFsReadVolumeBlocks(vcb->RealDeviceObject,
+                vcb->Geometry.BlockSize, vcb->Geometry.TotalBlocks,
+                physicalBlock, 1, blockBuffer, vcb->Geometry.BlockSize);
+            if (!NT_SUCCESS(status))
+                break;
+            RtlCopyMemory(blockBuffer + blockOffset,
+                Buffer + completed, chunk);
+        }
+
+        status = OpenFsWriteVolumeBlocks(vcb->RealDeviceObject,
+            vcb->Geometry.BlockSize, vcb->Geometry.TotalBlocks,
+            physicalBlock, 1, blockBuffer, vcb->Geometry.BlockSize);
+        if (!NT_SUCCESS(status))
+            break;
+
+        completed += chunk;
+        currentOffset += chunk;
+    }
+
+    if (NT_SUCCESS(status) && completed != 0)
+        status = OpenFsFlushVolumeDevice(vcb->RealDeviceObject);
+    *BytesWritten = completed;
+
+WriteExit:
+    if (blockBuffer != NULL)
+        ExFreePoolWithTag(blockBuffer, OPENFS_FCB_POOL_TAG);
+    ExReleaseResourceLite(&vcb->Resource);
+    ExReleaseRundownProtection(&vcb->RundownProtection);
+    ObDereferenceObject(VolumeDeviceObject);
+    return status;
+}
+
+
+Validate an FCB against the mounted VCB before exposing immutable file
  * metadata to a dispatch routine. In particular, never trust FsContext merely
  * because it contains a pointer with an FCB-looking signature.
  */
