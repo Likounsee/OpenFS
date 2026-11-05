@@ -8813,45 +8813,6 @@ impl<D: BlockDevice> VolumeSession<D> {
     ///
     /// Secure mode journals the inventory switch. Basic mode uses its ordinary direct
     /// publication path and does not claim power-loss atomicity.
-    pub fn set_persistent_attributes<D: BlockDevice>(
-        &mut self,
-        device: &mut D,
-        path: &str,
-        attributes: u8,
-        enabled: bool,
-    ) -> Result<()> {
-        self.validate_device(device)?;
-        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
-            return Err(Error::InvalidInput(
-                "persistent attribute changes require a published inventory",
-            ));
-        };
-        let object_id = namespace.resolve_path(path)?;
-        let previous_generation = namespace
-            .object(object_id)
-            .ok_or(Error::Corrupt("resolved object metadata is missing"))?
-            .generation;
-        namespace.set_attributes(object_id, attributes, enabled)?;
-        if namespace
-            .object(object_id)
-            .map(|record| record.generation)
-            == Some(previous_generation)
-        {
-            return Ok(());
-        }
-        self.replace_persistent_namespace_inventory(device, &namespace)?;
-        Ok(())
-    }
-
-
-    ///
-    /// The lookup remains valid after rename/move operations and avoids requiring
-    /// callers to cache or reconstruct a path from the object ID.
-    pub fn stat_object(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
-        self.opened
-            .stat_persistent_object(&mut self.device, object_id)
-    }
-
     /// Apply attribute changes to multiple persistent objects with one inventory publication.
     ///
     /// Each tuple is (object ID, attribute mask, enabled). Duplicate object IDs are
@@ -8898,6 +8859,45 @@ impl<D: BlockDevice> VolumeSession<D> {
             self.replace_persistent_namespace_inventory(device, &namespace)?;
         }
         Ok(())
+    }
+
+    pub fn set_persistent_attributes<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        path: &str,
+        attributes: u8,
+        enabled: bool,
+    ) -> Result<()> {
+        self.validate_device(device)?;
+        let Some((_, mut namespace)) = self.reconstruct_discovered_namespace(device)? else {
+            return Err(Error::InvalidInput(
+                "persistent attribute changes require a published inventory",
+            ));
+        };
+        let object_id = namespace.resolve_path(path)?;
+        let previous_generation = namespace
+            .object(object_id)
+            .ok_or(Error::Corrupt("resolved object metadata is missing"))?
+            .generation;
+        namespace.set_attributes(object_id, attributes, enabled)?;
+        if namespace
+            .object(object_id)
+            .map(|record| record.generation)
+            == Some(previous_generation)
+        {
+            return Ok(());
+        }
+        self.replace_persistent_namespace_inventory(device, &namespace)?;
+        Ok(())
+    }
+
+
+    ///
+    /// The lookup remains valid after rename/move operations and avoids requiring
+    /// callers to cache or reconstruct a path from the object ID.
+    pub fn stat_object(&mut self, object_id: ObjectId) -> Result<MetadataRecord> {
+        self.opened
+            .stat_persistent_object(&mut self.device, object_id)
     }
 
     /// Apply attribute changes to multiple objects using their stable IDs.
