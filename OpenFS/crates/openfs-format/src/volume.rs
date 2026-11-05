@@ -16950,7 +16950,7 @@ mod tests {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
                 let volume = format_volume_secure(&mut device, uuid, features).unwrap();
                 let formatted_encoded =
-                    encode_superblock(block_size, 256, features | FEATURE_SECURE_JOURNAL, uuid)
+                    encode_superblock(block_size, 256, features | crate::FEATURE_SECURE_JOURNAL, uuid)
                         .unwrap();
                 for block in [0_u64, 255_u64] {
                     let mut on_disk = vec![0_u8; block_size as usize];
