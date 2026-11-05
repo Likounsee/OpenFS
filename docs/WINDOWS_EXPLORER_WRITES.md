@@ -128,8 +128,16 @@ journal ring before it discovers/publishes the namespace. It selects the valid
 checkpoint pair, scans the post-checkpoint prefix, and validates transaction
 ordering using the native C journal helpers.
 
-If a committed transaction is pending, mount fails with
-`STATUS_DEVICE_NOT_READY` instead of exposing potentially stale home blocks.
-An incomplete uncommitted tail does not modify the device and is ignored for
-read-only access. This is intentionally a fail-closed preflight, not recovery:
-the driver still does not replay REDO, advance checkpoints, or clear the ring.
+The mount path now performs a separate recovery pass after the initial
+read-only geometry/metadata probe and before publishing the volume namespace.
+It preflights all committed REDO images, restricts targets to the data region,
+rejects duplicate targets within a transaction, clears only an uncommitted
+suffix, replays committed home blocks, flushes them, and finally publishes the
+alternate checkpoint copy and flushes again. The namespace is probed again
+after replay so the published snapshot reflects recovered metadata.
+
+This is the first device-backed recovery path, not yet a complete write engine:
+there is still no journal transaction writer connected to file mutations,
+no allocation/namespace mutation transaction, and no Explorer write support.
+A crash during replay remains recoverable because committed REDO is retained
+until the new checkpoint is durable.
