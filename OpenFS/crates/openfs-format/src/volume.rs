@@ -7453,7 +7453,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     if !superblocks_match(&primary, &backup) {
         return Err(Error::Corrupt("primary and backup superblocks disagree"));
     }
-    let (block_size, total_blocks, _features, uuid) = decode_superblock(&primary)?;
+    let (block_size, total_blocks, features, uuid) = decode_superblock(&primary)?;
     if block_size != device.block_size() || total_blocks != device.block_count() {
         return Err(Error::Corrupt(
             "superblock geometry does not match device geometry",
@@ -7462,12 +7462,17 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
     let version = u16::from_le_bytes([primary[8], primary[9]]);
     let layout = VolumeLayout::calculate_for_version(block_size, total_blocks, version)?;
     validate_bitmap(device, &layout)?;
+    let secure = version < VERSION || (features & FEATURE_SECURE_JOURNAL) != 0;
     let (
         journal_generation,
         journal_checkpoint_sequence,
         pending_journal_records,
         recoverable_transactions,
-    ) = check_journal_read_only(device, layout.journal)?;
+    ) = if secure {
+        check_journal_read_only(device, layout.journal)?
+    } else {
+        (0, 0, 0, 0)
+    };
 
     let bits_per_bitmap_block = u64::from(block_size) * 8;
     let first_bitmap = layout.data_start / bits_per_bitmap_block;
