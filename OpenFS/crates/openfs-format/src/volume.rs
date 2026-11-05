@@ -9436,7 +9436,6 @@ mod tests {
 
     #[test]
     fn basic_read_only_attribute_blocks_all_persistent_file_deletion_paths() {
-        use super::VolumeSession;
         use crate::{ObjectId, METADATA_FLAG_READ_ONLY};
 
         let path = image_path("basic-readonly-delete");
