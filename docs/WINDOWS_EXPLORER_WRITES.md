@@ -119,3 +119,17 @@ generation gaps, counter regressions and sequence advancement without a new
 transaction ID, and chooses the newer valid copy when the pair is consistent.
 It consumes independently decoded checkpoint results; actual reads from the
 two checkpoint blocks and recovery replay are still to be wired to the VCB.
+
+
+## Read-only journal preflight on mount
+
+The WDM probe now reads both on-disk checkpoint blocks and the complete bounded
+journal ring before it discovers/publishes the namespace. It selects the valid
+checkpoint pair, scans the post-checkpoint prefix, and validates transaction
+ordering using the native C journal helpers.
+
+If a committed transaction is pending, mount fails with
+`STATUS_DEVICE_NOT_READY` instead of exposing potentially stale home blocks.
+An incomplete uncommitted tail does not modify the device and is ignored for
+read-only access. This is intentionally a fail-closed preflight, not recovery:
+the driver still does not replay REDO, advance checkpoints, or clear the ring.
