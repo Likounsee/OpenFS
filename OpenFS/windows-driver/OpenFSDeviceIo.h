@@ -19,6 +19,27 @@ OpenFsReadVolumeBlocks(
     );
 
 /*
+ * Write a bounded range of complete filesystem blocks. This low-level
+ * primitive is not exposed to IRP_MJ_WRITE until journaled mutation is ready.
+ */
+NTSTATUS
+OpenFsWriteVolumeBlocks(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG TotalBlocks,
+    _In_ ULONGLONG FirstBlock,
+    _In_ ULONG BlockCount,
+    _In_reads_bytes_(BufferLength) const UCHAR* Buffer,
+    _In_ SIZE_T BufferLength
+    );
+
+/* Flush lower-device writes to stable storage. */
+NTSTATUS
+OpenFsFlushVolumeDevice(
+    _In_ PDEVICE_OBJECT DeviceObject
+    );
+
+/*
  * Read-only recognition probe for a partition/volume device supplied by
  * IRP_MN_MOUNT_VOLUME. A successful probe means the bytes are a valid OpenFS
  * volume; it does not mean that a VCB/VPB mount has been established.
