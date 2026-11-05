@@ -9136,8 +9136,11 @@ mod tests {
 
         let layout = opened.volume.layout;
         let journal_end = layout.journal.ring_start + layout.journal.ring_blocks;
-        let mut reserved = vec![0_u8; (journal_end - layout.journal.checkpoint_a) as usize * 4096];
-        device.read_blocks(layout.journal.checkpoint_a, &mut reserved).unwrap();
+        let mut reserved =
+            vec![0_u8; (journal_end - layout.journal.checkpoint_a) as usize * 4096];
+        device
+            .read_blocks(layout.journal.checkpoint_a, &mut reserved)
+            .unwrap();
         assert!(reserved.iter().all(|byte| *byte == 0));
 
         let report = check_volume(&mut device).unwrap();
