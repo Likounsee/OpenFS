@@ -43,3 +43,9 @@ allocation primitives. It does not yet provide a complete persistent non-empty
 file-data write operation suitable for direct invocation by the WDM driver.
 The remaining integration work must bridge those semantics into the kernel
 without duplicating or weakening the on-disk invariants.
+
+## Write-range preflight added
+
+The native WDM project now includes `OpenFSWritePlan.c/.h`. Its side-effect-free planner converts a byte range into the complete physical-block list using a validated extent map. It rejects EOF extension, sparse holes, out-of-range physical blocks, duplicate physical targets, arithmetic overflow, and insufficient caller capacity before any write can begin. Host C tests cover multi-extent and partial-block ranges, zero-length writes, EOF extension, sparse holes, capacity limits, and aliased physical blocks.
+
+This is deliberately not advertised as Explorer write support: the planner does not stage block images or emit redo records. The VCB still has no live persistent-journal writer context, and the kernel driver does not yet have a C implementation of the on-disk redo transaction engine. The next required layer is journal open/recovery/commit in the WDM code, followed by safe allocation and `IRP_MJ_WRITE` integration.
