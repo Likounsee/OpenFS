@@ -33,6 +33,10 @@ main(void)
     CHECK(OpenFsCalculateVolumeLayout(4096u, 50u, 3u, &layout) == STATUS_SUCCESS);
     CHECK(layout.RingEndBlock == 8u);
 
+    CHECK(OpenFsCalculateVolumeLayout(4096u, 50u, 5u, &layout) == STATUS_SUCCESS);
+    CHECK(layout.RingEndBlock == 20u);
+    CHECK(layout.DataStartBlock == 20u);
+
     /* A second bitmap page must extend the data region without shifting its base. */
     CHECK(OpenFsCalculateVolumeLayout(4096u, 33000u, 4u, &layout) == STATUS_SUCCESS);
     CHECK(layout.BitmapBlocks == 2u);
