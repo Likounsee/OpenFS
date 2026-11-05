@@ -386,6 +386,11 @@ pub(crate) fn open_without_journal<D: BlockDevice>(
 }
 
 impl PersistentJournal {
+    /// Whether this handle is backed by an on-disk redo journal (Secure mode).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn checkpoint(&self) -> JournalCheckpoint {
         self.checkpoint
     }
@@ -441,7 +446,7 @@ impl PersistentJournal {
     pub fn max_update_count<D: BlockDevice>(&self, device: &D) -> Result<usize> {
         self.region.validate(device)?;
         if !self.enabled {
-            return Ok(usize::MAX);
+            return Ok(0);
         }
         let block_size =
             usize::try_from(device.block_size()).map_err(|_| Error::ArithmeticOverflow)?;
