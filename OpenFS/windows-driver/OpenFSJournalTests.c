@@ -30,7 +30,9 @@ int main(void){
   assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,2,&required)==STATUS_SUCCESS);
   assert(required==1&&tx[0].TransactionId==1&&tx[0].FirstUpdateIndex==1&&tx[0].UpdateCount==1);
   assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,0,&required)==STATUS_BUFFER_TOO_SMALL&&required==1);
-  stream[4].TransactionId=99;
+  stream[3].TransactionId=3;
+  assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
+  stream[3].TransactionId=2; stream[4].TransactionId=99;
   assert(OpenFsPlanJournalRecovery(stream,5,0,1,tx,2,&required)==STATUS_DISK_CORRUPT_ERROR);
  }
 
