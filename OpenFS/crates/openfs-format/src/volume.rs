@@ -7651,6 +7651,45 @@ pub struct VolumeCheckReport {
 ///
 /// Unlike `open_volume`, this function does not recover or checkpoint the journal.
 /// It is suitable for a read-only first-pass checker, not a full crash-recovery verdict.
+/// Read-only structural preflight for Basic repair.
+///
+/// Unlike the full volume checker, this deliberately permits allocated-but-unowned
+/// data blocks: those are the exact recoverable condition that Basic repair handles.
+/// It still validates both superblocks, geometry, and reserved/padding bitmap bits
+/// before the caller opens the volume for mutation.
+pub fn check_basic_repair_preflight<D: BlockDevice>(device: &mut D) -> Result<()> {
+    if device.block_size() < SUPERBLOCK_SIZE as u32 {
+        return Err(Error::InvalidInput(
+            "device block is smaller than the superblock record",
+        ));
+    }
+    let last = device
+        .block_count()
+        .checked_sub(1)
+        .ok_or(Error::InvalidInput("empty device"))?;
+    let primary = read_superblock(device, 0)?;
+    let backup = read_superblock(device, last)?;
+    decode_superblock(&backup)?;
+    if !superblocks_match(&primary, &backup) {
+        return Err(Error::Corrupt("primary and backup superblocks disagree"));
+    }
+    let (block_size, total_blocks, features, _) = decode_superblock(&primary)?;
+    if block_size != device.block_size() || total_blocks != device.block_count() {
+        return Err(Error::Corrupt(
+            "superblock geometry does not match device geometry",
+        ));
+    }
+    let version = u16::from_le_bytes([primary[8], primary[9]]);
+    let layout = VolumeLayout::calculate_for_version(block_size, total_blocks, version)?;
+    validate_bitmap(device, &layout)?;
+    if version < VERSION || (features & FEATURE_SECURE_JOURNAL) != 0 {
+        return Err(Error::InvalidInput(
+            "repair-basic-image applies only to Basic volumes; use recover-image for Secure volumes",
+        ));
+    }
+    Ok(())
+}
+
 pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
         return Err(Error::InvalidInput(
