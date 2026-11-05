@@ -8978,12 +8978,9 @@ impl<D: BlockDevice> VolumeSession<D> {
         limit: usize,
     ) -> Result<Vec<DirectoryEntry>> {
         let record = self.stat(path)?;
-        let entries = self.opened.list_persistent_directory(
-            &mut self.device,
-            path,
-            after_name,
-            limit,
-        )?;
+        let entries =
+            self.opened
+                .list_persistent_directory(&mut self.device, path, after_name, limit)?;
         self.opened
             .touch_persistent_accessed(&mut self.device, record.id)?;
         Ok(entries)
