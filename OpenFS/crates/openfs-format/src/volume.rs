@@ -20021,8 +20021,11 @@ impl<D: BlockDevice> VolumeSession<D> {
         directory_path: &str,
         visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     ) -> Result<()> {
+        let record = self.stat(directory_path)?;
         self.opened
-            .visit_persistent_directory(&mut self.device, directory_path, visitor)
+            .visit_persistent_directory(&mut self.device, directory_path, visitor)?;
+        self.opened
+            .touch_persistent_accessed(&mut self.device, record.id)
     }
 
     /// Visit a directory by stable object ID from one validated disk snapshot.
@@ -20035,7 +20038,9 @@ impl<D: BlockDevice> VolumeSession<D> {
         visitor: impl FnMut(&DirectoryEntry, &MetadataRecord) -> bool,
     ) -> Result<()> {
         self.opened
-            .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)
+            .visit_persistent_directory_by_id(&mut self.device, directory_id, visitor)?;
+        self.opened
+            .touch_persistent_accessed(&mut self.device, directory_id)
     }
 }
 
@@ -20072,6 +20077,53 @@ mod directory_access_timestamp_tests {
             let object_id = mounted.create_file_auto("/", "empty.txt").unwrap();
             assert!(mounted.read_file("/empty.txt").unwrap().is_empty());
             assert_eq!(mounted.stat_object(object_id).unwrap().accessed_at, 0);
+            drop(mounted.unmount().unwrap());
+        }
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn streamed_directory_visits_persist_access_timestamps_by_path_and_id() {
+        let path = image_path();
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut formatted = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            formatted
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_directory("/", ObjectId(2), "docs").unwrap();
+            mounted.create_file("/docs", ObjectId(3), "note.txt").unwrap();
+
+            let mut visited = Vec::new();
+            mounted
+                .visit_directory("/", |entry, _| {
+                    visited.push(entry.name.clone());
+                    true
+                })
+                .unwrap();
+            assert_eq!(visited, vec!["docs"]);
+            assert_ne!(mounted.stat("/").unwrap().accessed_at, 0);
+
+            let mut visited = Vec::new();
+            mounted
+                .visit_directory_by_id(ObjectId(2), |entry, _| {
+                    visited.push(entry.name.clone());
+                    true
+                })
+                .unwrap();
+            assert_eq!(visited, vec!["note.txt"]);
+            assert_ne!(
+                mounted.stat_object(ObjectId(2)).unwrap().accessed_at,
+                0
+            );
+
             drop(mounted.unmount().unwrap());
         }
 
