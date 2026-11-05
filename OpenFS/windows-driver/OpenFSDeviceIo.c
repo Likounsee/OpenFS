@@ -1250,15 +1250,182 @@ OpenFsValidateJournalOnDevice(
     if (!NT_SUCCESS(status))
         goto Exit;
 
-    /*
-     * Never expose stale home blocks as a successful mount. A committed REDO
-     * transaction requires replay, which is intentionally not enabled yet.
-     */
-    if (transactionCount != 0)
-        status = STATUS_DEVICE_NOT_READY;
+    /* Structural validation is read-only; mount-time replay is separate. */
+    UNREFERENCED_PARAMETER(transactionCount);
 
 Exit:
     ExFreePoolWithTag(ringBuffer, OPENFS_DEVICE_IO_TAG);
+    return status;
+}
+
+NTSTATUS
+OpenFsRecoverVolumeJournal(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ const OPENFS_VOLUME_GEOMETRY* Geometry
+    )
+{
+    OPENFS_VOLUME_LAYOUT layout;
+    OPENFS_JOURNAL_CHECKPOINT cpA, cpB, cp;
+    OPENFS_JOURNAL_RECORD_VIEW records[16];
+    OPENFS_JOURNAL_TRANSACTION_VIEW txs[16];
+    const UCHAR* ringBlocks[16];
+    UCHAR *cpBuf = NULL, *ringBuf = NULL, *image = NULL, *zero = NULL;
+    ULONGLONG targets[16], highestSequence, highestTx, nextTx;
+    ULONG ringCount, recordCount = 0, txCount = 0, i, targetCount;
+    ULONG blockSize, chunkCapacity, chunksPerImage, lastCommit = MAXULONG;
+    SIZE_T ringBytes;
+    NTSTATUS aStatus, bStatus, status;
+    UCHAR activeCopy, nextCopy;
+
+    if (DeviceObject == NULL || Geometry == NULL ||
+        KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_PARAMETER;
+    blockSize = Geometry->BlockSize;
+    status = OpenFsCalculateVolumeLayout(blockSize, Geometry->TotalBlocks,
+        Geometry->Version, &layout);
+    if (!NT_SUCCESS(status)) return status;
+    ringCount = (ULONG)(layout.RingEndBlock - layout.RingStartBlock);
+    if (ringCount < 4u || ringCount > RTL_NUMBER_OF(ringBlocks))
+        return STATUS_DISK_CORRUPT_ERROR;
+
+    cpBuf = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, blockSize, OPENFS_DEVICE_IO_TAG);
+    ringBytes = (SIZE_T)ringCount * blockSize;
+    ringBuf = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, ringBytes, OPENFS_DEVICE_IO_TAG);
+    image = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, blockSize, OPENFS_DEVICE_IO_TAG);
+    zero = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, blockSize, OPENFS_DEVICE_IO_TAG);
+    if (!cpBuf || !ringBuf || !image || !zero) { status = STATUS_INSUFFICIENT_RESOURCES; goto ExitRecovery; }
+    RtlZeroMemory(zero, blockSize);
+
+    aStatus = OpenFsReadVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+        layout.CheckpointA, 1u, cpBuf, blockSize);
+    if (NT_SUCCESS(aStatus)) aStatus = OpenFsDecodeJournalCheckpointBlock(cpBuf, blockSize, ringCount, &cpA);
+    bStatus = OpenFsReadVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+        layout.CheckpointB, 1u, cpBuf, blockSize);
+    if (NT_SUCCESS(bStatus)) bStatus = OpenFsDecodeJournalCheckpointBlock(cpBuf, blockSize, ringCount, &cpB);
+    status = OpenFsSelectJournalCheckpoint(aStatus, NT_SUCCESS(aStatus) ? &cpA : NULL,
+        bStatus, NT_SUCCESS(bStatus) ? &cpB : NULL, &cp, &activeCopy);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+
+    status = OpenFsReadVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+        layout.RingStartBlock, ringCount, ringBuf, ringBytes);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+    for (i = 0; i < ringCount; ++i) ringBlocks[i] = ringBuf + ((SIZE_T)i * blockSize);
+    status = OpenFsScanJournalRing(ringBlocks, ringCount, blockSize,
+        cp.CheckpointSequence, cp.NextTransactionId, records, RTL_NUMBER_OF(records), &recordCount);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+    status = OpenFsPlanJournalRecovery(records, recordCount, cp.CheckpointSequence,
+        cp.NextTransactionId, txs, RTL_NUMBER_OF(txs), &txCount);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+    if (recordCount == 0) { status = STATUS_SUCCESS; goto ExitRecovery; }
+    if (cp.Generation == MAXULONGLONG) { status = STATUS_INTEGER_OVERFLOW; goto ExitRecovery; }
+    nextCopy = (UCHAR)(1u - activeCopy);
+
+    if (txCount == 0) {
+        highestSequence = records[recordCount - 1u].Sequence;
+        if (highestSequence == MAXULONGLONG) { status = STATUS_INTEGER_OVERFLOW; goto ExitRecovery; }
+        nextTx = cp.NextTransactionId;
+        for (i = 0; i < recordCount; ++i) if (records[i].Kind == OpenFsJournalBegin) {
+            if (nextTx == MAXULONGLONG) { status = STATUS_INTEGER_OVERFLOW; goto ExitRecovery; }
+            ++nextTx;
+        }
+        cp.Generation++; cp.CheckpointSequence = highestSequence;
+        cp.NextSequence = highestSequence + 1u; cp.NextTransactionId = nextTx;
+        cp.HeadBlock = 0; cp.TailBlock = 0;
+        status = OpenFsEncodeJournalCheckpointBlock(&cp, blockSize, ringCount, cpBuf);
+        if (!NT_SUCCESS(status)) goto ExitRecovery;
+        status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+            nextCopy ? layout.CheckpointB : layout.CheckpointA, 1u, cpBuf, blockSize);
+        if (!NT_SUCCESS(status)) goto ExitRecovery;
+        status = OpenFsFlushVolumeDevice(DeviceObject);
+        if (!NT_SUCCESS(status)) goto ExitRecovery;
+        for (i = 0; i < ringCount; ++i) {
+            status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+                layout.RingStartBlock + i, 1u, zero, blockSize);
+            if (!NT_SUCCESS(status)) goto ExitRecovery;
+        }
+        status = OpenFsFlushVolumeDevice(DeviceObject);
+        goto ExitRecovery;
+    }
+
+    highestTx = txs[txCount - 1u].TransactionId;
+    if (highestTx == MAXULONGLONG) { status = STATUS_INTEGER_OVERFLOW; goto ExitRecovery; }
+    highestSequence = 0;
+    for (i = 0; i < recordCount; ++i)
+        if (records[i].Kind == OpenFsJournalCommit && records[i].TransactionId == highestTx) {
+            highestSequence = records[i].Sequence; lastCommit = i;
+        }
+    if (lastCommit == MAXULONG || highestSequence == 0 || highestSequence == MAXULONGLONG) {
+        status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery;
+    }
+
+    chunkCapacity = blockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES - 12u;
+    if (chunkCapacity == 0) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
+    chunksPerImage = (blockSize + chunkCapacity - 1u) / chunkCapacity;
+
+    /* Preflight all committed images and reject metadata or duplicate targets before replay. */
+    for (i = 0; i < txCount; ++i) {
+        ULONG cursor = txs[i].FirstUpdateIndex, end, prior;
+        if (cursor > recordCount || txs[i].UpdateCount > recordCount - cursor) {
+            status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery;
+        }
+        end = cursor + txs[i].UpdateCount; targetCount = 0;
+        while (cursor < end) {
+            ULONGLONG target;
+            if (chunksPerImage > end - cursor) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
+            status = OpenFsDecodeRedoImage(records, cursor, chunksPerImage, blockSize, &target, image);
+            if (!NT_SUCCESS(status)) goto ExitRecovery;
+            if (target < layout.DataStartBlock || target >= layout.BackupSuperblockBlock) {
+                status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery;
+            }
+            for (prior = 0; prior < targetCount; ++prior)
+                if (targets[prior] == target) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
+            if (targetCount >= RTL_NUMBER_OF(targets)) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
+            targets[targetCount++] = target; cursor += chunksPerImage;
+        }
+        if (cursor != end) { status = STATUS_DISK_CORRUPT_ERROR; goto ExitRecovery; }
+    }
+
+    /* Erase only the incomplete suffix; keep committed REDO until checkpoint publication. */
+    for (i = lastCommit + 1u; i < ringCount; ++i) {
+        status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+            layout.RingStartBlock + i, 1u, zero, blockSize);
+        if (!NT_SUCCESS(status)) goto ExitRecovery;
+    }
+    if (lastCommit + 1u < ringCount) {
+        status = OpenFsFlushVolumeDevice(DeviceObject);
+        if (!NT_SUCCESS(status)) goto ExitRecovery;
+    }
+
+    for (i = 0; i < txCount; ++i) {
+        ULONG cursor = txs[i].FirstUpdateIndex, end = cursor + txs[i].UpdateCount;
+        while (cursor < end) {
+            ULONGLONG target;
+            status = OpenFsDecodeRedoImage(records, cursor, chunksPerImage, blockSize, &target, image);
+            if (!NT_SUCCESS(status)) goto ExitRecovery;
+            status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+                target, 1u, image, blockSize);
+            if (!NT_SUCCESS(status)) goto ExitRecovery;
+            cursor += chunksPerImage;
+        }
+    }
+    status = OpenFsFlushVolumeDevice(DeviceObject);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+
+    cp.Generation++; cp.CheckpointSequence = highestSequence;
+    cp.NextSequence = highestSequence + 1u; cp.NextTransactionId = highestTx + 1u;
+    cp.HeadBlock = 0; cp.TailBlock = 0;
+    status = OpenFsEncodeJournalCheckpointBlock(&cp, blockSize, ringCount, cpBuf);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+    status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize, Geometry->TotalBlocks,
+        nextCopy ? layout.CheckpointB : layout.CheckpointA, 1u, cpBuf, blockSize);
+    if (!NT_SUCCESS(status)) goto ExitRecovery;
+    status = OpenFsFlushVolumeDevice(DeviceObject);
+
+ExitRecovery:
+    if (zero) ExFreePoolWithTag(zero, OPENFS_DEVICE_IO_TAG);
+    if (image) ExFreePoolWithTag(image, OPENFS_DEVICE_IO_TAG);
+    if (ringBuf) ExFreePoolWithTag(ringBuf, OPENFS_DEVICE_IO_TAG);
+    if (cpBuf) ExFreePoolWithTag(cpBuf, OPENFS_DEVICE_IO_TAG);
     return status;
 }
 
