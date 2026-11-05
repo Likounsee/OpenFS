@@ -1,7 +1,7 @@
-//! Canonical volume layout with a reserved persistent journal.
+//! Canonical OpenFS volume layout shared by Basic and Secure modes.
 //!
-//! The journal reserves two checkpoint blocks and a versioned redo ring before the
-//! data region, and protects allocator bitmap changes.
+//! Two checkpoint blocks and a versioned redo ring are reserved before the data region
+//! in both modes. Basic leaves them unused; Secure activates them for redo recovery.
 
 use crate::{
     crc32c, decode_directory_entries, decode_metadata_records, format_journal, plan_recovery,
@@ -395,7 +395,8 @@ pub struct OpenedVolume {
 }
 
 impl OpenedVolume {
-    /// Maximum number of distinct full-block redo updates that fit in one journal transaction.
+    /// Maximum number of full-block redo updates supported by the active journal.
+    /// Returns zero in Basic mode, where no redo transaction exists.
     ///
     /// Large atomic writes should be sized against this bound before staging data. The
     /// returned value is advisory: it does not reserve the journal or guarantee that a
@@ -405,7 +406,8 @@ impl OpenedVolume {
         self.journal.max_update_count(device)
     }
 
-    /// Maximum byte length for a single atomic range write starting at the given offset.
+    /// Maximum byte length for a single journal-atomic range write at the given offset.
+    /// Returns zero in Basic mode because writes are not journal-atomic.
     ///
     /// The limit accounts for a potentially unaligned starting offset. It is a journal
     /// capacity bound only; callers must also stay within the existing file size and
@@ -8328,7 +8330,7 @@ fn format_volume_mode<D: BlockDevice>(
     open_volume(device)
 }
 
-/// Validate a volume and recover committed journal records before returning writable state.
+/// Validate a volume and recover committed journal records in Secure mode before returning writable state.
 pub fn open_volume<D: BlockDevice>(device: &mut D) -> Result<OpenedVolume> {
     if device.block_size() < SUPERBLOCK_SIZE as u32 {
         return Err(Error::InvalidInput(
@@ -9132,6 +9134,8 @@ mod tests {
         assert_eq!(report.journal_generation, 0);
         assert_eq!(report.pending_journal_records, 0);
         assert_eq!(report.recoverable_transactions, 0);
+        assert!(!report.journal_enabled);
+        assert_eq!(opened.max_atomic_redo_updates(&device).unwrap(), 0);
         drop(opened);
         drop(device);
         fs::remove_file(path).unwrap();
