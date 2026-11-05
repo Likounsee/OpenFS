@@ -28,3 +28,138 @@ NTSTATUS OpenFsDecodeJournalRecordBlock(const UCHAR*Block,ULONG BlockSize,POPENF
  kind=r16(Block+12);if(kind<OpenFsJournalBegin||kind>OpenFsJournalAbort||!r64(Block+16)||!r64(Block+24)||(kind!=OpenFsJournalUpdate&&len))return STATUS_DISK_CORRUPT_ERROR;
  Rec->Kind=(OPENFS_JOURNAL_RECORD_KIND)kind;Rec->Sequence=r64(Block+16);Rec->TransactionId=r64(Block+24);Rec->PayloadLength=len;Rec->Payload=payload;return STATUS_SUCCESS;
 }
+
+static NTSTATUS
+OpenFsValidateJournalRecordView(
+    _In_ const OPENFS_JOURNAL_RECORD_VIEW* Record
+    )
+{
+    if (Record->Kind < OpenFsJournalBegin || Record->Kind > OpenFsJournalAbort ||
+        Record->Sequence == 0 || Record->TransactionId == 0 ||
+        Record->PayloadLength > OPENFS_JOURNAL_MAX_PAYLOAD_BYTES ||
+        (Record->PayloadLength != 0 && Record->Payload == NULL) ||
+        (Record->Kind != OpenFsJournalUpdate && Record->PayloadLength != 0))
+        return STATUS_DISK_CORRUPT_ERROR;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OpenFsPlanJournalRecovery(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG RecordCount,
+    _In_ ULONGLONG CheckpointSequence,
+    _Out_writes_(TransactionCapacity) POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
+    _In_ ULONG TransactionCapacity,
+    _Out_ PULONG RequiredTransactionCount
+    )
+{
+    ULONGLONG expectedSequence;
+    ULONGLONG activeTransaction = 0;
+    ULONGLONG lastTransaction = 0;
+    ULONG activeUpdateCount = 0;
+    ULONG committedCount = 0;
+    ULONG index;
+    BOOLEAN active = FALSE;
+    NTSTATUS status;
+
+    if (RequiredTransactionCount == NULL ||
+        (RecordCount != 0 && Records == NULL) ||
+        (TransactionCapacity != 0 && Transactions == NULL))
+        return STATUS_INVALID_PARAMETER;
+    *RequiredTransactionCount = 0;
+
+    if (RecordCount == 0)
+        return STATUS_SUCCESS;
+    if (CheckpointSequence == MAXULONGLONG)
+        return STATUS_INTEGER_OVERFLOW;
+    expectedSequence = CheckpointSequence + 1u;
+
+    /* First pass validates the entire stream before touching caller output. */
+    for (index = 0; index < RecordCount; ++index) {
+        const OPENFS_JOURNAL_RECORD_VIEW* record = &Records[index];
+        status = OpenFsValidateJournalRecordView(record);
+        if (!NT_SUCCESS(status))
+            return status;
+        if (record->Sequence != expectedSequence)
+            return STATUS_DISK_CORRUPT_ERROR;
+        if (index + 1u < RecordCount) {
+            if (expectedSequence == MAXULONGLONG)
+                return STATUS_INTEGER_OVERFLOW;
+            ++expectedSequence;
+        }
+
+        switch (record->Kind) {
+        case OpenFsJournalBegin:
+            if (active || record->TransactionId <= lastTransaction)
+                return STATUS_DISK_CORRUPT_ERROR;
+            active = TRUE;
+            activeTransaction = record->TransactionId;
+            lastTransaction = record->TransactionId;
+            activeUpdateCount = 0;
+            break;
+        case OpenFsJournalUpdate:
+            if (!active || record->TransactionId != activeTransaction ||
+                activeUpdateCount == MAXULONG)
+                return STATUS_DISK_CORRUPT_ERROR;
+            ++activeUpdateCount;
+            break;
+        case OpenFsJournalCommit:
+            if (!active || record->TransactionId != activeTransaction ||
+                activeUpdateCount == 0 || committedCount == MAXULONG)
+                return STATUS_DISK_CORRUPT_ERROR;
+            ++committedCount;
+            active = FALSE;
+            activeTransaction = 0;
+            activeUpdateCount = 0;
+            break;
+        case OpenFsJournalAbort:
+            if (!active || record->TransactionId != activeTransaction)
+                return STATUS_DISK_CORRUPT_ERROR;
+            active = FALSE;
+            activeTransaction = 0;
+            activeUpdateCount = 0;
+            break;
+        default:
+            return STATUS_DISK_CORRUPT_ERROR;
+        }
+    }
+
+    *RequiredTransactionCount = committedCount;
+    if (committedCount > TransactionCapacity)
+        return STATUS_BUFFER_TOO_SMALL;
+
+    /* Second pass publishes compact references to committed UPDATE records. */
+    active = FALSE;
+    activeTransaction = 0;
+    {
+        ULONG firstUpdate = 0;
+        ULONG updateCount = 0;
+        ULONG outputIndex = 0;
+
+        for (index = 0; index < RecordCount; ++index) {
+            const OPENFS_JOURNAL_RECORD_VIEW* record = &Records[index];
+            if (record->Kind == OpenFsJournalBegin) {
+                active = TRUE;
+                activeTransaction = record->TransactionId;
+                updateCount = 0;
+            } else if (record->Kind == OpenFsJournalUpdate) {
+                if (updateCount == 0)
+                    firstUpdate = index;
+                ++updateCount;
+            } else if (record->Kind == OpenFsJournalCommit) {
+                Transactions[outputIndex].TransactionId = activeTransaction;
+                Transactions[outputIndex].FirstUpdateIndex = firstUpdate;
+                Transactions[outputIndex].UpdateCount = updateCount;
+                ++outputIndex;
+                active = FALSE;
+                activeTransaction = 0;
+                updateCount = 0;
+            } else if (record->Kind == OpenFsJournalAbort) {
+                active = FALSE;
+                activeTransaction = 0;
+                updateCount = 0;
+            }
+        }
+    }
+    return STATUS_SUCCESS;
+}
