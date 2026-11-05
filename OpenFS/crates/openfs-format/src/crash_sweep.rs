@@ -15,7 +15,7 @@
 //! * remain writable: the interrupted operation can be retried or a fresh object
 //!   created, and the result is still consistent.
 
-use crate::{format_volume, open_volume, ObjectId, OpenedVolume};
+use crate::{format_volume_secure, open_volume, ObjectId, OpenedVolume};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
@@ -219,7 +219,7 @@ fn sweep(scenario: &Scenario, block_size: u32) {
     // Build the clean base image.
     let mut base = CrashDevice::blank(block_size, BLOCKS);
     {
-        let mut volume = format_volume(&mut base, *b"openfs-sweep-001", 0).unwrap();
+        let mut volume = format_volume_secure(&mut base, *b"openfs-sweep-001", 0).unwrap();
         volume
             .initialize_persistent_namespace(&mut base, ObjectId(1))
             .unwrap();
@@ -465,7 +465,7 @@ fn orphaned_blocks_left_by_a_power_cut_are_reclaimed_exactly_once() {
     const BLOCKS: u64 = 256;
     let mut base = CrashDevice::blank(BS, BLOCKS);
     {
-        let mut volume = format_volume(&mut base, *b"openfs-orphan-01", 0).unwrap();
+        let mut volume = format_volume_secure(&mut base, *b"openfs-orphan-01", 0).unwrap();
         volume
             .initialize_persistent_namespace(&mut base, ObjectId(1))
             .unwrap();
@@ -509,7 +509,7 @@ fn orphaned_blocks_left_by_a_power_cut_are_reclaimed_exactly_once() {
 fn reclamation_never_frees_referenced_storage() {
     const BS: u32 = 4096;
     let mut device = CrashDevice::blank(BS, 256);
-    let mut volume = format_volume(&mut device, *b"openfs-orphan-02", 0).unwrap();
+    let mut volume = format_volume_secure(&mut device, *b"openfs-orphan-02", 0).unwrap();
     volume
         .initialize_persistent_namespace(&mut device, ObjectId(1))
         .unwrap();
@@ -529,7 +529,7 @@ fn power_cut_during_orphan_reclamation_is_recoverable() {
     const BLOCKS: u64 = 256;
     let mut base = CrashDevice::blank(BS, BLOCKS);
     {
-        let mut volume = format_volume(&mut base, *b"openfs-reclaim01", 0).unwrap();
+        let mut volume = format_volume_secure(&mut base, *b"openfs-reclaim01", 0).unwrap();
         volume
             .initialize_persistent_namespace(&mut base, ObjectId(1))
             .unwrap();
