@@ -6326,6 +6326,9 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("path does not identify a regular file"));
         }
+        if record.is_read_only() && !data.is_empty() {
+            return Err(Error::InvalidInput("cannot write to a read-only file"));
+        }
         // An empty range write must not create a new metadata generation or rewrite
         // the persistent inventory. Resolve the path first so invalid paths still fail.
         if data.is_empty() {
