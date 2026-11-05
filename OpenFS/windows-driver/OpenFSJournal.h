@@ -31,3 +31,22 @@ OpenFsPlanJournalRecovery(
     _In_ ULONG TransactionCapacity,
     _Out_ PULONG RequiredTransactionCount
     );
+
+/* Encode validated records/checkpoints into zero-padded filesystem blocks. */
+NTSTATUS
+OpenFsEncodeJournalCheckpointBlock(
+    _In_ const OPENFS_JOURNAL_CHECKPOINT* Checkpoint,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG RingBlocks,
+    _Out_ UCHAR* Block
+    );
+NTSTATUS
+OpenFsEncodeJournalRecordBlock(
+    _In_ OPENFS_JOURNAL_RECORD_KIND Kind,
+    _In_ ULONGLONG Sequence,
+    _In_ ULONGLONG TransactionId,
+    _In_reads_bytes_(PayloadLength) const UCHAR* Payload,
+    _In_ ULONG PayloadLength,
+    _In_ ULONG BlockSize,
+    _Out_ UCHAR* Block
+    );
