@@ -96,3 +96,15 @@ caller-provided output buffer. It reconstructs one complete filesystem block
 without allocating memory, allowing recovery to preflight and replay images one
 at a time. This still does not perform ring scanning, checkpoint selection or
 home-block replay itself.
+
+
+## Ring scanning
+
+A bounded in-memory ring scanner now mirrors the Rust recovery rule for the
+post-checkpoint record prefix. It ignores records already covered by the
+checkpoint, retains only a contiguous prefix from ring slot zero, rejects a
+COMMIT found after a gap or malformed slot, and ignores an uncommitted suffix.
+Returned payloads remain zero-copy views into caller-owned ring buffers. The
+scanner is deliberately separate from block-device I/O and REDO application;
+the caller must keep those buffers alive and pass the result through transaction
+and REDO validation before replay.
