@@ -4276,9 +4276,11 @@ impl OpenedVolume {
         // This is an in-process rollback guarantee, not a power-loss atomicity claim.
         let mut before_images = Vec::new();
         if !self.journal.is_enabled() {
-            before_images.try_reserve_exact(touched_blocks).map_err(|_| {
-                Error::AllocationFailed("unable to reserve Basic write rollback images")
-            })?;
+            before_images
+                .try_reserve_exact(touched_blocks)
+                .map_err(|_| {
+                    Error::AllocationFailed("unable to reserve Basic write rollback images")
+                })?;
         }
         let mut block_buffer =
             try_zeroed_bytes(block_len, "unable to allocate file write block buffer")?;
@@ -4370,9 +4372,11 @@ impl OpenedVolume {
                     Error::Corrupt("Basic file write failed and the volume could not be reopened")
                 })?;
                 for before in &before_images {
-                    device.write_blocks(before.target_block, &before.contents).map_err(|_| {
-                        Error::Corrupt("Basic file write rollback failed; preserve the volume")
-                    })?;
+                    device
+                        .write_blocks(before.target_block, &before.contents)
+                        .map_err(|_| {
+                            Error::Corrupt("Basic file write rollback failed; preserve the volume")
+                        })?;
                 }
                 device.flush().map_err(|_| {
                     Error::Corrupt("Basic file write rollback flush failed; preserve the volume")
@@ -19253,17 +19257,14 @@ mod tests {
 
         for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
             for failure_kind in ["write", "flush"] {
-                let path = image_path(&format!(
-                    "basic-range-rollback-{failure_kind}-{block_size}"
-                ));
+                let path = image_path(&format!("basic-range-rollback-{failure_kind}-{block_size}"));
                 let original: Vec<u8> = (0..(block_size as usize * 3))
                     .map(|index| (index % 239) as u8)
                     .collect();
                 let replacement = vec![0xD7; original.len()];
                 {
                     let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                    let mut volume =
-                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
                     volume
                         .initialize_persistent_namespace(&mut device, ObjectId(1))
                         .unwrap();
@@ -19323,7 +19324,6 @@ mod tests {
             }
         }
     }
-
 }
 
 impl OpenedVolume {
