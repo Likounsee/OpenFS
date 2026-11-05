@@ -112,12 +112,7 @@ fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
             .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "protected")
             .unwrap();
         volume
-            .create_persistent_file_at_path(
-                &mut device,
-                "/protected",
-                ObjectId(3),
-                "important.txt",
-            )
+            .create_persistent_file_at_path(&mut device, "/protected", ObjectId(3), "important.txt")
             .unwrap();
         volume
             .write_persistent_file_contents(
@@ -158,12 +153,7 @@ fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
         );
         assert_eq!(
             volume
-                .read_persistent_path_range(
-                    &mut device,
-                    "/protected/important.txt",
-                    0,
-                    64,
-                )
+                .read_persistent_path_range(&mut device, "/protected/important.txt", 0, 64,)
                 .unwrap(),
             b"must survive recursive deletion"
         );
