@@ -2227,6 +2227,11 @@ impl OpenedVolume {
                 "replacement destination must be a regular file",
             ));
         }
+        if destination_record.is_read_only() {
+            return Err(Error::InvalidInput(
+                "cannot replace a read-only destination file",
+            ));
+        }
         if destination_record.extent_root_block.is_none() && destination_record.size != 0 {
             return Err(Error::Corrupt(
                 "non-empty replacement destination is missing its extent-map root",
@@ -2519,6 +2524,9 @@ impl OpenedVolume {
                 .count();
             removal_order.push((depth, *object_id));
             if record.kind == crate::ObjectKind::File {
+                if record.is_read_only() {
+                    return Err(Error::InvalidInput("cannot remove a read-only file"));
+                }
                 if record.extent_root_block.is_some() {
                     needs_extent_maps = true;
                 } else if record.size != 0 {
@@ -3072,6 +3080,9 @@ impl OpenedVolume {
             .object(object_id)
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
+        if record.kind == crate::ObjectKind::File && record.is_read_only() {
+            return Err(Error::InvalidInput("cannot remove a read-only file"));
+        }
         let mut reclaim_blocks = Vec::new();
         if record.kind == crate::ObjectKind::File {
             if let Some(root) = record.extent_root_block {
@@ -9420,6 +9431,48 @@ mod tests {
         assert_eq!(opened.max_atomic_redo_updates(&device).unwrap(), 0);
         drop(opened);
         drop(device);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn basic_read_only_attribute_blocks_all_persistent_file_deletion_paths() {
+        use super::VolumeSession;
+        use crate::{ObjectId, METADATA_FLAG_READ_ONLY};
+
+        let path = image_path("basic-readonly-delete");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume.create_persistent_file_at_path(&mut device, "/", ObjectId(2), "protected.txt").unwrap();
+            volume.create_persistent_file_at_path(&mut device, "/", ObjectId(3), "replacement.txt").unwrap();
+            volume.write_persistent_file_contents(&mut device, "/protected.txt", b"keep").unwrap();
+            volume.write_persistent_file_contents(&mut device, "/replacement.txt", b"new").unwrap();
+            volume.set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, true).unwrap();
+            volume.set_persistent_attributes(&mut device, "/replacement.txt", METADATA_FLAG_READ_ONLY, true).unwrap();
+            assert!(volume.remove_persistent_path(&mut device, "/protected.txt").is_err());
+            assert!(volume.remove_persistent_objects(&mut device, &[ObjectId(2)]).is_err());
+            assert!(volume.replace_persistent_file_at_path(&mut device, "/replacement.txt", "/", "protected.txt").is_err());
+            let (_, namespace) = volume.reconstruct_discovered_namespace(&mut device).unwrap().unwrap();
+            assert!(namespace.object(ObjectId(2)).is_some());
+            assert!(namespace.object(ObjectId(3)).is_some());
+            assert_eq!(
+                volume.read_persistent_path_range(&mut device, "/protected.txt", 0, 16).unwrap(),
+                b"keep"
+            );
+            volume.set_persistent_attributes(&mut device, "/protected.txt", METADATA_FLAG_READ_ONLY, false).unwrap();
+            volume.remove_persistent_path(&mut device, "/protected.txt").unwrap();
+            device.flush().unwrap();
+        }
+        {
+            let mut device = ImageDevice::open(&path, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let (_, namespace) = volume.reconstruct_discovered_namespace(&mut device).unwrap().unwrap();
+            assert!(namespace.object(ObjectId(2)).is_none());
+            assert!(namespace.object(ObjectId(3)).is_some());
+        }
         fs::remove_file(path).unwrap();
     }
 
