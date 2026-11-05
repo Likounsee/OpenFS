@@ -1452,7 +1452,7 @@ OpenFsDispatchFileSystemControl(
             STARTING_VCN_INPUT_BUFFER inputCopy;
             POPENFS_VCB vcb;
             POPENFS_FCB fcb;
-            OPENFS_VOLUME_GEOMETRY geometry;
+            OPENFS_VOLUME_GEOMETRY geometry = { 0 };
             OPENFS_VOLUME_LAYOUT layout;
             ULONGLONG fileSize = 0;
             ULONG blockSize = 0;
