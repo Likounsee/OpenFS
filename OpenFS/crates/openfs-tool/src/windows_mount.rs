@@ -363,7 +363,7 @@ fn write_file_with_extension<D: BlockDevice>(
     offset: i64,
     buffer: &[u8],
     append: bool,
- ) -> openfs_core::Result<usize> {
+) -> openfs_core::Result<usize> {
     // Windows zero-byte writes are no-ops; in particular they must not grow
     // the file merely because the supplied offset lies beyond the current EOF.
     if buffer.is_empty() {
