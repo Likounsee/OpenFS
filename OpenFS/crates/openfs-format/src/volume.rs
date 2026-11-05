@@ -17859,6 +17859,58 @@ mod tests {
     }
 
     #[test]
+    fn basic_free_reports_the_bitmap_state_after_direct_write_failures() {
+        for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+            for failure_kind in ["write", "flush"] {
+                let path = image_path(&format!(
+                    "basic-free-{failure_kind}-failure-{block_size}"
+                ));
+                {
+                    let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
+                    let mut volume =
+                        format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                    let block = volume.allocate_block(&mut device).unwrap();
+
+                    let mut failing = FaultInjectingDevice::new(device);
+                    failing.fail_next(if failure_kind == "write" {
+                        IoOperation::Write
+                    } else {
+                        IoOperation::Flush
+                    });
+                    let result = volume.free_block(&mut failing, block);
+                    if failure_kind == "write" {
+                        assert!(
+                            matches!(result, Err(Error::Io(_))),
+                            "failed Basic bitmap write must report failure (block size {block_size})"
+                        );
+                    } else {
+                        // The direct bitmap write reached the device before flush
+                        // failed. The allocator reopens and reports the durable
+                        // on-device state instead of blindly returning an error.
+                        assert!(
+                            result.is_ok(),
+                            "Basic must report a completed free when the bitmap bit was already cleared (block size {block_size})"
+                        );
+                    }
+
+                    let mut device = failing.into_inner();
+                    drop(volume);
+                    let reopened = open_volume(&mut device).unwrap();
+                    assert_eq!(
+                        reopened.is_data_block_allocated(&mut device, block).unwrap(),
+                        failure_kind == "write",
+                        "reopened Basic bitmap must reflect the completed direct write (block size {block_size}, {failure_kind})"
+                    );
+                    let report = check_volume(&mut device).unwrap();
+                    assert!(!report.journal_enabled);
+                    assert_eq!(report.pending_journal_records, 0);
+                }
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn persistent_path_rename_recovers_old_or_new_namespace_after_flush_failure() {
         use crate::ObjectId;
 
