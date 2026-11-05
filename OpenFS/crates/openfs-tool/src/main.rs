@@ -402,6 +402,11 @@ fn verify_fresh_volume<D: BlockDevice>(device: &mut D) -> openfs_core::Result<()
             "formatted volume is missing its persistent namespace inventory",
         ));
     }
+    if report.journal_enabled {
+        return Err(openfs_core::Error::Corrupt(
+            "newly formatted release volume must use OpenFS Basic",
+        ));
+    }
     if report.pending_journal_records != 0 || report.recoverable_transactions != 0 {
         return Err(openfs_core::Error::Corrupt(
             "freshly formatted volume has pending journal transactions",
