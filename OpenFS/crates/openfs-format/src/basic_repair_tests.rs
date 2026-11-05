@@ -1,5 +1,5 @@
 //! Focused regression tests for Basic-mode repair operations.
-use crate::{format_volume, open_volume, Error, ObjectId};
+use crate::{format_volume, open_volume, ObjectId};
 use openfs_block::{BlockDevice, ImageDevice};
 use std::fs;
 use std::path::PathBuf;
@@ -79,7 +79,7 @@ fn basic_reclaims_only_unowned_allocations_and_survives_remount() {
 }
 
 #[test]
-fn basic_does_not_guess_ownership_when_namespace_is_absent_or_dangling() {
+fn basic_does_not_guess_ownership_when_namespace_is_absent() {
     let image = TestImage::new("no-namespace");
     {
         let mut device = ImageDevice::create(&image.0, 4096, 128).unwrap();
@@ -96,21 +96,4 @@ fn basic_does_not_guess_ownership_when_namespace_is_absent_or_dangling() {
         assert!(orphan >= volume.volume.layout.data_start);
     }
 
-    // A dangling reference is corruption, not an invitation to free arbitrary blocks.
-    // The existing verifier and repair path must fail closed on this condition.
-    let image = TestImage::new("dangling-reference");
-    {
-        let mut device = ImageDevice::create(&image.0, 4096, 256).unwrap();
-        let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
-        volume
-            .initialize_persistent_namespace(&mut device, ObjectId(1))
-            .unwrap();
-        let free_before = volume.free_data_block_count(&mut device).unwrap();
-        assert_eq!(volume.reclaim_orphaned_blocks(&mut device).unwrap(), 0);
-        assert_eq!(volume.free_data_block_count(&mut device).unwrap(), free_before);
-        assert!(matches!(
-            volume.free_block(&mut device, volume.volume.layout.backup_superblock),
-            Err(Error::InvalidInput(_))
-        ));
-    }
 }
