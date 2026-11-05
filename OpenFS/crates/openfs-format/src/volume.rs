@@ -1802,9 +1802,6 @@ impl OpenedVolume {
         if record.kind != crate::ObjectKind::File {
             return Err(Error::InvalidInput("object is not a regular file"));
         }
-        if record.is_read_only() && !data.is_empty() {
-            return Err(Error::InvalidInput("cannot write to a read-only file"));
-        }
         let extent_maps = self.read_namespace_extent_maps(device, &namespace)?;
         self.read_file_range_from_validated_namespace(
             device,
