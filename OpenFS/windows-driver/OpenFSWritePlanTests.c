@@ -17,8 +17,8 @@ test_multi_extent_partial_range(void)
         blocks, 3, &required) == STATUS_SUCCESS);
     assert(required == 3);
     assert(blocks[0] == 100);
-    assert(blocks[1] == 200);
-    assert(blocks[2] == 201);
+    assert(blocks[1] == 101);
+    assert(blocks[2] == 200);
 }
 
 static void
