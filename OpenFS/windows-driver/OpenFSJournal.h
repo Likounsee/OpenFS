@@ -27,7 +27,7 @@ OpenFsPlanJournalRecovery(
     _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
     _In_ ULONG RecordCount,
     _In_ ULONGLONG CheckpointSequence,
-    _Out_writes_(TransactionCapacity) POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
+    _Out_ POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
     _In_ ULONG TransactionCapacity,
     _Out_ PULONG RequiredTransactionCount
     );
