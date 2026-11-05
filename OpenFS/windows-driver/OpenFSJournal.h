@@ -65,3 +65,19 @@ OpenFsDecodeRedoImage(
     _Out_ PULONGLONG TargetBlock,
     _Out_writes_bytes_(BlockSize) UCHAR* Image
     );
+
+/*
+ * Scan an in-memory snapshot of the bounded journal ring. Blocks are caller-owned
+ * and must remain stable while returned payload views are in use.
+ */
+NTSTATUS
+OpenFsScanJournalRing(
+    _In_reads_(RingBlocks) const UCHAR* const* Blocks,
+    _In_ ULONG RingBlocks,
+    _In_ ULONG BlockSize,
+    _In_ ULONGLONG CheckpointSequence,
+    _In_ ULONGLONG NextTransactionId,
+    _Out_ POPENFS_JOURNAL_RECORD_VIEW Records,
+    _In_ ULONG RecordCapacity,
+    _Out_ PULONG RequiredRecordCount
+    );
