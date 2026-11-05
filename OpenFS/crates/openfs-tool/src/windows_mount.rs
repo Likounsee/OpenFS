@@ -1221,11 +1221,12 @@ mod tests {
     }
 
     use super::{
-        access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
+        VolumeSession, access_categories, DeferredErrorLatch, OpenHandleState, ACCESS_DELETE, ACCESS_READ,
         ACCESS_WRITE, DELETE, FILE_APPEND_DATA, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
         FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE,
         MAXIMUM_ALLOWED, SHARE_DELETE, SHARE_READ, SHARE_WRITE,
     };
+    use openfs_block::ImageDevice;
     use openfs_format::ObjectId;
 
     #[test]
