@@ -8,7 +8,9 @@ The intended user experience is to mount an OpenFS volume through the Windows mo
 
 ## Current status
 
-The WDM driver currently supports validated volume probing/mounting and read-only operations. Native write support is not complete. In particular, do not claim that Explorer can yet copy files through the native driver.
+The WDM driver supports validated volume probing/mounting and read operations. An experimental, non-journaled overwrite path has now been added for isolated VM testing only. It can overwrite bytes inside an existing regular file only when every touched logical block is already allocated and the write remains within the current EOF.
+
+This is not general Explorer write support and is not safe for valuable data. File creation, extension, sparse-hole allocation, rename, move, delete, metadata updates and crash-atomic writes remain unsupported.
 
 The following kernel operations must be implemented and validated before enabling writes:
 
@@ -21,7 +23,7 @@ The following kernel operations must be implemented and validated before enablin
 
 ## Safety rule
 
-Until these operations are complete, keep the native WDM driver read-only. Do not use Dokany, a user-mode filesystem fallback, or a second simultaneous mount path to bypass missing kernel functionality.
+Keep the experimental overwrite path restricted to disposable disk images and isolated VMs. Do not use it on a physical disk or any volume containing valuable data. Do not use Dokany, a user-mode filesystem fallback, or a second simultaneous mount path to bypass missing kernel functionality.
 
 All write tests must first run against disposable disk images in CI and an isolated VM. Physical USB tests come only after the image tests and driver signing/loading workflow are validated.
 
@@ -32,10 +34,13 @@ The WDM block-I/O layer now has bounded `OpenFsWriteVolumeBlocks` and
 sector alignment and `PASSIVE_LEVEL`, and use aligned nonpaged buffers for
 synchronous lower-device requests.
 
-These are low-level building blocks only: they are not called by
-`IRP_MJ_WRITE`, CREATE, or SET_INFORMATION, and do not by themselves provide
-transactions, allocation, or crash safety. Keep the driver read-only until a
-complete mutation path uses them with journal recovery and tests.
+The current experimental `IRP_MJ_WRITE` path calls these primitives for
+bounded in-place overwrites. It holds the VCB resource exclusively, uses
+read/modify/write for partial blocks, rejects sparse holes and EOF extension,
+and flushes after a successful request. It does not emit REDO records and is
+not crash-atomic: a power loss or I/O failure can leave the target file's data
+partially updated. It must remain VM-only until journal integration and
+fault-injection tests are complete.
 
 The format library already has persistent namespace operations for creating
 empty files/directories, renaming/moving and removing objects, plus journaled
