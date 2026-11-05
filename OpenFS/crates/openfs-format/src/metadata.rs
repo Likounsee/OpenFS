@@ -59,6 +59,54 @@ pub struct MetadataRecord {
     pub generation: u32,
 }
 
+/// Basic file attributes stored in the existing metadata flags byte.
+pub const METADATA_FLAG_READ_ONLY: u8 = 1 << 0;
+pub const METADATA_FLAG_HIDDEN: u8 = 1 << 1;
+pub const METADATA_FLAG_SYSTEM: u8 = 1 << 2;
+pub const METADATA_FLAG_ARCHIVE: u8 = 1 << 3;
+pub const METADATA_FLAG_TEMPORARY: u8 = 1 << 4;
+pub const METADATA_KNOWN_ATTRIBUTE_FLAGS: u8 = METADATA_FLAG_READ_ONLY
+    | METADATA_FLAG_HIDDEN
+    | METADATA_FLAG_SYSTEM
+    | METADATA_FLAG_ARCHIVE
+    | METADATA_FLAG_TEMPORARY;
+
+impl MetadataRecord {
+    /// Return whether an attribute bit is set.
+    pub fn has_attribute(&self, attribute: u8) -> bool {
+        attribute != 0 && self.flags & attribute == attribute
+    }
+
+    /// Set or clear one or more attribute bits without disturbing other format flags.
+    pub fn set_attributes(&mut self, attributes: u8, enabled: bool) {
+        if enabled {
+            self.flags |= attributes;
+        } else {
+            self.flags &= !attributes;
+        }
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.has_attribute(METADATA_FLAG_READ_ONLY)
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        self.has_attribute(METADATA_FLAG_HIDDEN)
+    }
+
+    pub fn is_system(&self) -> bool {
+        self.has_attribute(METADATA_FLAG_SYSTEM)
+    }
+
+    pub fn is_archive(&self) -> bool {
+        self.has_attribute(METADATA_FLAG_ARCHIVE)
+    }
+
+    pub fn is_temporary(&self) -> bool {
+        self.has_attribute(METADATA_FLAG_TEMPORARY)
+    }
+}
+
 /// Decode a packed inventory of fixed-width metadata records.
 ///
 /// The input must end exactly on a record boundary. This helper validates each
@@ -239,6 +287,33 @@ mod tests {
             super::decode_metadata_records(&packed),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+
+    #[test]
+    fn basic_attributes_can_be_set_cleared_and_persisted() {
+        let mut record = file();
+        record.set_attributes(
+            super::METADATA_FLAG_READ_ONLY
+                | super::METADATA_FLAG_HIDDEN
+                | super::METADATA_FLAG_ARCHIVE,
+            true,
+        );
+        assert!(record.is_read_only());
+        assert!(record.is_hidden());
+        assert!(record.is_archive());
+        assert!(!record.is_system());
+        assert!(!record.is_temporary());
+
+        let decoded = MetadataRecord::decode(&record.encode().unwrap()).unwrap();
+        assert!(decoded.is_read_only());
+        assert!(decoded.is_hidden());
+        assert!(decoded.is_archive());
+
+        record.set_attributes(super::METADATA_FLAG_HIDDEN, false);
+        assert!(!record.is_hidden());
+        assert!(record.is_read_only());
+        assert!(record.is_archive());
     }
 
     #[test]
