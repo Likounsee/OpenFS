@@ -19,29 +19,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dokan"
-version = "0.2.0+dokan150"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac7792549b0f5608bc87a543ffdb516c2c86d03b40115097b589b53c4508ba5f"
-dependencies = [
- "bitflags",
- "dokan-sys",
- "widestring",
- "winapi",
-]
-
-[[package]]
-name = "dokan-sys"
-version = "0.2.0+dokan150"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31d23da3c0a82ce4a019d66a6994d1b10c48435a994f8dd6aeee0e5a9a3227d2"
-dependencies = [
- "cc",
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -95,7 +72,6 @@ dependencies = [
 name = "openfs-tool"
 version = "0.1.0"
 dependencies = [
- "dokan",
  "openfs-block",
  "openfs-core",
  "openfs-format",
