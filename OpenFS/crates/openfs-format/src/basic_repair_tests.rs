@@ -95,3 +95,82 @@ fn basic_does_not_guess_ownership_when_namespace_is_absent() {
         assert!(orphan >= volume.volume.layout.data_start);
     }
 }
+
+#[test]
+fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
+    use crate::METADATA_FLAG_READ_ONLY;
+    use openfs_block::BlockDevice;
+
+    let image = TestImage::new("readonly-subtree");
+    {
+        let mut device = ImageDevice::create(&image.0, 4096, 256).unwrap();
+        let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+        volume
+            .initialize_persistent_namespace(&mut device, ObjectId(1))
+            .unwrap();
+        volume
+            .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "protected")
+            .unwrap();
+        volume
+            .create_persistent_file_at_path(
+                &mut device,
+                "/protected",
+                ObjectId(3),
+                "important.txt",
+            )
+            .unwrap();
+        volume
+            .write_persistent_file_contents(
+                &mut device,
+                "/protected/important.txt",
+                b"must survive recursive deletion",
+            )
+            .unwrap();
+        volume
+            .set_persistent_attributes(
+                &mut device,
+                "/protected/important.txt",
+                METADATA_FLAG_READ_ONLY,
+                true,
+            )
+            .unwrap();
+        device.flush().unwrap();
+    }
+
+    {
+        let mut device = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut before = vec![0_u8; 4096 * 256];
+        device.read_blocks(0, &mut before).unwrap();
+        let mut volume = open_volume(&mut device).unwrap();
+
+        assert!(matches!(
+            volume.remove_persistent_tree_at_path(&mut device, "/protected"),
+            Err(crate::Error::InvalidInput(
+                "cannot remove a subtree containing a read-only file"
+            ))
+        ));
+
+        let mut after = vec![0_u8; 4096 * 256];
+        device.read_blocks(0, &mut after).unwrap();
+        assert_eq!(
+            after, before,
+            "refusing recursive deletion must preserve every image byte"
+        );
+        assert_eq!(
+            volume
+                .read_persistent_path_range(
+                    &mut device,
+                    "/protected/important.txt",
+                    0,
+                    64,
+                )
+                .unwrap(),
+            b"must survive recursive deletion"
+        );
+        assert!(volume
+            .verify_discovered_persistent_inventory(&mut device)
+            .unwrap()
+            .unwrap()
+            .is_consistent());
+    }
+}
