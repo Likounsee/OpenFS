@@ -10,7 +10,8 @@ use std::collections::HashSet;
 
 pub const METADATA_RECORD_SIZE: usize = 80;
 const MAGIC: &[u8; 8] = b"OFSMETA\0";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
+const LEGACY_VERSION: u16 = 1;
 const CHECKSUM_OFFSET: usize = 76;
 const NO_EXTENT_ROOT: u64 = u64::MAX;
 
@@ -57,9 +58,11 @@ pub struct MetadataRecord {
     pub size: u64,
     pub extent_root_block: Option<u64>,
     pub generation: u32,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+    /// Unix timestamp in seconds; zero means unknown (legacy volume or unavailable clock).
+    pub created_at: u32,
+    /// Unix timestamp in seconds; zero means unknown.
+    pub modified_at: u32,
+    /// Unix timestamp in seconds; zero means unknown.
 }
 
 /// Basic file attributes stored in the existing metadata flags byte.
@@ -180,6 +183,9 @@ impl MetadataRecord {
                 .to_le_bytes(),
         );
         bytes[60..64].copy_from_slice(&self.generation.to_le_bytes());
+        bytes[64..68].copy_from_slice(&self.created_at.to_le_bytes());
+        bytes[68..72].copy_from_slice(&self.modified_at.to_le_bytes());
+        bytes[72..76].copy_from_slice(&self.accessed_at.to_le_bytes());
         let checksum = crc32c(&bytes[..CHECKSUM_OFFSET]);
         bytes[CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
         Ok(bytes)
@@ -193,11 +199,11 @@ impl MetadataRecord {
             return Err(Error::Corrupt("bad metadata record magic"));
         }
         let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-        if version != VERSION {
+        if version != VERSION && version != LEGACY_VERSION {
             return Err(Error::UnsupportedVersion(version));
         }
-        if bytes[64..76].iter().any(|byte| *byte != 0) {
-            return Err(Error::Corrupt("metadata reserved bytes must be zero"));
+        if version == LEGACY_VERSION && bytes[64..76].iter().any(|byte| *byte != 0) {
+            return Err(Error::Corrupt("legacy metadata reserved bytes must be zero"));
         }
         let stored = u32::from_le_bytes(
             bytes[CHECKSUM_OFFSET..]
@@ -243,6 +249,9 @@ impl MetadataRecord {
                     .try_into()
                     .map_err(|_| Error::Corrupt("invalid generation"))?,
             ),
+            created_at: if version == VERSION { u32::from_le_bytes(bytes[64..68].try_into().map_err(|_| Error::Corrupt("invalid creation timestamp"))?) } else { 0 },
+            modified_at: if version == VERSION { u32::from_le_bytes(bytes[68..72].try_into().map_err(|_| Error::Corrupt("invalid modification timestamp"))?) } else { 0 },
+            accessed_at: if version == VERSION { u32::from_le_bytes(bytes[72..76].try_into().map_err(|_| Error::Corrupt("invalid access timestamp"))?) } else { 0 },
         };
         if record.kind == ObjectKind::Directory
             && (record.size != 0 || record.extent_root_block.is_some())
