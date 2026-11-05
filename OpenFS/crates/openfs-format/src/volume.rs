@@ -12737,14 +12737,14 @@ mod tests {
         assert_eq!(
             &encoded[..48],
             &[
-                79, 80, 69, 78, 70, 83, 0, 0, 4, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
+                79, 80, 69, 78, 70, 83, 0, 0, 5, 0, 48, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8,
                 7, 6, 5, 4, 3, 2, 1, 111, 112, 101, 110, 102, 115, 45, 116, 101, 115, 116, 45, 48,
                 48, 48, 49
             ]
         );
         assert_eq!(
             u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
-            0x34a7_71a5
+            0x2673_7465
         );
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
@@ -12867,7 +12867,7 @@ mod tests {
             let mut device = ImageDevice::open(&path, 4096).unwrap();
             assert!(matches!(
                 crate::open_legacy_volume(&mut device),
-                Err(Error::UnsupportedVersion(4))
+                Err(Error::UnsupportedVersion(5))
             ));
             let mut volume = open_volume(&mut device).unwrap();
             let second = volume.allocate_block(&mut device).unwrap();
@@ -16350,11 +16350,11 @@ mod tests {
     #[test]
     fn canonical_superblock_has_golden_bytes_for_every_supported_block_size() {
         let fixtures = [
-            (4_096_u32, 0x9eda_07d8_u32),
-            (8_192_u32, 0x23d6_fef0_u32),
-            (16_384_u32, 0x5c23_7a51_u32),
-            (32_768_u32, 0xa3c8_7313_u32),
-            (65_536_u32, 0x59f2_1766_u32),
+            (4_096_u32, 0x2673_7465_u32),
+            (8_192_u32, 0xb134_2f27_u32),
+            (16_384_u32, 0x69b0_c7f9_u32),
+            (32_768_u32, 0xda5c_e1d9_u32),
+            (65_536_u32, 0x6d11_cd9c_u32),
         ];
         let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let features = 0x0102_0304_0506_0708_u64;
