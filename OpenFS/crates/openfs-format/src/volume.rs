@@ -9022,8 +9022,10 @@ impl<D: BlockDevice> VolumeSession<D> {
         let data = self
             .opened
             .read_persistent_path_range(&mut self.device, path, 0, length)?;
-        self.opened
-            .touch_persistent_accessed(&mut self.device, record.id)?;
+        if !data.is_empty() {
+            self.opened
+                .touch_persistent_accessed(&mut self.device, record.id)?;
+        }
         Ok(data)
     }
 
@@ -20050,6 +20052,30 @@ mod directory_access_timestamp_tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("openfs-directory-atime-{nonce}.img"))
+    }
+
+    #[test]
+    fn reading_an_empty_file_does_not_update_its_access_timestamp() {
+        let path = image_path();
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut formatted = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            formatted
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            let object_id = mounted.create_file_auto("/", "empty.txt").unwrap();
+            assert!(mounted.read_file("/empty.txt").unwrap().is_empty());
+            assert_eq!(mounted.stat_object(object_id).unwrap().accessed_at, 0);
+            drop(mounted.unmount().unwrap());
+        }
+
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
