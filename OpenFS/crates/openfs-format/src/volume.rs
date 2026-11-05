@@ -19040,18 +19040,12 @@ mod tests {
 
             {
                 let mut device = ImageDevice::create(&path, block_size, 512).unwrap();
-                let mut volume =
-                    format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+                let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
                 volume
                     .initialize_persistent_namespace(&mut device, ObjectId(1))
                     .unwrap();
                 volume
-                    .create_persistent_directory_at_path(
-                        &mut device,
-                        "/",
-                        ObjectId(2),
-                        "documents",
-                    )
+                    .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "documents")
                     .unwrap();
                 volume
                     .create_persistent_file_at_path(
