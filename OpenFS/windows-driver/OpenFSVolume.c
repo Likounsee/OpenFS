@@ -1347,6 +1347,10 @@ OpenFsWriteFcbData(
     PLIST_ENTRY link;
     BOOLEAN owned = FALSE;
     PUCHAR blockBuffer = NULL;
+    PULONGLONG physicalBlocks = NULL;
+    ULONG requiredBlockCount = 0;
+    ULONG planIndex = 0;
+    OPENFS_VOLUME_LAYOUT layout;
     ULONGLONG currentOffset;
     ULONG completed = 0;
     NTSTATUS status;
@@ -1360,6 +1364,8 @@ OpenFsWriteFcbData(
         return STATUS_INVALID_PARAMETER;
     if (Length == 0)
         return STATUS_SUCCESS;
+    if (Length > 16u * 1024u * 1024u)
+        return STATUS_INVALID_BUFFER_SIZE;
 
     status = OpenFsLoadFcbExtents(VolumeDeviceObject, FileFcb);
     if (!NT_SUCCESS(status))
@@ -1410,6 +1416,40 @@ OpenFsWriteFcbData(
         goto WriteExit;
     }
 
+    {
+        ULONGLONG span =
+            (ByteOffset % vcb->Geometry.BlockSize) + (ULONGLONG)Length;
+        ULONGLONG needed =
+            (span + vcb->Geometry.BlockSize - 1u) /
+            vcb->Geometry.BlockSize;
+        if (needed == 0 || needed > MAXULONG ||
+            needed > MAXULONG / sizeof(ULONGLONG)) {
+            status = STATUS_INTEGER_OVERFLOW;
+            goto WriteExit;
+        }
+        requiredBlockCount = (ULONG)needed;
+        physicalBlocks = (PULONGLONG)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED,
+            (SIZE_T)requiredBlockCount * sizeof(ULONGLONG),
+            OPENFS_FCB_POOL_TAG);
+        if (physicalBlocks == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto WriteExit;
+        }
+    }
+
+    status = OpenFsCalculateVolumeLayout(vcb->Geometry.BlockSize,
+        vcb->Geometry.TotalBlocks, vcb->Geometry.Version, &layout);
+    if (!NT_SUCCESS(status))
+        goto WriteExit;
+    status = OpenFsBuildWriteBlockPlan(FileFcb->Extents,
+        FileFcb->ExtentCount, FileFcb->FileSize, vcb->Geometry.BlockSize,
+        ByteOffset, Length, layout.DataStartBlock,
+        layout.BackupSuperblockBlock, vcb->Geometry.TotalBlocks,
+        physicalBlocks, requiredBlockCount, &requiredBlockCount);
+    if (!NT_SUCCESS(status))
+        goto WriteExit;
+
     blockBuffer = (PUCHAR)ExAllocatePool2(
         POOL_FLAG_NON_PAGED, vcb->Geometry.BlockSize, OPENFS_FCB_POOL_TAG);
     if (blockBuffer == NULL) {
@@ -1420,25 +1460,13 @@ OpenFsWriteFcbData(
     currentOffset = ByteOffset;
     status = STATUS_SUCCESS;
     while (completed < Length) {
-        ULONGLONG logicalBlock =
-            currentOffset / vcb->Geometry.BlockSize;
-        ULONGLONG physicalBlock = 0;
+        ULONGLONG physicalBlock = physicalBlocks[planIndex++];
         ULONG blockOffset =
             (ULONG)(currentOffset % vcb->Geometry.BlockSize);
         ULONG chunk = vcb->Geometry.BlockSize - blockOffset;
-        BOOLEAN allocated = FALSE;
 
         if (chunk > Length - completed)
             chunk = Length - completed;
-
-        status = OpenFsMapLogicalBlock(FileFcb->Extents,
-            FileFcb->ExtentCount, logicalBlock, &physicalBlock, &allocated);
-        if (!NT_SUCCESS(status))
-            break;
-        if (!allocated) {
-            status = STATUS_NOT_SUPPORTED;
-            break;
-        }
 
         if (blockOffset == 0 && chunk == vcb->Geometry.BlockSize) {
             RtlCopyMemory(blockBuffer, Buffer + completed, chunk);
@@ -1469,6 +1497,8 @@ OpenFsWriteFcbData(
 WriteExit:
     if (blockBuffer != NULL)
         ExFreePoolWithTag(blockBuffer, OPENFS_FCB_POOL_TAG);
+    if (physicalBlocks != NULL)
+        ExFreePoolWithTag(physicalBlocks, OPENFS_FCB_POOL_TAG);
     ExReleaseResourceLite(&vcb->Resource);
     ExReleaseRundownProtection(&vcb->RundownProtection);
     ObDereferenceObject(VolumeDeviceObject);
@@ -1476,7 +1506,8 @@ WriteExit:
 }
 
 
-Validate an FCB against the mounted VCB before exposing immutable file
+/*
+ * Validate an FCB against the mounted VCB before exposing immutable file
  * metadata to a dispatch routine. In particular, never trust FsContext merely
  * because it contains a pointer with an FCB-looking signature.
  */
