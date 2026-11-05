@@ -1785,6 +1785,18 @@ BitmapExit:
         if (!NT_SUCCESS(status))
             return OpenFsCompleteIrp(Irp, status);
 
+        /* Replay durable REDO before publishing any namespace snapshot. */
+        status = OpenFsRecoverVolumeJournal(realDeviceObject, &geometry);
+        if (!NT_SUCCESS(status)) {
+            OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
+            return OpenFsCompleteIrp(Irp, status);
+        }
+        OpenFsFreeNamespaceSnapshot(namespaceSnapshot);
+        namespaceSnapshot = NULL;
+        status = OpenFsProbeVolume(realDeviceObject, &geometry, &namespaceSnapshot);
+        if (!NT_SUCCESS(status))
+            return OpenFsCompleteIrp(Irp, status);
+
         status = OpenFsCreateVolumeDevice(DeviceObject->DriverObject,
             realDeviceObject, &geometry, &privateVolumeDevice);
         if (!NT_SUCCESS(status))
