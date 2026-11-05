@@ -19535,8 +19535,9 @@ mod tests {
                     // Keep the session's exclusive image lock by moving its original
                     // device into the fault injector. A separate placeholder device is
                     // required by the session while the injected wrapper is used directly.
-                    let placeholder_path =
-                        image_path(&format!("basic-range-placeholder-{failure_kind}-{block_size}"));
+                    let placeholder_path = image_path(&format!(
+                        "basic-range-placeholder-{failure_kind}-{block_size}"
+                    ));
                     let placeholder_device =
                         ImageDevice::create(&placeholder_path, block_size, 256).unwrap();
                     let device = std::mem::replace(&mut mounted.device, placeholder_device);
