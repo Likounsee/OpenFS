@@ -218,27 +218,27 @@ fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
             Err(crate::Error::Io(_))
         ));
         assert_eq!(session.read_file("/data.bin").unwrap(), original);
-        let ownership = session
-            .opened
-            .verify_discovered_persistent_inventory(&mut session.device)
+        let mut device = session.unmount().unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        let ownership = volume
+            .verify_discovered_persistent_inventory(&mut device)
             .unwrap()
             .unwrap();
         assert!(ownership.is_consistent());
         assert_eq!(ownership.orphaned_block_count(), 0);
-        drop(session.unmount().unwrap());
     }
 
     {
-        let device = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut device = ImageDevice::open(&image.0, 4096).unwrap();
         let mut session = VolumeSession::open(device).unwrap();
         assert_eq!(session.read_file("/data.bin").unwrap(), original);
-        let ownership = session
-            .opened
-            .verify_discovered_persistent_inventory(&mut session.device)
+        device = session.unmount().unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        let ownership = volume
+            .verify_discovered_persistent_inventory(&mut device)
             .unwrap()
             .unwrap();
         assert!(ownership.is_consistent());
         assert_eq!(ownership.orphaned_block_count(), 0);
-        drop(session.unmount().unwrap());
     }
 }
