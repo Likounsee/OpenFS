@@ -129,8 +129,6 @@ OpenFsPlanJournalRecovery(
         return STATUS_BUFFER_TOO_SMALL;
 
     /* Second pass publishes compact references to committed UPDATE records. */
-    active = FALSE;
-    activeTransaction = 0;
     {
         ULONG firstUpdate = 0;
         ULONG updateCount = 0;
@@ -139,7 +137,6 @@ OpenFsPlanJournalRecovery(
         for (index = 0; index < RecordCount; ++index) {
             const OPENFS_JOURNAL_RECORD_VIEW* record = &Records[index];
             if (record->Kind == OpenFsJournalBegin) {
-                active = TRUE;
                 activeTransaction = record->TransactionId;
                 updateCount = 0;
             } else if (record->Kind == OpenFsJournalUpdate) {
@@ -151,12 +148,8 @@ OpenFsPlanJournalRecovery(
                 Transactions[outputIndex].FirstUpdateIndex = firstUpdate;
                 Transactions[outputIndex].UpdateCount = updateCount;
                 ++outputIndex;
-                active = FALSE;
-                activeTransaction = 0;
                 updateCount = 0;
             } else if (record->Kind == OpenFsJournalAbort) {
-                active = FALSE;
-                activeTransaction = 0;
                 updateCount = 0;
             }
         }
