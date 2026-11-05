@@ -2051,9 +2051,9 @@ impl OpenedVolume {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             namespace.insert(
                 DirectoryEntry {
@@ -10173,9 +10173,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
             metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -10297,9 +10297,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut bytes = vec![0_u8; 4096];
             bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
@@ -10394,9 +10394,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut bytes = vec![0_u8; 4096];
             bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
@@ -10469,9 +10469,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut initial_bytes = vec![0_u8; 4096];
             initial_bytes[..crate::METADATA_RECORD_SIZE]
@@ -10509,9 +10509,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     },
                 )
                 .unwrap();
@@ -10558,9 +10558,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let metadata_block = volume.allocate_block(&mut device).unwrap();
             let mut metadata = vec![0_u8; 4096];
@@ -10601,9 +10601,9 @@ mod tests {
                             size,
                             extent_root_block: None,
                             generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                            created_at: 0,
+                            modified_at: 0,
+                            accessed_at: 0,
                         },
                     )
                     .unwrap();
@@ -10644,9 +10644,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut metadata_bytes = vec![0; 4096];
             metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -10723,9 +10723,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut metadata_bytes = vec![0_u8; 4096];
             metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -10919,9 +10919,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut root_bytes = vec![0_u8; 4096];
                 root_bytes[..80].copy_from_slice(&root.encode().unwrap());
@@ -11039,9 +11039,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let file = MetadataRecord {
                     id: ObjectId(2),
@@ -11051,9 +11051,9 @@ mod tests {
                     size: 12,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -11125,9 +11125,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut root_bytes = vec![0_u8; 4096];
             root_bytes[..80].copy_from_slice(&root.encode().unwrap());
@@ -11176,9 +11176,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut root_bytes = vec![0_u8; 4096];
             root_bytes[..80].copy_from_slice(&root.encode().unwrap());
@@ -11329,9 +11329,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -11480,9 +11480,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -11558,9 +11558,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -11656,9 +11656,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -11766,9 +11766,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     metadata_record = root.encode().unwrap();
                     let mut metadata_bytes = vec![0_u8; block_size as usize];
@@ -11906,9 +11906,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -12188,9 +12188,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let file = MetadataRecord {
                 id: ObjectId(2),
@@ -12200,9 +12200,9 @@ mod tests {
                 size: 12,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let entry = DirectoryEntry {
                 parent_id: 1,
@@ -12262,9 +12262,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let file = MetadataRecord {
                 id: ObjectId(2),
@@ -12274,9 +12274,9 @@ mod tests {
                 size: 12_000,
                 extent_root_block: Some(extent_root),
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let entry = DirectoryEntry {
                 parent_id: 1,
@@ -12391,9 +12391,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let file = MetadataRecord {
                 id: ObjectId(2),
@@ -12403,9 +12403,9 @@ mod tests {
                 size: 4096,
                 extent_root_block: Some(extent_root),
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let entry = DirectoryEntry {
                 parent_id: 1,
@@ -12543,9 +12543,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let file = MetadataRecord {
                     id: ObjectId(2),
@@ -12555,9 +12555,9 @@ mod tests {
                     size: u64::from(block_size) * 2,
                     extent_root_block: Some(extent_root),
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -12995,9 +12995,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let first = MetadataRecord {
                     id: ObjectId(2),
@@ -13007,9 +13007,9 @@ mod tests {
                     size: u64::from(block_size),
                     extent_root_block: Some(first_root),
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let second = MetadataRecord {
                     id: ObjectId(3),
@@ -13019,9 +13019,9 @@ mod tests {
                     size: u64::from(block_size),
                     extent_root_block: Some(second_root),
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 for (index, record) in [root, first, second].iter().enumerate() {
@@ -13135,9 +13135,9 @@ mod tests {
                         size: u64::from(block_size),
                         extent_root_block: Some(pair[0]),
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     namespace
                         .insert(
@@ -13214,9 +13214,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let file = MetadataRecord {
                 id: ObjectId(2),
@@ -13226,9 +13226,9 @@ mod tests {
                 size: 12,
                 extent_root_block: Some(extent_root),
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let entry = DirectoryEntry {
                 parent_id: 1,
@@ -13281,9 +13281,9 @@ mod tests {
                 size: 12,
                 extent_root_block: Some(metadata_block),
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut aliased_metadata_bytes = vec![0_u8; 4096];
             aliased_metadata_bytes[..80].copy_from_slice(&root.encode().unwrap());
@@ -13477,9 +13477,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut metadata_bytes = vec![0; 4096];
             metadata_bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root.encode().unwrap());
@@ -14227,9 +14227,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -14388,9 +14388,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let mut metadata_bytes = vec![0; block_size as usize];
                     metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -16476,9 +16476,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -16556,9 +16556,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let child = MetadataRecord {
                         id: ObjectId(2),
@@ -16568,9 +16568,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let second_child = MetadataRecord {
                         id: ObjectId(3),
@@ -16580,9 +16580,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let entry = DirectoryEntry {
                         parent_id: 1,
@@ -16734,9 +16734,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; 4096];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -16754,9 +16754,9 @@ mod tests {
                         size: 0,
                         extent_root_block: None,
                         generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                        created_at: 0,
+                        modified_at: 0,
+                        accessed_at: 0,
                     };
                     let encoded_child = child.encode().unwrap();
                     if child_index + 1 < metadata_capacity {
@@ -16916,9 +16916,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let mut metadata_bytes = vec![0_u8; block_size as usize];
                 metadata_bytes[..crate::METADATA_RECORD_SIZE]
@@ -17233,9 +17233,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let child = MetadataRecord {
                     id: ObjectId(2),
@@ -17245,9 +17245,9 @@ mod tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                    created_at: 0,
+                    modified_at: 0,
+                    accessed_at: 0,
                 };
                 let entry = DirectoryEntry {
                     parent_id: 1,
@@ -18078,9 +18078,9 @@ mod tests {
                 size: 0,
                 extent_root_block: None,
                 generation: 1,
-            created_at: 0,
-            modified_at: 0,
-            accessed_at: 0,
+                created_at: 0,
+                modified_at: 0,
+                accessed_at: 0,
             };
             let mut bytes = vec![0_u8; block_size];
             bytes[..crate::METADATA_RECORD_SIZE].copy_from_slice(&root_record.encode().unwrap());
