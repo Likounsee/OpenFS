@@ -8677,7 +8677,7 @@ pub struct VolumeSession<D: BlockDevice> {
 }
 
 impl<D: BlockDevice> VolumeSession<D> {
-    /// Open a volume session and complete journal recovery before exposing file APIs.
+    /// Open a volume session; Secure recovers its journal, while Basic opens without replay.
     pub fn open(mut device: D) -> Result<Self> {
         let mut opened = open_volume(&mut device)?;
         // Journal recovery restores the last committed state; a crash can still have left
