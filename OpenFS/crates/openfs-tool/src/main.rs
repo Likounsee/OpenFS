@@ -1392,7 +1392,9 @@ fn parse_attribute_flag(name: &str) -> Result<u8, Box<dyn StdError>> {
         "readonly" | "read-only" => Ok(METADATA_FLAG_READ_ONLY),
         "system" => Ok(METADATA_FLAG_SYSTEM),
         "temporary" => Ok(METADATA_FLAG_TEMPORARY),
-        _ => Err("unknown attribute; choose archive, hidden, readonly, system, or temporary".into()),
+        _ => Err(
+            "unknown attribute; choose archive, hidden, readonly, system, or temporary".into(),
+        ),
     }
 }
 
@@ -3353,7 +3355,11 @@ mod tests {
 
     #[test]
     fn attribute_mask_combines_multiple_unique_flags() {
-        let names = vec!["hidden".to_owned(), "readonly".to_owned(), "archive".to_owned()];
+        let names = vec![
+            "hidden".to_owned(),
+            "readonly".to_owned(),
+            "archive".to_owned(),
+        ];
         let mask = super::parse_attribute_mask(&names).unwrap();
         assert_eq!(
             mask,
