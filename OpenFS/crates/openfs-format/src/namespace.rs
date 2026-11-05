@@ -527,7 +527,9 @@ impl Namespace {
         enabled: bool,
     ) -> Result<()> {
         if attributes == 0 || attributes & !crate::METADATA_KNOWN_ATTRIBUTE_FLAGS != 0 {
-            return Err(Error::InvalidInput("unsupported or empty metadata attribute mask"));
+            return Err(Error::InvalidInput(
+                "unsupported or empty metadata attribute mask",
+            ));
         }
         let current = self
             .objects
@@ -552,7 +554,9 @@ impl Namespace {
                 || entry.name != indexed_name
                 || entry.kind != current.kind
             {
-                return Err(Error::Corrupt("object metadata disagrees with its directory entry"));
+                return Err(Error::Corrupt(
+                    "object metadata disagrees with its directory entry",
+                ));
             }
         }
         let mut updated = current;
