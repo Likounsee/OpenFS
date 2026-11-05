@@ -415,6 +415,109 @@ OpenFsJournalCheckpointsEqual(
 }
 
 
+
+NTSTATUS
+OpenFsBuildJournalTransaction(
+    _In_reads_(UpdateCount) const OPENFS_JOURNAL_REDO_UPDATE* Updates,
+    _In_ ULONG UpdateCount,
+    _In_ ULONG BlockSize,
+    _In_ ULONG RingBlocks,
+    _In_ ULONGLONG FirstAllowedBlock,
+    _In_ ULONGLONG EndAllowedBlock,
+    _In_ ULONGLONG FirstSequence,
+    _In_ ULONGLONG TransactionId,
+    _Out_writes_bytes_(EncodedBytes) UCHAR* EncodedBlocks,
+    _In_ SIZE_T EncodedBytes,
+    _Out_ PULONG RequiredRecordCount,
+    _Out_ PULONGLONG CommitSequence,
+    _Out_ PULONGLONG NextSequence,
+    _Out_writes_bytes_(BlockSize) UCHAR* PayloadScratch
+    )
+{
+    ULONG chunkCapacity, chunksPerImage, required, i, slot;
+    SIZE_T requiredBytes;
+    ULONGLONG sequence;
+    NTSTATUS status;
+
+    if (Updates == NULL || UpdateCount == 0 || BlockSize < 4096u ||
+        BlockSize > 65536u || (BlockSize & (BlockSize - 1u)) != 0 ||
+        RingBlocks < 4u || FirstAllowedBlock >= EndAllowedBlock ||
+        FirstSequence == 0 || TransactionId == 0 || EncodedBlocks == NULL ||
+        RequiredRecordCount == NULL || CommitSequence == NULL ||
+        NextSequence == NULL || PayloadScratch == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    chunkCapacity = BlockSize - OPENFS_JOURNAL_RECORD_HEADER_BYTES - 12u;
+    chunksPerImage = (BlockSize + chunkCapacity - 1u) / chunkCapacity;
+    if (UpdateCount > (MAXULONG - 2u) / chunksPerImage)
+        return STATUS_INTEGER_OVERFLOW;
+    required = 2u + UpdateCount * chunksPerImage;
+    if (required > RingBlocks)
+        return STATUS_BUFFER_TOO_SMALL;
+    if ((SIZE_T)RingBlocks > ((SIZE_T)-1) / BlockSize)
+        return STATUS_INTEGER_OVERFLOW;
+    requiredBytes = (SIZE_T)RingBlocks * BlockSize;
+    if (EncodedBytes < requiredBytes)
+        return STATUS_BUFFER_TOO_SMALL;
+    if (FirstSequence > MAXULONGLONG - required)
+        return STATUS_INTEGER_OVERFLOW;
+    if (TransactionId == MAXULONGLONG)
+        return STATUS_INTEGER_OVERFLOW;
+
+    /* Validate all targets and duplicate constraints before touching output. */
+    for (i = 0; i < UpdateCount; ++i) {
+        ULONG j;
+        if (Updates[i].Image == NULL ||
+            Updates[i].TargetBlock < FirstAllowedBlock ||
+            Updates[i].TargetBlock >= EndAllowedBlock)
+            return STATUS_DISK_CORRUPT_ERROR;
+        for (j = 0; j < i; ++j)
+            if (Updates[j].TargetBlock == Updates[i].TargetBlock)
+                return STATUS_DISK_CORRUPT_ERROR;
+    }
+
+    RtlZeroMemory(EncodedBlocks, requiredBytes);
+    sequence = FirstSequence;
+    slot = 0;
+    status = OpenFsEncodeJournalRecordBlock(OpenFsJournalBegin, sequence++,
+        TransactionId, NULL, 0, BlockSize, EncodedBlocks);
+    if (!NT_SUCCESS(status))
+        return status;
+    ++slot;
+
+    for (i = 0; i < UpdateCount; ++i) {
+        ULONG chunk;
+        for (chunk = 0; chunk < chunksPerImage; ++chunk) {
+            ULONG offset = chunk * chunkCapacity;
+            ULONG dataBytes = (BlockSize - offset < chunkCapacity)
+                ? BlockSize - offset : chunkCapacity;
+            RtlZeroMemory(PayloadScratch, 12u + dataBytes);
+            w64(PayloadScratch, Updates[i].TargetBlock);
+            w16(PayloadScratch + 8, (USHORT)chunk);
+            w16(PayloadScratch + 10, (USHORT)chunksPerImage);
+            RtlCopyMemory(PayloadScratch + 12, Updates[i].Image + offset, dataBytes);
+            status = OpenFsEncodeJournalRecordBlock(OpenFsJournalUpdate,
+                sequence++, TransactionId, PayloadScratch, 12u + dataBytes,
+                BlockSize, EncodedBlocks + ((SIZE_T)slot * BlockSize));
+            if (!NT_SUCCESS(status))
+                return status;
+            ++slot;
+        }
+    }
+
+    *CommitSequence = sequence;
+    status = OpenFsEncodeJournalRecordBlock(OpenFsJournalCommit, sequence++,
+        TransactionId, NULL, 0, BlockSize,
+        EncodedBlocks + ((SIZE_T)slot * BlockSize));
+    if (!NT_SUCCESS(status))
+        return status;
+
+    *RequiredRecordCount = required;
+    *NextSequence = sequence;
+    return STATUS_SUCCESS;
+}
+
+
 NTSTATUS
 OpenFsValidateRedoTargets(
     _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
