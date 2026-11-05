@@ -4270,6 +4270,16 @@ impl OpenedVolume {
         updates
             .try_reserve_exact(touched_blocks)
             .map_err(|_| Error::AllocationFailed("unable to reserve file write redo updates"))?;
+        // Keep the before-images for Basic mode. It has no on-disk redo log, so a
+        // recoverable device error during a multi-block direct write must not leave a
+        // successfully returned handle exposing a partially updated logical range.
+        // This is an in-process rollback guarantee, not a power-loss atomicity claim.
+        let mut before_images = Vec::new();
+        if !self.journal.is_enabled() {
+            before_images.try_reserve_exact(touched_blocks).map_err(|_| {
+                Error::AllocationFailed("unable to reserve Basic write rollback images")
+            })?;
+        }
         let mut block_buffer =
             try_zeroed_bytes(block_len, "unable to allocate file write block buffer")?;
         let mut source_offset = 0_usize;
@@ -4317,10 +4327,23 @@ impl OpenedVolume {
             let source_chunk = data.get(source_offset..source_end).ok_or(Error::Corrupt(
                 "write-range source accounting exceeds the supplied data",
             ))?;
+            // Always capture the original block for Basic rollback, including full-block
+            // writes. Secure already has a durable redo transaction and needs no copy.
+            if !self.journal.is_enabled() || within_start != 0 || within_end != block_len {
+                device.read_blocks(physical, &mut block_buffer)?;
+            }
+            if !self.journal.is_enabled() {
+                before_images.push(RedoUpdate {
+                    target_block: physical,
+                    contents: try_copy_slice(
+                        &block_buffer,
+                        "unable to allocate Basic write rollback image",
+                    )?,
+                });
+            }
             if within_start == 0 && within_end == block_len {
                 block_buffer.copy_from_slice(source_chunk);
             } else {
-                device.read_blocks(physical, &mut block_buffer)?;
                 block_buffer[within_start..within_end].copy_from_slice(source_chunk);
             }
             updates.push(RedoUpdate {
@@ -4339,13 +4362,38 @@ impl OpenedVolume {
         }
         if let Err(error) = self.journal.commit(device, &updates) {
             if !self.journal.is_enabled() {
-                // Basic writes home blocks directly. A failed write or flush may leave
-                // any prefix persisted; reopening only clears the in-memory uncertain
-                // state and does not imply rollback or replay. Preserve the original I/O
-                // error so callers know to inspect the file before retrying.
+                // Basic writes home blocks directly. Reopen first to clear any uncertain
+                // in-memory state, then restore every before-image and flush the rollback.
+                // If rollback itself cannot be proven complete, fail closed: callers must
+                // preserve the image instead of retrying over an unknown file contents.
                 *self = open_volume(device).map_err(|_| {
                     Error::Corrupt("Basic file write failed and the volume could not be reopened")
                 })?;
+                for before in &before_images {
+                    device.write_blocks(before.target_block, &before.contents).map_err(|_| {
+                        Error::Corrupt("Basic file write rollback failed; preserve the volume")
+                    })?;
+                }
+                device.flush().map_err(|_| {
+                    Error::Corrupt("Basic file write rollback flush failed; preserve the volume")
+                })?;
+                *self = open_volume(device).map_err(|_| {
+                    Error::Corrupt("Basic file write rollback completed but reopen failed")
+                })?;
+                let mut verified = try_zeroed_bytes(
+                    self.volume.block_size as usize,
+                    "unable to verify Basic file write rollback",
+                )?;
+                for before in &before_images {
+                    device.read_blocks(before.target_block, &mut verified).map_err(|_| {
+                        Error::Corrupt("Basic file write rollback verification failed; preserve the volume")
+                    })?;
+                    if verified != before.contents {
+                        return Err(Error::Corrupt(
+                            "Basic file write rollback left a mixed image; preserve the volume",
+                        ));
+                    }
+                }
                 return Err(error);
             }
             // A multi-block data transaction may have crossed its durable COMMIT
