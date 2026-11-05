@@ -31,7 +31,8 @@ OpenFsVolumeStateTryTransition(
 int
 OpenFsVolumeStateCanDestroy(
     OPENFS_VOLUME_STATE State,
-    int HasVpb
+    int HasVpb,
+    unsigned long long TotalOpenHandles
     );
 
 
