@@ -93,47 +93,6 @@ fn run() -> Result<(), Box<dyn StdError>> {
                 Err("physical disk formatting currently requires Windows".into())
             }
         }
-        Some("mount-disk") | Some("mount-usb") => {
-            let disk_index = args
-                .next()
-                .ok_or("missing physical disk index")?
-                .parse::<u32>()?;
-            let unique_id = args.next().ok_or("missing exact physical disk UniqueId")?;
-            let expected_model = args.next().ok_or("missing exact physical disk model")?;
-            let expected_serial = args.next().ok_or("missing exact physical disk serial")?;
-            let expected_size = args
-                .next()
-                .ok_or("missing exact physical disk capacity in bytes")?
-                .parse::<u64>()?;
-            let mount_point = args.next().ok_or("missing mount point (for example O:)")?;
-            let block_size = parse_optional_block_size(args.next())?;
-            ensure_no_args(&mut args)?;
-            #[cfg(windows)]
-            {
-                windows_mount::mount_disk_device(
-                    disk_index,
-                    &unique_id,
-                    &expected_model,
-                    &expected_serial,
-                    expected_size,
-                    &mount_point,
-                    block_size,
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                let _ = (
-                    disk_index,
-                    unique_id,
-                    expected_model,
-                    expected_serial,
-                    expected_size,
-                    mount_point,
-                    block_size,
-                );
-                Err("mount-disk currently requires Windows native WDM".into())
-            }
-        }
         Some("list-devices") => {
             if args.next().is_some() {
                 return Err("list-devices does not accept arguments".into());
@@ -534,7 +493,7 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
     );
     println!("OpenFS partition capacity: {partition_bytes} bytes");
     println!("Primary and backup GPT copies: written and flushed");
-    println!("The image can be mounted with: openfs mount <image> <drive-letter>");
+    println!("Windows mounting is being implemented in the native OpenFS WDM driver.");
     Ok(())
 }
 fn make_gpt_guid(seed: u128) -> [u8; 16] {
@@ -3012,7 +2971,7 @@ fn print_usage() {
     );
     eprintln!("  openfs create-gpt-image <path> <size-MiB>  (creates GPT + one OpenFS partition)");
     eprintln!("  openfs format-gpt-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; GPT + OpenFS partition; Windows only)");
-    eprintln!("  openfs mount <image> <drive-letter> [block-size]  (Windows + Dokany)");
+    eprintln!("  Windows mount: native OpenFS WDM driver (in development; no Dokany)");
     eprintln!("  unmount via Windows mount manager / native OpenFS WDM driver");
     eprintln!("  openfs format-disk <disk-index> <exact-model> <exact-serial> <exact-size-bytes> ERASE-ALL-DATA [block-size]  (destructive; Windows; mounted volumes are dismounted)");
     eprintln!("  mount a disk through native OpenFS WDM driver (not yet enabled)");
