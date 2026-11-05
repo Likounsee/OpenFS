@@ -533,7 +533,7 @@ fn inspect_image(path: &Path) -> Result<(), Box<dyn StdError>> {
     let report = check_volume(&mut device)?;
     println!("OpenFS volume inspected (read-only; no recovery performed).");
     print_volume_geometry(path, &report);
-    println!("Format: OpenFS journaled filesystem");
+    println!("Format: OpenFS Basic (non-journaled)");
     println!(
         "Pending journal records: {}",
         report.pending_journal_records
