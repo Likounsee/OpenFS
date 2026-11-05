@@ -1153,7 +1153,7 @@ mod tests {
         // not merely remain visible through the current in-memory session.
         let reopened_device = ImageDevice::open(&path, 4096).unwrap();
         let reopened = VolumeSession::open(reopened_device).unwrap();
-        assert_eq!(reopened.read_file("/copy.bin").unwrap(), b"abc\\0\\0XYZ");
+        assert_eq!(reopened.read_file("/copy.bin").unwrap(), b"abc\0\0XYZ");
         drop(reopened);
         let _ = std::fs::remove_file(path);
     }
