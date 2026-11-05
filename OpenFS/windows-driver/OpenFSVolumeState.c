@@ -52,10 +52,13 @@ OpenFsVolumeStateTryTransition(
 int
 OpenFsVolumeStateCanDestroy(
     OPENFS_VOLUME_STATE State,
-    int HasVpb
+    int HasVpb,
+    unsigned long long TotalOpenHandles
     )
 {
-    return State == OpenFsVolumeInitializing && !HasVpb;
+    return State == OpenFsVolumeInitializing &&
+        !HasVpb &&
+        TotalOpenHandles == 0;
 }
 
 
