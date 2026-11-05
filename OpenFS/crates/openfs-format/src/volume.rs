@@ -7427,6 +7427,8 @@ pub struct VolumeCheckReport {
     pub pending_journal_records: u64,
     /// Fully committed transactions represented by the pending records.
     pub recoverable_transactions: u64,
+    /// Whether this volume has an active on-disk redo journal (Secure mode).
+    pub journal_enabled: bool,
     /// Whether a persistent namespace inventory descriptor was found in allocated data blocks.
     pub persistent_inventory_present: bool,
 }
@@ -7542,6 +7544,7 @@ pub fn check_volume<D: BlockDevice>(device: &mut D) -> Result<VolumeCheckReport>
         journal_checkpoint_sequence,
         pending_journal_records,
         recoverable_transactions,
+        journal_enabled: secure,
         persistent_inventory_present,
     })
 }
