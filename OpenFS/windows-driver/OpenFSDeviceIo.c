@@ -1420,6 +1420,22 @@ OpenFsRecoverVolumeJournal(
         nextCopy ? layout.CheckpointB : layout.CheckpointA, 1u, cpBuf, blockSize);
     if (!NT_SUCCESS(status)) goto ExitRecovery;
     status = OpenFsFlushVolumeDevice(DeviceObject);
+    if (!NT_SUCCESS(status))
+        goto ExitRecovery;
+
+    /*
+     * Once the new checkpoint is durable, old committed records are stale.
+     * Clear the ring before any future writer reuses slot zero. If this
+     * cleanup is interrupted, the checkpoint makes remaining records stale.
+     */
+    for (i = 0; i < ringCount; ++i) {
+        status = OpenFsWriteVolumeBlocks(DeviceObject, blockSize,
+            Geometry->TotalBlocks, layout.RingStartBlock + i,
+            1u, zero, blockSize);
+        if (!NT_SUCCESS(status))
+            goto ExitRecovery;
+    }
+    status = OpenFsFlushVolumeDevice(DeviceObject);
 
 ExitRecovery:
     if (zero) ExFreePoolWithTag(zero, OPENFS_DEVICE_IO_TAG);
