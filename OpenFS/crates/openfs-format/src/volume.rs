@@ -9613,6 +9613,16 @@ mod tests {
             assert_eq!(restored.created_at, created_at);
             assert_eq!(restored.modified_at, modified_at);
             assert_eq!(mounted.read_file("/timestamps.txt").unwrap(), b"timestamp data");
+            let accessed = mounted.stat("/timestamps.txt").unwrap().accessed_at;
+            assert_ne!(accessed, 0);
+            mounted.unmount().unwrap();
+
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(
+                mounted.stat("/timestamps.txt").unwrap().accessed_at,
+                accessed
+            );
             mounted.unmount().unwrap();
         }
         fs::remove_file(path).unwrap();
