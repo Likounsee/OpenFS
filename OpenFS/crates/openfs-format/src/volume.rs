@@ -9428,16 +9428,22 @@ mod tests {
             let device = ImageDevice::open(&path, 4096).unwrap();
             let mut mounted = VolumeSession::open(device).unwrap();
             mounted.create_file("/", ObjectId(2), "attributes.txt").unwrap();
+            mounted.create_file("/", ObjectId(4), "batch-hidden.txt").unwrap();
             mounted.write_file("/attributes.txt", b"preserved").unwrap();
-            mounted.set_attributes(
-                "/attributes.txt",
-                METADATA_FLAG_READ_ONLY | METADATA_FLAG_HIDDEN,
-                true,
-            ).unwrap();
+            mounted
+                .set_attributes("/attributes.txt", METADATA_FLAG_HIDDEN, true)
+                .unwrap();
+            mounted
+                .set_attributes_batch(&[
+                    (ObjectId(2), METADATA_FLAG_READ_ONLY, true),
+                    (ObjectId(4), METADATA_FLAG_HIDDEN, true),
+                ])
+                .unwrap();
             let record = mounted.stat("/attributes.txt").unwrap();
             assert!(record.is_read_only());
             assert!(record.is_hidden());
-            assert_eq!(record.generation, 3);
+            assert_eq!(record.generation, 4);
+            assert!(mounted.stat("/batch-hidden.txt").unwrap().is_hidden());
             mounted.unmount().unwrap();
         }
 
@@ -9447,6 +9453,7 @@ mod tests {
             let record = mounted.stat("/attributes.txt").unwrap();
             assert!(record.is_read_only());
             assert!(record.is_hidden());
+            assert!(mounted.stat("/batch-hidden.txt").unwrap().is_hidden());
             assert_eq!(mounted.read_file("/attributes.txt").unwrap(), b"preserved");
             assert!(matches!(
                 mounted.write_file("/attributes.txt", b"replacement"),
