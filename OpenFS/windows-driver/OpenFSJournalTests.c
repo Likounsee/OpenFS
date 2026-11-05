@@ -70,7 +70,7 @@ int main(void){
 
  {
   UCHAR ring[4][4096]; const UCHAR* slots[4]; OPENFS_JOURNAL_RECORD_VIEW scanned[4];
-  ULONG required=0;
+  OPENFS_JOURNAL_TRANSACTION_VIEW tx[2]; ULONG required=0, k;
   record(ring[0],OpenFsJournalBegin,1,1,NULL,0);
   record(ring[1],OpenFsJournalUpdate,2,1,payload,3);
   record(ring[2],OpenFsJournalCommit,3,1,NULL,0);
