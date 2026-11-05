@@ -1842,7 +1842,7 @@ mod tests {
                 matches!(
                     journal.commit(&mut failing, &[update(0x5A)]),
                     Err(Error::InvalidInput(
-                        "journal requires recovery after a previous I/O error"
+                        "volume write state is uncertain after a previous I/O error; reopen before further mutation"
                     ))
                 ),
                 "poisoned writer accepted another transaction after failure at {fail_at}"
@@ -2865,7 +2865,7 @@ mod tests {
                 matches!(
                     journal.commit(&mut device, &[update(0xBC)]),
                     Err(Error::InvalidInput(
-                        "journal requires recovery after a previous I/O error"
+                        "volume write state is uncertain after a previous I/O error; reopen before further mutation"
                     ))
                 ),
                 "operation {fail_at} must poison the live writer until recovery"
