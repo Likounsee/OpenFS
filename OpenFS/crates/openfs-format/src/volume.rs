@@ -9267,9 +9267,7 @@ mod tests {
             // Cross a block boundary so the Basic path must preserve both partial
             // edge blocks while directly writing the multi-block range.
             let patch = b"OPENFS-BASIC-RANGE-PATCH";
-            mounted
-                .write_file_range("/large.bin", 4090, patch)
-                .unwrap();
+            mounted.write_file_range("/large.bin", 4090, patch).unwrap();
             expected[4090..4090 + patch.len()].copy_from_slice(patch);
             assert_eq!(mounted.read_file("/large.bin").unwrap(), expected);
 
