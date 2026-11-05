@@ -3460,13 +3460,14 @@ mod tests {
         fs::remove_file(secure_path).unwrap();
 
         let unknown_path = unique_path("basic-repair-no-namespace");
+        let expected_free_after_allocation;
         {
             let mut device = ImageDevice::create(&unknown_path, BLOCK_SIZE, 256).unwrap();
             let mut volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
             let free_before = volume.free_data_block_count(&mut device).unwrap();
             volume.allocate_block(&mut device).unwrap();
-            let free_after_allocation = volume.free_data_block_count(&mut device).unwrap();
-            assert_eq!(free_after_allocation, free_before - 1);
+            expected_free_after_allocation = volume.free_data_block_count(&mut device).unwrap();
+            assert_eq!(expected_free_after_allocation, free_before - 1);
             device.flush().unwrap();
         }
         assert!(super::repair_basic_image(&unknown_path, BLOCK_SIZE).is_err());
@@ -3474,7 +3475,7 @@ mod tests {
         let volume = open_volume(&mut device).unwrap();
         assert_eq!(
             volume.free_data_block_count(&mut device).unwrap(),
-            255 - volume.volume.layout.data_start
+            expected_free_after_allocation
         );
         fs::remove_file(unknown_path).unwrap();
     }
