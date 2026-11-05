@@ -319,7 +319,8 @@ OpenFsDispatchClose(
                 POPENFS_FCB fcb =
                     OpenFsFindFcbLocked(vcb, fileObject->FsContext);
 
-                if (vcb->LockFileObject == fileObject && vcb->Vpb != NULL) {
+                if (vcb->LockFileObject == fileObject && vcb->Vpb != NULL &&
+                    OpenFsVolumeStateCanReleaseLockOnClose(vcb->State)) {
                     KIRQL oldIrql;
                     IoAcquireVpbSpinLock(&oldIrql);
                     if (vcb->Vpb->DeviceObject == DeviceObject)
