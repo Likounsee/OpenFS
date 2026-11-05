@@ -9,3 +9,25 @@ typedef struct _OPENFS_JOURNAL_RECORD_VIEW { OPENFS_JOURNAL_RECORD_KIND Kind; UL
 /* Payload is a zero-copy view into Block and must not outlive it. */
 NTSTATUS OpenFsDecodeJournalCheckpointBlock(_In_reads_bytes_(BlockSize) const UCHAR* Block,_In_ ULONG BlockSize,_In_ ULONGLONG RingBlocks,_Out_ POPENFS_JOURNAL_CHECKPOINT Checkpoint);
 NTSTATUS OpenFsDecodeJournalRecordBlock(_In_reads_bytes_(BlockSize) const UCHAR* Block,_In_ ULONG BlockSize,_Out_ POPENFS_JOURNAL_RECORD_VIEW Record);
+
+typedef struct _OPENFS_JOURNAL_TRANSACTION_VIEW {
+    ULONGLONG TransactionId;
+    ULONG FirstUpdateIndex;
+    ULONG UpdateCount;
+} OPENFS_JOURNAL_TRANSACTION_VIEW, *POPENFS_JOURNAL_TRANSACTION_VIEW;
+
+/*
+ * Validate a decoded, ordered journal stream and describe only committed
+ * transactions. An unfinished final transaction is intentionally omitted.
+ * On STATUS_BUFFER_TOO_SMALL, RequiredTransactionCount reports the full need
+ * and the caller's output array remains untouched.
+ */
+NTSTATUS
+OpenFsPlanJournalRecovery(
+    _In_reads_(RecordCount) const OPENFS_JOURNAL_RECORD_VIEW* Records,
+    _In_ ULONG RecordCount,
+    _In_ ULONGLONG CheckpointSequence,
+    _Out_writes_(TransactionCapacity) POPENFS_JOURNAL_TRANSACTION_VIEW Transactions,
+    _In_ ULONG TransactionCapacity,
+    _Out_ PULONG RequiredTransactionCount
+    );
