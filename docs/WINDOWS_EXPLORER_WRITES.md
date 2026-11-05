@@ -108,3 +108,14 @@ Returned payloads remain zero-copy views into caller-owned ring buffers. The
 scanner is deliberately separate from block-device I/O and REDO application;
 the caller must keep those buffers alive and pass the result through transaction
 and REDO validation before replay.
+
+
+## Checkpoint pair selection
+
+The journal layer now includes a pure checkpoint-pair selector matching the
+format's generation and durable-counter rules: it accepts the initial
+generation-1/generation-2 pair, rejects conflicting copies at one generation,
+generation gaps, counter regressions and sequence advancement without a new
+transaction ID, and chooses the newer valid copy when the pair is consistent.
+It consumes independently decoded checkpoint results; actual reads from the
+two checkpoint blocks and recovery replay are still to be wired to the VCB.
