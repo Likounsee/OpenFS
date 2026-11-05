@@ -599,16 +599,24 @@ impl Namespace {
     }
 
     /// Update the last-access timestamp without advancing the content generation.
-    pub fn touch_accessed(&mut self, object_id: ObjectId) -> Result<()> {
+    pub fn touch_accessed(&mut self, object_id: ObjectId) -> Result<bool> {
         let mut record = self
             .objects
             .get(&object_id)
             .cloned()
             .ok_or(Error::InvalidInput("object does not exist"))?;
-        record.accessed_at = current_timestamp();
+        let timestamp = current_timestamp();
+        // Relatime policy: avoid a metadata rewrite for every read. Refresh atime
+        // when it predates mtime or has not been refreshed for 24 hours.
+        if record.accessed_at >= record.modified_at
+            && timestamp.saturating_sub(record.accessed_at) < 24 * 60 * 60
+        {
+            return Ok(false);
+        }
+        record.accessed_at = timestamp;
         record.encode()?;
         self.objects.insert(object_id, record);
-        Ok(())
+        Ok(true)
     }
 
     /// Update file length and extent-root metadata in memory.
