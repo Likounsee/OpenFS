@@ -1280,6 +1280,12 @@ OpenFsRecoverVolumeJournal(
     if (DeviceObject == NULL || Geometry == NULL ||
         KeGetCurrentIrql() != PASSIVE_LEVEL)
         return STATUS_INVALID_PARAMETER;
+
+    /* Revision 5 Basic volumes reserve journal blocks but do not initialize them. */
+    if (Geometry->Version >= 5u &&
+        (Geometry->Features & OPENFS_FEATURE_SECURE_JOURNAL) == 0)
+        return STATUS_SUCCESS;
+
     blockSize = Geometry->BlockSize;
     status = OpenFsCalculateVolumeLayout(blockSize, Geometry->TotalBlocks,
         Geometry->Version, &layout);
@@ -1506,7 +1512,7 @@ OpenFsProbeVolume(
     blockSize = OpenFsDeviceReadU32Le(primary + 12);
     totalBlocks = OpenFsDeviceReadU64Le(primary + 16);
 
-    if (version != 2 && version != 3 && version != 4) {
+    if (version != 2 && version != 3 && version != 4 && version != 5) {
         status = STATUS_UNRECOGNIZED_VOLUME;
         goto Exit;
     }
@@ -1543,7 +1549,9 @@ OpenFsProbeVolume(
     if (NT_SUCCESS(status)) {
         status = OpenFsValidateAllocationBitmap(targetDeviceObject, Geometry, deviceLength);
     }
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(status) &&
+        (Geometry->Version < 5u ||
+         (Geometry->Features & OPENFS_FEATURE_SECURE_JOURNAL) != 0)) {
         OPENFS_VOLUME_LAYOUT layout;
         status = OpenFsCalculateVolumeLayout(Geometry->BlockSize,
             Geometry->TotalBlocks, Geometry->Version, &layout);
