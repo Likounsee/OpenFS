@@ -1,6 +1,6 @@
 //! Focused regression tests for Basic-mode repair operations.
 use crate::{format_volume, open_volume, ObjectId};
-use openfs_block::{BlockDevice, ImageDevice};
+use openfs_block::ImageDevice;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
