@@ -377,8 +377,7 @@ fn write_file_with_extension<D: BlockDevice>(
         }
         offset as u64
     };
-    let write_length =
-        u64::try_from(buffer.len()).map_err(|_| CoreError::ArithmeticOverflow)?;
+    let write_length = u64::try_from(buffer.len()).map_err(|_| CoreError::ArithmeticOverflow)?;
     let write_end = write_offset
         .checked_add(write_length)
         .ok_or(CoreError::ArithmeticOverflow)?;
@@ -646,13 +645,7 @@ impl<'a, 'b: 'a, D: BlockDevice + Send + 'static> FileSystemHandler<'a, 'b> for 
             // The path lookup, EOF growth and range write all run under the
             // same VolumeSession mutex, so concurrent Dokany callbacks cannot
             // interleave a rename or another write between these operations.
-            write_file_with_extension(
-                session,
-                path,
-                offset,
-                buffer,
-                info.write_to_eof(),
-            )
+            write_file_with_extension(session, path, offset, buffer, info.write_to_eof())
         })?;
         Ok(written as u32)
     }
@@ -1147,20 +1140,11 @@ mod tests {
         session.create_file_auto("/", "copy.bin").unwrap();
         session.write_file("/copy.bin", b"abc").unwrap();
 
-        let written = super::write_file_with_extension(
-            &mut session,
-            "/copy.bin",
-            5,
-            b"XYZ",
-            false,
-        )
-        .unwrap();
+        let written =
+            super::write_file_with_extension(&mut session, "/copy.bin", 5, b"XYZ", false).unwrap();
         assert_eq!(written, 3);
         assert_eq!(session.stat("/copy.bin").unwrap().size, 8);
-        assert_eq!(
-            session.read_file("/copy.bin").unwrap(),
-            b"abc\0\0XYZ"
-        );
+        assert_eq!(session.read_file("/copy.bin").unwrap(), b"abc\0\0XYZ");
 
         session.flush().unwrap();
         drop(session);
@@ -1169,10 +1153,7 @@ mod tests {
         // not merely remain visible through the current in-memory session.
         let reopened_device = ImageDevice::open(&path, 4096).unwrap();
         let reopened = VolumeSession::open(reopened_device).unwrap();
-        assert_eq!(
-            reopened.read_file("/copy.bin").unwrap(),
-            b"abc\\0\\0XYZ"
-        );
+        assert_eq!(reopened.read_file("/copy.bin").unwrap(), b"abc\\0\\0XYZ");
         drop(reopened);
         let _ = std::fs::remove_file(path);
     }
@@ -1183,14 +1164,7 @@ mod tests {
         session.create_file_auto("/", "append.txt").unwrap();
         session.write_file("/append.txt", b"start").unwrap();
 
-        super::write_file_with_extension(
-            &mut session,
-            "/append.txt",
-            0,
-            b"-end",
-            true,
-        )
-        .unwrap();
+        super::write_file_with_extension(&mut session, "/append.txt", 0, b"-end", true).unwrap();
         assert_eq!(session.read_file("/append.txt").unwrap(), b"start-end");
 
         session.flush().unwrap();
@@ -1204,14 +1178,9 @@ mod tests {
         session.create_file_auto("/", "empty-write.txt").unwrap();
         session.write_file("/empty-write.txt", b"keep").unwrap();
 
-        let written = super::write_file_with_extension(
-            &mut session,
-            "/empty-write.txt",
-            1024,
-            &[],
-            false,
-        )
-        .unwrap();
+        let written =
+            super::write_file_with_extension(&mut session, "/empty-write.txt", 1024, &[], false)
+                .unwrap();
         assert_eq!(written, 0);
         assert_eq!(session.stat("/empty-write.txt").unwrap().size, 4);
         assert_eq!(session.read_file("/empty-write.txt").unwrap(), b"keep");
