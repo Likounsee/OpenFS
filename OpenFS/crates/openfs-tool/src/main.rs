@@ -323,10 +323,12 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let path = args.next().ok_or("missing image path")?;
             let block_size = parse_block_size(args.next())?;
             let target = args.next().ok_or("missing namespace path")?;
-            let attribute = args.next().ok_or("missing attribute name")?;
             let state = args.next().ok_or("missing attribute state (on/off)")?;
-            ensure_no_args(&mut args)?;
-            let flag = parse_attribute_flag(&attribute)?;
+            let names = args.collect::<Vec<_>>();
+            if names.is_empty() {
+                return Err("provide at least one attribute name".into());
+            }
+            let flag = parse_attribute_mask(&names)?;
             let enabled = match state.as_str() {
                 "on" | "enable" => true,
                 "off" | "disable" => false,
@@ -1394,6 +1396,18 @@ fn parse_attribute_flag(name: &str) -> Result<u8, Box<dyn StdError>> {
     }
 }
 
+fn parse_attribute_mask(names: &[String]) -> Result<u8, Box<dyn StdError>> {
+    let mut mask = 0_u8;
+    for name in names {
+        let flag = parse_attribute_flag(name)?;
+        if mask & flag != 0 {
+            return Err(format!("duplicate attribute: {name}").into());
+        }
+        mask |= flag;
+    }
+    Ok(mask)
+}
+
 fn set_namespace_attribute(
     path: &Path,
     block_size: u32,
@@ -1408,14 +1422,17 @@ fn set_namespace_attribute(
     println!(
         "Attribute {} {} on '{target}'.",
         if enabled { "enabled" } else { "disabled" },
-        match attribute {
-            METADATA_FLAG_ARCHIVE => "archive",
-            METADATA_FLAG_HIDDEN => "hidden",
-            METADATA_FLAG_READ_ONLY => "readonly",
-            METADATA_FLAG_SYSTEM => "system",
-            METADATA_FLAG_TEMPORARY => "temporary",
-            _ => "unknown",
-        }
+        [
+            (METADATA_FLAG_ARCHIVE, "archive"),
+            (METADATA_FLAG_HIDDEN, "hidden"),
+            (METADATA_FLAG_READ_ONLY, "readonly"),
+            (METADATA_FLAG_SYSTEM, "system"),
+            (METADATA_FLAG_TEMPORARY, "temporary"),
+        ]
+        .into_iter()
+        .filter_map(|(flag, name)| (attribute & flag != 0).then_some(name))
+        .collect::<Vec<_>>()
+        .join(", ")
     );
     Ok(())
 }
@@ -3105,7 +3122,7 @@ fn print_usage() {
     eprintln!("  copy streams through a temporary host file; destination must already exist.");
     eprintln!("  openfs export <image> <block-size> <file-path> <host-output-path>");
     eprintln!("  openfs import <image> <block-size> <host-input-path> <file-path>");
-    eprintln!("  openfs attrib <image> <block-size> <path> <archive|hidden|readonly|system|temporary> <on|off>");
+    eprintln!("  openfs attrib <image> <block-size> <path> <on|off> <archive|hidden|readonly|system|temporary>...");
     eprintln!("  openfs stat <image> <block-size> <path>  (includes persistent attributes)");
     eprintln!("  openfs write <image> <block-size> <file-path> <text...>");
     eprintln!("  openfs write-range <image> <block-size> <file-path> <offset> <text...>");
@@ -3332,6 +3349,21 @@ mod tests {
         }
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn attribute_mask_combines_multiple_unique_flags() {
+        let names = vec!["hidden".to_owned(), "readonly".to_owned(), "archive".to_owned()];
+        let mask = super::parse_attribute_mask(&names).unwrap();
+        assert_eq!(
+            mask,
+            openfs_format::METADATA_FLAG_HIDDEN
+                | openfs_format::METADATA_FLAG_READ_ONLY
+                | openfs_format::METADATA_FLAG_ARCHIVE
+        );
+        assert!(super::parse_attribute_mask(&["hidden".to_owned(), "hidden".to_owned()]).is_err());
+        assert!(super::parse_attribute_mask(&["hidden".to_owned(), "bogus".to_owned()]).is_err());
+        assert!(super::parse_attribute_mask(&[]).is_err());
     }
 
     #[test]
