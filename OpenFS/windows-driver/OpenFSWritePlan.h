@@ -20,7 +20,7 @@ OpenFsBuildWriteBlockPlan(
     _In_ ULONGLONG DataStartBlock,
     _In_ ULONGLONG BackupSuperblockBlock,
     _In_ ULONGLONG TotalBlocks,
-    _Out_writes_(PhysicalBlockCapacity) ULONGLONG* PhysicalBlocks,
+    _Out_ ULONGLONG* PhysicalBlocks,
     _In_ ULONG PhysicalBlockCapacity,
     _Out_ PULONG RequiredBlockCount
     );
