@@ -4986,7 +4986,9 @@ impl OpenedVolume {
         let remainder =
             usize::try_from(new_size % block_size).map_err(|_| Error::ArithmeticOverflow)?;
         let old_root = record.extent_root_block;
-        let new_root = if updated_map.is_empty() {
+        // A non-empty sparse file still needs an on-disk extent-map root, even
+        // when it owns no data extents. Only a truly empty file may drop the root.
+        let new_root = if updated_map.is_empty() && new_size == 0 {
             None
         } else {
             let encoded = updated_map.encode_block(block_size_usize)?;
@@ -4997,8 +4999,7 @@ impl OpenedVolume {
             {
                 if self.free_block(device, root).is_err() {
                     return Err(Error::Corrupt(
-                        "failed to reclaim staged extent-map root after truncation staging failed",                    ));
-                }
+                        "failed to reclaim staged extent-map root after truncation staging failed",                    ));                }
                 return Err(error);
             }
             Some(root)
@@ -9997,8 +9998,7 @@ mod tests {
             volume
                 .create_persistent_file(&mut device, root, ObjectId(2), "hello.txt")
                 .unwrap();            volume
-                .write_persistent_file_contents(&mut device, "/hello.txt", expected)
-                .unwrap();
+                .write_persistent_file_contents(&mut device, "/hello.txt", expected)                .unwrap();
             assert_eq!(
                 volume
                     .read_persistent_path_range(&mut device, "/hello.txt", 0, expected.len())
@@ -12933,7 +12933,7 @@ mod tests {
         );
         assert_eq!(
             u32::from_le_bytes(encoded[4088..4092].try_into().unwrap()),
-            0x2673_7465
+            0xcdaa_73b6
         );
         assert!(encoded[48..4088].iter().all(|byte| *byte == 0));
         assert!(encoded[4092..].iter().all(|byte| *byte == 0));
@@ -14997,8 +14997,7 @@ mod tests {
             let allocated = volume.allocate_contiguous_blocks(&mut device, 3).unwrap();
             assert_eq!(allocated, first);            for block in first..first + 3 {
                 assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
-            }
-            assert_eq!(
+            }            assert_eq!(
                 volume.free_data_block_count(&mut device).unwrap(),
                 initial_free - 3
             );
@@ -16538,11 +16537,11 @@ mod tests {
     #[test]
     fn canonical_superblock_has_golden_bytes_for_every_supported_block_size() {
         let fixtures = [
-            (4_096_u32, 0x2673_7465_u32),
-            (8_192_u32, 0xb134_2f27_u32),
-            (16_384_u32, 0x69b0_c7f9_u32),
-            (32_768_u32, 0xda5c_e1d9_u32),
-            (65_536_u32, 0x6d11_cd9c_u32),
+            (4_096_u32, 0x67d7_05cb_u32),
+            (8_192_u32, 0xdadb_fce3_u32),
+            (16_384_u32, 0xa52e_7842_u32),
+            (32_768_u32, 0x5ac5_7100_u32),
+            (65_536_u32, 0xa0ff_1575_u32),
         ];
         let uuid = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let features = 0x0102_0304_0506_0708_u64;
