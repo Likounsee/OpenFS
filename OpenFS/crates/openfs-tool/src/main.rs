@@ -3485,11 +3485,8 @@ mod tests {
             let maps = volume
                 .read_namespace_extent_maps(&mut device, &namespace)
                 .unwrap();
-            referenced_block = maps
-                .get(&ObjectId::new(2).unwrap())
-                .unwrap()
-                .extents()[0]
-                .physical_start;
+            referenced_block =
+                maps.get(&ObjectId::new(2).unwrap()).unwrap().extents()[0].physical_start;
             orphan_block = volume.allocate_block(&mut device).unwrap();
             // Simulate a damaged bitmap: the namespace still references this data block,
             // but the allocation bitmap now incorrectly marks it free.
@@ -3506,7 +3503,9 @@ mod tests {
             volume.free_data_block_count(&mut device).unwrap(),
             free_after_damage
         );
-        assert!(volume.is_data_block_allocated(&mut device, orphan_block).unwrap());
+        assert!(volume
+            .is_data_block_allocated(&mut device, orphan_block)
+            .unwrap());
         assert!(!volume
             .is_data_block_allocated(&mut device, referenced_block)
             .unwrap());
