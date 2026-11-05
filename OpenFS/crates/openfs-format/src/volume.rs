@@ -9456,7 +9456,7 @@ mod tests {
         let path = image_path("persistent-file-replacement");
         {
             let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
-            let mut volume = format_volume_secure(&mut device, *b"openfs-test-0001", 0).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-test-0001", 0).unwrap();
             volume
                 .initialize_persistent_namespace(&mut device, ObjectId(1))
                 .unwrap();
