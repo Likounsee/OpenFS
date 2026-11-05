@@ -1,6 +1,7 @@
 #include "OpenFSJournal.h"
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 static void p16(UCHAR*p,USHORT v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);}
 static void p32(UCHAR*p,ULONG v){p[0]=(UCHAR)v;p[1]=(UCHAR)(v>>8);p[2]=(UCHAR)(v>>16);p[3]=(UCHAR)(v>>24);}
 static void p64(UCHAR*p,ULONGLONG v){p32(p,(ULONG)v);p32(p+4,(ULONG)(v>>32));}
@@ -60,7 +61,7 @@ int main(void){
   for(k=0;k<52;k++)p1[12+k]=(UCHAR)((k+9)&0xff);
   chunks[0].Kind=OpenFsJournalUpdate;chunks[0].Sequence=1;chunks[0].TransactionId=3;chunks[0].PayloadLength=sizeof(p0);chunks[0].Payload=p0;
   chunks[1].Kind=OpenFsJournalUpdate;chunks[1].Sequence=2;chunks[1].TransactionId=3;chunks[1].PayloadLength=sizeof(p1);chunks[1].Payload=p1;
-  RtlFillMemory(image,sizeof(image),0xCC);
+  memset(image,0xCC,sizeof(image));
   assert(OpenFsDecodeRedoImage(chunks,0,2,4096,&target,image)==STATUS_SUCCESS&&target==42);
   assert(image[0]==0&&image[4043]==(UCHAR)(4043&0xff)&&image[4044]==9&&image[4095]==60);
   p16(p1+8,0);
