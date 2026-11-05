@@ -46,6 +46,9 @@ impl Namespace {
             size: 0,
             extent_root_block: None,
             generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
         };
         let mut objects = BTreeMap::new();
         objects.insert(root_id, root);
@@ -1140,6 +1143,9 @@ mod tests {
             size: 0,
             extent_root_block: None,
             generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
         }
     }
 
@@ -1234,6 +1240,9 @@ mod tests {
                 size: 1,
                 extent_root_block: Some(30),
                 generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
             },
         )
         .unwrap();
@@ -1247,6 +1256,9 @@ mod tests {
                 size: 1,
                 extent_root_block: Some(12),
                 generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
             },
         )
         .unwrap();
@@ -1297,6 +1309,9 @@ mod tests {
                 size: 4096,
                 extent_root_block: Some(20),
                 generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
             },
         )
         .unwrap();
@@ -1987,6 +2002,9 @@ mod directory_visit_tests {
                         size,
                         extent_root_block: None,
                         generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
                     },
                 )
                 .unwrap();
@@ -2045,6 +2063,9 @@ mod directory_visit_tests {
                     size: 0,
                     extent_root_block: None,
                     generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
                 },
             )
             .unwrap();
@@ -2064,6 +2085,9 @@ mod directory_visit_tests {
                     size: 1,
                     extent_root_block: None,
                     generation: 1,
+            created_at: 0,
+            modified_at: 0,
+            accessed_at: 0,
                 },
             )
             .unwrap();
