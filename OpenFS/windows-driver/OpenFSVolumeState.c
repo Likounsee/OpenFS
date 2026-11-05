@@ -100,3 +100,15 @@ OpenFsVolumeStateCanDismount(
         VpbMounted &&
         !RemovePending;
 }
+
+int
+OpenFsVolumeStateCanReleaseLockOnClose(
+    OPENFS_VOLUME_STATE State
+    )
+{
+    /*
+     * Once dismount has been committed, the lock must remain in force until
+     * the deferred VPB teardown completes. CLOSE must not reopen the volume.
+     */
+    return State == OpenFsVolumeMounted;
+}
