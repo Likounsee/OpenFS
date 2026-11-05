@@ -9481,6 +9481,70 @@ mod tests {
     }
 
     #[test]
+    fn basic_attribute_batch_rejects_invalid_changes_without_publishing_partial_state() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+        use crate::METADATA_FLAG_HIDDEN;
+
+        let path = image_path("basic-attribute-batch-atomicity");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_file("/", ObjectId(2), "first.txt").unwrap();
+            mounted.create_file("/", ObjectId(3), "second.txt").unwrap();
+
+            assert!(matches!(
+                mounted.set_attributes_batch(&[
+                    (ObjectId(2), METADATA_FLAG_HIDDEN, true),
+                    (ObjectId(3), 0x80, true),
+                ]),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(!mounted.stat("/first.txt").unwrap().is_hidden());
+            assert!(!mounted.stat("/second.txt").unwrap().is_hidden());
+
+            assert!(matches!(
+                mounted.set_attributes_batch(&[
+                    (ObjectId(2), METADATA_FLAG_HIDDEN, true),
+                    (ObjectId(2), METADATA_FLAG_HIDDEN, false),
+                ]),
+                Err(Error::InvalidInput(
+                    "an object may receive attribute changes only once per batch"
+                ))
+            ));
+            assert!(!mounted.stat("/first.txt").unwrap().is_hidden());
+
+            mounted
+                .set_attributes_batch(&[
+                    (ObjectId(2), METADATA_FLAG_HIDDEN, true),
+                    (ObjectId(3), METADATA_FLAG_HIDDEN, true),
+                ])
+                .unwrap();
+            assert!(mounted.stat("/first.txt").unwrap().is_hidden());
+            assert!(mounted.stat("/second.txt").unwrap().is_hidden());
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert!(mounted.stat("/first.txt").unwrap().is_hidden());
+            assert!(mounted.stat("/second.txt").unwrap().is_hidden());
+            mounted.unmount().unwrap();
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn basic_sparse_growth_and_shrink_survive_remount() {
         use super::VolumeSession;
         use crate::ObjectId;
