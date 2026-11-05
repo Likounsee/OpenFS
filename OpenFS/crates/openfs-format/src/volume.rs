@@ -4999,7 +4999,9 @@ impl OpenedVolume {
             {
                 if self.free_block(device, root).is_err() {
                     return Err(Error::Corrupt(
-                        "failed to reclaim staged extent-map root after truncation staging failed",                    ));                }
+                        "failed to reclaim staged extent-map root after truncation staging failed",
+                    ));
+                }
                 return Err(error);
             }
             Some(root)
@@ -9997,8 +9999,10 @@ mod tests {
 
             volume
                 .create_persistent_file(&mut device, root, ObjectId(2), "hello.txt")
-                .unwrap();            volume
-                .write_persistent_file_contents(&mut device, "/hello.txt", expected)                .unwrap();
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/hello.txt", expected)
+                .unwrap();
             assert_eq!(
                 volume
                     .read_persistent_path_range(&mut device, "/hello.txt", 0, expected.len())
@@ -14995,9 +14999,11 @@ mod tests {
                 Some(first)
             );
             let allocated = volume.allocate_contiguous_blocks(&mut device, 3).unwrap();
-            assert_eq!(allocated, first);            for block in first..first + 3 {
+            assert_eq!(allocated, first);
+            for block in first..first + 3 {
                 assert!(volume.is_data_block_allocated(&mut device, block).unwrap());
-            }            assert_eq!(
+            }
+            assert_eq!(
                 volume.free_data_block_count(&mut device).unwrap(),
                 initial_free - 3
             );
