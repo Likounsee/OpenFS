@@ -1775,6 +1775,7 @@ impl OpenedVolume {
             return Ok(());
         }
         self.replace_persistent_namespace_inventory(device, &namespace)
+            .map(|_| ())
     }
 
     /// Look up persistent metadata by its stable object identifier.
