@@ -9172,6 +9172,65 @@ mod tests {
     }
 
     #[test]
+    fn basic_volume_session_persists_file_lifecycle_without_journal() {
+        use super::VolumeSession;
+        use crate::ObjectId;
+
+        let path = image_path("basic-session-lifecycle");
+        {
+            let mut device = ImageDevice::create(&path, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            mounted.create_directory("/", ObjectId(2), "docs").unwrap();
+            mounted
+                .create_file("/docs", ObjectId(3), "hello.txt")
+                .unwrap();
+            mounted
+                .write_file("/docs/hello.txt", b"OpenFS Basic direct writes")
+                .unwrap();
+            assert_eq!(
+                mounted.read_file("/docs/hello.txt").unwrap(),
+                b"OpenFS Basic direct writes"
+            );
+
+            mounted
+                .rename("/docs/hello.txt", "/docs", "renamed.txt")
+                .unwrap();
+            mounted
+                .write_file_range("/docs/renamed.txt", 7, b"Basic")
+                .unwrap();
+            assert_eq!(
+                mounted.read_file("/docs/renamed.txt").unwrap(),
+                b"OpenFS Basic direct writes"
+            );
+            mounted.unmount().unwrap();
+        }
+
+        {
+            let device = ImageDevice::open(&path, 4096).unwrap();
+            let mut mounted = VolumeSession::open(device).unwrap();
+            assert_eq!(
+                mounted.read_file("/docs/renamed.txt").unwrap(),
+                b"OpenFS Basic direct writes"
+            );
+            mounted.remove("/docs/renamed.txt").unwrap();
+            assert!(mounted.stat("/docs/renamed.txt").is_err());
+            mounted.remove("/docs").unwrap();
+            mounted.unmount().unwrap();
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn owned_ranges_are_sorted_coalesced_and_reject_aliases() {
         let mut ranges = vec![(20, 24), (10, 12), (12, 15), (30, 31)];
         normalize_owned_ranges(&mut ranges).unwrap();
