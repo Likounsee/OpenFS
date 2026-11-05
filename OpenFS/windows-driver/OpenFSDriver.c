@@ -1451,6 +1451,7 @@ OpenFsDispatchFileSystemControl(
             ULONGLONG fileSize = 0;
             ULONG blockSize = 0;
             ULONGLONG currentVcn;
+            ULONGLONG expectedFileBlockCount;
             ULONGLONG fileBlockCount = 0;
             ULONG outputLength =
                 stack->Parameters.FileSystemControl.OutputBufferLength;
@@ -1532,6 +1533,9 @@ OpenFsDispatchFileSystemControl(
             if (layout.BackupSuperblockBlock <= layout.DataStartBlock)
                 return OpenFsCompleteIrp(Irp, STATUS_DISK_CORRUPT_ERROR);
 
+            expectedFileBlockCount = fileSize / blockSize;
+            if ((fileSize % blockSize) != 0)
+                ++expectedFileBlockCount;
             currentVcn = (ULONGLONG)inputCopy.StartingVcn.QuadPart;
 
             capacity = (outputLength - outputHeader) / extentBytes;
@@ -1551,6 +1555,10 @@ OpenFsDispatchFileSystemControl(
                         if (status == STATUS_INVALID_PARAMETER &&
                             currentVcn >= fileBlockCount)
                             status = STATUS_END_OF_FILE;
+                        break;
+                    }
+                    if (fileBlockCount != expectedFileBlockCount) {
+                        status = STATUS_DISK_CORRUPT_ERROR;
                         break;
                     }
                     if (currentVcn >= fileBlockCount) {
