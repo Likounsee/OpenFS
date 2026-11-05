@@ -426,7 +426,7 @@ fn create_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>> {
     // A freshly formatted volume must already have a persistent root namespace
     // before it can be opened by VolumeSession or mounted through the native WDM driver.
     let initialization = (|| -> openfs_core::Result<()> {
-        format_volume(&mut device, uuid, 0)?;
+        format_volume_secure(&mut device, uuid, 0)?;
         let mut volume = open_volume(&mut device)?;
         volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
         device.flush()?;
@@ -474,7 +474,7 @@ fn create_gpt_image(path: &Path, size_mib: u64) -> Result<(), Box<dyn StdError>>
         .ok_or("partition size overflow")?;
 
     let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, BLOCK_SIZE)?;
-    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    format_volume_secure(&mut filesystem, timestamp.to_le_bytes(), 0)?;
     let mut volume = open_volume(&mut filesystem)?;
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
@@ -2854,7 +2854,7 @@ fn format_disk_device(
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let mut volume_uuid = timestamp.to_le_bytes();
     volume_uuid[8..12].copy_from_slice(&disk_index.to_le_bytes());
-    format_volume(&mut device, volume_uuid, 0)?;
+    format_volume_secure(&mut device, volume_uuid, 0)?;
     let mut volume = open_volume(&mut device)?;
     volume.initialize_persistent_namespace(&mut device, ObjectId::new(1)?)?;
     device.flush()?;
@@ -2942,7 +2942,7 @@ fn format_gpt_disk_device(
     // Initialize OpenFS before publishing GPT metadata so an interrupted
     // initialization is not exposed as a valid, mountable partition.
     let mut filesystem = PartitionDevice::new(disk, first_lba, sector_count, block_size)?;
-    format_volume(&mut filesystem, timestamp.to_le_bytes(), 0)?;
+    format_volume_secure(&mut filesystem, timestamp.to_le_bytes(), 0)?;
     let mut volume = open_volume(&mut filesystem)?;
     volume.initialize_persistent_namespace(&mut filesystem, ObjectId::new(1)?)?;
     drop(volume);
@@ -3027,7 +3027,7 @@ fn print_usage() {
 mod tests {
     use super::{audit_image, create_image, inspect_image, ObjectKind, VolumeSession, BLOCK_SIZE};
     use openfs_block::{BlockDevice, ImageDevice, RawDevice};
-    use openfs_format::{format_volume, open_journal, open_volume, RedoUpdate};
+    use openfs_format::{format_volume_secure, open_journal, open_volume, RedoUpdate};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -3183,7 +3183,7 @@ mod tests {
         {
             let mut device =
                 RawDevice::open(&path, BLOCK_SIZE, byte_len / u64::from(BLOCK_SIZE)).unwrap();
-            format_volume(&mut device, *b"openfs-raw-test!", 0).unwrap();
+            format_volume_secure(&mut device, *b"openfs-raw-test!", 0).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             volume
                 .initialize_persistent_namespace(
@@ -3241,7 +3241,7 @@ mod tests {
         let path = unique_path("touch-idempotent");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
             device.flush().unwrap();
         }
         super::initialize_namespace_image(&path, BLOCK_SIZE).unwrap();
@@ -3269,7 +3269,7 @@ mod tests {
         let path = unique_path("mkdir-p");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
             device.flush().unwrap();
         }
         super::initialize_namespace_image(&path, BLOCK_SIZE).unwrap();
@@ -3348,7 +3348,7 @@ mod tests {
     fn audit_refuses_pending_redo_without_modifying_the_image() {
         let path = unique_path("audit-pending-redo");
         let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-        let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        let volume = format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
         let region = volume.volume.layout.journal;
         let target = volume.volume.layout.data_start;
         drop(volume);
@@ -3388,7 +3388,7 @@ mod tests {
         let path = unique_path("check-corrupt-journal");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            let volume = format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
             let region = volume.volume.layout.journal;
             drop(volume);
 
@@ -3424,7 +3424,7 @@ mod tests {
             let path = unique_path(&format!("check-one-corrupt-checkpoint-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                let volume = format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
                 let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
                 drop(volume);
 
@@ -3454,7 +3454,7 @@ mod tests {
     fn check_image_reports_pending_redo_without_modifying_the_image() {
         let path = unique_path("check-pending-redo");
         let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-        let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        let volume = format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
         let region = volume.volume.layout.journal;
         let target = volume.volume.layout.data_start;
         drop(volume);
@@ -3492,7 +3492,7 @@ mod tests {
             let path = unique_path(&format!("audit-one-corrupt-checkpoint-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                let volume = format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                let volume = format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
                 let checkpoint_a = volume.volume.layout.journal.checkpoint_a;
                 drop(volume);
 
@@ -3523,7 +3523,7 @@ mod tests {
     fn fresh_volume_verification_rejects_missing_persistent_inventory() {
         let path = unique_path("format-verification-no-inventory");
         let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-        format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+        format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
         device.flush().unwrap();
 
         let result = super::verify_fresh_volume(&mut device);
@@ -3541,7 +3541,7 @@ mod tests {
         let path = unique_path("audit-no-inventory");
         {
             let mut device = ImageDevice::create(&path, BLOCK_SIZE, 256).unwrap();
-            format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+            format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
             device.flush().unwrap();
         }
 
@@ -3638,7 +3638,7 @@ mod tests {
             let path = unique_path(&format!("current-check-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
                 device.flush().unwrap();
             }
             let before = fs::read(&path).unwrap();
@@ -3694,7 +3694,7 @@ mod tests {
             let path = unique_path(&format!("audit-valid-inventory-{block_size}"));
             {
                 let mut device = ImageDevice::create(&path, block_size, 256).unwrap();
-                format_volume(&mut device, *b"openfs-tool-test", 0).unwrap();
+                format_volume_secure(&mut device, *b"openfs-tool-test", 0).unwrap();
                 device.flush().unwrap();
             }
 
