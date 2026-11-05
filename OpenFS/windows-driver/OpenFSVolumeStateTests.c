@@ -122,15 +122,20 @@ main(void)
     {
         int current;
         int hasVpb;
+        unsigned long long openHandles;
         for (current = OpenFsVolumeUninitialized;
              current <= OpenFsVolumeDead; ++current) {
             for (hasVpb = 0; hasVpb <= 1; ++hasVpb) {
-                Check(
-                    OpenFsVolumeStateCanDestroy(
-                        (OPENFS_VOLUME_STATE)current, hasVpb) ==
-                        (current == OpenFsVolumeInitializing && !hasVpb),
-                    "exhaustive private-volume destruction policy"
-                    );
+                for (openHandles = 0; openHandles <= 1; ++openHandles) {
+                    Check(
+                        OpenFsVolumeStateCanDestroy(
+                            (OPENFS_VOLUME_STATE)current, hasVpb,
+                            openHandles) ==
+                            (current == OpenFsVolumeInitializing &&
+                             !hasVpb && openHandles == 0),
+                        "exhaustive private-volume destruction policy"
+                        );
+                }
             }
         }
     }
@@ -169,19 +174,19 @@ main(void)
         );
 
     Check(
-        OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 0),
+        OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 0, 0),
         "private initializing volume can be destroyed"
         );
     Check(
-        !OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 1),
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeInitializing, 1, 0),
         "volume with VPB association cannot use private destroy"
         );
     Check(
-        !OpenFsVolumeStateCanDestroy(OpenFsVolumeDead, 0),
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeDead, 0, 0),
         "dead volume cannot be destroyed twice"
         );
     Check(
-        !OpenFsVolumeStateCanDestroy(OpenFsVolumeMounted, 0),
+        !OpenFsVolumeStateCanDestroy(OpenFsVolumeMounted, 0, 0),
         "mounted volume cannot use private destroy"
         );
 
@@ -244,5 +249,5 @@ main(void)
 
     printf("OpenFS volume-state tests: %u checks, %u failures\n",
         g_Checks, g_Failures);
-    return g_Checks == 84 && g_Failures == 0 ? 0 : 1;
+    return g_Checks == 96 && g_Failures == 0 ? 0 : 1;
 }
