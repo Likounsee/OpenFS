@@ -289,9 +289,8 @@ mod tests {
         ));
     }
 
-
     #[test]
-    fn basic_attributes_can_be_set_cleared_and_persisted() {
+    fn basic_attributes_round_trip_through_metadata_codec() {
         let mut record = file();
         record.set_attributes(
             super::METADATA_FLAG_READ_ONLY
