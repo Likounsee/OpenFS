@@ -185,6 +185,7 @@ jobs:
           }
           Copy-Item $driverSys $package
           Copy-Item (Join-Path $driverRoot 'OpenFS.inf') $package
+          Copy-Item (Join-Path $driverRoot 'Install-OpenFS-VMTest.ps1') $package
           Get-ChildItem $package -File |
             Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } |
@@ -208,7 +209,7 @@ jobs:
           }
           & $inf2cat.FullName /driver:$package /os:10_X64
           if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed: $LASTEXITCODE" }
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=OpenFS VM Test Signing' -CertStoreLocation 'Cert:\\CurrentUser\\My' -HashAlgorithm SHA256 -KeyLength 2048 -NotAfter (Get-Date).AddDays(30)
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=OpenFS VM Test Signing' -CertStoreLocation 'Cert:\\CurrentUser\\My' -HashAlgorithm SHA256 -KeyLength 2048 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(30)
           $pfx = Join-Path $env:RUNNER_TEMP 'openfs-test-signing.pfx'
           $cer = Join-Path $package 'OpenFS-TestSigning.cer'
           $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N')) -AsPlainText -Force
