@@ -399,7 +399,7 @@ mod tests {
         assert!(matches!(
             MetadataRecord::decode(&bytes),
             Err(Error::Corrupt(
-                "legacy metadata reserved bytes must be zero"
+                "legacy metadata reserved bytes must be zero",
             ))
         ));
         let mut bytes = file().encode().unwrap();
