@@ -135,7 +135,21 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     assert!(!listing.contains("payload.bin"), "{listing}");
     assert!(listing.contains("moved.bin"), "{listing}");
 
+    // Basic's recursive tree removal must reclaim the remaining file and every
+    // directory record, not merely detach the top-level directory entry.
+    run_image(&image, "rm", &["/docs/deep"]);
+    let listing = run_image(&image, "ls", &["/docs"]);
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    assert!(!listing.contains("deep"), "recursive directory removal left entries: {listing}");
+
+    // Reopen once more after recursive deletion and validate all persisted ownership.
     run_image(&image, "check-image", &[]);
+    let audit = run_image(&image, "audit-image", &[]);
+    let audit = String::from_utf8_lossy(&audit.stdout);
+    assert!(
+        audit.contains("consistent") || audit.contains("Consistent"),
+        "audit did not report a consistent Basic volume: {audit}"
+    );
 }
 
 #[test]
