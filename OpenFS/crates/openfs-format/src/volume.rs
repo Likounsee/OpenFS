@@ -9648,11 +9648,11 @@ mod tests {
                 .rename("/docs/hello.txt", "/docs", "renamed.txt")
                 .unwrap();
             mounted
-                .write_file_range("/docs/renamed.txt", 7, b"Basic")
+                .write_file_range("/docs/renamed.txt", 7, b"Rust!")
                 .unwrap();
             assert_eq!(
                 mounted.read_file("/docs/renamed.txt").unwrap(),
-                b"OpenFS Basic direct writes"
+                b"OpenFS Rust! direct writes"
             );
             mounted.unmount().unwrap();
         }
@@ -9662,7 +9662,7 @@ mod tests {
             let mut mounted = VolumeSession::open(device).unwrap();
             assert_eq!(
                 mounted.read_file("/docs/renamed.txt").unwrap(),
-                b"OpenFS Basic direct writes"
+                b"OpenFS Rust! direct writes"
             );
             mounted.remove("/docs/renamed.txt").unwrap();
             assert!(mounted.stat("/docs/renamed.txt").is_err());
