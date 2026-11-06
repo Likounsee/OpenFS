@@ -15,7 +15,7 @@
 //! * remain writable: the interrupted operation can be retried or a fresh object
 //!   created, and the result is still consistent.
 
-use crate::{format_volume_secure, open_volume, ObjectId, OpenedVolume};
+use crate::{format_volume_secure, open_volume, ObjectId, ObjectKind, OpenedVolume};
 use openfs_block::BlockDevice;
 use openfs_core::{Error, Result};
 
@@ -346,6 +346,21 @@ fn scenarios() -> Vec<Scenario> {
             },
         },
         Scenario {
+            name: "create_batch_tree",
+            setup: nothing,
+            op: |v, d| {
+                v.create_persistent_objects(
+                    d,
+                    &[
+                        (ObjectId(1), ObjectId(10), ObjectKind::Directory, "dir".to_owned()),
+                        (ObjectId(10), ObjectId(11), ObjectKind::File, "child.bin".to_owned()),
+                        (ObjectId(1), ObjectId(12), ObjectKind::File, "root.bin".to_owned()),
+                    ],
+                )
+                .map(|_| ())
+            },
+        },
+        Scenario {
             name: "write_contents_into_empty_file",
             setup: setup_empty_file,
             op: |v, d| v.write_persistent_file_contents(d, "/f.bin", &payload(13_000, 1)),
@@ -405,6 +420,19 @@ fn scenarios() -> Vec<Scenario> {
             op: |v, d| v.rename_persistent_path(d, "/f.bin", "/dir", "moved.bin"),
         },
         Scenario {
+            name: "rename_batch",
+            setup: setup_tree,
+            op: |v, d| {
+                v.rename_persistent_objects(
+                    d,
+                    &[
+                        (ObjectId(2), ObjectId(4), "moved.bin".to_owned()),
+                        (ObjectId(3), ObjectId(1), "retained.bin".to_owned()),
+                    ],
+                )
+            },
+        },
+        Scenario {
             name: "replace_file",
             setup: setup_replace,
             op: |v, d| v.replace_persistent_file_at_path(d, "/src.bin", "/", "f.bin"),
@@ -413,6 +441,11 @@ fn scenarios() -> Vec<Scenario> {
             name: "remove_file",
             setup: setup_file,
             op: |v, d| v.remove_persistent_path(d, "/f.bin"),
+        },
+        Scenario {
+            name: "remove_batch",
+            setup: setup_tree,
+            op: |v, d| v.remove_persistent_objects(d, &[ObjectId(2), ObjectId(3)]),
         },
         Scenario {
             name: "remove_tree",
