@@ -164,6 +164,100 @@ fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
 }
 
 #[test]
+fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() {
+    for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
+        let image = TestImage::new(&format!("tree-reclaim-{block_size}"));
+        let free_before;
+        {
+            let mut device = ImageDevice::create(&image.0, block_size, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume
+                .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "tree")
+                .unwrap();
+            volume
+                .create_persistent_directory_at_path(
+                    &mut device,
+                    "/tree",
+                    ObjectId(3),
+                    "nested",
+                )
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(
+                    &mut device,
+                    "/tree/nested",
+                    ObjectId(4),
+                    "payload.bin",
+                )
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(
+                    &mut device,
+                    "/",
+                    ObjectId(5),
+                    "keep.bin",
+                )
+                .unwrap();
+
+            let payload = vec![0x5A; block_size as usize * 3 + 137];
+            volume
+                .write_persistent_file_contents(&mut device, "/tree/nested/payload.bin", &payload)
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/keep.bin", b"keep this file")
+                .unwrap();
+            device.flush().unwrap();
+            free_before = volume.free_data_block_count(&mut device).unwrap();
+
+            volume
+                .remove_persistent_tree_at_path(&mut device, "/tree")
+                .unwrap();
+            device.flush().unwrap();
+
+            assert!(
+                volume.read_persistent_path_range(&mut device, "/tree/nested/payload.bin", 0, 32).is_err(),
+                "removed descendant must no longer be addressable"
+            );
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/keep.bin", 0, 32)
+                    .unwrap(),
+                b"keep this file"
+            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+
+        {
+            let mut device = ImageDevice::open(&image.0, block_size).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let free_after = volume.free_data_block_count(&mut device).unwrap();
+            assert!(
+                free_after > free_before,
+                "recursive deletion must reclaim the payload and extent-map blocks (block size {block_size})"
+            );
+            assert_eq!(
+                volume
+                    .read_persistent_path_range(&mut device, "/keep.bin", 0, 32)
+                    .unwrap(),
+                b"keep this file"
+            );
+            assert!(volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap()
+                .is_consistent());
+        }
+    }
+}
+
+#[test]
 fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
     use std::io::{self, Read};
 
