@@ -352,9 +352,24 @@ fn scenarios() -> Vec<Scenario> {
                 v.create_persistent_objects(
                     d,
                     &[
-                        (ObjectId(1), ObjectId(10), ObjectKind::Directory, "dir".to_owned()),
-                        (ObjectId(10), ObjectId(11), ObjectKind::File, "child.bin".to_owned()),
-                        (ObjectId(1), ObjectId(12), ObjectKind::File, "root.bin".to_owned()),
+                        (
+                            ObjectId(1),
+                            ObjectId(10),
+                            ObjectKind::Directory,
+                            "dir".to_owned(),
+                        ),
+                        (
+                            ObjectId(10),
+                            ObjectId(11),
+                            ObjectKind::File,
+                            "child.bin".to_owned(),
+                        ),
+                        (
+                            ObjectId(1),
+                            ObjectId(12),
+                            ObjectKind::File,
+                            "root.bin".to_owned(),
+                        ),
                     ],
                 )
                 .map(|_| ())
