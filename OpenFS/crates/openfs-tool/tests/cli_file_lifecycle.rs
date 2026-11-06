@@ -76,6 +76,13 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     // create-image now publishes the persistent root namespace atomically;
     // the legacy init-namespace command is only for older blank images.
     run_image(&image, "mkdir-p", &["/docs/deep"]);
+    run_image(&image, "mkdir-p", &["/docs/deep/nested/child"]);
+    run_image(&image, "touch", &["/docs/deep/nested/child/leaf.bin"]);
+    run_image(
+        &image,
+        "write",
+        &["/docs/deep/nested/child/leaf.bin", "nested data"],
+    );
     run_image(&image, "touch", &["/docs/deep/payload.bin"]);
 
     // More than two filesystem blocks: this exercises extent allocation and
@@ -128,6 +135,7 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     assert!(tree.contains("deep/"), "{tree}");
     assert!(tree.contains("moved.bin"), "{tree}");
     assert!(tree.contains("payload.bin"), "{tree}");
+    assert!(tree.contains("leaf.bin"), "{tree}");
 
     run_image(&image, "rm", &["/docs/deep/payload.bin"]);
     let listing = run_image(&image, "ls", &["/docs/deep"]);
