@@ -163,6 +163,102 @@ fn basic_tree_removal_refuses_read_only_descendants_without_mutating_image() {
     }
 }
 
+struct FailNextWrite<D> {
+    inner: D,
+    armed: bool,
+}
+
+impl<D: BlockDevice> BlockDevice for FailNextWrite<D> {
+    fn block_size(&self) -> u32 {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn read_blocks(&mut self, first_block: u64, output: &mut [u8]) -> crate::Result<()> {
+        self.inner.read_blocks(first_block, output)
+    }
+
+    fn write_blocks(&mut self, first_block: u64, input: &[u8]) -> crate::Result<()> {
+        if self.armed {
+            self.armed = false;
+            return Err(crate::Error::Io(std::io::Error::other(
+                "injected Basic tree-removal write failure",
+            )));
+        }
+        self.inner.write_blocks(first_block, input)
+    }
+
+    fn flush(&mut self) -> crate::Result<()> {
+        self.inner.flush()
+    }
+}
+
+#[test]
+fn basic_tree_removal_keeps_old_namespace_when_publication_write_fails() {
+    let image = TestImage::new("tree-publication-write-failure");
+    {
+        let mut device = ImageDevice::create(&image.0, 4096, 512).unwrap();
+        let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+        volume
+            .initialize_persistent_namespace(&mut device, ObjectId(1))
+            .unwrap();
+        volume
+            .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "protected")
+            .unwrap();
+        volume
+            .create_persistent_file_at_path(
+                &mut device,
+                "/protected",
+                ObjectId(3),
+                "payload.bin",
+            )
+            .unwrap();
+        volume
+            .write_persistent_file_contents(
+                &mut device,
+                "/protected/payload.bin",
+                b"the old namespace must remain authoritative",
+            )
+            .unwrap();
+        device.flush().unwrap();
+    }
+
+    {
+        let raw = ImageDevice::open(&image.0, 4096).unwrap();
+        let mut device = FailNextWrite {
+            inner: raw,
+            armed: true,
+        };
+        let mut volume = open_volume(&mut device).unwrap();
+        assert!(matches!(
+            volume.remove_persistent_tree_at_path(&mut device, "/protected"),
+            Err(crate::Error::Io(_))
+        ));
+    }
+
+    {
+        let mut device = ImageDevice::open(&image.0, 4096).unwrap();
+        let volume = open_volume(&mut device).unwrap();
+        assert_eq!(
+            volume
+                .read_persistent_path_range(&mut device, "/protected/payload.bin", 0, 64)
+                .unwrap(),
+            b"the old namespace must remain authoritative"
+        );
+        let report = volume
+            .verify_discovered_persistent_inventory(&mut device)
+            .unwrap()
+            .unwrap();
+        assert!(
+            report.is_consistent(),
+            "failed Basic removal publication must not expose dangling block ownership: {report:?}"
+        );
+    }
+}
+
 #[test]
 fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() {
     for block_size in [4096_u32, 8192, 16_384, 32_768, 65_536] {
