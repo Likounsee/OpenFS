@@ -476,9 +476,12 @@ fn power_cut_sweep_16k() {
 
 #[test]
 fn power_cut_sweep_smoke() {
-    const QUICK: [&str; 4] = [
+    const QUICK: [&str; 7] = [
         "create_file",
+        "create_batch_tree",
         "remove_file",
+        "remove_batch",
+        "rename_batch",
         "truncate_shrink",
         "range_write_in_place",
     ];
