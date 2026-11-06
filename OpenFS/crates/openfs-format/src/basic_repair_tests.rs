@@ -314,7 +314,14 @@ fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() 
             device.flush().unwrap();
 
             assert!(
-                volume.read_persistent_path_range(&mut device, "/tree/nested/payload.bin", 0, 32).is_err(),
+                volume
+                    .read_persistent_path_range(
+                        &mut device,
+                        "/tree/nested/payload.bin",
+                        0,
+                        32,
+                    )
+                    .is_err(),
                 "removed descendant must no longer be addressable"
             );
             assert_eq!(
