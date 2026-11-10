@@ -148,7 +148,10 @@ fn cli_file_lifecycle_survives_close_and_reopen() {
     run_image(&image, "rm", &["/docs/deep"]);
     let listing = run_image(&image, "ls", &["/docs"]);
     let listing = String::from_utf8_lossy(&listing.stdout);
-    assert!(!listing.contains("deep"), "recursive directory removal left entries: {listing}");
+    assert!(
+        !listing.contains("deep"),
+        "recursive directory removal left entries: {listing}"
+    );
 
     // Reopen once more after recursive deletion and validate all persisted ownership.
     run_image(&image, "check-image", &[]);
