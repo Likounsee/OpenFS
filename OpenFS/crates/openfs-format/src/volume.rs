@@ -3021,6 +3021,7 @@ impl OpenedVolume {
             }
             let segment_blocks = &sorted[start..end];
             let mut recovery_attempts = 0;
+            let mut recovered_io_error = None;
             loop {
                 match self.free_blocks_sorted(device, segment_blocks) {
                     Ok(()) => break,
@@ -3033,10 +3034,16 @@ impl OpenedVolume {
                                 )
                         ) =>
                     {
-                        // A bitmap commit can fail either before or after its durable
-                        // COMMIT record, or the journal may already require recovery.
-                        // Reopen and inspect the on-disk bits
-                        // before deciding whether this segment still needs freeing.
+                        // Preserve the first actual device I/O error for the caller even
+                        // when recovery proves the free transaction committed or a safe
+                        // retry completes it. Returning success would hide a failed write
+                        // from higher layers and make failure-injection diagnostics lie.
+                        if recovered_io_error.is_none() && matches!(&error, Error::Io(_)) {
+                            recovered_io_error = Some(error);
+                        }
+
+                        // Reopen and inspect the on-disk bits before deciding whether this
+                        // segment still needs freeing.
                         let recovered = open_volume(device).map_err(|_| {
                             Error::Corrupt(
                                 "block reclamation failed and journal recovery failed; preserve the image",
@@ -3068,8 +3075,9 @@ impl OpenedVolume {
                         }
 
                         if free_count == segment_blocks.len() {
-                            // The original transaction committed despite its reported
-                            // error; do not replay a second free against already-free bits.
+                            // The transaction committed despite its reported error. Do
+                            // not replay a second free, but still report the original I/O
+                            // failure to the operation's caller.
                             break;
                         }
                         if allocated_count != segment_blocks.len() || recovery_attempts != 0 {
@@ -3085,6 +3093,9 @@ impl OpenedVolume {
                     }
                     Err(error) => return Err(error),
                 }
+            }
+            if let Some(error) = recovered_io_error {
+                return Err(error);
             }
             start = end;
         }
