@@ -412,7 +412,6 @@ fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
     }
 }
 
-
 #[test]
 fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
     use std::io::Cursor;
@@ -463,7 +462,10 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
                 writes_seen < fail_at,
                 "streamed replacement unexpectedly passed failure point #{fail_at}"
             );
-            assert_eq!(*operation_result.as_ref().unwrap(), replacement.len() as u64);
+            assert_eq!(
+                *operation_result.as_ref().unwrap(),
+                replacement.len() as u64
+            );
         }
 
         {
