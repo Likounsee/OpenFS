@@ -3013,6 +3013,7 @@ impl OpenedVolume {
         )?;
 
         let mut start = 0;
+        let mut recovered_io_error = None;
         while start < sorted.len() {
             let bitmap_segment = sorted[start] / bits_per_block;
             let mut end = start + 1;
@@ -3021,7 +3022,6 @@ impl OpenedVolume {
             }
             let segment_blocks = &sorted[start..end];
             let mut recovery_attempts = 0;
-            let mut recovered_io_error = None;
             loop {
                 match self.free_blocks_sorted(device, segment_blocks) {
                     Ok(()) => break,
