@@ -487,7 +487,7 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
                 .unwrap();
             assert!(
                 ownership.is_consistent(),
-                "streamed replacement failure #{fail_at} left inconsistent ownership: {ownership:?}"
+                "streamed replacement failure #{fail_at} left inconsistent ownership: {ownership:?}; operation result: {operation_result:?}"
             );
             assert_eq!(
                 ownership.orphaned_block_count(),
@@ -626,7 +626,7 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
                 .unwrap();
             assert!(
                 ownership.is_consistent(),
-                "replacement failure #{fail_at} left inconsistent block ownership: {ownership:?}"
+                "replacement failure #{fail_at} left inconsistent block ownership: {ownership:?}; operation result: {operation_result:?}"
             );
             assert_eq!(
                 ownership.orphaned_block_count(),
