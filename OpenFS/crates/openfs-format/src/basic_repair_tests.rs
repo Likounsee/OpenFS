@@ -412,6 +412,116 @@ fn basic_streamed_replacement_rolls_back_when_source_reader_fails() {
     }
 }
 
+
+#[test]
+fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
+    use std::io::Cursor;
+
+    let original = vec![0x26; 4096 * 2 + 91];
+    let replacement = vec![0xD4; 4096 * 3 + 37];
+
+    for fail_at in 1..=32 {
+        let image = TestImage::new(&format!("stream-replace-write-failure-{fail_at}"));
+        {
+            let mut device = ImageDevice::create(&image.0, 4096, 512).unwrap();
+            let mut volume = format_volume(&mut device, *b"openfs-basic-001", 0).unwrap();
+            volume
+                .initialize_persistent_namespace(&mut device, ObjectId(1))
+                .unwrap();
+            volume
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(2), "data.bin")
+                .unwrap();
+            volume
+                .write_persistent_file_contents(&mut device, "/data.bin", &original)
+                .unwrap();
+            device.flush().unwrap();
+        }
+
+        let operation_result;
+        let writes_seen;
+        {
+            let raw = ImageDevice::open(&image.0, 4096).unwrap();
+            let mut device = FailWriteAt {
+                inner: raw,
+                fail_at,
+                writes_seen: 0,
+            };
+            let mut volume = open_volume(&mut device).unwrap();
+            let mut source = Cursor::new(replacement.as_slice());
+            operation_result =
+                volume.write_persistent_file_from_reader(&mut device, "/data.bin", &mut source);
+            writes_seen = device.writes_seen;
+        }
+
+        if operation_result.is_err() {
+            assert_eq!(
+                writes_seen, fail_at,
+                "the injected streamed-write failure #{fail_at} must be reached"
+            );
+        } else {
+            assert!(
+                writes_seen < fail_at,
+                "streamed replacement unexpectedly passed failure point #{fail_at}"
+            );
+            assert_eq!(operation_result.unwrap(), replacement.len() as u64);
+        }
+
+        {
+            let mut device = ImageDevice::open(&image.0, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let visible = volume
+                .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
+                .unwrap();
+            assert!(
+                visible == original || visible == replacement,
+                "streamed write failure #{fail_at} exposed mixed file contents"
+            );
+            if operation_result.is_ok() {
+                assert_eq!(visible, replacement);
+            }
+            let ownership = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert!(
+                ownership.is_consistent(),
+                "streamed replacement failure #{fail_at} left inconsistent ownership: {ownership:?}"
+            );
+            assert_eq!(
+                ownership.orphaned_block_count(),
+                0,
+                "streamed replacement failure #{fail_at} leaked staged blocks"
+            );
+            device.flush().unwrap();
+        }
+
+        {
+            let mut device = ImageDevice::open(&image.0, 4096).unwrap();
+            let volume = open_volume(&mut device).unwrap();
+            let visible = volume
+                .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
+                .unwrap();
+            assert!(
+                visible == original || visible == replacement,
+                "streamed write failure #{fail_at} did not survive a second remount"
+            );
+            let ownership = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert!(
+                ownership.is_consistent(),
+                "second remount after streamed write failure #{fail_at} found inconsistent ownership: {ownership:?}"
+            );
+            assert_eq!(
+                ownership.orphaned_block_count(),
+                0,
+                "second remount after streamed write failure #{fail_at} found leaked staged blocks"
+            );
+        }
+    }
+}
+
 struct FailWriteAt<D> {
     inner: D,
     fail_at: usize,
