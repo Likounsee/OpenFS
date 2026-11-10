@@ -5964,8 +5964,15 @@ impl OpenedVolume {
                             && item.generation == next_generation
                     }) =>
                 {
-                    // The inventory switch is already durable: preserve the new
-                    // allocation and report the committed operation as successful.
+                    // The inventory switch is already durable. Reclaim the retired
+                    // generation before reporting success; otherwise a late publication
+                    // error leaves its former data blocks allocated without an owner.
+                    self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
+                        .map_err(|_| {
+                            Error::Corrupt(
+                                "reader-based replacement committed but old blocks could not be reclaimed",
+                            )
+                        })?;
                     return Ok(file_size);
                 }
                 Ok(Some((_, active)))
@@ -6228,7 +6235,14 @@ impl OpenedVolume {
                             && record.generation == next_generation
                     }) =>
                 {
-                    // The exact new version is active; keep its allocations and report success.
+                    // The exact new version is active. The staged blocks now belong to it;
+                    // reclaim the retired generation before reporting a successful replacement.
+                    self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
+                        .map_err(|_| {
+                            Error::Corrupt(
+                                "file replacement committed but old blocks could not be reclaimed",
+                            )
+                        })?;
                     return Ok(());
                 }
                 Ok(Some((_, active)))
