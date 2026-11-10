@@ -3580,6 +3580,29 @@ impl OpenedVolume {
         namespace: &Namespace,
         expected_file_reclaim_blocks: &[u64],
     ) -> Result<u64> {
+        self.replace_persistent_namespace_inventory_with_policy(
+            device, namespace, expected_file_reclaim_blocks, false,
+        )
+    }
+
+    fn replace_persistent_namespace_inventory_with_reclaim_preserving_io_error<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: &Namespace,
+        expected_file_reclaim_blocks: &[u64],
+    ) -> Result<u64> {
+        self.replace_persistent_namespace_inventory_with_policy(
+            device, namespace, expected_file_reclaim_blocks, true,
+        )
+    }
+
+    fn replace_persistent_namespace_inventory_with_policy<D: BlockDevice>(
+        &mut self,
+        device: &mut D,
+        namespace: &Namespace,
+        expected_file_reclaim_blocks: &[u64],
+        report_recovered_io_error: bool,
+    ) -> Result<u64> {
         self.validate_device(device)?;
         namespace.validate()?;
         if !expected_file_reclaim_blocks.is_empty() {
@@ -3793,7 +3816,9 @@ impl OpenedVolume {
                 *self = open_volume(device)
                     .map_err(|_| Error::Corrupt("volume recovery failed after uncertain commit"))?;
                 match self.discover_persistent_inventory(device) {
-                    Ok(Some((block, active))) if active == descriptor => Ok(block),
+                    Ok(Some((block, active))) if active == descriptor => {
+                        if report_recovered_io_error { Err(error) } else { Ok(block) }
+                    },
                     Ok(Some((_, _))) | Ok(None) => {
                         if self
                             .reclaim_persistent_blocks(device, &staged_blocks)
@@ -5973,7 +5998,7 @@ impl OpenedVolume {
             }
         };
 
-        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim_preserving_io_error(
             device,
             &updated_namespace,
             &reclaim_blocks,
@@ -6249,7 +6274,7 @@ impl OpenedVolume {
 
         // A publication error may be reported after the journal commit point. Rediscover
         // the active file version before deciding whether staged data can be reclaimed.
-        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim(
+        if let Err(error) = self.replace_persistent_namespace_inventory_with_reclaim_preserving_io_error(
             device,
             &updated_namespace,
             &reclaim_blocks,
