@@ -469,6 +469,7 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
         }
 
         let operation_result;
+        let writes_seen;
         {
             let raw = ImageDevice::open(&image.0, 4096).unwrap();
             let mut device = FailWriteAt {
@@ -479,6 +480,19 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
             let mut volume = open_volume(&mut device).unwrap();
             operation_result =
                 volume.write_persistent_file_contents(&mut device, "/data.bin", &replacement);
+            writes_seen = device.writes_seen;
+        }
+
+        if operation_result.is_err() {
+            assert_eq!(
+                writes_seen, fail_at,
+                "the injected write failure #{fail_at} must be reached"
+            );
+        } else {
+            assert!(
+                writes_seen < fail_at,
+                "successful replacement unexpectedly passed the requested failure point"
+            );
         }
 
         {
@@ -499,10 +513,19 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
             if operation_result.is_ok() {
                 assert_eq!(visible, replacement);
             }
-            assert!(volume
+            let ownership = volume
                 .verify_discovered_persistent_inventory(&mut device)
                 .unwrap()
-                .is_some());
+                .unwrap();
+            assert!(
+                ownership.is_consistent(),
+                "replacement failure #{fail_at} left inconsistent block ownership: {ownership:?}"
+            );
+            assert_eq!(
+                ownership.orphaned_block_count(),
+                0,
+                "replacement failure #{fail_at} leaked staged blocks"
+            );
             device.flush().unwrap();
         }
 
@@ -520,6 +543,19 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
             assert!(
                 visible == original || visible == replacement,
                 "write failure #{fail_at} did not survive a second remount"
+            );
+            let ownership = volume
+                .verify_discovered_persistent_inventory(&mut device)
+                .unwrap()
+                .unwrap();
+            assert!(
+                ownership.is_consistent(),
+                "second remount after write failure #{fail_at} found inconsistent ownership: {ownership:?}"
+            );
+            assert_eq!(
+                ownership.orphaned_block_count(),
+                0,
+                "second remount after write failure #{fail_at} found leaked staged blocks"
             );
         }
     }
