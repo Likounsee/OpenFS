@@ -3775,12 +3775,12 @@ impl OpenedVolume {
         ) {
             Ok(block) => Ok(block),
             Err(error) => {
-                self.journal = crate::journal_engine::open_journal_protected(
-                    device,
-                    self.volume.layout.journal,
-                    &[0, self.volume.layout.backup_superblock],
-                )
-                .map_err(|_| Error::Corrupt("journal recovery failed after uncertain commit"))?;
+                // Reopen through the volume's format/version feature detection.
+                // Basic volumes deliberately have no journal; forcing the Secure
+                // journal opener here makes an otherwise recoverable Basic write
+                // failure look like a corrupt journal and leaves staged blocks orphaned.
+                *self = open_volume(device)
+                    .map_err(|_| Error::Corrupt("volume recovery failed after uncertain commit"))?;
                 match self.discover_persistent_inventory(device) {
                     Ok(Some((block, active))) if active == descriptor => Ok(block),
                     Ok(Some((_, _))) | Ok(None) => {
