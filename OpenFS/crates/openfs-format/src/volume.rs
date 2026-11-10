@@ -3833,6 +3833,14 @@ impl OpenedVolume {
             Ok(())
         })();
         if let Err(error) = result {
+            // Allocation or data I/O may have failed after a journal transaction
+            // entered recovery-required state. Reopen before attempting to reclaim
+            // the partially staged stream; otherwise cleanup uses a stale handle.
+            *self = open_volume(device).map_err(|_| {
+                Error::Corrupt(
+                    "inventory staging failed and volume recovery failed; staged blocks were retained",
+                )
+            })?;
             if self.reclaim_persistent_blocks(device, &blocks).is_err() {
                 return Err(Error::Corrupt(
                     "failed to reclaim partially staged inventory blocks",
