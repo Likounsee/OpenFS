@@ -5976,15 +5976,16 @@ impl OpenedVolume {
                     }) =>
                 {
                     // The inventory switch is already durable. Reclaim the retired
-                    // generation before reporting success; otherwise a late publication
-                    // error leaves its former data blocks allocated without an owner.
+                    // generation, but preserve the original I/O error for the caller:
+                    // recovery may confirm the new file is active without erasing the fact
+                    // that one of the replacement writes failed.
                     self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
                         .map_err(|_| {
                             Error::Corrupt(
                                 "reader-based replacement committed but old blocks could not be reclaimed",
                             )
                         })?;
-                    return Ok(file_size);
+                    return Err(error);
                 }
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|item| {
@@ -6255,15 +6256,17 @@ impl OpenedVolume {
                     *self = open_volume(device).map_err(|_| {
                         Error::Corrupt("file replacement committed but volume recovery failed")
                     })?;
-                    // The exact new version is active. The staged blocks now belong to it;
-                    // reclaim the retired generation before reporting a successful replacement.
+                    // The exact new version is active, so staged blocks must be retained.
+                    // Reclaim the retired generation, but preserve the original I/O error:
+                    // the caller must be told that the replacement encountered a write failure
+                    // even though recovery confirmed that the new generation was committed.
                     self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
                         .map_err(|_| {
                             Error::Corrupt(
                                 "file replacement committed but old blocks could not be reclaimed",
                             )
                         })?;
-                    return Ok(());
+                    return Err(error);
                 }
                 Ok(Some((_, active)))
                     if active.object(object_id).is_some_and(|record| {
