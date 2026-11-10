@@ -5919,10 +5919,8 @@ impl OpenedVolume {
         let (new_root, file_size) = match staged {
             Ok(result) => result,
             Err(error) => {
-                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
-                    return Err(Error::Corrupt(
-                        "failed to roll back staged reader-based file allocations",
-                    ));
+                if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
+                    return Err(cleanup_error);
                 }
                 return Err(error);
             }
@@ -6186,10 +6184,8 @@ impl OpenedVolume {
             Err(error) => {
                 // No published namespace can reference these allocations yet. Attempt
                 // every rollback, but surface cleanup failure instead of hiding a leak.
-                if self.reclaim_persistent_blocks(device, &allocated).is_err() {
-                    return Err(Error::Corrupt(
-                        "failed to roll back staged persistent file allocations",
-                    ));
+                if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
+                    return Err(cleanup_error);
                 }
                 return Err(error);
             }
