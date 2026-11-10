@@ -503,7 +503,7 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
                     &mut device,
                     "/data.bin",
                     0,
-                    u64::try_from(replacement.len()).unwrap(),
+                    replacement.len(),
                 )
                 .unwrap();
             assert!(
@@ -537,7 +537,7 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
                     &mut device,
                     "/data.bin",
                     0,
-                    u64::try_from(replacement.len()).unwrap(),
+                    replacement.len(),
                 )
                 .unwrap();
             assert!(
