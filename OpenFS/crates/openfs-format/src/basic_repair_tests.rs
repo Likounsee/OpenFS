@@ -209,12 +209,7 @@ fn basic_tree_removal_keeps_old_namespace_when_publication_write_fails() {
             .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "protected")
             .unwrap();
         volume
-            .create_persistent_file_at_path(
-                &mut device,
-                "/protected",
-                ObjectId(3),
-                "payload.bin",
-            )
+            .create_persistent_file_at_path(&mut device, "/protected", ObjectId(3), "payload.bin")
             .unwrap();
         volume
             .write_persistent_file_contents(
@@ -274,12 +269,7 @@ fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() 
                 .create_persistent_directory_at_path(&mut device, "/", ObjectId(2), "tree")
                 .unwrap();
             volume
-                .create_persistent_directory_at_path(
-                    &mut device,
-                    "/tree",
-                    ObjectId(3),
-                    "nested",
-                )
+                .create_persistent_directory_at_path(&mut device, "/tree", ObjectId(3), "nested")
                 .unwrap();
             volume
                 .create_persistent_file_at_path(
@@ -290,12 +280,7 @@ fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() 
                 )
                 .unwrap();
             volume
-                .create_persistent_file_at_path(
-                    &mut device,
-                    "/",
-                    ObjectId(5),
-                    "keep.bin",
-                )
+                .create_persistent_file_at_path(&mut device, "/", ObjectId(5), "keep.bin")
                 .unwrap();
 
             let payload = vec![0x5A; block_size as usize * 3 + 137];
@@ -315,12 +300,7 @@ fn basic_recursive_tree_removal_reclaims_all_descendant_storage_after_remount() 
 
             assert!(
                 volume
-                    .read_persistent_path_range(
-                        &mut device,
-                        "/tree/nested/payload.bin",
-                        0,
-                        32,
-                    )
+                    .read_persistent_path_range(&mut device, "/tree/nested/payload.bin", 0, 32,)
                     .is_err(),
                 "removed descendant must no longer be addressable"
             );
