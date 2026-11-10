@@ -6231,6 +6231,11 @@ impl OpenedVolume {
                             && record.generation == next_generation
                     }) =>
                 {
+                    // A failed Basic-mode direct write leaves this handle write-locked until
+                    // the volume is reopened. Rediscovery alone does not reset that state.
+                    *self = open_volume(device).map_err(|_| {
+                        Error::Corrupt("file replacement committed but volume recovery failed")
+                    })?;
                     // The exact new version is active. The staged blocks now belong to it;
                     // reclaim the retired generation before reporting a successful replacement.
                     self.reclaim_persistent_blocks_in_place(device, &mut reclaim_blocks)
@@ -6248,6 +6253,11 @@ impl OpenedVolume {
                             && record.generation == existing.generation
                     }) =>
                 {
+                    // Recover/reset the handle before rolling back: a failed Basic-mode
+                    // write marks the current journal engine as requiring reopen.
+                    *self = open_volume(device).map_err(|_| {
+                        Error::Corrupt("file publication failed and volume recovery failed")
+                    })?;
                     // Only the exact old version proves that staged allocations are unreachable.
                     if self.reclaim_persistent_blocks(device, &allocated).is_err() {
                         return Err(Error::Corrupt(
