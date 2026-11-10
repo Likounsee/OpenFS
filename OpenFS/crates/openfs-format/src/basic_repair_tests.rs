@@ -499,12 +499,7 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
             let mut device = ImageDevice::open(&image.0, 4096).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             let visible = volume
-                .read_persistent_path_range(
-                    &mut device,
-                    "/data.bin",
-                    0,
-                    replacement.len(),
-                )
+                .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
                 .unwrap();
             assert!(
                 visible == original || visible == replacement,
@@ -533,12 +528,7 @@ fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
             let mut device = ImageDevice::open(&image.0, 4096).unwrap();
             let mut volume = open_volume(&mut device).unwrap();
             let visible = volume
-                .read_persistent_path_range(
-                    &mut device,
-                    "/data.bin",
-                    0,
-                    replacement.len(),
-                )
+                .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
                 .unwrap();
             assert!(
                 visible == original || visible == replacement,
