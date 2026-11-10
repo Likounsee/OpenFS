@@ -447,11 +447,11 @@ impl<D: BlockDevice> BlockDevice for FailWriteAt<D> {
 }
 
 #[test]
-fn basic_file_replacement_survives_each_early_write_failure_after_remount() {
+fn basic_file_replacement_survives_each_write_failure_after_remount() {
     let original = vec![0x31; 4096 * 2 + 73];
     let replacement = vec![0xA7; 4096 * 3 + 19];
 
-    for fail_at in 1..=16 {
+    for fail_at in 1..=32 {
         let image = TestImage::new(&format!("replace-write-failure-{fail_at}"));
         {
             let mut device = ImageDevice::create(&image.0, 4096, 512).unwrap();
