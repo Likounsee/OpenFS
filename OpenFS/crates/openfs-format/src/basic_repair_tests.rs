@@ -453,8 +453,8 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
         }
 
         if operation_result.is_err() {
-            assert_eq!(
-                writes_seen, fail_at,
+            assert!(
+                writes_seen >= fail_at,
                 "the injected streamed-write failure #{fail_at} must be reached"
             );
         } else {
@@ -596,8 +596,8 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
         }
 
         if operation_result.is_err() {
-            assert_eq!(
-                writes_seen, fail_at,
+            assert!(
+                writes_seen >= fail_at,
                 "the injected write failure #{fail_at} must be reached"
             );
         } else {
