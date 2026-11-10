@@ -5919,6 +5919,11 @@ impl OpenedVolume {
         let (new_root, file_size) = match staged {
             Ok(result) => result,
             Err(error) => {
+                // Reader staging can fail after a bitmap allocation or data write. Recover
+                // the volume handle before reclaiming the unpublished allocation list.
+                *self = open_volume(device).map_err(|_| {
+                    Error::Corrupt("reader staging failed and volume recovery failed; staged blocks were retained")
+                })?;
                 if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
                     return Err(cleanup_error);
                 }
@@ -6182,6 +6187,12 @@ impl OpenedVolume {
         let extent_root = match staged {
             Ok(root) => root,
             Err(error) => {
+                // A failed staging write can leave the journal engine requiring recovery.
+                // Reopen before rolling back allocations so cleanup is not rejected by
+                // the stale in-memory write state.
+                *self = open_volume(device).map_err(|_| {
+                    Error::Corrupt("file staging failed and volume recovery failed; staged blocks were retained")
+                })?;
                 // No published namespace can reference these allocations yet. Attempt
                 // every rollback, but surface cleanup failure instead of hiding a leak.
                 if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
