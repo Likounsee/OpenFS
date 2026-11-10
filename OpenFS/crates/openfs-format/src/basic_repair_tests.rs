@@ -463,7 +463,7 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
                 writes_seen < fail_at,
                 "streamed replacement unexpectedly passed failure point #{fail_at}"
             );
-            assert_eq!(operation_result.unwrap(), replacement.len() as u64);
+            assert_eq!(*operation_result.as_ref().unwrap(), replacement.len() as u64);
         }
 
         {
