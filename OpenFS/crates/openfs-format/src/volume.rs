@@ -5978,9 +5978,7 @@ impl OpenedVolume {
                 *self = open_volume(device).map_err(|_| {
                     Error::Corrupt("reader staging failed and volume recovery failed; staged blocks were retained")
                 })?;
-                if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
-                    return Err(cleanup_error);
-                }
+                self.reclaim_persistent_blocks(device, &allocated)?;
                 return Err(error);
             }
         };
@@ -6252,9 +6250,7 @@ impl OpenedVolume {
                 })?;
                 // No published namespace can reference these allocations yet. Attempt
                 // every rollback, but surface cleanup failure instead of hiding a leak.
-                if let Err(cleanup_error) = self.reclaim_persistent_blocks(device, &allocated) {
-                    return Err(cleanup_error);
-                }
+                self.reclaim_persistent_blocks(device, &allocated)?;
                 return Err(error);
             }
         };
