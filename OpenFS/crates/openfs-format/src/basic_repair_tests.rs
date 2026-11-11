@@ -63,7 +63,7 @@ fn basic_reclaims_only_unowned_allocations_and_survives_remount() {
 
         {
             let mut device = ImageDevice::open(&image.0, block_size).unwrap();
-            let volume = open_volume(&mut device).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
             assert_eq!(volume.reclaim_orphaned_blocks(&mut device).unwrap(), 0);
             assert!(volume
                 .verify_discovered_persistent_inventory(&mut device)
@@ -445,7 +445,7 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
                 fail_at,
                 writes_seen: 0,
             };
-            let volume = open_volume(&mut device).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
             let mut source = Cursor::new(replacement.as_slice());
             operation_result =
                 volume.write_persistent_file_from_reader(&mut device, "/data.bin", &mut source);
@@ -586,7 +586,7 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
                 fail_at,
                 writes_seen: 0,
             };
-            let volume = open_volume(&mut device).unwrap();
+            let mut volume = open_volume(&mut device).unwrap();
             operation_result =
                 volume.write_persistent_file_contents(&mut device, "/data.bin", &replacement);
             writes_seen = device.writes_seen;
