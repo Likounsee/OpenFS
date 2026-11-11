@@ -63,7 +63,7 @@ fn basic_reclaims_only_unowned_allocations_and_survives_remount() {
 
         {
             let mut device = ImageDevice::open(&image.0, block_size).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let volume = open_volume(&mut device).unwrap();
             assert_eq!(volume.reclaim_orphaned_blocks(&mut device).unwrap(), 0);
             assert!(volume
                 .verify_discovered_persistent_inventory(&mut device)
@@ -445,26 +445,23 @@ fn basic_streamed_replacement_survives_each_write_failure_after_remount() {
                 fail_at,
                 writes_seen: 0,
             };
-            let mut volume = open_volume(&mut device).unwrap();
+            let volume = open_volume(&mut device).unwrap();
             let mut source = Cursor::new(replacement.as_slice());
             operation_result =
                 volume.write_persistent_file_from_reader(&mut device, "/data.bin", &mut source);
             writes_seen = device.writes_seen;
         }
 
-        if operation_result.is_err() {
-            assert!(
-                writes_seen >= fail_at,
-                "the injected streamed-write failure #{fail_at} must be reached"
-            );
-        } else {
+        if let Ok(written) = &operation_result {
             assert!(
                 writes_seen < fail_at,
                 "streamed replacement unexpectedly passed failure point #{fail_at}"
             );
-            assert_eq!(
-                *operation_result.as_ref().unwrap(),
-                replacement.len() as u64
+            assert_eq!(*written, replacement.len() as u64);
+        } else {
+            assert!(
+                writes_seen >= fail_at,
+                "the injected streamed-write failure #{fail_at} must be reached"
             );
         }
 
@@ -589,7 +586,7 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
                 fail_at,
                 writes_seen: 0,
             };
-            let mut volume = open_volume(&mut device).unwrap();
+            let volume = open_volume(&mut device).unwrap();
             operation_result =
                 volume.write_persistent_file_contents(&mut device, "/data.bin", &replacement);
             writes_seen = device.writes_seen;
@@ -609,7 +606,7 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
 
         {
             let mut device = ImageDevice::open(&image.0, 4096).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let volume = open_volume(&mut device).unwrap();
             let visible = volume
                 .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
                 .unwrap();
@@ -638,7 +635,7 @@ fn basic_file_replacement_survives_each_write_failure_after_remount() {
 
         {
             let mut device = ImageDevice::open(&image.0, 4096).unwrap();
-            let mut volume = open_volume(&mut device).unwrap();
+            let volume = open_volume(&mut device).unwrap();
             let visible = volume
                 .read_persistent_path_range(&mut device, "/data.bin", 0, replacement.len())
                 .unwrap();
